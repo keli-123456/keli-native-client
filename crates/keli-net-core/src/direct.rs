@@ -152,6 +152,45 @@ impl TrojanTcpOutbound {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrojanWsOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub path: String,
+    pub password: String,
+}
+
+impl TrojanWsOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        path: impl Into<String>,
+        password: impl Into<String>,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            path: path.into(),
+            password: password.into(),
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<crate::WebSocketClientStream> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = crate::WebSocketClientStream::connect(stream, &self.host, &self.path)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_trojan_tcp_request_header(&self.password, &target)
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        Ok(stream)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VlessTcpOutbound {
     pub server: Endpoint,
     pub uuid: String,

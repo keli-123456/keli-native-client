@@ -5,4 +5,7 @@ license.workspace = true
 version.workspace = true
 
 [dependencies]
+base64.workspace = true
 keli-protocol.workspace = true
+rand.workspace = true
+sha1.workspace = true

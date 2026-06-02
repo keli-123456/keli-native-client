@@ -6,11 +6,12 @@ mod http_connect;
 mod http_proxy;
 mod metrics;
 mod socks5;
+mod websocket;
 
 pub use direct::{
     relay_tcp_bidirectional, relay_tcp_bidirectional_with_options, DirectTcpConnector,
     OutboundRegistry, OutboundTarget, RelayError, RelayOptions, RelayStats, TrojanTcpOutbound,
-    VlessTcpOutbound,
+    TrojanWsOutbound, VlessTcpOutbound,
 };
 pub use dns::{DnsCache, DnsEngine, DnsError, DnsResolver, ResolvedAddress, SystemDnsResolver};
 pub use http_connect::{
@@ -25,6 +26,7 @@ pub use socks5::{
     parse_socks5_handshake, parse_socks5_request, socks5_no_auth_response, socks5_reply,
     Socks5Address, Socks5Command, Socks5Error, Socks5Handshake, Socks5ReplyCode, Socks5Request,
 };
+pub use websocket::{websocket_accept_for_key, WebSocketClientStream};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LocalInbound {
