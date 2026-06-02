@@ -2,8 +2,10 @@ use std::collections::HashMap;
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::Deserialize;
 use sha2::{Digest, Sha224};
+use url::Url;
 
 const VLESS_VERSION: u8 = 0x00;
 const VLESS_COMMAND_TCP: u8 = 0x01;
@@ -146,12 +148,14 @@ pub struct SkippedOutboundProfile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SubscriptionParseError {
     InvalidYaml(String),
+    InvalidShare(String),
 }
 
 impl fmt::Display for SubscriptionParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidYaml(error) => write!(f, "invalid Mihomo YAML: {error}"),
+            Self::InvalidShare(error) => write!(f, "invalid share links: {error}"),
         }
     }
 }
@@ -173,6 +177,26 @@ pub fn parse_mihomo_outbound_profiles(
         }
     }
 
+    Ok(ParsedOutboundProfiles { profiles, skipped })
+}
+
+pub fn parse_share_outbound_profiles(
+    input: &str,
+) -> Result<ParsedOutboundProfiles, SubscriptionParseError> {
+    let decoded = decode_share_subscription_text(input)?;
+    let mut profiles = Vec::new();
+    let mut skipped = Vec::new();
+    for (index, line) in decoded
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .enumerate()
+    {
+        match share_link_to_profile(line, index) {
+            Ok(profile) => profiles.push(profile),
+            Err(skip) => skipped.push(skip),
+        }
+    }
     Ok(ParsedOutboundProfiles { profiles, skipped })
 }
 
@@ -330,6 +354,134 @@ fn skip(name: String, reason: impl Into<String>) -> SkippedOutboundProfile {
         name,
         reason: reason.into(),
     }
+}
+
+fn decode_share_subscription_text(input: &str) -> Result<String, SubscriptionParseError> {
+    if input.contains("://") {
+        return Ok(input.to_string());
+    }
+    let compact: String = input.chars().filter(|ch| !ch.is_whitespace()).collect();
+    if compact.is_empty() {
+        return Ok(String::new());
+    }
+    let bytes = STANDARD
+        .decode(compact.as_bytes())
+        .map_err(|error| SubscriptionParseError::InvalidShare(error.to_string()))?;
+    String::from_utf8(bytes)
+        .map_err(|error| SubscriptionParseError::InvalidShare(error.to_string()))
+}
+
+fn share_link_to_profile(
+    link: &str,
+    index: usize,
+) -> Result<OutboundProfile, SkippedOutboundProfile> {
+    let url =
+        Url::parse(link).map_err(|error| skip(format!("link-{}", index + 1), error.to_string()))?;
+    let query: HashMap<String, String> = url.query_pairs().into_owned().collect();
+    let tag = non_empty(url.fragment().map(ToString::to_string))
+        .unwrap_or_else(|| format!("proxy-{}", index + 1));
+    let Some(server) = url.host_str().map(ToString::to_string) else {
+        return Err(skip(tag, "missing server"));
+    };
+    let port = url.port().unwrap_or(443);
+    let protocol = match url.scheme() {
+        "trojan" => ProxyProtocol::Trojan,
+        "vless" => ProxyProtocol::Vless,
+        other => return Err(skip(tag, format!("unsupported protocol: {other}"))),
+    };
+    let credential = non_empty(Some(url.username().to_string()))
+        .ok_or_else(|| skip(tag.clone(), "missing credential"))?;
+    let transport = share_link_transport(&tag, &server, &query)?;
+    let security = share_link_security(&protocol, &server, &query);
+    let flow = matches!(protocol, ProxyProtocol::Vless)
+        .then(|| {
+            query
+                .get("flow")
+                .cloned()
+                .and_then(|flow| non_empty(Some(flow)))
+        })
+        .flatten();
+    let profile = OutboundProfile {
+        tag: tag.clone(),
+        protocol,
+        endpoint: Endpoint::new(server, port),
+        transport,
+        security,
+        credential,
+        flow,
+    };
+    profile
+        .validate()
+        .map_err(|error| skip(tag, format!("invalid profile: {error}")))?;
+    Ok(profile)
+}
+
+fn share_link_transport(
+    tag: &str,
+    server: &str,
+    query: &HashMap<String, String>,
+) -> Result<TransportKind, SkippedOutboundProfile> {
+    match query
+        .get("type")
+        .or_else(|| query.get("network"))
+        .map(|value| value.to_ascii_lowercase())
+        .as_deref()
+        .unwrap_or("tcp")
+    {
+        "" | "tcp" => Ok(TransportKind::Tcp),
+        "ws" | "websocket" => Ok(TransportKind::WebSocket {
+            path: query
+                .get("path")
+                .cloned()
+                .and_then(|path| non_empty(Some(path)))
+                .unwrap_or_else(|| "/".to_string()),
+            host: query
+                .get("host")
+                .cloned()
+                .and_then(|host| non_empty(Some(host)))
+                .or_else(|| Some(server.to_string())),
+        }),
+        other => Err(skip(
+            tag.to_string(),
+            format!("unsupported transport: {other}"),
+        )),
+    }
+}
+
+fn share_link_security(
+    protocol: &ProxyProtocol,
+    server: &str,
+    query: &HashMap<String, String>,
+) -> SecurityKind {
+    let security = query
+        .get("security")
+        .or_else(|| query.get("tls"))
+        .map(|value| value.to_ascii_lowercase());
+    let tls_enabled = security
+        .as_deref()
+        .map(|value| matches!(value, "tls" | "true" | "1"))
+        .unwrap_or(matches!(protocol, ProxyProtocol::Trojan));
+    if tls_enabled {
+        SecurityKind::Tls {
+            sni: query
+                .get("sni")
+                .or_else(|| query.get("servername"))
+                .cloned()
+                .and_then(|sni| non_empty(Some(sni)))
+                .or_else(|| Some(server.to_string())),
+            skip_verify: truthy_query(query, "allowInsecure")
+                || truthy_query(query, "skip-cert-verify"),
+        }
+    } else {
+        SecurityKind::None
+    }
+}
+
+fn truthy_query(query: &HashMap<String, String>, key: &str) -> bool {
+    query
+        .get(key)
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

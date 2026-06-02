@@ -5,6 +5,8 @@ license.workspace = true
 version.workspace = true
 
 [dependencies]
+base64.workspace = true
 serde.workspace = true
 serde_yaml.workspace = true
 sha2.workspace = true
+url.workspace = true
