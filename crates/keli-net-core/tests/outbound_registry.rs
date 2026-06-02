@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::time::Duration;
 
-use keli_net_core::{OutboundRegistry, OutboundTarget, VlessTcpOutbound};
+use keli_net_core::{OutboundRegistry, OutboundTarget, TrojanTcpOutbound, VlessTcpOutbound};
 use keli_protocol::Endpoint;
 
 #[test]
@@ -91,6 +91,46 @@ fn registered_vless_tcp_outbound_writes_header_and_relays_stream() {
             Duration::from_secs(1),
         )
         .expect("registered vless outbound should connect");
+    stream.write_all(b"ping").expect("write payload");
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).expect("read payload");
+
+    assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
+fn registered_trojan_tcp_outbound_writes_header_and_relays_stream() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind trojan server");
+    let port = listener.local_addr().expect("trojan addr").port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept trojan server");
+        let mut request_header = [0; 76];
+        stream
+            .read_exact(&mut request_header)
+            .expect("read trojan request header");
+        assert_eq!(
+            &request_header[..],
+            b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x01\x03\x0bexample.com\x01\xbb\r\n"
+        );
+        let mut payload = [0; 4];
+        stream.read_exact(&mut payload).expect("read relay payload");
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"pong").expect("write relay payload");
+    });
+    let mut registry = OutboundRegistry::new();
+    registry.add_trojan_tcp(
+        "proxy",
+        TrojanTcpOutbound::new(Endpoint::new("127.0.0.1", port), "password"),
+    );
+
+    let mut stream = registry
+        .connect(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+        )
+        .expect("registered trojan outbound should connect");
     stream.write_all(b"ping").expect("write payload");
     let mut response = [0; 4];
     stream.read_exact(&mut response).expect("read payload");

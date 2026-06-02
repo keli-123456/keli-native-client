@@ -8,7 +8,10 @@ use crate::{
     ConnectionErrorKind, DnsCache, DnsEngine, DnsResolver, RouteTarget, Socks5Address,
     Socks5Request, SystemDnsResolver,
 };
-use keli_protocol::{encode_vless_tcp_request_header, Endpoint, ProtocolEncodingError};
+use keli_protocol::{
+    encode_trojan_tcp_request_header, encode_vless_tcp_request_header, Endpoint,
+    ProtocolEncodingError,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutboundTarget {
@@ -81,6 +84,7 @@ impl DirectTcpConnector {
 #[derive(Debug, Clone, Default)]
 pub struct OutboundRegistry {
     direct_tags: HashSet<String>,
+    trojan_tcp_tags: HashMap<String, TrojanTcpOutbound>,
     vless_tcp_tags: HashMap<String, VlessTcpOutbound>,
 }
 
@@ -91,6 +95,10 @@ impl OutboundRegistry {
 
     pub fn add_direct(&mut self, tag: impl Into<String>) {
         self.direct_tags.insert(tag.into());
+    }
+
+    pub fn add_trojan_tcp(&mut self, tag: impl Into<String>, outbound: TrojanTcpOutbound) {
+        self.trojan_tcp_tags.insert(tag.into(), outbound);
     }
 
     pub fn add_vless_tcp(&mut self, tag: impl Into<String>, outbound: VlessTcpOutbound) {
@@ -105,6 +113,8 @@ impl OutboundRegistry {
     ) -> io::Result<TcpStream> {
         if self.direct_tags.contains(tag) {
             DirectTcpConnector::connect(target, timeout)
+        } else if let Some(outbound) = self.trojan_tcp_tags.get(tag) {
+            outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else {
@@ -113,6 +123,31 @@ impl OutboundRegistry {
                 format!("outbound tag is not registered: {tag}"),
             ))
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrojanTcpOutbound {
+    pub server: Endpoint,
+    pub password: String,
+}
+
+impl TrojanTcpOutbound {
+    pub fn new(server: Endpoint, password: impl Into<String>) -> Self {
+        Self {
+            server,
+            password: password.into(),
+        }
+    }
+
+    pub fn connect(&self, target: &OutboundTarget, timeout: Duration) -> io::Result<TcpStream> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let mut stream = DirectTcpConnector::connect(&server, timeout)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_trojan_tcp_request_header(&self.password, &target)
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        Ok(stream)
     }
 }
 
@@ -137,7 +172,7 @@ impl VlessTcpOutbound {
         let mut stream = DirectTcpConnector::connect(&server, timeout)?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
-            .map_err(vless_encoding_to_io)?;
+            .map_err(protocol_encoding_to_io)?;
         stream.write_all(&header)?;
         read_vless_response_header(&mut stream)?;
         Ok(stream)
@@ -160,7 +195,7 @@ fn read_vless_response_header(stream: &mut TcpStream) -> io::Result<()> {
     Ok(())
 }
 
-fn vless_encoding_to_io(error: ProtocolEncodingError) -> io::Error {
+fn protocol_encoding_to_io(error: ProtocolEncodingError) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, error)
 }
 

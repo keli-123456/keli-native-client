@@ -1,11 +1,17 @@
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
+use sha2::{Digest, Sha224};
+
 const VLESS_VERSION: u8 = 0x00;
 const VLESS_COMMAND_TCP: u8 = 0x01;
 const VLESS_ATYP_IPV4: u8 = 0x01;
 const VLESS_ATYP_DOMAIN: u8 = 0x02;
 const VLESS_ATYP_IPV6: u8 = 0x03;
+const TROJAN_COMMAND_CONNECT: u8 = 0x01;
+const TROJAN_ATYP_IPV4: u8 = 0x01;
+const TROJAN_ATYP_DOMAIN: u8 = 0x03;
+const TROJAN_ATYP_IPV6: u8 = 0x04;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyProtocol {
@@ -125,6 +131,7 @@ impl std::error::Error for ProtocolValidationError {}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProtocolEncodingError {
     InvalidUuid,
+    InvalidPassword,
     InvalidTargetHost,
     FlowTooLong,
 }
@@ -133,6 +140,7 @@ impl fmt::Display for ProtocolEncodingError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidUuid => write!(f, "VLESS credential must be a UUID"),
+            Self::InvalidPassword => write!(f, "Trojan password is empty"),
             Self::InvalidTargetHost => write!(f, "VLESS target host is invalid"),
             Self::FlowTooLong => write!(f, "VLESS flow is too long"),
         }
@@ -156,6 +164,22 @@ pub fn encode_vless_tcp_request_header(
     Ok(header)
 }
 
+pub fn encode_trojan_tcp_request_header(
+    password: &str,
+    target: &Endpoint,
+) -> Result<Vec<u8>, ProtocolEncodingError> {
+    if password.is_empty() {
+        return Err(ProtocolEncodingError::InvalidPassword);
+    }
+    let mut header = Vec::with_capacity(80 + target.host.len());
+    encode_trojan_password_hash(&mut header, password);
+    header.extend_from_slice(b"\r\n");
+    header.push(TROJAN_COMMAND_CONNECT);
+    encode_trojan_target(&mut header, target)?;
+    header.extend_from_slice(b"\r\n");
+    Ok(header)
+}
+
 fn looks_like_uuid(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() != 36 {
@@ -175,6 +199,19 @@ fn looks_like_uuid(value: &str) -> bool {
     true
 }
 
+fn encode_trojan_password_hash(output: &mut Vec<u8>, password: &str) {
+    let digest = Sha224::digest(password.as_bytes());
+    for byte in digest {
+        push_lower_hex(output, byte);
+    }
+}
+
+fn push_lower_hex(output: &mut Vec<u8>, byte: u8) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    output.push(HEX[usize::from(byte >> 4)]);
+    output.push(HEX[usize::from(byte & 0x0f)]);
+}
+
 fn parse_uuid_bytes(value: &str) -> Result<[u8; 16], ProtocolEncodingError> {
     if !looks_like_uuid(value) {
         return Err(ProtocolEncodingError::InvalidUuid);
@@ -185,6 +222,33 @@ fn parse_uuid_bytes(value: &str) -> Result<[u8; 16], ProtocolEncodingError> {
         output[index] = (hex_nibble(chunk[0])? << 4) | hex_nibble(chunk[1])?;
     }
     Ok(output)
+}
+
+fn encode_trojan_target(
+    output: &mut Vec<u8>,
+    target: &Endpoint,
+) -> Result<(), ProtocolEncodingError> {
+    let host = target.host.trim().trim_matches(['[', ']']);
+    if let Ok(ip) = host.parse::<Ipv4Addr>() {
+        output.push(TROJAN_ATYP_IPV4);
+        output.extend_from_slice(&ip.octets());
+        output.extend_from_slice(&target.port.to_be_bytes());
+        return Ok(());
+    }
+    if let Ok(ip) = host.parse::<Ipv6Addr>() {
+        output.push(TROJAN_ATYP_IPV6);
+        output.extend_from_slice(&ip.octets());
+        output.extend_from_slice(&target.port.to_be_bytes());
+        return Ok(());
+    }
+    if host.is_empty() || host.len() > u8::MAX as usize {
+        return Err(ProtocolEncodingError::InvalidTargetHost);
+    }
+    output.push(TROJAN_ATYP_DOMAIN);
+    output.push(host.len() as u8);
+    output.extend_from_slice(host.as_bytes());
+    output.extend_from_slice(&target.port.to_be_bytes());
+    Ok(())
 }
 
 fn hex_nibble(byte: u8) -> Result<u8, ProtocolEncodingError> {
@@ -343,5 +407,32 @@ mod tests {
         .expect("vless header");
 
         assert_eq!(&header[17..37], b"\x12\x0a\x10xtls-rprx-vision\x01");
+    }
+
+    #[test]
+    fn encodes_trojan_tcp_request_header_for_domain_target() {
+        let header =
+            encode_trojan_tcp_request_header("password", &Endpoint::new("example.com", 443))
+                .expect("trojan header");
+
+        assert_eq!(
+            &header[..56],
+            b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01"
+        );
+        assert_eq!(&header[56..], b"\r\n\x01\x03\x0bexample.com\x01\xbb\r\n");
+    }
+
+    #[test]
+    fn encodes_trojan_tcp_request_header_for_ipv6_target() {
+        let header = encode_trojan_tcp_request_header("password", &Endpoint::new("[::1]", 443))
+            .expect("trojan header");
+
+        assert_eq!(header[58], 0x01);
+        assert_eq!(header[59], 0x04);
+        assert_eq!(
+            &header[60..76],
+            &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+        );
+        assert_eq!(&header[76..], b"\x01\xbb\r\n");
     }
 }

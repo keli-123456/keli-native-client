@@ -9,7 +9,8 @@ mod socks5;
 
 pub use direct::{
     relay_tcp_bidirectional, relay_tcp_bidirectional_with_options, DirectTcpConnector,
-    OutboundRegistry, OutboundTarget, RelayError, RelayOptions, RelayStats, VlessTcpOutbound,
+    OutboundRegistry, OutboundTarget, RelayError, RelayOptions, RelayStats, TrojanTcpOutbound,
+    VlessTcpOutbound,
 };
 pub use dns::{DnsCache, DnsEngine, DnsError, DnsResolver, ResolvedAddress, SystemDnsResolver};
 pub use http_connect::{

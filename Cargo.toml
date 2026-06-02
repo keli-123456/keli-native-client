@@ -18,3 +18,4 @@ keli-client-core = { path = "crates/keli-client-core" }
 keli-net-core = { path = "crates/keli-net-core" }
 keli-platform = { path = "crates/keli-platform" }
 keli-protocol = { path = "crates/keli-protocol" }
+sha2 = "0.10"
