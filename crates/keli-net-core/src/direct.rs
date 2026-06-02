@@ -86,9 +86,11 @@ impl DirectTcpConnector {
 pub struct OutboundRegistry {
     direct_tags: HashSet<String>,
     trojan_tcp_tags: HashMap<String, TrojanTcpOutbound>,
+    trojan_tls_tcp_tags: HashMap<String, TrojanTlsTcpOutbound>,
     trojan_ws_tags: HashMap<String, TrojanWsOutbound>,
     trojan_tls_ws_tags: HashMap<String, TrojanTlsWsOutbound>,
     vless_tcp_tags: HashMap<String, VlessTcpOutbound>,
+    vless_tls_tcp_tags: HashMap<String, VlessTlsTcpOutbound>,
     vless_ws_tags: HashMap<String, VlessWsOutbound>,
     vless_tls_ws_tags: HashMap<String, VlessTlsWsOutbound>,
 }
@@ -129,6 +131,14 @@ impl OutboundRegistry {
                 self.add_trojan_tcp(tag, TrojanTcpOutbound::new(endpoint, credential));
                 Ok(())
             }
+            (ProxyProtocol::Trojan, TransportKind::Tcp, SecurityKind::Tls { sni, skip_verify }) => {
+                let sni = sni.unwrap_or_else(|| endpoint.host.clone());
+                self.add_trojan_tls_tcp(
+                    tag,
+                    TrojanTlsTcpOutbound::new(endpoint, credential, sni, skip_verify),
+                );
+                Ok(())
+            }
             (
                 ProxyProtocol::Trojan,
                 TransportKind::WebSocket { path, host },
@@ -153,6 +163,14 @@ impl OutboundRegistry {
             }
             (ProxyProtocol::Vless, TransportKind::Tcp, SecurityKind::None) => {
                 self.add_vless_tcp(tag, VlessTcpOutbound::new(endpoint, credential, None));
+                Ok(())
+            }
+            (ProxyProtocol::Vless, TransportKind::Tcp, SecurityKind::Tls { sni, skip_verify }) => {
+                let sni = sni.unwrap_or_else(|| endpoint.host.clone());
+                self.add_vless_tls_tcp(
+                    tag,
+                    VlessTlsTcpOutbound::new(endpoint, credential, None, sni, skip_verify),
+                );
                 Ok(())
             }
             (ProxyProtocol::Vless, TransportKind::WebSocket { path, host }, SecurityKind::None) => {
@@ -201,6 +219,10 @@ impl OutboundRegistry {
         self.trojan_tcp_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_trojan_tls_tcp(&mut self, tag: impl Into<String>, outbound: TrojanTlsTcpOutbound) {
+        self.trojan_tls_tcp_tags.insert(tag.into(), outbound);
+    }
+
     pub fn add_trojan_ws(&mut self, tag: impl Into<String>, outbound: TrojanWsOutbound) {
         self.trojan_ws_tags.insert(tag.into(), outbound);
     }
@@ -211,6 +233,10 @@ impl OutboundRegistry {
 
     pub fn add_vless_tcp(&mut self, tag: impl Into<String>, outbound: VlessTcpOutbound) {
         self.vless_tcp_tags.insert(tag.into(), outbound);
+    }
+
+    pub fn add_vless_tls_tcp(&mut self, tag: impl Into<String>, outbound: VlessTlsTcpOutbound) {
+        self.vless_tls_tcp_tags.insert(tag.into(), outbound);
     }
 
     pub fn add_vless_ws(&mut self, tag: impl Into<String>, outbound: VlessWsOutbound) {
@@ -231,11 +257,15 @@ impl OutboundRegistry {
             DirectTcpConnector::connect(target, timeout).map(OutboundConnection::Tcp)
         } else if let Some(outbound) = self.trojan_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.trojan_tls_tcp_tags.get(tag) {
+            outbound.connect(target, timeout)
         } else if let Some(outbound) = self.trojan_ws_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.trojan_tls_ws_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tcp_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vless_tls_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_ws_tags.get(tag) {
             outbound.connect(target, timeout)
@@ -623,6 +653,45 @@ impl TrojanTcpOutbound {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrojanTlsTcpOutbound {
+    pub server: Endpoint,
+    pub password: String,
+    pub sni: String,
+    pub skip_verify: bool,
+}
+
+impl TrojanTlsTcpOutbound {
+    pub fn new(
+        server: Endpoint,
+        password: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+    ) -> Self {
+        Self {
+            server,
+            password: password.into(),
+            sni: sni.into(),
+            skip_verify,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_trojan_tcp_request_header(&self.password, &target)
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        Ok(OutboundConnection::Owned(Box::new(stream)))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrojanWsOutbound {
     pub server: Endpoint,
     pub host: String,
@@ -737,6 +806,49 @@ impl VlessTcpOutbound {
         stream.write_all(&header)?;
         read_vless_response_header_from_stream(&mut stream)?;
         Ok(OutboundConnection::Tcp(stream))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VlessTlsTcpOutbound {
+    pub server: Endpoint,
+    pub uuid: String,
+    pub flow: Option<String>,
+    pub sni: String,
+    pub skip_verify: bool,
+}
+
+impl VlessTlsTcpOutbound {
+    pub fn new(
+        server: Endpoint,
+        uuid: impl Into<String>,
+        flow: Option<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+    ) -> Self {
+        Self {
+            server,
+            uuid: uuid.into(),
+            flow,
+            sni: sni.into(),
+            skip_verify,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        read_vless_response_header_from_stream(&mut stream)?;
+        Ok(OutboundConnection::Owned(Box::new(stream)))
     }
 }
 

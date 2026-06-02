@@ -203,26 +203,26 @@ fn registry_from_vless_ws_profile_connects_with_profile_transport() {
 }
 
 #[test]
-fn tls_tcp_profiles_are_rejected_until_tls_tcp_transport_is_implemented() {
+fn unsupported_transports_report_security_context() {
     let error = OutboundRegistry::from_profiles([OutboundProfile {
         tag: "proxy".to_string(),
         protocol: ProxyProtocol::Vless,
         endpoint: Endpoint::new("example.com", 443),
-        transport: TransportKind::Tcp,
+        transport: TransportKind::Quic,
         security: SecurityKind::Tls {
             sni: Some("edge.example".to_string()),
             skip_verify: false,
         },
         credential: "00112233-4455-6677-8899-aabbccddeeff".to_string(),
     }])
-    .expect_err("tls tcp profile should be explicit unsupported");
+    .expect_err("vless quic profile should be explicit unsupported");
 
     assert_eq!(
         error,
         OutboundProfileError::UnsupportedTransport {
             tag: "proxy".to_string(),
             protocol: ProxyProtocol::Vless,
-            transport: TransportKind::Tcp,
+            transport: TransportKind::Quic,
             security: SecurityKind::Tls {
                 sni: Some("edge.example".to_string()),
                 skip_verify: false,
