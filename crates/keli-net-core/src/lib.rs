@@ -12,8 +12,8 @@ pub use direct::{
     relay_outbound_bidirectional_with_options, relay_owned_bidirectional_with_options,
     relay_tcp_bidirectional, relay_tcp_bidirectional_with_options, DirectTcpConnector,
     OutboundConnection, OutboundProfileError, OutboundRegistry, OutboundTarget, OwnedRelayStream,
-    RelayError, RelayOptions, RelayStats, TrojanTcpOutbound, TrojanWsOutbound, VlessTcpOutbound,
-    VlessWsOutbound,
+    RelayError, RelayOptions, RelayStats, TlsTcpStream, TrojanTcpOutbound, TrojanTlsWsOutbound,
+    TrojanWsOutbound, VlessTcpOutbound, VlessTlsWsOutbound, VlessWsOutbound,
 };
 pub use dns::{DnsCache, DnsEngine, DnsError, DnsResolver, ResolvedAddress, SystemDnsResolver};
 pub use http_connect::{
@@ -28,7 +28,7 @@ pub use socks5::{
     parse_socks5_handshake, parse_socks5_request, socks5_no_auth_response, socks5_reply,
     Socks5Address, Socks5Command, Socks5Error, Socks5Handshake, Socks5ReplyCode, Socks5Request,
 };
-pub use websocket::{websocket_accept_for_key, WebSocketClientStream};
+pub use websocket::{websocket_accept_for_key, OwnedWebSocketClientStream, WebSocketClientStream};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LocalInbound {

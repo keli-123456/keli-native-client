@@ -3,8 +3,8 @@ use std::net::{TcpListener, TcpStream};
 use std::thread;
 
 use keli_net_core::{
-    websocket_accept_for_key, OutboundTarget, TrojanWsOutbound, VlessWsOutbound,
-    WebSocketClientStream,
+    websocket_accept_for_key, OutboundTarget, OwnedWebSocketClientStream, TrojanWsOutbound,
+    VlessWsOutbound, WebSocketClientStream,
 };
 use keli_protocol::Endpoint;
 
@@ -102,6 +102,38 @@ fn websocket_client_reads_binary_frames_as_plain_bytes() {
     websocket.read_exact(&mut payload).expect("read frame");
 
     assert_eq!(&payload, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
+fn owned_websocket_client_stream_works_without_cloneable_transport() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind ws server");
+    let port = listener.local_addr().expect("ws addr").port();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept ws");
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /owned HTTP/1.1\r\n"));
+        let key = header_value(&request, "Sec-WebSocket-Key").expect("client key");
+        let accept = websocket_accept_for_key(&key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .expect("write ws response");
+        let payload = read_masked_client_frame(&mut stream);
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"\x82\x04pong").expect("write pong");
+    });
+    let tcp = TcpStream::connect(("127.0.0.1", port)).expect("connect ws server");
+    let mut stream =
+        OwnedWebSocketClientStream::connect(NonCloneTcpStream(tcp), "edge.example", "/owned")
+            .expect("owned ws connect");
+
+    stream.write_all(b"ping").expect("write ping");
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).expect("read pong");
+
+    assert_eq!(&response, b"pong");
     server.join().expect("server thread");
 }
 
@@ -234,4 +266,22 @@ fn read_masked_client_frame(stream: &mut TcpStream) -> Vec<u8> {
         *byte ^= mask[index % 4];
     }
     payload
+}
+
+struct NonCloneTcpStream(TcpStream);
+
+impl Read for NonCloneTcpStream {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buffer)
+    }
+}
+
+impl Write for NonCloneTcpStream {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.0.write(buffer)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
 }

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpStream};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -86,8 +87,10 @@ pub struct OutboundRegistry {
     direct_tags: HashSet<String>,
     trojan_tcp_tags: HashMap<String, TrojanTcpOutbound>,
     trojan_ws_tags: HashMap<String, TrojanWsOutbound>,
+    trojan_tls_ws_tags: HashMap<String, TrojanTlsWsOutbound>,
     vless_tcp_tags: HashMap<String, VlessTcpOutbound>,
     vless_ws_tags: HashMap<String, VlessWsOutbound>,
+    vless_tls_ws_tags: HashMap<String, VlessTlsWsOutbound>,
 }
 
 impl OutboundRegistry {
@@ -121,25 +124,38 @@ impl OutboundRegistry {
             security,
             credential,
         } = profile;
-        if security != SecurityKind::None {
-            return Err(OutboundProfileError::UnsupportedSecurity { tag, security });
-        }
-
-        match (protocol, transport) {
-            (ProxyProtocol::Trojan, TransportKind::Tcp) => {
+        match (protocol, transport, security) {
+            (ProxyProtocol::Trojan, TransportKind::Tcp, SecurityKind::None) => {
                 self.add_trojan_tcp(tag, TrojanTcpOutbound::new(endpoint, credential));
                 Ok(())
             }
-            (ProxyProtocol::Trojan, TransportKind::WebSocket { path, host }) => {
+            (
+                ProxyProtocol::Trojan,
+                TransportKind::WebSocket { path, host },
+                SecurityKind::None,
+            ) => {
                 let host = host.unwrap_or_else(|| endpoint.host.clone());
                 self.add_trojan_ws(tag, TrojanWsOutbound::new(endpoint, host, path, credential));
                 Ok(())
             }
-            (ProxyProtocol::Vless, TransportKind::Tcp) => {
+            (
+                ProxyProtocol::Trojan,
+                TransportKind::WebSocket { path, host },
+                SecurityKind::Tls { sni, skip_verify },
+            ) => {
+                let host = host.unwrap_or_else(|| endpoint.host.clone());
+                let sni = sni.unwrap_or_else(|| host.clone());
+                self.add_trojan_tls_ws(
+                    tag,
+                    TrojanTlsWsOutbound::new(endpoint, host, path, credential, sni, skip_verify),
+                );
+                Ok(())
+            }
+            (ProxyProtocol::Vless, TransportKind::Tcp, SecurityKind::None) => {
                 self.add_vless_tcp(tag, VlessTcpOutbound::new(endpoint, credential, None));
                 Ok(())
             }
-            (ProxyProtocol::Vless, TransportKind::WebSocket { path, host }) => {
+            (ProxyProtocol::Vless, TransportKind::WebSocket { path, host }, SecurityKind::None) => {
                 let host = host.unwrap_or_else(|| endpoint.host.clone());
                 self.add_vless_ws(
                     tag,
@@ -147,10 +163,32 @@ impl OutboundRegistry {
                 );
                 Ok(())
             }
-            (protocol, transport) => Err(OutboundProfileError::UnsupportedTransport {
+            (
+                ProxyProtocol::Vless,
+                TransportKind::WebSocket { path, host },
+                SecurityKind::Tls { sni, skip_verify },
+            ) => {
+                let host = host.unwrap_or_else(|| endpoint.host.clone());
+                let sni = sni.unwrap_or_else(|| host.clone());
+                self.add_vless_tls_ws(
+                    tag,
+                    VlessTlsWsOutbound::new(
+                        endpoint,
+                        host,
+                        path,
+                        credential,
+                        None,
+                        sni,
+                        skip_verify,
+                    ),
+                );
+                Ok(())
+            }
+            (protocol, transport, security) => Err(OutboundProfileError::UnsupportedTransport {
                 tag,
                 protocol,
                 transport,
+                security,
             }),
         }
     }
@@ -167,12 +205,20 @@ impl OutboundRegistry {
         self.trojan_ws_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_trojan_tls_ws(&mut self, tag: impl Into<String>, outbound: TrojanTlsWsOutbound) {
+        self.trojan_tls_ws_tags.insert(tag.into(), outbound);
+    }
+
     pub fn add_vless_tcp(&mut self, tag: impl Into<String>, outbound: VlessTcpOutbound) {
         self.vless_tcp_tags.insert(tag.into(), outbound);
     }
 
     pub fn add_vless_ws(&mut self, tag: impl Into<String>, outbound: VlessWsOutbound) {
         self.vless_ws_tags.insert(tag.into(), outbound);
+    }
+
+    pub fn add_vless_tls_ws(&mut self, tag: impl Into<String>, outbound: VlessTlsWsOutbound) {
+        self.vless_tls_ws_tags.insert(tag.into(), outbound);
     }
 
     pub fn connect(
@@ -187,9 +233,13 @@ impl OutboundRegistry {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.trojan_ws_tags.get(tag) {
             outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.trojan_tls_ws_tags.get(tag) {
+            outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_ws_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vless_tls_ws_tags.get(tag) {
             outbound.connect(target, timeout)
         } else {
             Err(io::Error::new(
@@ -214,6 +264,7 @@ pub enum OutboundProfileError {
         tag: String,
         protocol: ProxyProtocol,
         transport: TransportKind,
+        security: SecurityKind,
     },
 }
 
@@ -233,9 +284,10 @@ impl std::fmt::Display for OutboundProfileError {
                 tag,
                 protocol,
                 transport,
+                security,
             } => write!(
                 f,
-                "outbound profile {tag} transport is unsupported: {protocol:?}/{transport:?}"
+                "outbound profile {tag} transport is unsupported: {protocol:?}/{transport:?}/{security:?}"
             ),
         }
     }
@@ -243,10 +295,20 @@ impl std::fmt::Display for OutboundProfileError {
 
 impl std::error::Error for OutboundProfileError {}
 
-#[derive(Debug)]
 pub enum OutboundConnection {
     Tcp(TcpStream),
     WebSocket(crate::WebSocketClientStream),
+    Owned(Box<dyn OwnedRelayStream>),
+}
+
+impl std::fmt::Debug for OutboundConnection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Tcp(_) => f.write_str("OutboundConnection::Tcp"),
+            Self::WebSocket(_) => f.write_str("OutboundConnection::WebSocket"),
+            Self::Owned(_) => f.write_str("OutboundConnection::Owned"),
+        }
+    }
 }
 
 impl OutboundConnection {
@@ -254,6 +316,10 @@ impl OutboundConnection {
         match self {
             Self::Tcp(stream) => stream.try_clone().map(Self::Tcp),
             Self::WebSocket(stream) => stream.try_clone().map(Self::WebSocket),
+            Self::Owned(_) => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "owned outbound connection cannot be cloned",
+            )),
         }
     }
 
@@ -261,6 +327,10 @@ impl OutboundConnection {
         match self {
             Self::Tcp(stream) => stream.set_read_timeout(timeout),
             Self::WebSocket(stream) => stream.set_read_timeout(timeout),
+            Self::Owned(_) => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "owned outbound connection does not expose read timeout",
+            )),
         }
     }
 
@@ -268,6 +338,7 @@ impl OutboundConnection {
         match self {
             Self::Tcp(stream) => stream.shutdown(Shutdown::Write),
             Self::WebSocket(stream) => stream.shutdown_write(),
+            Self::Owned(_) => Ok(()),
         }
     }
 
@@ -275,6 +346,7 @@ impl OutboundConnection {
         match self {
             Self::Tcp(stream) => stream.shutdown(Shutdown::Both),
             Self::WebSocket(stream) => stream.shutdown_both(),
+            Self::Owned(_) => Ok(()),
         }
     }
 }
@@ -284,6 +356,7 @@ impl Read for OutboundConnection {
         match self {
             Self::Tcp(stream) => stream.read(buffer),
             Self::WebSocket(stream) => stream.read(buffer),
+            Self::Owned(stream) => stream.read(buffer),
         }
     }
 }
@@ -293,6 +366,7 @@ impl Write for OutboundConnection {
         match self {
             Self::Tcp(stream) => stream.write(buffer),
             Self::WebSocket(stream) => stream.write(buffer),
+            Self::Owned(stream) => stream.write(buffer),
         }
     }
 
@@ -300,7 +374,128 @@ impl Write for OutboundConnection {
         match self {
             Self::Tcp(stream) => stream.flush(),
             Self::WebSocket(stream) => stream.flush(),
+            Self::Owned(stream) => stream.flush(),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct TlsTcpStream {
+    inner: rustls::StreamOwned<rustls::ClientConnection, TcpStream>,
+}
+
+impl TlsTcpStream {
+    pub fn connect(stream: TcpStream, server_name: &str, skip_verify: bool) -> io::Result<Self> {
+        let config = tls_client_config(skip_verify)?;
+        let server_name = rustls::pki_types::ServerName::try_from(server_name.to_string())
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        let connection = rustls::ClientConnection::new(config, server_name)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        Ok(Self {
+            inner: rustls::StreamOwned::new(connection, stream),
+        })
+    }
+}
+
+impl Read for TlsTcpStream {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        self.inner.read(buffer)
+    }
+}
+
+impl Write for TlsTcpStream {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.inner.write(buffer)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl OwnedRelayStream for TlsTcpStream {
+    fn set_nonblocking_mode(&mut self, nonblocking: bool) -> io::Result<()> {
+        self.inner.sock.set_nonblocking(nonblocking)
+    }
+
+    fn shutdown_write(&mut self) -> io::Result<()> {
+        self.inner.sock.shutdown(Shutdown::Write)
+    }
+
+    fn shutdown_both(&mut self) -> io::Result<()> {
+        self.inner.sock.shutdown(Shutdown::Both)
+    }
+}
+
+fn tls_client_config(skip_verify: bool) -> io::Result<Arc<rustls::ClientConfig>> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let builder = rustls::ClientConfig::builder_with_provider(provider.clone())
+        .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let config = if skip_verify {
+        builder
+            .dangerous()
+            .with_custom_certificate_verifier(InsecureServerVerifier::new(provider))
+            .with_no_client_auth()
+    } else {
+        let roots =
+            rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        builder.with_root_certificates(roots).with_no_client_auth()
+    };
+    Ok(Arc::new(config))
+}
+
+#[derive(Debug)]
+struct InsecureServerVerifier(Arc<rustls::crypto::CryptoProvider>);
+
+impl InsecureServerVerifier {
+    fn new(provider: Arc<rustls::crypto::CryptoProvider>) -> Arc<Self> {
+        Arc::new(Self(provider))
+    }
+}
+
+impl rustls::client::danger::ServerCertVerifier for InsecureServerVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.0.signature_verification_algorithms.supported_schemes()
     }
 }
 
@@ -344,6 +539,57 @@ impl VlessWsOutbound {
         stream.write_all(&header)?;
         read_vless_response_header_from_stream(&mut stream)?;
         Ok(OutboundConnection::WebSocket(stream))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VlessTlsWsOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub path: String,
+    pub uuid: String,
+    pub flow: Option<String>,
+    pub sni: String,
+    pub skip_verify: bool,
+}
+
+impl VlessTlsWsOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        path: impl Into<String>,
+        uuid: impl Into<String>,
+        flow: Option<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            path: path.into(),
+            uuid: uuid.into(),
+            flow,
+            sni: sni.into(),
+            skip_verify,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
+        let mut stream =
+            crate::OwnedWebSocketClientStream::connect(stream, &self.host, &self.path)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        read_vless_response_header_from_stream(&mut stream)?;
+        Ok(OutboundConnection::Owned(Box::new(stream)))
     }
 }
 
@@ -412,6 +658,53 @@ impl TrojanWsOutbound {
             .map_err(protocol_encoding_to_io)?;
         stream.write_all(&header)?;
         Ok(OutboundConnection::WebSocket(stream))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrojanTlsWsOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub path: String,
+    pub password: String,
+    pub sni: String,
+    pub skip_verify: bool,
+}
+
+impl TrojanTlsWsOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        path: impl Into<String>,
+        password: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            path: path.into(),
+            password: password.into(),
+            sni: sni.into(),
+            skip_verify,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
+        let mut stream =
+            crate::OwnedWebSocketClientStream::connect(stream, &self.host, &self.path)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_trojan_tcp_request_header(&self.password, &target)
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        Ok(OutboundConnection::Owned(Box::new(stream)))
     }
 }
 
@@ -503,7 +796,7 @@ impl From<io::Error> for RelayError {
     }
 }
 
-pub trait OwnedRelayStream: Read + Write {
+pub trait OwnedRelayStream: Read + Write + Send {
     fn set_nonblocking_mode(&mut self, nonblocking: bool) -> io::Result<()>;
     fn shutdown_write(&mut self) -> io::Result<()>;
     fn shutdown_both(&mut self) -> io::Result<()>;
@@ -528,6 +821,7 @@ impl OwnedRelayStream for OutboundConnection {
         match self {
             Self::Tcp(stream) => stream.set_nonblocking(nonblocking),
             Self::WebSocket(stream) => stream.set_nonblocking_mode(nonblocking),
+            Self::Owned(stream) => stream.set_nonblocking_mode(nonblocking),
         }
     }
 
@@ -535,6 +829,7 @@ impl OwnedRelayStream for OutboundConnection {
         match self {
             Self::Tcp(stream) => stream.shutdown(Shutdown::Write),
             Self::WebSocket(stream) => stream.shutdown_write(),
+            Self::Owned(stream) => stream.shutdown_write(),
         }
     }
 
@@ -542,7 +837,22 @@ impl OwnedRelayStream for OutboundConnection {
         match self {
             Self::Tcp(stream) => stream.shutdown(Shutdown::Both),
             Self::WebSocket(stream) => stream.shutdown_both(),
+            Self::Owned(stream) => stream.shutdown_both(),
         }
+    }
+}
+
+impl<S: OwnedRelayStream> OwnedRelayStream for crate::OwnedWebSocketClientStream<S> {
+    fn set_nonblocking_mode(&mut self, nonblocking: bool) -> io::Result<()> {
+        self.inner_mut().set_nonblocking_mode(nonblocking)
+    }
+
+    fn shutdown_write(&mut self) -> io::Result<()> {
+        self.inner_mut().shutdown_write()
+    }
+
+    fn shutdown_both(&mut self) -> io::Result<()> {
+        self.inner_mut().shutdown_both()
     }
 }
 
