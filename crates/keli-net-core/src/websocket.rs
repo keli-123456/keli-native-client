@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
-use std::net::TcpStream;
+use std::net::{Shutdown, TcpStream};
+use std::time::Duration;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rand::{rngs::OsRng, RngCore};
@@ -13,8 +14,10 @@ const OPCODE_CLOSE: u8 = 0x8;
 const OPCODE_PING: u8 = 0x9;
 const OPCODE_PONG: u8 = 0xA;
 
+#[derive(Debug)]
 pub struct WebSocketClientStream {
-    stream: TcpStream,
+    reader: TcpStream,
+    writer: TcpStream,
     read_buffer: VecDeque<u8>,
 }
 
@@ -38,17 +41,44 @@ impl WebSocketClientStream {
         stream.write_all(request.as_bytes())?;
         let response = read_http_response(&mut stream)?;
         validate_handshake_response(&response, key)?;
+        let reader = stream.try_clone()?;
         Ok(Self {
-            stream,
+            reader,
+            writer: stream,
             read_buffer: VecDeque::new(),
         })
+    }
+
+    pub fn try_clone(&self) -> io::Result<Self> {
+        Ok(Self {
+            reader: self.reader.try_clone()?,
+            writer: self.writer.try_clone()?,
+            read_buffer: VecDeque::new(),
+        })
+    }
+
+    pub fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        self.reader.set_read_timeout(timeout)
+    }
+
+    pub fn shutdown_write(&self) -> io::Result<()> {
+        self.writer.shutdown(Shutdown::Write)
+    }
+
+    pub fn shutdown_both(&self) -> io::Result<()> {
+        self.reader.shutdown(Shutdown::Both).ok();
+        self.writer.shutdown(Shutdown::Both)
     }
 }
 
 impl Read for WebSocketClientStream {
     fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
         while self.read_buffer.is_empty() {
-            let payload = read_frame_payload(&mut self.stream)?;
+            let payload = match read_frame_payload(&mut self.reader) {
+                Ok(payload) => payload,
+                Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(0),
+                Err(error) => return Err(error),
+            };
             self.read_buffer.extend(payload);
         }
         let mut read = 0;
@@ -65,12 +95,12 @@ impl Read for WebSocketClientStream {
 
 impl Write for WebSocketClientStream {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        write_masked_binary_frame(&mut self.stream, buffer)?;
+        write_masked_binary_frame(&mut self.writer, buffer)?;
         Ok(buffer.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.stream.flush()
+        self.writer.flush()
     }
 }
 

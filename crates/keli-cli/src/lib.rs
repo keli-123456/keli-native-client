@@ -6,10 +6,10 @@ use keli_client_core::ConnectionPhase;
 use keli_net_core::{
     http_connect_bad_request_response, http_connect_success_response,
     http_proxy_bad_request_response, parse_http_connect_request, parse_http_proxy_request,
-    parse_socks5_handshake, parse_socks5_request, relay_tcp_bidirectional_with_options,
+    parse_socks5_handshake, parse_socks5_request, relay_outbound_bidirectional_with_options,
     socks5_no_auth_response, socks5_reply, ConnectionErrorKind, ConnectionReport,
-    DirectTcpConnector, LocalInbound, OutboundRegistry, OutboundTarget, RelayOptions, RouteAction,
-    RouteEngine, Socks5Command, Socks5ReplyCode,
+    DirectTcpConnector, LocalInbound, OutboundConnection, OutboundRegistry, OutboundTarget,
+    RelayOptions, RouteAction, RouteEngine, Socks5Command, Socks5ReplyCode,
 };
 use keli_platform::PlatformCapabilities;
 use keli_protocol::{Endpoint, OutboundProfile, ProxyProtocol, SecurityKind, TransportKind};
@@ -424,7 +424,7 @@ fn handle_http_proxy_connection(
 
 enum RouteConnect {
     Direct {
-        stream: TcpStream,
+        stream: OutboundConnection,
         route_action: RouteAction,
         connect_duration: Duration,
     },
@@ -447,7 +447,7 @@ fn connect_by_route(
             let started = Instant::now();
             DirectTcpConnector::connect(target, Duration::from_secs(10)).map(|stream| {
                 RouteConnect::Direct {
-                    stream,
+                    stream: OutboundConnection::Tcp(stream),
                     route_action: RouteAction::Direct,
                     connect_duration: started.elapsed(),
                 }
@@ -508,11 +508,11 @@ fn http_forbidden_response() -> &'static [u8] {
 
 fn relay_with_report(
     client: TcpStream,
-    remote: TcpStream,
+    remote: OutboundConnection,
     report: &mut ConnectionReport,
     relay_options: RelayOptions,
 ) -> io::Result<()> {
-    match relay_tcp_bidirectional_with_options(client, remote, relay_options) {
+    match relay_outbound_bidirectional_with_options(client, remote, relay_options) {
         Ok(stats) => {
             report.record_relay_stats(stats);
             println!("{}", report.summary_line());

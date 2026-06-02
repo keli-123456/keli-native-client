@@ -4,7 +4,10 @@ use std::thread;
 use std::time::Duration;
 
 use keli_cli::{handle_mixed_connection_with_routes, MixedProxyRuntime};
-use keli_net_core::{OutboundRegistry, RouteAction, RouteEngine};
+use keli_net_core::{
+    websocket_accept_for_key, OutboundRegistry, RouteAction, RouteEngine, TrojanWsOutbound,
+};
+use keli_protocol::Endpoint;
 
 #[test]
 fn http_connect_uses_registered_outbound_route() {
@@ -59,10 +62,129 @@ fn http_connect_uses_registered_outbound_route() {
     target_thread.join().expect("target thread");
 }
 
+#[test]
+fn http_connect_relays_through_registered_trojan_ws_route() {
+    let trojan_ws = TcpListener::bind("127.0.0.1:0").expect("bind trojan ws");
+    let trojan_ws_port = trojan_ws.local_addr().expect("trojan ws addr").port();
+    let trojan_ws_thread = thread::spawn(move || {
+        let (mut stream, _) = trojan_ws.accept().expect("accept trojan ws");
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /answer HTTP/1.1\r\n"));
+        assert!(request.contains("Host: edge.example\r\n"));
+        let key = header_value(&request, "Sec-WebSocket-Key").expect("client key");
+        let accept = websocket_accept_for_key(&key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .expect("write ws response");
+
+        let trojan_header = read_masked_client_frame(&mut stream);
+        assert_eq!(
+            &trojan_header[..],
+            b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x01\x03\x0bexample.com\x01\xbb\r\n"
+        );
+        let payload = read_masked_client_frame(&mut stream);
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"\x82\x04pong").expect("write pong frame");
+    });
+
+    let inbound = TcpListener::bind("127.0.0.1:0").expect("bind inbound");
+    let inbound_port = inbound.local_addr().expect("inbound addr").port();
+    let mut outbounds = OutboundRegistry::new();
+    outbounds.add_trojan_ws(
+        "proxy",
+        TrojanWsOutbound::new(
+            Endpoint::new("127.0.0.1", trojan_ws_port),
+            "edge.example",
+            "/answer",
+            "password",
+        ),
+    );
+    let runtime = MixedProxyRuntime::with_routes_and_outbounds(
+        RouteEngine::new(RouteAction::Outbound("proxy".to_string())),
+        outbounds,
+    );
+    let inbound_thread = thread::spawn(move || {
+        let (mut stream, _) = inbound.accept().expect("accept inbound");
+        handle_mixed_connection_with_routes(&mut stream, &runtime)
+            .expect("handle trojan ws outbound route");
+    });
+
+    let mut client = TcpStream::connect(("127.0.0.1", inbound_port)).expect("connect inbound");
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    write!(
+        client,
+        "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n"
+    )
+    .expect("write CONNECT");
+
+    let mut connect_response = Vec::new();
+    read_until_header_end(&mut client, &mut connect_response);
+    assert_eq!(
+        connect_response,
+        b"HTTP/1.1 200 Connection Established\r\n\r\n"
+    );
+
+    client.write_all(b"ping").expect("write ping");
+    let mut response = [0; 4];
+    client.read_exact(&mut response).expect("read pong");
+    assert_eq!(&response, b"pong");
+    client.shutdown(Shutdown::Both).ok();
+
+    inbound_thread.join().expect("inbound thread");
+    trojan_ws_thread.join().expect("trojan ws thread");
+}
+
 fn read_until_header_end(stream: &mut TcpStream, output: &mut Vec<u8>) {
     let mut byte = [0; 1];
     while !output.ends_with(b"\r\n\r\n") {
         stream.read_exact(&mut byte).expect("read response byte");
         output.push(byte[0]);
     }
+}
+
+fn read_http_request(stream: &mut TcpStream) -> String {
+    let mut bytes = Vec::new();
+    let mut byte = [0; 1];
+    while !bytes.ends_with(b"\r\n\r\n") {
+        stream.read_exact(&mut byte).expect("read request byte");
+        bytes.push(byte[0]);
+    }
+    String::from_utf8(bytes).expect("request utf8")
+}
+
+fn header_value(request: &str, header: &str) -> Option<String> {
+    request.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.eq_ignore_ascii_case(header)
+            .then(|| value.trim().to_string())
+    })
+}
+
+fn read_masked_client_frame(stream: &mut TcpStream) -> Vec<u8> {
+    let mut header = [0; 2];
+    stream.read_exact(&mut header).expect("read frame header");
+    assert_eq!(header[0], 0x82);
+    assert!(header[1] & 0x80 != 0);
+    let payload_len = match header[1] & 0x7f {
+        len @ 0..=125 => usize::from(len),
+        126 => {
+            let mut bytes = [0; 2];
+            stream.read_exact(&mut bytes).expect("read extended len");
+            usize::from(u16::from_be_bytes(bytes))
+        }
+        127 => panic!("test payload should not use 64-bit length"),
+        _ => unreachable!(),
+    };
+    let mut mask = [0; 4];
+    stream.read_exact(&mut mask).expect("read mask");
+    let mut payload = vec![0; payload_len];
+    stream.read_exact(&mut payload).expect("read payload");
+    for (index, byte) in payload.iter_mut().enumerate() {
+        *byte ^= mask[index % 4];
+    }
+    payload
 }

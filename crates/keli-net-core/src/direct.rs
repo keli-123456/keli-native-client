@@ -85,6 +85,7 @@ impl DirectTcpConnector {
 pub struct OutboundRegistry {
     direct_tags: HashSet<String>,
     trojan_tcp_tags: HashMap<String, TrojanTcpOutbound>,
+    trojan_ws_tags: HashMap<String, TrojanWsOutbound>,
     vless_tcp_tags: HashMap<String, VlessTcpOutbound>,
 }
 
@@ -101,6 +102,10 @@ impl OutboundRegistry {
         self.trojan_tcp_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_trojan_ws(&mut self, tag: impl Into<String>, outbound: TrojanWsOutbound) {
+        self.trojan_ws_tags.insert(tag.into(), outbound);
+    }
+
     pub fn add_vless_tcp(&mut self, tag: impl Into<String>, outbound: VlessTcpOutbound) {
         self.vless_tcp_tags.insert(tag.into(), outbound);
     }
@@ -110,10 +115,12 @@ impl OutboundRegistry {
         tag: &str,
         target: &OutboundTarget,
         timeout: Duration,
-    ) -> io::Result<TcpStream> {
+    ) -> io::Result<OutboundConnection> {
         if self.direct_tags.contains(tag) {
-            DirectTcpConnector::connect(target, timeout)
+            DirectTcpConnector::connect(target, timeout).map(OutboundConnection::Tcp)
         } else if let Some(outbound) = self.trojan_tcp_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.trojan_ws_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
@@ -122,6 +129,67 @@ impl OutboundRegistry {
                 io::ErrorKind::Unsupported,
                 format!("outbound tag is not registered: {tag}"),
             ))
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum OutboundConnection {
+    Tcp(TcpStream),
+    WebSocket(crate::WebSocketClientStream),
+}
+
+impl OutboundConnection {
+    pub fn try_clone(&self) -> io::Result<Self> {
+        match self {
+            Self::Tcp(stream) => stream.try_clone().map(Self::Tcp),
+            Self::WebSocket(stream) => stream.try_clone().map(Self::WebSocket),
+        }
+    }
+
+    pub fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        match self {
+            Self::Tcp(stream) => stream.set_read_timeout(timeout),
+            Self::WebSocket(stream) => stream.set_read_timeout(timeout),
+        }
+    }
+
+    pub fn shutdown_write(&self) -> io::Result<()> {
+        match self {
+            Self::Tcp(stream) => stream.shutdown(Shutdown::Write),
+            Self::WebSocket(stream) => stream.shutdown_write(),
+        }
+    }
+
+    pub fn shutdown_both(&self) -> io::Result<()> {
+        match self {
+            Self::Tcp(stream) => stream.shutdown(Shutdown::Both),
+            Self::WebSocket(stream) => stream.shutdown_both(),
+        }
+    }
+}
+
+impl Read for OutboundConnection {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Tcp(stream) => stream.read(buffer),
+            Self::WebSocket(stream) => stream.read(buffer),
+        }
+    }
+}
+
+impl Write for OutboundConnection {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Tcp(stream) => stream.write(buffer),
+            Self::WebSocket(stream) => stream.write(buffer),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Tcp(stream) => stream.flush(),
+            Self::WebSocket(stream) => stream.flush(),
         }
     }
 }
@@ -140,14 +208,18 @@ impl TrojanTcpOutbound {
         }
     }
 
-    pub fn connect(&self, target: &OutboundTarget, timeout: Duration) -> io::Result<TcpStream> {
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
         let mut stream = DirectTcpConnector::connect(&server, timeout)?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let header = encode_trojan_tcp_request_header(&self.password, &target)
             .map_err(protocol_encoding_to_io)?;
         stream.write_all(&header)?;
-        Ok(stream)
+        Ok(OutboundConnection::Tcp(stream))
     }
 }
 
@@ -178,7 +250,7 @@ impl TrojanWsOutbound {
         &self,
         target: &OutboundTarget,
         timeout: Duration,
-    ) -> io::Result<crate::WebSocketClientStream> {
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
         let stream = DirectTcpConnector::connect(&server, timeout)?;
         let mut stream = crate::WebSocketClientStream::connect(stream, &self.host, &self.path)?;
@@ -186,7 +258,7 @@ impl TrojanWsOutbound {
         let header = encode_trojan_tcp_request_header(&self.password, &target)
             .map_err(protocol_encoding_to_io)?;
         stream.write_all(&header)?;
-        Ok(stream)
+        Ok(OutboundConnection::WebSocket(stream))
     }
 }
 
@@ -206,7 +278,11 @@ impl VlessTcpOutbound {
         }
     }
 
-    pub fn connect(&self, target: &OutboundTarget, timeout: Duration) -> io::Result<TcpStream> {
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
         let mut stream = DirectTcpConnector::connect(&server, timeout)?;
         let target = Endpoint::new(target.host.clone(), target.port);
@@ -214,7 +290,7 @@ impl VlessTcpOutbound {
             .map_err(protocol_encoding_to_io)?;
         stream.write_all(&header)?;
         read_vless_response_header(&mut stream)?;
-        Ok(stream)
+        Ok(OutboundConnection::Tcp(stream))
     }
 }
 
@@ -286,6 +362,14 @@ pub fn relay_tcp_bidirectional_with_options(
     remote: TcpStream,
     options: RelayOptions,
 ) -> Result<RelayStats, RelayError> {
+    relay_outbound_bidirectional_with_options(client, OutboundConnection::Tcp(remote), options)
+}
+
+pub fn relay_outbound_bidirectional_with_options(
+    client: TcpStream,
+    remote: OutboundConnection,
+    options: RelayOptions,
+) -> Result<RelayStats, RelayError> {
     let started = Instant::now();
     let unblock_client = client.try_clone()?;
     let unblock_remote = remote.try_clone()?;
@@ -296,7 +380,7 @@ pub fn relay_tcp_bidirectional_with_options(
 
     let upload = thread::spawn(move || {
         let result = io::copy(&mut client_reader, &mut remote_writer);
-        remote_writer.shutdown(Shutdown::Write).ok();
+        remote_writer.shutdown_write().ok();
         result
     });
     let download = thread::spawn(move || {
@@ -314,7 +398,7 @@ pub fn relay_tcp_bidirectional_with_options(
     let download_result = join_download(download);
     if download_result.is_err() {
         unblock_client.shutdown(Shutdown::Both).ok();
-        unblock_remote.shutdown(Shutdown::Both).ok();
+        unblock_remote.shutdown_both().ok();
     }
     let (remote_to_client_bytes, remote_first_byte_after) = download_result?;
     let client_to_remote_bytes = join_copy(upload)?;
@@ -342,7 +426,7 @@ fn join_download(
 }
 
 fn copy_remote_with_timeouts(
-    reader: TcpStream,
+    reader: OutboundConnection,
     writer: &mut impl Write,
     started: Instant,
     first_byte_timeout: Option<Duration>,
