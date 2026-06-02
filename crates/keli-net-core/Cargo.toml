@@ -1,0 +1,8 @@
+[package]
+name = "keli-net-core"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+keli-protocol.workspace = true

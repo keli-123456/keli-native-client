@@ -1,0 +1,166 @@
+use std::net::IpAddr;
+
+mod direct;
+mod dns;
+mod http_connect;
+mod http_proxy;
+mod metrics;
+mod socks5;
+
+pub use direct::{
+    relay_tcp_bidirectional, relay_tcp_bidirectional_with_options, DirectTcpConnector,
+    OutboundRegistry, OutboundTarget, RelayError, RelayOptions, RelayStats, VlessTcpOutbound,
+};
+pub use dns::{DnsCache, DnsEngine, DnsError, DnsResolver, ResolvedAddress, SystemDnsResolver};
+pub use http_connect::{
+    http_connect_bad_request_response, http_connect_success_response, parse_http_connect_request,
+    HttpConnectError, HttpConnectRequest,
+};
+pub use http_proxy::{
+    http_proxy_bad_request_response, parse_http_proxy_request, HttpProxyError, HttpProxyRequest,
+};
+pub use metrics::{ConnectionErrorKind, ConnectionReport};
+pub use socks5::{
+    parse_socks5_handshake, parse_socks5_request, socks5_no_auth_response, socks5_reply,
+    Socks5Address, Socks5Command, Socks5Error, Socks5Handshake, Socks5ReplyCode, Socks5Request,
+};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocalInbound {
+    Mixed { listen: String, port: u16 },
+    Socks { listen: String, port: u16 },
+    Http { listen: String, port: u16 },
+    Tun { interface_name: Option<String> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RouteTarget {
+    Domain(String),
+    Ip(IpAddr),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RouteAction {
+    Direct,
+    Block,
+    Outbound(String),
+    HijackDns,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RouteMatcher {
+    DomainExact(String),
+    DomainSuffix(String),
+    IpExact(IpAddr),
+}
+
+impl RouteMatcher {
+    fn matches(&self, target: &RouteTarget) -> bool {
+        match (self, target) {
+            (Self::DomainExact(expected), RouteTarget::Domain(actual)) => {
+                expected.eq_ignore_ascii_case(actual)
+            }
+            (Self::DomainSuffix(expected), RouteTarget::Domain(actual)) => {
+                let expected = expected.trim_start_matches('.');
+                actual.eq_ignore_ascii_case(expected)
+                    || actual
+                        .to_ascii_lowercase()
+                        .ends_with(&format!(".{}", expected.to_ascii_lowercase()))
+            }
+            (Self::IpExact(expected), RouteTarget::Ip(actual)) => expected == actual,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteRule {
+    pub name: String,
+    pub matcher: RouteMatcher,
+    pub action: RouteAction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteDecision {
+    pub action: RouteAction,
+    pub matched_rule: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteEngine {
+    rules: Vec<RouteRule>,
+    default_action: RouteAction,
+}
+
+impl RouteEngine {
+    pub fn new(default_action: RouteAction) -> Self {
+        Self {
+            rules: Vec::new(),
+            default_action,
+        }
+    }
+
+    pub fn add_rule(&mut self, rule: RouteRule) {
+        self.rules.push(rule);
+    }
+
+    pub fn decide(&self, target: &RouteTarget) -> RouteDecision {
+        for rule in &self.rules {
+            if rule.matcher.matches(target) {
+                return RouteDecision {
+                    action: rule.action.clone(),
+                    matched_rule: Some(rule.name.clone()),
+                };
+            }
+        }
+        RouteDecision {
+            action: self.default_action.clone(),
+            matched_rule: None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exact_domain_rule_wins() {
+        let mut engine = RouteEngine::new(RouteAction::Outbound("proxy".to_string()));
+        engine.add_rule(RouteRule {
+            name: "block-example".to_string(),
+            matcher: RouteMatcher::DomainExact("blocked.example".to_string()),
+            action: RouteAction::Block,
+        });
+
+        let decision = engine.decide(&RouteTarget::Domain("blocked.example".to_string()));
+
+        assert_eq!(decision.action, RouteAction::Block);
+        assert_eq!(decision.matched_rule, Some("block-example".to_string()));
+    }
+
+    #[test]
+    fn suffix_domain_rule_matches_subdomain() {
+        let mut engine = RouteEngine::new(RouteAction::Outbound("proxy".to_string()));
+        engine.add_rule(RouteRule {
+            name: "direct-lan".to_string(),
+            matcher: RouteMatcher::DomainSuffix("lan.example".to_string()),
+            action: RouteAction::Direct,
+        });
+
+        let decision = engine.decide(&RouteTarget::Domain("router.lan.example".to_string()));
+
+        assert_eq!(decision.action, RouteAction::Direct);
+        assert_eq!(decision.matched_rule, Some("direct-lan".to_string()));
+    }
+
+    #[test]
+    fn unmatched_target_uses_default_action() {
+        let engine = RouteEngine::new(RouteAction::Outbound("proxy".to_string()));
+
+        let decision = engine.decide(&RouteTarget::Domain("youtube.com".to_string()));
+
+        assert_eq!(decision.action, RouteAction::Outbound("proxy".to_string()));
+        assert_eq!(decision.matched_rule, None);
+    }
+}

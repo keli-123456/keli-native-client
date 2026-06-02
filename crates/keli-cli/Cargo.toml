@@ -1,0 +1,11 @@
+[package]
+name = "keli-cli"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+keli-client-core.workspace = true
+keli-net-core.workspace = true
+keli-platform.workspace = true
+keli-protocol.workspace = true

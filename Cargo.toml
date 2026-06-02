@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/keli-client-core",
+    "crates/keli-net-core",
+    "crates/keli-platform",
+    "crates/keli-protocol",
+    "crates/keli-cli",
+]
+
+[workspace.package]
+edition = "2021"
+license = "Proprietary"
+version = "0.1.0"
+
+[workspace.dependencies]
+keli-client-core = { path = "crates/keli-client-core" }
+keli-net-core = { path = "crates/keli-net-core" }
+keli-platform = { path = "crates/keli-platform" }
+keli-protocol = { path = "crates/keli-protocol" }
