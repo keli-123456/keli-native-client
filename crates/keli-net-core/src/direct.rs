@@ -9,8 +9,8 @@ use crate::{
     Socks5Request, SystemDnsResolver,
 };
 use keli_protocol::{
-    encode_trojan_tcp_request_header, encode_vless_tcp_request_header, Endpoint,
-    ProtocolEncodingError,
+    encode_trojan_tcp_request_header, encode_vless_tcp_request_header, Endpoint, OutboundProfile,
+    ProtocolEncodingError, ProtocolValidationError, ProxyProtocol, SecurityKind, TransportKind,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,6 +95,66 @@ impl OutboundRegistry {
         Self::default()
     }
 
+    pub fn from_profiles(
+        profiles: impl IntoIterator<Item = OutboundProfile>,
+    ) -> Result<Self, OutboundProfileError> {
+        let mut registry = Self::new();
+        for profile in profiles {
+            registry.add_profile(profile)?;
+        }
+        Ok(registry)
+    }
+
+    pub fn add_profile(&mut self, profile: OutboundProfile) -> Result<(), OutboundProfileError> {
+        profile
+            .validate()
+            .map_err(|source| OutboundProfileError::Validation {
+                tag: profile.tag.clone(),
+                source,
+            })?;
+
+        let OutboundProfile {
+            tag,
+            protocol,
+            endpoint,
+            transport,
+            security,
+            credential,
+        } = profile;
+        if security != SecurityKind::None {
+            return Err(OutboundProfileError::UnsupportedSecurity { tag, security });
+        }
+
+        match (protocol, transport) {
+            (ProxyProtocol::Trojan, TransportKind::Tcp) => {
+                self.add_trojan_tcp(tag, TrojanTcpOutbound::new(endpoint, credential));
+                Ok(())
+            }
+            (ProxyProtocol::Trojan, TransportKind::WebSocket { path, host }) => {
+                let host = host.unwrap_or_else(|| endpoint.host.clone());
+                self.add_trojan_ws(tag, TrojanWsOutbound::new(endpoint, host, path, credential));
+                Ok(())
+            }
+            (ProxyProtocol::Vless, TransportKind::Tcp) => {
+                self.add_vless_tcp(tag, VlessTcpOutbound::new(endpoint, credential, None));
+                Ok(())
+            }
+            (ProxyProtocol::Vless, TransportKind::WebSocket { path, host }) => {
+                let host = host.unwrap_or_else(|| endpoint.host.clone());
+                self.add_vless_ws(
+                    tag,
+                    VlessWsOutbound::new(endpoint, host, path, credential, None),
+                );
+                Ok(())
+            }
+            (protocol, transport) => Err(OutboundProfileError::UnsupportedTransport {
+                tag,
+                protocol,
+                transport,
+            }),
+        }
+    }
+
     pub fn add_direct(&mut self, tag: impl Into<String>) {
         self.direct_tags.insert(tag.into());
     }
@@ -139,6 +199,49 @@ impl OutboundRegistry {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OutboundProfileError {
+    Validation {
+        tag: String,
+        source: ProtocolValidationError,
+    },
+    UnsupportedSecurity {
+        tag: String,
+        security: SecurityKind,
+    },
+    UnsupportedTransport {
+        tag: String,
+        protocol: ProxyProtocol,
+        transport: TransportKind,
+    },
+}
+
+impl std::fmt::Display for OutboundProfileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Validation { tag, source } => {
+                write!(f, "outbound profile {tag} is invalid: {source}")
+            }
+            Self::UnsupportedSecurity { tag, security } => {
+                write!(
+                    f,
+                    "outbound profile {tag} security is unsupported: {security:?}"
+                )
+            }
+            Self::UnsupportedTransport {
+                tag,
+                protocol,
+                transport,
+            } => write!(
+                f,
+                "outbound profile {tag} transport is unsupported: {protocol:?}/{transport:?}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for OutboundProfileError {}
 
 #[derive(Debug)]
 pub enum OutboundConnection {
