@@ -1,3 +1,4 @@
+use std::fs;
 use std::io::{self, Write};
 use std::net::{TcpListener, TcpStream};
 use std::time::{Duration, Instant};
@@ -12,7 +13,10 @@ use keli_net_core::{
     RelayOptions, RouteAction, RouteEngine, Socks5Command, Socks5ReplyCode,
 };
 use keli_platform::PlatformCapabilities;
-use keli_protocol::{Endpoint, OutboundProfile, ProxyProtocol, SecurityKind, TransportKind};
+use keli_protocol::{
+    parse_mihomo_outbound_profiles, Endpoint, OutboundProfile, ProxyProtocol, SecurityKind,
+    TransportKind,
+};
 
 const DEFAULT_FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
@@ -25,6 +29,8 @@ pub enum CliCommand {
         listen: String,
         once: bool,
         block_domains: Vec<String>,
+        profile_config: Option<String>,
+        outbound_tag: Option<String>,
         first_byte_timeout: Duration,
         idle_timeout: Duration,
     },
@@ -87,16 +93,24 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             listen,
             once,
             block_domains,
+            profile_config,
+            outbound_tag,
             first_byte_timeout,
             idle_timeout,
         } => {
-            let runtime = mixed_runtime_from_cli(
-                block_domains,
-                RelayOptions {
-                    first_byte_timeout: Some(first_byte_timeout),
-                    idle_timeout: Some(idle_timeout),
-                },
-            );
+            let relay_options = RelayOptions {
+                first_byte_timeout: Some(first_byte_timeout),
+                idle_timeout: Some(idle_timeout),
+            };
+            let runtime = match profile_config {
+                Some(path) => mixed_runtime_from_mihomo_config_path(
+                    &path,
+                    block_domains,
+                    relay_options,
+                    outbound_tag,
+                )?,
+                None => mixed_runtime_from_cli(block_domains, relay_options),
+            };
             listen_mixed(&listen, once, &runtime)
                 .map_err(|error| format!("listen-mixed failed on {listen}: {error}"))
         }
@@ -107,7 +121,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(writer, "usage: keli-cli [doctor|version|listen-mixed]")?;
     writeln!(
         writer,
-        "       keli-cli listen-mixed [--listen 127.0.0.1:7890] [--once] [--first-byte-timeout-ms 30000] [--idle-timeout-ms 300000]"
+        "       keli-cli listen-mixed [--listen 127.0.0.1:7890] [--once] [--profile-config subscription.yaml] [--outbound-tag proxy] [--first-byte-timeout-ms 30000] [--idle-timeout-ms 300000]"
     )
 }
 
@@ -115,6 +129,8 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
     let mut listen = "127.0.0.1:7890".to_string();
     let mut once = false;
     let mut block_domains = Vec::new();
+    let mut profile_config = None;
+    let mut outbound_tag = None;
     let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut idle_timeout = DEFAULT_IDLE_TIMEOUT;
     let mut args = args.peekable();
@@ -147,6 +163,18 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
                         .ok_or_else(|| "--block-domain requires a domain".to_string())?,
                 );
             }
+            "--profile-config" => {
+                profile_config = Some(
+                    args.next()
+                        .ok_or_else(|| "--profile-config requires a path".to_string())?,
+                );
+            }
+            "--outbound-tag" => {
+                outbound_tag = Some(
+                    args.next()
+                        .ok_or_else(|| "--outbound-tag requires a profile name".to_string())?,
+                );
+            }
             other => return Err(format!("unknown listen-mixed option: {other}")),
         }
     }
@@ -155,6 +183,8 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
         listen,
         once,
         block_domains,
+        profile_config,
+        outbound_tag,
         first_byte_timeout,
         idle_timeout,
     })
@@ -483,11 +513,65 @@ fn connect_by_route(
     }
 }
 
+pub fn mixed_runtime_from_mihomo_config_text(
+    config_text: &str,
+    block_domains: Vec<String>,
+    relay_options: RelayOptions,
+    outbound_tag: Option<String>,
+) -> Result<MixedProxyRuntime, String> {
+    let parsed = parse_mihomo_outbound_profiles(config_text)
+        .map_err(|error| format!("profile config parse failed: {error}"))?;
+    let available_tags: Vec<String> = parsed
+        .profiles
+        .iter()
+        .map(|profile| profile.tag.clone())
+        .collect();
+    let selected_tag = match outbound_tag {
+        Some(tag) => tag,
+        None => available_tags
+            .first()
+            .cloned()
+            .ok_or_else(|| "profile config did not contain supported outbounds".to_string())?,
+    };
+    if !available_tags.iter().any(|tag| tag == &selected_tag) {
+        return Err(format!(
+            "outbound tag not found: {selected_tag}; available: {}",
+            available_tags.join(", ")
+        ));
+    }
+    let outbounds = OutboundRegistry::from_profiles(parsed.profiles)
+        .map_err(|error| format!("profile config contains unsupported outbound: {error}"))?;
+    Ok(MixedProxyRuntime {
+        routes: routes_from_cli(block_domains, RouteAction::Outbound(selected_tag)),
+        relay_options,
+        outbounds,
+    })
+}
+
+fn mixed_runtime_from_mihomo_config_path(
+    path: &str,
+    block_domains: Vec<String>,
+    relay_options: RelayOptions,
+    outbound_tag: Option<String>,
+) -> Result<MixedProxyRuntime, String> {
+    let config_text =
+        fs::read_to_string(path).map_err(|error| format!("read profile config {path}: {error}"))?;
+    mixed_runtime_from_mihomo_config_text(&config_text, block_domains, relay_options, outbound_tag)
+}
+
 fn mixed_runtime_from_cli(
     block_domains: Vec<String>,
     relay_options: RelayOptions,
 ) -> MixedProxyRuntime {
-    let mut routes = RouteEngine::new(RouteAction::Direct);
+    MixedProxyRuntime {
+        routes: routes_from_cli(block_domains, RouteAction::Direct),
+        relay_options,
+        outbounds: OutboundRegistry::new(),
+    }
+}
+
+fn routes_from_cli(block_domains: Vec<String>, default_action: RouteAction) -> RouteEngine {
+    let mut routes = RouteEngine::new(default_action);
     for domain in block_domains {
         routes.add_rule(keli_net_core::RouteRule {
             name: format!("block-domain:{domain}"),
@@ -495,11 +579,7 @@ fn mixed_runtime_from_cli(
             action: RouteAction::Block,
         });
     }
-    MixedProxyRuntime {
-        routes,
-        relay_options,
-        outbounds: OutboundRegistry::new(),
-    }
+    routes
 }
 
 fn http_forbidden_response() -> &'static [u8] {
