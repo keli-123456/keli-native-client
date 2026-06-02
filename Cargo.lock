@@ -213,7 +213,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "keli-cli"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "keli-client-core",
  "keli-net-core",
@@ -223,11 +223,11 @@ dependencies = [
 
 [[package]]
 name = "keli-client-core"
-version = "0.1.7"
+version = "0.1.8"
 
 [[package]]
 name = "keli-net-core"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64",
  "keli-protocol",
@@ -240,11 +240,11 @@ dependencies = [
 
 [[package]]
 name = "keli-platform"
-version = "0.1.7"
+version = "0.1.8"
 
 [[package]]
 name = "keli-protocol"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "serde",
  "serde_yaml",

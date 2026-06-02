@@ -92,7 +92,31 @@ proxies:
         }
     );
     assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    assert_eq!(profile.flow, None);
     profile.validate().expect("valid profile");
+}
+
+#[test]
+fn parses_vless_flow_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: VLESS-Vision
+    type: vless
+    server: edge.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    tls: true
+    flow: xtls-rprx-vision
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    assert_eq!(
+        parsed.profiles[0].flow,
+        Some("xtls-rprx-vision".to_string())
+    );
 }
 
 #[test]

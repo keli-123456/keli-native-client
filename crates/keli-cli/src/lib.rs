@@ -210,6 +210,7 @@ fn print_doctor() {
             skip_verify: false,
         },
         credential: "password".to_string(),
+        flow: None,
     };
 
     println!("keli-native-client doctor");

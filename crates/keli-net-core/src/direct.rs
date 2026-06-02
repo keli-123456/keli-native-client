@@ -125,6 +125,7 @@ impl OutboundRegistry {
             transport,
             security,
             credential,
+            flow,
         } = profile;
         match (protocol, transport, security) {
             (ProxyProtocol::Trojan, TransportKind::Tcp, SecurityKind::None) => {
@@ -162,14 +163,14 @@ impl OutboundRegistry {
                 Ok(())
             }
             (ProxyProtocol::Vless, TransportKind::Tcp, SecurityKind::None) => {
-                self.add_vless_tcp(tag, VlessTcpOutbound::new(endpoint, credential, None));
+                self.add_vless_tcp(tag, VlessTcpOutbound::new(endpoint, credential, flow));
                 Ok(())
             }
             (ProxyProtocol::Vless, TransportKind::Tcp, SecurityKind::Tls { sni, skip_verify }) => {
                 let sni = sni.unwrap_or_else(|| endpoint.host.clone());
                 self.add_vless_tls_tcp(
                     tag,
-                    VlessTlsTcpOutbound::new(endpoint, credential, None, sni, skip_verify),
+                    VlessTlsTcpOutbound::new(endpoint, credential, flow, sni, skip_verify),
                 );
                 Ok(())
             }
@@ -177,7 +178,7 @@ impl OutboundRegistry {
                 let host = host.unwrap_or_else(|| endpoint.host.clone());
                 self.add_vless_ws(
                     tag,
-                    VlessWsOutbound::new(endpoint, host, path, credential, None),
+                    VlessWsOutbound::new(endpoint, host, path, credential, flow),
                 );
                 Ok(())
             }
@@ -195,7 +196,7 @@ impl OutboundRegistry {
                         host,
                         path,
                         credential,
-                        None,
+                        flow,
                         sni,
                         skip_verify,
                     ),

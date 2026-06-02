@@ -184,6 +184,56 @@ fn registry_from_vless_ws_profile_connects_with_profile_transport() {
         },
         security: SecurityKind::None,
         credential: "00112233-4455-6677-8899-aabbccddeeff".to_string(),
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let mut stream = registry
+        .connect(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+        )
+        .expect("registered profile outbound should connect");
+    stream.write_all(b"ping").expect("write payload");
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).expect("read payload");
+
+    assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
+fn registry_from_vless_tcp_profile_preserves_flow() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind vless server");
+    let port = listener.local_addr().expect("vless addr").port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept vless server");
+        let mut request_header = [0; 52];
+        stream
+            .read_exact(&mut request_header)
+            .expect("read vless request header");
+        assert_eq!(
+            &request_header[..37],
+            b"\x00\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff\x12\x0a\x10xtls-rprx-vision\x01"
+        );
+        assert_eq!(&request_header[37..], b"\x01\xbb\x02\x0bexample.com");
+        stream
+            .write_all(&[0x00, 0x00])
+            .expect("write vless response header");
+        let mut payload = [0; 4];
+        stream.read_exact(&mut payload).expect("read relay payload");
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"pong").expect("write relay payload");
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Vless,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Tcp,
+        security: SecurityKind::None,
+        credential: "00112233-4455-6677-8899-aabbccddeeff".to_string(),
+        flow: Some("xtls-rprx-vision".to_string()),
     }])
     .expect("profile registry");
 
@@ -214,6 +264,7 @@ fn unsupported_transports_report_security_context() {
             skip_verify: false,
         },
         credential: "00112233-4455-6677-8899-aabbccddeeff".to_string(),
+        flow: None,
     }])
     .expect_err("vless quic profile should be explicit unsupported");
 

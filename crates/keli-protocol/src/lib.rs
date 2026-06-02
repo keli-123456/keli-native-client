@@ -62,6 +62,7 @@ pub struct OutboundProfile {
     pub transport: TransportKind,
     pub security: SecurityKind,
     pub credential: String,
+    pub flow: Option<String>,
 }
 
 impl OutboundProfile {
@@ -191,6 +192,7 @@ struct MihomoProxy {
     port: Option<u16>,
     password: Option<String>,
     uuid: Option<String>,
+    flow: Option<String>,
     tls: Option<bool>,
     sni: Option<String>,
     servername: Option<String>,
@@ -233,6 +235,9 @@ fn mihomo_proxy_to_profile(
         }
         ProxyProtocol::Hy2 | ProxyProtocol::Shadowsocks => unreachable!("filtered above"),
     };
+    let flow = matches!(protocol, ProxyProtocol::Vless)
+        .then(|| non_empty(proxy.flow))
+        .flatten();
     let transport = mihomo_transport(&name, &server, proxy.network.as_deref(), proxy.ws_opts)?;
     let security = mihomo_security(
         &protocol,
@@ -249,6 +254,7 @@ fn mihomo_proxy_to_profile(
         transport,
         security,
         credential,
+        flow,
     };
 
     profile
@@ -522,6 +528,7 @@ mod tests {
             },
             security: tls(),
             credential: "password".to_string(),
+            flow: None,
         };
 
         assert_eq!(
@@ -539,6 +546,7 @@ mod tests {
             transport: TransportKind::Tcp,
             security: tls(),
             credential: "not-a-uuid".to_string(),
+            flow: None,
         };
 
         assert_eq!(
@@ -556,6 +564,7 @@ mod tests {
             transport: TransportKind::Tcp,
             security: tls(),
             credential: "auth".to_string(),
+            flow: None,
         };
 
         assert_eq!(

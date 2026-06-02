@@ -57,6 +57,7 @@ fn registry_from_vless_tls_ws_profile_relays_over_tls_websocket() {
             skip_verify: true,
         },
         credential: "00112233-4455-6677-8899-aabbccddeeff".to_string(),
+        flow: None,
     }])
     .expect("profile registry");
 
@@ -116,6 +117,7 @@ fn registry_from_trojan_tls_ws_profile_relays_over_tls_websocket() {
             skip_verify: true,
         },
         credential: "password".to_string(),
+        flow: None,
     }])
     .expect("profile registry");
 
