@@ -12,7 +12,7 @@ pub use direct::{
     relay_outbound_bidirectional_with_options, relay_tcp_bidirectional,
     relay_tcp_bidirectional_with_options, DirectTcpConnector, OutboundConnection, OutboundRegistry,
     OutboundTarget, RelayError, RelayOptions, RelayStats, TrojanTcpOutbound, TrojanWsOutbound,
-    VlessTcpOutbound,
+    VlessTcpOutbound, VlessWsOutbound,
 };
 pub use dns::{DnsCache, DnsEngine, DnsError, DnsResolver, ResolvedAddress, SystemDnsResolver};
 pub use http_connect::{

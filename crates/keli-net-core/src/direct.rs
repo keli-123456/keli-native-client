@@ -87,6 +87,7 @@ pub struct OutboundRegistry {
     trojan_tcp_tags: HashMap<String, TrojanTcpOutbound>,
     trojan_ws_tags: HashMap<String, TrojanWsOutbound>,
     vless_tcp_tags: HashMap<String, VlessTcpOutbound>,
+    vless_ws_tags: HashMap<String, VlessWsOutbound>,
 }
 
 impl OutboundRegistry {
@@ -110,6 +111,10 @@ impl OutboundRegistry {
         self.vless_tcp_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_vless_ws(&mut self, tag: impl Into<String>, outbound: VlessWsOutbound) {
+        self.vless_ws_tags.insert(tag.into(), outbound);
+    }
+
     pub fn connect(
         &self,
         tag: &str,
@@ -123,6 +128,8 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.trojan_ws_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tcp_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vless_ws_tags.get(tag) {
             outbound.connect(target, timeout)
         } else {
             Err(io::Error::new(
@@ -191,6 +198,49 @@ impl Write for OutboundConnection {
             Self::Tcp(stream) => stream.flush(),
             Self::WebSocket(stream) => stream.flush(),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VlessWsOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub path: String,
+    pub uuid: String,
+    pub flow: Option<String>,
+}
+
+impl VlessWsOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        path: impl Into<String>,
+        uuid: impl Into<String>,
+        flow: Option<String>,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            path: path.into(),
+            uuid: uuid.into(),
+            flow,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = crate::WebSocketClientStream::connect(stream, &self.host, &self.path)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        read_vless_response_header_from_stream(&mut stream)?;
+        Ok(OutboundConnection::WebSocket(stream))
     }
 }
 
@@ -289,12 +339,12 @@ impl VlessTcpOutbound {
         let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
             .map_err(protocol_encoding_to_io)?;
         stream.write_all(&header)?;
-        read_vless_response_header(&mut stream)?;
+        read_vless_response_header_from_stream(&mut stream)?;
         Ok(OutboundConnection::Tcp(stream))
     }
 }
 
-fn read_vless_response_header(stream: &mut TcpStream) -> io::Result<()> {
+fn read_vless_response_header_from_stream(stream: &mut impl Read) -> io::Result<()> {
     let mut header = [0; 2];
     stream.read_exact(&mut header)?;
     if header[0] != 0x00 {

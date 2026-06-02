@@ -3,7 +3,8 @@ use std::net::{TcpListener, TcpStream};
 use std::thread;
 
 use keli_net_core::{
-    websocket_accept_for_key, OutboundTarget, TrojanWsOutbound, WebSocketClientStream,
+    websocket_accept_for_key, OutboundTarget, TrojanWsOutbound, VlessWsOutbound,
+    WebSocketClientStream,
 };
 use keli_protocol::Endpoint;
 
@@ -140,6 +141,54 @@ fn trojan_ws_outbound_sends_trojan_header_inside_websocket_stream() {
             std::time::Duration::from_secs(1),
         )
         .expect("trojan ws connect");
+
+    server.join().expect("server thread");
+}
+
+#[test]
+fn vless_ws_outbound_sends_vless_header_inside_websocket_stream() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vless ws server");
+    let port = listener.local_addr().expect("vless ws addr").port();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept ws");
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /vless HTTP/1.1\r\n"));
+        assert!(request.contains("Host: edge.example\r\n"));
+        let key = header_value(&request, "Sec-WebSocket-Key").expect("client key");
+        let accept = websocket_accept_for_key(&key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .expect("write ws response");
+
+        let payload = read_masked_client_frame(&mut stream);
+        assert_eq!(
+            &payload[..],
+            &[
+                0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
+                0xdd, 0xee, 0xff, 0x00, 0x01, 0x01, 0xbb, 0x02, 0x0b, b'e', b'x', b'a', b'm', b'p',
+                b'l', b'e', b'.', b'c', b'o', b'm',
+            ]
+        );
+        stream
+            .write_all(b"\x82\x02\x00\x00")
+            .expect("write vless response header");
+    });
+    let outbound = VlessWsOutbound::new(
+        Endpoint::new("127.0.0.1", port),
+        "edge.example",
+        "/vless",
+        "00112233-4455-6677-8899-aabbccddeeff",
+        None,
+    );
+
+    outbound
+        .connect(
+            &OutboundTarget::new("example.com", 443),
+            std::time::Duration::from_secs(1),
+        )
+        .expect("vless ws connect");
 
     server.join().expect("server thread");
 }
