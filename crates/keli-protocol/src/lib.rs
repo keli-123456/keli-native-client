@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
+use serde::Deserialize;
 use sha2::{Digest, Sha224};
 
 const VLESS_VERSION: u8 = 0x00;
@@ -127,6 +129,202 @@ impl fmt::Display for ProtocolValidationError {
 }
 
 impl std::error::Error for ProtocolValidationError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedOutboundProfiles {
+    pub profiles: Vec<OutboundProfile>,
+    pub skipped: Vec<SkippedOutboundProfile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedOutboundProfile {
+    pub name: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubscriptionParseError {
+    InvalidYaml(String),
+}
+
+impl fmt::Display for SubscriptionParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidYaml(error) => write!(f, "invalid Mihomo YAML: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for SubscriptionParseError {}
+
+pub fn parse_mihomo_outbound_profiles(
+    input: &str,
+) -> Result<ParsedOutboundProfiles, SubscriptionParseError> {
+    let config: MihomoConfig = serde_yaml::from_str(input)
+        .map_err(|error| SubscriptionParseError::InvalidYaml(error.to_string()))?;
+    let mut profiles = Vec::new();
+    let mut skipped = Vec::new();
+
+    for (index, proxy) in config.proxies.into_iter().enumerate() {
+        match mihomo_proxy_to_profile(proxy, index) {
+            Ok(profile) => profiles.push(profile),
+            Err(skip) => skipped.push(skip),
+        }
+    }
+
+    Ok(ParsedOutboundProfiles { profiles, skipped })
+}
+
+#[derive(Debug, Deserialize)]
+struct MihomoConfig {
+    #[serde(default)]
+    proxies: Vec<MihomoProxy>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct MihomoProxy {
+    name: Option<String>,
+    #[serde(rename = "type")]
+    protocol: Option<String>,
+    server: Option<String>,
+    port: Option<u16>,
+    password: Option<String>,
+    uuid: Option<String>,
+    tls: Option<bool>,
+    sni: Option<String>,
+    servername: Option<String>,
+    skip_cert_verify: Option<bool>,
+    network: Option<String>,
+    ws_opts: Option<MihomoWsOptions>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MihomoWsOptions {
+    path: Option<String>,
+    headers: Option<HashMap<String, String>>,
+}
+
+fn mihomo_proxy_to_profile(
+    proxy: MihomoProxy,
+    index: usize,
+) -> Result<OutboundProfile, SkippedOutboundProfile> {
+    let name = non_empty(proxy.name).unwrap_or_else(|| format!("proxy-{}", index + 1));
+    let Some(protocol_name) = non_empty(proxy.protocol) else {
+        return Err(skip(name, "missing protocol type"));
+    };
+    let Some(server) = non_empty(proxy.server) else {
+        return Err(skip(name, "missing server"));
+    };
+    let Some(port) = proxy.port else {
+        return Err(skip(name, "missing port"));
+    };
+
+    let protocol = match protocol_name.to_ascii_lowercase().as_str() {
+        "trojan" => ProxyProtocol::Trojan,
+        "vless" => ProxyProtocol::Vless,
+        other => return Err(skip(name, format!("unsupported protocol: {other}"))),
+    };
+    let credential = match protocol {
+        ProxyProtocol::Trojan => non_empty(proxy.password)
+            .ok_or_else(|| skip(name.clone(), "missing trojan password"))?,
+        ProxyProtocol::Vless => {
+            non_empty(proxy.uuid).ok_or_else(|| skip(name.clone(), "missing vless uuid"))?
+        }
+        ProxyProtocol::Hy2 | ProxyProtocol::Shadowsocks => unreachable!("filtered above"),
+    };
+    let transport = mihomo_transport(&name, &server, proxy.network.as_deref(), proxy.ws_opts)?;
+    let security = mihomo_security(
+        &protocol,
+        &server,
+        proxy.tls,
+        proxy.sni,
+        proxy.servername,
+        proxy.skip_cert_verify,
+    );
+    let profile = OutboundProfile {
+        tag: name.clone(),
+        protocol,
+        endpoint: Endpoint::new(server, port),
+        transport,
+        security,
+        credential,
+    };
+
+    profile
+        .validate()
+        .map_err(|error| skip(name, format!("invalid profile: {error}")))?;
+    Ok(profile)
+}
+
+fn mihomo_transport(
+    name: &str,
+    server: &str,
+    network: Option<&str>,
+    ws_opts: Option<MihomoWsOptions>,
+) -> Result<TransportKind, SkippedOutboundProfile> {
+    match network.unwrap_or("tcp").to_ascii_lowercase().as_str() {
+        "" | "tcp" => Ok(TransportKind::Tcp),
+        "ws" | "websocket" => {
+            let path = ws_opts
+                .as_ref()
+                .and_then(|opts| non_empty(opts.path.clone()))
+                .unwrap_or_else(|| "/".to_string());
+            let host = ws_opts
+                .and_then(|opts| opts.headers)
+                .and_then(|headers| header_value_case_insensitive(&headers, "host"))
+                .or_else(|| Some(server.to_string()));
+            Ok(TransportKind::WebSocket { path, host })
+        }
+        other => Err(skip(
+            name.to_string(),
+            format!("unsupported transport: {other}"),
+        )),
+    }
+}
+
+fn mihomo_security(
+    protocol: &ProxyProtocol,
+    server: &str,
+    tls: Option<bool>,
+    sni: Option<String>,
+    servername: Option<String>,
+    skip_cert_verify: Option<bool>,
+) -> SecurityKind {
+    let sni = non_empty(sni)
+        .or_else(|| non_empty(servername))
+        .or_else(|| Some(server.to_string()));
+    let tls_enabled = tls.unwrap_or(matches!(protocol, ProxyProtocol::Trojan));
+    if tls_enabled {
+        SecurityKind::Tls {
+            sni,
+            skip_verify: skip_cert_verify.unwrap_or(false),
+        }
+    } else {
+        SecurityKind::None
+    }
+}
+
+fn header_value_case_insensitive(headers: &HashMap<String, String>, name: &str) -> Option<String> {
+    headers.iter().find_map(|(key, value)| {
+        key.eq_ignore_ascii_case(name)
+            .then(|| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
+}
+
+fn non_empty(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn skip(name: String, reason: impl Into<String>) -> SkippedOutboundProfile {
+    SkippedOutboundProfile {
+        name,
+        reason: reason.into(),
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProtocolEncodingError {
