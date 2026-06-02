@@ -14,8 +14,8 @@ use keli_net_core::{
 };
 use keli_platform::PlatformCapabilities;
 use keli_protocol::{
-    parse_mihomo_outbound_profiles, Endpoint, OutboundProfile, ProxyProtocol, SecurityKind,
-    TransportKind,
+    parse_mihomo_outbound_profiles, parse_subscription_outbound_profiles, Endpoint,
+    OutboundProfile, ProxyProtocol, SecurityKind, TransportKind,
 };
 
 const DEFAULT_FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -522,6 +522,26 @@ pub fn mixed_runtime_from_mihomo_config_text(
 ) -> Result<MixedProxyRuntime, String> {
     let parsed = parse_mihomo_outbound_profiles(config_text)
         .map_err(|error| format!("profile config parse failed: {error}"))?;
+    mixed_runtime_from_parsed_profiles(parsed, block_domains, relay_options, outbound_tag)
+}
+
+pub fn mixed_runtime_from_subscription_config_text(
+    config_text: &str,
+    block_domains: Vec<String>,
+    relay_options: RelayOptions,
+    outbound_tag: Option<String>,
+) -> Result<MixedProxyRuntime, String> {
+    let parsed = parse_subscription_outbound_profiles(config_text)
+        .map_err(|error| format!("profile config parse failed: {error}"))?;
+    mixed_runtime_from_parsed_profiles(parsed, block_domains, relay_options, outbound_tag)
+}
+
+fn mixed_runtime_from_parsed_profiles(
+    parsed: keli_protocol::ParsedOutboundProfiles,
+    block_domains: Vec<String>,
+    relay_options: RelayOptions,
+    outbound_tag: Option<String>,
+) -> Result<MixedProxyRuntime, String> {
     let available_tags: Vec<String> = parsed
         .profiles
         .iter()
@@ -557,7 +577,12 @@ fn mixed_runtime_from_mihomo_config_path(
 ) -> Result<MixedProxyRuntime, String> {
     let config_text =
         fs::read_to_string(path).map_err(|error| format!("read profile config {path}: {error}"))?;
-    mixed_runtime_from_mihomo_config_text(&config_text, block_domains, relay_options, outbound_tag)
+    mixed_runtime_from_subscription_config_text(
+        &config_text,
+        block_domains,
+        relay_options,
+        outbound_tag,
+    )
 }
 
 fn mixed_runtime_from_cli(

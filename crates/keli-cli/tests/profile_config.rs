@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use keli_cli::mixed_runtime_from_mihomo_config_text;
+use keli_cli::{
+    mixed_runtime_from_mihomo_config_text, mixed_runtime_from_subscription_config_text,
+};
 use keli_net_core::{RelayOptions, RouteAction, RouteTarget};
 
 #[test]
@@ -56,6 +58,27 @@ proxies:
 
     assert!(error.contains("outbound tag not found"));
     assert!(error.contains("missing"));
+}
+
+#[test]
+fn subscription_profile_config_accepts_base64_share_links() {
+    let base64_links = "dHJvamFuOi8vcGFzc3dvcmRAZXhhbXBsZS5jb206NDQzP3NlY3VyaXR5PXRscyZzbmk9ZWRnZS5leGFtcGxlJnR5cGU9d3MmaG9zdD1lZGdlLmV4YW1wbGUmcGF0aD0lMkZhbnN3ZXImYWxsb3dJbnNlY3VyZT0xI3Ryb2phbi13cw==";
+
+    let runtime = mixed_runtime_from_subscription_config_text(
+        base64_links,
+        Vec::new(),
+        relay_options(),
+        None,
+    )
+    .expect("runtime from base64 share config");
+
+    let decision = runtime
+        .routes
+        .decide(&RouteTarget::Domain("youtube.com".to_string()));
+    assert_eq!(
+        decision.action,
+        RouteAction::Outbound("trojan-ws".to_string())
+    );
 }
 
 fn relay_options() -> RelayOptions {

@@ -180,6 +180,16 @@ pub fn parse_mihomo_outbound_profiles(
     Ok(ParsedOutboundProfiles { profiles, skipped })
 }
 
+pub fn parse_subscription_outbound_profiles(
+    input: &str,
+) -> Result<ParsedOutboundProfiles, SubscriptionParseError> {
+    if looks_like_mihomo_yaml(input) {
+        parse_mihomo_outbound_profiles(input)
+    } else {
+        parse_share_outbound_profiles(input)
+    }
+}
+
 pub fn parse_share_outbound_profiles(
     input: &str,
 ) -> Result<ParsedOutboundProfiles, SubscriptionParseError> {
@@ -204,6 +214,13 @@ pub fn parse_share_outbound_profiles(
 struct MihomoConfig {
     #[serde(default)]
     proxies: Vec<MihomoProxy>,
+}
+
+fn looks_like_mihomo_yaml(input: &str) -> bool {
+    input
+        .lines()
+        .map(str::trim_start)
+        .any(|line| line.starts_with("proxies:"))
 }
 
 #[derive(Debug, Deserialize)]
