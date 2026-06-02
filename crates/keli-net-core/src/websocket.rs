@@ -61,6 +61,11 @@ impl WebSocketClientStream {
         self.reader.set_read_timeout(timeout)
     }
 
+    pub fn set_nonblocking_mode(&self, nonblocking: bool) -> io::Result<()> {
+        self.reader.set_nonblocking(nonblocking)?;
+        self.writer.set_nonblocking(nonblocking)
+    }
+
     pub fn shutdown_write(&self) -> io::Result<()> {
         self.writer.shutdown(Shutdown::Write)
     }

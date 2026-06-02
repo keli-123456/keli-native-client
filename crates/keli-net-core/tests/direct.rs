@@ -5,9 +5,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use keli_net_core::{
-    relay_tcp_bidirectional, relay_tcp_bidirectional_with_options, ConnectionErrorKind,
-    DirectTcpConnector, DnsCache, DnsEngine, DnsError, DnsResolver, OutboundTarget, RelayOptions,
-    RouteTarget, Socks5Address, Socks5Request,
+    relay_owned_bidirectional_with_options, relay_tcp_bidirectional,
+    relay_tcp_bidirectional_with_options, ConnectionErrorKind, DirectTcpConnector, DnsCache,
+    DnsEngine, DnsError, DnsResolver, OutboundTarget, OwnedRelayStream, RelayOptions, RouteTarget,
+    Socks5Address, Socks5Request,
 };
 
 #[test]
@@ -128,6 +129,45 @@ fn relay_copies_bytes_in_both_directions() {
 }
 
 #[test]
+fn relay_copies_bytes_with_non_clone_remote_stream() {
+    let (mut inbound_client, inbound_core) = tcp_pair();
+    let (outbound_core, mut outbound_server) = tcp_pair();
+
+    let relay = thread::spawn(move || {
+        relay_owned_bidirectional_with_options(
+            inbound_core,
+            NonCloneTcpStream(outbound_core),
+            RelayOptions {
+                first_byte_timeout: Some(Duration::from_secs(1)),
+                idle_timeout: Some(Duration::from_secs(1)),
+            },
+        )
+    });
+
+    inbound_client.write_all(b"ping").expect("write inbound");
+    let mut inbound_payload = [0; 4];
+    outbound_server
+        .read_exact(&mut inbound_payload)
+        .expect("read outbound side");
+    assert_eq!(&inbound_payload, b"ping");
+
+    outbound_server.write_all(b"pong").expect("write outbound");
+    let mut outbound_payload = [0; 4];
+    inbound_client
+        .read_exact(&mut outbound_payload)
+        .expect("read inbound side");
+    assert_eq!(&outbound_payload, b"pong");
+
+    inbound_client.shutdown(Shutdown::Both).ok();
+    outbound_server.shutdown(Shutdown::Both).ok();
+
+    let stats = relay.join().expect("relay thread").expect("relay result");
+    assert_eq!(stats.client_to_remote_bytes, 4);
+    assert_eq!(stats.remote_to_client_bytes, 4);
+    assert!(stats.remote_first_byte_after.is_some());
+}
+
+#[test]
 fn relay_records_remote_first_byte_after_start() {
     let (mut inbound_client, inbound_core) = tcp_pair();
     let (outbound_core, mut outbound_server) = tcp_pair();
@@ -215,6 +255,67 @@ fn relay_times_out_after_remote_becomes_idle() {
     outbound_server.shutdown(Shutdown::Both).ok();
 }
 
+#[test]
+fn owned_relay_times_out_waiting_for_remote_first_byte() {
+    let (mut inbound_client, inbound_core) = tcp_pair();
+    let (outbound_core, _outbound_server) = tcp_pair();
+
+    inbound_client.write_all(b"ping").expect("write inbound");
+    let relay = thread::spawn(move || {
+        relay_owned_bidirectional_with_options(
+            inbound_core,
+            NonCloneTcpStream(outbound_core),
+            RelayOptions {
+                first_byte_timeout: Some(Duration::from_millis(30)),
+                idle_timeout: None,
+            },
+        )
+    });
+
+    let error = relay
+        .join()
+        .expect("relay thread")
+        .expect_err("relay should time out");
+    assert_eq!(error.kind, ConnectionErrorKind::FirstByteTimeout);
+
+    inbound_client.shutdown(Shutdown::Both).ok();
+}
+
+#[test]
+fn owned_relay_times_out_after_remote_becomes_idle() {
+    let (mut inbound_client, inbound_core) = tcp_pair();
+    let (outbound_core, mut outbound_server) = tcp_pair();
+
+    let relay = thread::spawn(move || {
+        relay_owned_bidirectional_with_options(
+            inbound_core,
+            NonCloneTcpStream(outbound_core),
+            RelayOptions {
+                first_byte_timeout: Some(Duration::from_millis(100)),
+                idle_timeout: Some(Duration::from_millis(30)),
+            },
+        )
+    });
+
+    outbound_server
+        .write_all(b"pong")
+        .expect("write first byte");
+    let mut outbound_payload = [0; 4];
+    inbound_client
+        .read_exact(&mut outbound_payload)
+        .expect("read first response");
+    assert_eq!(&outbound_payload, b"pong");
+
+    let error = relay
+        .join()
+        .expect("relay thread")
+        .expect_err("relay should time out after idle");
+    assert_eq!(error.kind, ConnectionErrorKind::IdleTimeout);
+
+    inbound_client.shutdown(Shutdown::Both).ok();
+    outbound_server.shutdown(Shutdown::Both).ok();
+}
+
 fn tcp_pair() -> (TcpStream, TcpStream) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind tcp pair");
     let port = listener.local_addr().expect("pair local addr").port();
@@ -254,5 +355,37 @@ impl DnsResolver for CountingResolver {
         assert_eq!(host, "example.test");
         *self.calls.lock().expect("calls lock") += 1;
         Ok(self.ips.clone())
+    }
+}
+
+struct NonCloneTcpStream(TcpStream);
+
+impl Read for NonCloneTcpStream {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buffer)
+    }
+}
+
+impl Write for NonCloneTcpStream {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.0.write(buffer)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+
+impl OwnedRelayStream for NonCloneTcpStream {
+    fn set_nonblocking_mode(&mut self, nonblocking: bool) -> std::io::Result<()> {
+        self.0.set_nonblocking(nonblocking)
+    }
+
+    fn shutdown_write(&mut self) -> std::io::Result<()> {
+        self.0.shutdown(Shutdown::Write)
+    }
+
+    fn shutdown_both(&mut self) -> std::io::Result<()> {
+        self.0.shutdown(Shutdown::Both)
     }
 }

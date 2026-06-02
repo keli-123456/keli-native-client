@@ -503,6 +503,49 @@ impl From<io::Error> for RelayError {
     }
 }
 
+pub trait OwnedRelayStream: Read + Write {
+    fn set_nonblocking_mode(&mut self, nonblocking: bool) -> io::Result<()>;
+    fn shutdown_write(&mut self) -> io::Result<()>;
+    fn shutdown_both(&mut self) -> io::Result<()>;
+}
+
+impl OwnedRelayStream for TcpStream {
+    fn set_nonblocking_mode(&mut self, nonblocking: bool) -> io::Result<()> {
+        self.set_nonblocking(nonblocking)
+    }
+
+    fn shutdown_write(&mut self) -> io::Result<()> {
+        self.shutdown(Shutdown::Write)
+    }
+
+    fn shutdown_both(&mut self) -> io::Result<()> {
+        self.shutdown(Shutdown::Both)
+    }
+}
+
+impl OwnedRelayStream for OutboundConnection {
+    fn set_nonblocking_mode(&mut self, nonblocking: bool) -> io::Result<()> {
+        match self {
+            Self::Tcp(stream) => stream.set_nonblocking(nonblocking),
+            Self::WebSocket(stream) => stream.set_nonblocking_mode(nonblocking),
+        }
+    }
+
+    fn shutdown_write(&mut self) -> io::Result<()> {
+        match self {
+            Self::Tcp(stream) => stream.shutdown(Shutdown::Write),
+            Self::WebSocket(stream) => stream.shutdown_write(),
+        }
+    }
+
+    fn shutdown_both(&mut self) -> io::Result<()> {
+        match self {
+            Self::Tcp(stream) => stream.shutdown(Shutdown::Both),
+            Self::WebSocket(stream) => stream.shutdown_both(),
+        }
+    }
+}
+
 pub fn relay_tcp_bidirectional(
     client: TcpStream,
     remote: TcpStream,
@@ -516,6 +559,111 @@ pub fn relay_tcp_bidirectional_with_options(
     options: RelayOptions,
 ) -> Result<RelayStats, RelayError> {
     relay_outbound_bidirectional_with_options(client, OutboundConnection::Tcp(remote), options)
+}
+
+pub fn relay_owned_bidirectional_with_options<R: OwnedRelayStream>(
+    mut client: TcpStream,
+    mut remote: R,
+    options: RelayOptions,
+) -> Result<RelayStats, RelayError> {
+    client.set_nonblocking(true)?;
+    remote.set_nonblocking_mode(true)?;
+
+    let started = Instant::now();
+    let mut upload = PendingWrite::new();
+    let mut download = PendingWrite::new();
+    let mut upload_buffer = [0; 16 * 1024];
+    let mut download_buffer = [0; 16 * 1024];
+    let mut client_eof = false;
+    let mut remote_eof = false;
+    let mut remote_write_shutdown = false;
+    let mut client_to_remote_bytes = 0;
+    let mut remote_to_client_bytes = 0;
+    let mut remote_first_byte_after = None;
+    let mut last_remote_byte_at = started;
+
+    loop {
+        let mut progressed = false;
+
+        match pump_read(&mut client, &mut upload, &mut upload_buffer, client_eof)? {
+            PumpRead::Bytes(bytes) => {
+                client_to_remote_bytes += bytes as u64;
+                progressed = true;
+            }
+            PumpRead::Eof => {
+                client_eof = true;
+                progressed = true;
+            }
+            PumpRead::NoProgress => {}
+        }
+
+        match pump_read(&mut remote, &mut download, &mut download_buffer, remote_eof)? {
+            PumpRead::Bytes(bytes) => {
+                if remote_first_byte_after.is_none() {
+                    remote_first_byte_after = Some(started.elapsed());
+                }
+                remote_to_client_bytes += bytes as u64;
+                last_remote_byte_at = Instant::now();
+                progressed = true;
+            }
+            PumpRead::Eof => {
+                remote_eof = true;
+                progressed = true;
+            }
+            PumpRead::NoProgress => {}
+        }
+
+        if pump_write(&mut remote, &mut upload)? {
+            progressed = true;
+        }
+        if pump_write(&mut client, &mut download)? {
+            progressed = true;
+        }
+
+        if client_eof && upload.is_empty() && !remote_write_shutdown {
+            remote.shutdown_write().ok();
+            remote_write_shutdown = true;
+        }
+        if remote_eof && download.is_empty() {
+            client.shutdown(Shutdown::Write).ok();
+            break;
+        }
+
+        if remote_first_byte_after.is_none() {
+            if let Some(timeout) = options.first_byte_timeout {
+                if started.elapsed() >= timeout {
+                    client.shutdown(Shutdown::Both).ok();
+                    remote.shutdown_both().ok();
+                    return Err(relay_timeout_error(
+                        ConnectionErrorKind::FirstByteTimeout,
+                        "timed out waiting for remote first byte",
+                    ));
+                }
+            }
+        } else if let Some(timeout) = options.idle_timeout {
+            if last_remote_byte_at.elapsed() >= timeout {
+                client.shutdown(Shutdown::Both).ok();
+                remote.shutdown_both().ok();
+                return Err(relay_timeout_error(
+                    ConnectionErrorKind::IdleTimeout,
+                    "remote stream became idle",
+                ));
+            }
+        }
+
+        if !progressed {
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    remote.shutdown_both().ok();
+    client.shutdown(Shutdown::Both).ok();
+
+    Ok(RelayStats {
+        client_to_remote_bytes,
+        remote_to_client_bytes,
+        remote_first_byte_after,
+    })
 }
 
 pub fn relay_outbound_bidirectional_with_options(
@@ -561,6 +709,102 @@ pub fn relay_outbound_bidirectional_with_options(
         remote_to_client_bytes,
         remote_first_byte_after,
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PumpRead {
+    Bytes(usize),
+    Eof,
+    NoProgress,
+}
+
+#[derive(Debug, Default)]
+struct PendingWrite {
+    bytes: Vec<u8>,
+    offset: usize,
+}
+
+impl PendingWrite {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.offset >= self.bytes.len()
+    }
+
+    fn set(&mut self, bytes: &[u8]) {
+        self.bytes.clear();
+        self.bytes.extend_from_slice(bytes);
+        self.offset = 0;
+    }
+
+    fn remaining(&self) -> &[u8] {
+        &self.bytes[self.offset..]
+    }
+
+    fn advance(&mut self, bytes: usize) {
+        self.offset += bytes;
+        if self.is_empty() {
+            self.bytes.clear();
+            self.offset = 0;
+        }
+    }
+}
+
+fn pump_read(
+    reader: &mut impl Read,
+    pending: &mut PendingWrite,
+    buffer: &mut [u8],
+    eof: bool,
+) -> Result<PumpRead, RelayError> {
+    if eof || !pending.is_empty() {
+        return Ok(PumpRead::NoProgress);
+    }
+
+    match reader.read(buffer) {
+        Ok(0) => Ok(PumpRead::Eof),
+        Ok(bytes) => {
+            pending.set(&buffer[..bytes]);
+            Ok(PumpRead::Bytes(bytes))
+        }
+        Err(error) if is_nonblocking_pause(&error) => Ok(PumpRead::NoProgress),
+        Err(error) => Err(RelayError::from(error)),
+    }
+}
+
+fn pump_write(writer: &mut impl Write, pending: &mut PendingWrite) -> Result<bool, RelayError> {
+    let mut progressed = false;
+    while !pending.is_empty() {
+        match writer.write(pending.remaining()) {
+            Ok(0) => {
+                return Err(RelayError::from(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "relay writer returned zero bytes",
+                )));
+            }
+            Ok(bytes) => {
+                pending.advance(bytes);
+                progressed = true;
+            }
+            Err(error) if is_nonblocking_pause(&error) => return Ok(progressed),
+            Err(error) => return Err(RelayError::from(error)),
+        }
+    }
+    Ok(progressed)
+}
+
+fn is_nonblocking_pause(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::WouldBlock
+        || error.kind() == io::ErrorKind::TimedOut
+        || error.kind() == io::ErrorKind::Interrupted
+}
+
+fn relay_timeout_error(kind: ConnectionErrorKind, message: &'static str) -> RelayError {
+    RelayError {
+        kind,
+        source: io::Error::new(io::ErrorKind::TimedOut, message),
+    }
 }
 
 fn join_copy(handle: thread::JoinHandle<io::Result<u64>>) -> io::Result<u64> {
