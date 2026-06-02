@@ -61,3 +61,21 @@ fn parses_base64_trojan_ws_tls_share_link() {
     assert_eq!(profile.credential, "password");
     assert_eq!(profile.flow, None);
 }
+
+#[test]
+fn parses_shadowsocks_share_link() {
+    let links = "ss://YWVzLTI1Ni1nY206c2VjcmV0@ss.example.com:8388#ss-aead";
+
+    let parsed = parse_share_outbound_profiles(links).expect("parse share links");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "ss-aead");
+    assert_eq!(profile.protocol, ProxyProtocol::Shadowsocks);
+    assert_eq!(profile.endpoint, Endpoint::new("ss.example.com", 8388));
+    assert_eq!(profile.transport, TransportKind::Tcp);
+    assert_eq!(profile.security, SecurityKind::None);
+    assert_eq!(profile.credential, "secret");
+    assert_eq!(profile.cipher, Some("aes-256-gcm".to_string()));
+}

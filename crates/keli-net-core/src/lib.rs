@@ -12,9 +12,9 @@ pub use direct::{
     relay_outbound_bidirectional_with_options, relay_owned_bidirectional_with_options,
     relay_tcp_bidirectional, relay_tcp_bidirectional_with_options, DirectTcpConnector,
     OutboundConnection, OutboundProfileError, OutboundRegistry, OutboundTarget, OwnedRelayStream,
-    RelayError, RelayOptions, RelayStats, TlsTcpStream, TrojanTcpOutbound, TrojanTlsTcpOutbound,
-    TrojanTlsWsOutbound, TrojanWsOutbound, VlessTcpOutbound, VlessTlsTcpOutbound,
-    VlessTlsWsOutbound, VlessWsOutbound,
+    RelayError, RelayOptions, RelayStats, ShadowsocksTcpOutbound, TlsTcpStream, TrojanTcpOutbound,
+    TrojanTlsTcpOutbound, TrojanTlsWsOutbound, TrojanWsOutbound, VlessTcpOutbound,
+    VlessTlsTcpOutbound, VlessTlsWsOutbound, VlessWsOutbound,
 };
 pub use dns::{DnsCache, DnsEngine, DnsError, DnsResolver, ResolvedAddress, SystemDnsResolver};
 pub use http_connect::{

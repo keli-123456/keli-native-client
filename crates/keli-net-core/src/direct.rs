@@ -5,13 +5,18 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use rand::RngCore;
+use shadowsocks_crypto::kind::{CipherCategory, CipherKind};
+use shadowsocks_crypto::v1::{openssl_bytes_to_key, Cipher};
+
 use crate::{
     ConnectionErrorKind, DnsCache, DnsEngine, DnsResolver, RouteTarget, Socks5Address,
     Socks5Request, SystemDnsResolver,
 };
 use keli_protocol::{
-    encode_trojan_tcp_request_header, encode_vless_tcp_request_header, Endpoint, OutboundProfile,
-    ProtocolEncodingError, ProtocolValidationError, ProxyProtocol, SecurityKind, TransportKind,
+    encode_shadowsocks_tcp_request_header, encode_trojan_tcp_request_header,
+    encode_vless_tcp_request_header, Endpoint, OutboundProfile, ProtocolEncodingError,
+    ProtocolValidationError, ProxyProtocol, SecurityKind, TransportKind,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +98,7 @@ pub struct OutboundRegistry {
     vless_tls_tcp_tags: HashMap<String, VlessTlsTcpOutbound>,
     vless_ws_tags: HashMap<String, VlessWsOutbound>,
     vless_tls_ws_tags: HashMap<String, VlessTlsWsOutbound>,
+    shadowsocks_tcp_tags: HashMap<String, ShadowsocksTcpOutbound>,
 }
 
 impl OutboundRegistry {
@@ -125,6 +131,7 @@ impl OutboundRegistry {
             transport,
             security,
             credential,
+            cipher,
             flow,
         } = profile;
         match (protocol, transport, security) {
@@ -203,6 +210,16 @@ impl OutboundRegistry {
                 );
                 Ok(())
             }
+            (ProxyProtocol::Shadowsocks, TransportKind::Tcp, SecurityKind::None) => {
+                let cipher = cipher.ok_or_else(|| {
+                    OutboundProfileError::MissingShadowsocksCipher { tag: tag.clone() }
+                })?;
+                self.add_shadowsocks_tcp(
+                    tag,
+                    ShadowsocksTcpOutbound::new(endpoint, cipher, credential),
+                );
+                Ok(())
+            }
             (protocol, transport, security) => Err(OutboundProfileError::UnsupportedTransport {
                 tag,
                 protocol,
@@ -248,6 +265,14 @@ impl OutboundRegistry {
         self.vless_tls_ws_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_shadowsocks_tcp(
+        &mut self,
+        tag: impl Into<String>,
+        outbound: ShadowsocksTcpOutbound,
+    ) {
+        self.shadowsocks_tcp_tags.insert(tag.into(), outbound);
+    }
+
     pub fn connect(
         &self,
         tag: &str,
@@ -272,6 +297,8 @@ impl OutboundRegistry {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tls_ws_tags.get(tag) {
             outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
+            outbound.connect(target, timeout)
         } else {
             Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -290,6 +317,9 @@ pub enum OutboundProfileError {
     UnsupportedSecurity {
         tag: String,
         security: SecurityKind,
+    },
+    MissingShadowsocksCipher {
+        tag: String,
     },
     UnsupportedTransport {
         tag: String,
@@ -310,6 +340,9 @@ impl std::fmt::Display for OutboundProfileError {
                     f,
                     "outbound profile {tag} security is unsupported: {security:?}"
                 )
+            }
+            Self::MissingShadowsocksCipher { tag } => {
+                write!(f, "outbound profile {tag} shadowsocks cipher is missing")
             }
             Self::UnsupportedTransport {
                 tag,
@@ -622,6 +655,208 @@ impl VlessTlsWsOutbound {
         read_vless_response_header_from_stream(&mut stream)?;
         Ok(OutboundConnection::Owned(Box::new(stream)))
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShadowsocksTcpOutbound {
+    pub server: Endpoint,
+    pub cipher: String,
+    pub password: String,
+}
+
+impl ShadowsocksTcpOutbound {
+    pub fn new(server: Endpoint, cipher: impl Into<String>, password: impl Into<String>) -> Self {
+        Self {
+            server,
+            cipher: cipher.into(),
+            password: password.into(),
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let mut stream = DirectTcpConnector::connect(&server, timeout)?;
+        let cipher_kind = shadowsocks_cipher_kind(&self.cipher)?;
+        let key = shadowsocks_key(cipher_kind, &self.password);
+        let mut salt = vec![0; cipher_kind.salt_len()];
+        rand::thread_rng().fill_bytes(&mut salt);
+        stream.write_all(&salt)?;
+        let encrypt_cipher = Cipher::new(cipher_kind, &key, &salt);
+        let mut stream = ShadowsocksTcpStream {
+            inner: stream,
+            cipher_kind,
+            key,
+            encrypt_cipher,
+            decrypt_cipher: None,
+            read_buffer: Vec::new(),
+            read_offset: 0,
+        };
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header =
+            encode_shadowsocks_tcp_request_header(&target).map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        Ok(OutboundConnection::Owned(Box::new(stream)))
+    }
+}
+
+pub struct ShadowsocksTcpStream {
+    inner: TcpStream,
+    cipher_kind: CipherKind,
+    key: Vec<u8>,
+    encrypt_cipher: Cipher,
+    decrypt_cipher: Option<Cipher>,
+    read_buffer: Vec<u8>,
+    read_offset: usize,
+}
+
+impl ShadowsocksTcpStream {
+    fn read_next_chunk(&mut self) -> io::Result<bool> {
+        if self.decrypt_cipher.is_none() {
+            let mut salt = vec![0; self.cipher_kind.salt_len()];
+            if !read_exact_or_clean_eof(&mut self.inner, &mut salt)? {
+                return Ok(false);
+            }
+            self.decrypt_cipher = Some(Cipher::new(self.cipher_kind, &self.key, &salt));
+        }
+
+        let cipher = self.decrypt_cipher.as_mut().expect("decrypt cipher");
+        let tag_len = cipher.tag_len();
+        let mut encrypted_len = vec![0; 2 + tag_len];
+        if !read_exact_or_clean_eof(&mut self.inner, &mut encrypted_len)? {
+            return Ok(false);
+        }
+        if !cipher.decrypt_packet(&mut encrypted_len) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid shadowsocks chunk length tag",
+            ));
+        }
+        let payload_len = u16::from_be_bytes([encrypted_len[0], encrypted_len[1]]) as usize;
+
+        let mut encrypted_payload = vec![0; payload_len + tag_len];
+        read_exact_or_clean_eof(&mut self.inner, &mut encrypted_payload)?
+            .then_some(())
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "missing shadowsocks chunk payload",
+                )
+            })?;
+        if !cipher.decrypt_packet(&mut encrypted_payload) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid shadowsocks chunk payload tag",
+            ));
+        }
+        encrypted_payload.truncate(payload_len);
+        self.read_buffer = encrypted_payload;
+        self.read_offset = 0;
+        Ok(true)
+    }
+
+    fn write_chunk(&mut self, payload: &[u8]) -> io::Result<()> {
+        let tag_len = self.encrypt_cipher.tag_len();
+        let mut encrypted_len = vec![0; 2 + tag_len];
+        encrypted_len[..2].copy_from_slice(&(payload.len() as u16).to_be_bytes());
+        self.encrypt_cipher.encrypt_packet(&mut encrypted_len);
+        self.inner.write_all(&encrypted_len)?;
+
+        let mut encrypted_payload = vec![0; payload.len() + tag_len];
+        encrypted_payload[..payload.len()].copy_from_slice(payload);
+        self.encrypt_cipher.encrypt_packet(&mut encrypted_payload);
+        self.inner.write_all(&encrypted_payload)
+    }
+}
+
+impl Read for ShadowsocksTcpStream {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if self.read_offset >= self.read_buffer.len() && !self.read_next_chunk()? {
+            return Ok(0);
+        }
+        let remaining = &self.read_buffer[self.read_offset..];
+        let amount = remaining.len().min(buffer.len());
+        buffer[..amount].copy_from_slice(&remaining[..amount]);
+        self.read_offset += amount;
+        if self.read_offset >= self.read_buffer.len() {
+            self.read_buffer.clear();
+            self.read_offset = 0;
+        }
+        Ok(amount)
+    }
+}
+
+impl Write for ShadowsocksTcpStream {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        for chunk in buffer.chunks(u16::MAX as usize) {
+            self.write_chunk(chunk)?;
+        }
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl OwnedRelayStream for ShadowsocksTcpStream {
+    fn set_nonblocking_mode(&mut self, nonblocking: bool) -> io::Result<()> {
+        self.inner.set_nonblocking(nonblocking)
+    }
+
+    fn shutdown_write(&mut self) -> io::Result<()> {
+        self.inner.shutdown(Shutdown::Write)
+    }
+
+    fn shutdown_both(&mut self) -> io::Result<()> {
+        self.inner.shutdown(Shutdown::Both)
+    }
+}
+
+fn shadowsocks_cipher_kind(cipher: &str) -> io::Result<CipherKind> {
+    let kind = cipher.trim().parse::<CipherKind>().map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("unsupported shadowsocks cipher {cipher}: {error}"),
+        )
+    })?;
+    if kind.category() != CipherCategory::Aead {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("unsupported shadowsocks cipher category: {kind}"),
+        ));
+    }
+    Ok(kind)
+}
+
+fn shadowsocks_key(kind: CipherKind, password: &str) -> Vec<u8> {
+    let mut key = vec![0; kind.key_len()];
+    openssl_bytes_to_key(password.as_bytes(), &mut key);
+    key
+}
+
+fn read_exact_or_clean_eof(reader: &mut impl Read, buffer: &mut [u8]) -> io::Result<bool> {
+    let mut read = 0;
+    while read < buffer.len() {
+        match reader.read(&mut buffer[read..]) {
+            Ok(0) if read == 0 => return Ok(false),
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "stream ended mid-frame",
+                ))
+            }
+            Ok(bytes) => read += bytes,
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(true)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,11 +1,14 @@
 use std::io::{Read, Write};
+use std::str::FromStr;
 use std::time::Duration;
 
 use keli_net_core::{
     websocket_accept_for_key, OutboundProfileError, OutboundRegistry, OutboundTarget,
-    TrojanTcpOutbound, VlessTcpOutbound,
+    ShadowsocksTcpOutbound, TrojanTcpOutbound, VlessTcpOutbound,
 };
 use keli_protocol::{Endpoint, OutboundProfile, ProxyProtocol, SecurityKind, TransportKind};
+use shadowsocks_crypto::kind::CipherKind;
+use shadowsocks_crypto::v1::{openssl_bytes_to_key, Cipher};
 
 #[test]
 fn registered_direct_outbound_connects_to_target() {
@@ -143,6 +146,56 @@ fn registered_trojan_tcp_outbound_writes_header_and_relays_stream() {
 }
 
 #[test]
+fn registered_shadowsocks_tcp_outbound_encrypts_header_and_relays_stream() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ss server");
+    let port = listener.local_addr().expect("ss addr").port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept ss server");
+        let kind = CipherKind::from_str("aes-256-gcm").expect("cipher");
+        let key = shadowsocks_key(kind, "secret");
+
+        let mut client_salt = vec![0; kind.salt_len()];
+        stream
+            .read_exact(&mut client_salt)
+            .expect("read client salt");
+        let mut client_cipher = Cipher::new(kind, &key, &client_salt);
+
+        let request_header = read_ss_chunk(&mut stream, &mut client_cipher);
+        assert_eq!(
+            request_header, b"\x03\x0bexample.com\x01\xbb",
+            "SS request starts with SOCKS5-style target address"
+        );
+
+        let payload = read_ss_chunk(&mut stream, &mut client_cipher);
+        assert_eq!(&payload, b"ping");
+
+        let server_salt = vec![7; kind.salt_len()];
+        stream.write_all(&server_salt).expect("write server salt");
+        let mut server_cipher = Cipher::new(kind, &key, &server_salt);
+        write_ss_chunk(&mut stream, &mut server_cipher, b"pong");
+    });
+    let mut registry = OutboundRegistry::new();
+    registry.add_shadowsocks_tcp(
+        "proxy",
+        ShadowsocksTcpOutbound::new(Endpoint::new("127.0.0.1", port), "aes-256-gcm", "secret"),
+    );
+
+    let mut stream = registry
+        .connect(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+        )
+        .expect("registered shadowsocks outbound should connect");
+    stream.write_all(b"ping").expect("write payload");
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).expect("read payload");
+
+    assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn registry_from_vless_ws_profile_connects_with_profile_transport() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind vless ws server");
     let port = listener.local_addr().expect("vless ws addr").port();
@@ -184,6 +237,7 @@ fn registry_from_vless_ws_profile_connects_with_profile_transport() {
         },
         security: SecurityKind::None,
         credential: "00112233-4455-6677-8899-aabbccddeeff".to_string(),
+        cipher: None,
         flow: None,
     }])
     .expect("profile registry");
@@ -233,6 +287,7 @@ fn registry_from_vless_tcp_profile_preserves_flow() {
         transport: TransportKind::Tcp,
         security: SecurityKind::None,
         credential: "00112233-4455-6677-8899-aabbccddeeff".to_string(),
+        cipher: None,
         flow: Some("xtls-rprx-vision".to_string()),
     }])
     .expect("profile registry");
@@ -264,6 +319,7 @@ fn unsupported_transports_report_security_context() {
             skip_verify: false,
         },
         credential: "00112233-4455-6677-8899-aabbccddeeff".to_string(),
+        cipher: None,
         flow: None,
     }])
     .expect_err("vless quic profile should be explicit unsupported");
@@ -314,4 +370,45 @@ fn read_masked_client_frame(stream: &mut std::net::TcpStream) -> Vec<u8> {
         *byte ^= mask[index % 4];
     }
     payload
+}
+
+fn shadowsocks_key(kind: CipherKind, password: &str) -> Vec<u8> {
+    let mut key = vec![0; kind.key_len()];
+    openssl_bytes_to_key(password.as_bytes(), &mut key);
+    key
+}
+
+fn read_ss_chunk(stream: &mut std::net::TcpStream, cipher: &mut Cipher) -> Vec<u8> {
+    let tag_len = cipher.tag_len();
+    let mut encrypted_len = vec![0; 2 + tag_len];
+    stream
+        .read_exact(&mut encrypted_len)
+        .expect("read encrypted ss chunk length");
+    assert!(cipher.decrypt_packet(&mut encrypted_len));
+    let payload_len = u16::from_be_bytes([encrypted_len[0], encrypted_len[1]]) as usize;
+
+    let mut encrypted_payload = vec![0; payload_len + tag_len];
+    stream
+        .read_exact(&mut encrypted_payload)
+        .expect("read encrypted ss chunk payload");
+    assert!(cipher.decrypt_packet(&mut encrypted_payload));
+    encrypted_payload.truncate(payload_len);
+    encrypted_payload
+}
+
+fn write_ss_chunk(stream: &mut std::net::TcpStream, cipher: &mut Cipher, payload: &[u8]) {
+    let tag_len = cipher.tag_len();
+    let mut encrypted_len = vec![0; 2 + tag_len];
+    encrypted_len[..2].copy_from_slice(&(payload.len() as u16).to_be_bytes());
+    cipher.encrypt_packet(&mut encrypted_len);
+    stream
+        .write_all(&encrypted_len)
+        .expect("write encrypted ss chunk length");
+
+    let mut encrypted_payload = vec![0; payload.len() + tag_len];
+    encrypted_payload[..payload.len()].copy_from_slice(payload);
+    cipher.encrypt_packet(&mut encrypted_payload);
+    stream
+        .write_all(&encrypted_payload)
+        .expect("write encrypted ss chunk payload");
 }

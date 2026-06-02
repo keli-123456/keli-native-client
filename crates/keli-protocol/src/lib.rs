@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{
+    engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD},
+    Engine as _,
+};
 use serde::Deserialize;
 use sha2::{Digest, Sha224};
 use url::Url;
@@ -16,6 +19,9 @@ const TROJAN_COMMAND_CONNECT: u8 = 0x01;
 const TROJAN_ATYP_IPV4: u8 = 0x01;
 const TROJAN_ATYP_DOMAIN: u8 = 0x03;
 const TROJAN_ATYP_IPV6: u8 = 0x04;
+const SHADOWSOCKS_ATYP_IPV4: u8 = 0x01;
+const SHADOWSOCKS_ATYP_DOMAIN: u8 = 0x03;
+const SHADOWSOCKS_ATYP_IPV6: u8 = 0x04;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyProtocol {
@@ -64,6 +70,7 @@ pub struct OutboundProfile {
     pub transport: TransportKind,
     pub security: SecurityKind,
     pub credential: String,
+    pub cipher: Option<String>,
     pub flow: Option<String>,
 }
 
@@ -99,7 +106,22 @@ impl OutboundProfile {
             (ProxyProtocol::Vless, _, _) => Ok(()),
             (ProxyProtocol::Hy2, TransportKind::Quic, SecurityKind::Tls { .. }) => Ok(()),
             (ProxyProtocol::Hy2, _, _) => Err(ProtocolValidationError::InvalidHy2Transport),
-            (ProxyProtocol::Shadowsocks, _, _) => Ok(()),
+            (ProxyProtocol::Shadowsocks, TransportKind::Tcp, SecurityKind::None) => {
+                let cipher = self
+                    .cipher
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .ok_or(ProtocolValidationError::MissingShadowsocksCipher)?;
+                if is_supported_shadowsocks_aead_cipher(cipher) {
+                    Ok(())
+                } else {
+                    Err(ProtocolValidationError::InvalidShadowsocksCipher)
+                }
+            }
+            (ProxyProtocol::Shadowsocks, _, _) => {
+                Err(ProtocolValidationError::InvalidShadowsocksTransport)
+            }
         }
     }
 }
@@ -113,6 +135,9 @@ pub enum ProtocolValidationError {
     InvalidUuid,
     InvalidWebSocketPath,
     InvalidHy2Transport,
+    MissingShadowsocksCipher,
+    InvalidShadowsocksCipher,
+    InvalidShadowsocksTransport,
 }
 
 impl fmt::Display for ProtocolValidationError {
@@ -127,6 +152,11 @@ impl fmt::Display for ProtocolValidationError {
             Self::InvalidUuid => write!(f, "VLESS credential must be a UUID"),
             Self::InvalidWebSocketPath => write!(f, "WebSocket path must start with '/'"),
             Self::InvalidHy2Transport => write!(f, "HY2 requires QUIC transport with TLS"),
+            Self::MissingShadowsocksCipher => write!(f, "Shadowsocks cipher is required"),
+            Self::InvalidShadowsocksCipher => write!(f, "Shadowsocks cipher is unsupported"),
+            Self::InvalidShadowsocksTransport => {
+                write!(f, "Shadowsocks currently supports TCP without TLS")
+            }
         }
     }
 }
@@ -232,6 +262,7 @@ struct MihomoProxy {
     server: Option<String>,
     port: Option<u16>,
     password: Option<String>,
+    cipher: Option<String>,
     uuid: Option<String>,
     flow: Option<String>,
     tls: Option<bool>,
@@ -266,6 +297,7 @@ fn mihomo_proxy_to_profile(
     let protocol = match protocol_name.to_ascii_lowercase().as_str() {
         "trojan" => ProxyProtocol::Trojan,
         "vless" => ProxyProtocol::Vless,
+        "ss" | "shadowsocks" => ProxyProtocol::Shadowsocks,
         other => return Err(skip(name, format!("unsupported protocol: {other}"))),
     };
     let credential = match protocol {
@@ -274,8 +306,13 @@ fn mihomo_proxy_to_profile(
         ProxyProtocol::Vless => {
             non_empty(proxy.uuid).ok_or_else(|| skip(name.clone(), "missing vless uuid"))?
         }
-        ProxyProtocol::Hy2 | ProxyProtocol::Shadowsocks => unreachable!("filtered above"),
+        ProxyProtocol::Shadowsocks => non_empty(proxy.password)
+            .ok_or_else(|| skip(name.clone(), "missing shadowsocks password"))?,
+        ProxyProtocol::Hy2 => unreachable!("filtered above"),
     };
+    let cipher = matches!(protocol, ProxyProtocol::Shadowsocks)
+        .then(|| non_empty(proxy.cipher))
+        .flatten();
     let flow = matches!(protocol, ProxyProtocol::Vless)
         .then(|| non_empty(proxy.flow))
         .flatten();
@@ -295,6 +332,7 @@ fn mihomo_proxy_to_profile(
         transport,
         security,
         credential,
+        cipher,
         flow,
     };
 
@@ -366,6 +404,13 @@ fn non_empty(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn is_supported_shadowsocks_aead_cipher(cipher: &str) -> bool {
+    matches!(
+        cipher.to_ascii_lowercase().as_str(),
+        "aes-128-gcm" | "aes-256-gcm" | "chacha20-ietf-poly1305"
+    )
+}
+
 fn skip(name: String, reason: impl Into<String>) -> SkippedOutboundProfile {
     SkippedOutboundProfile {
         name,
@@ -381,11 +426,17 @@ fn decode_share_subscription_text(input: &str) -> Result<String, SubscriptionPar
     if compact.is_empty() {
         return Ok(String::new());
     }
-    let bytes = STANDARD
-        .decode(compact.as_bytes())
+    let bytes = decode_base64_flexible(&compact)
         .map_err(|error| SubscriptionParseError::InvalidShare(error.to_string()))?;
     String::from_utf8(bytes)
         .map_err(|error| SubscriptionParseError::InvalidShare(error.to_string()))
+}
+
+fn decode_base64_flexible(input: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    STANDARD
+        .decode(input.as_bytes())
+        .or_else(|_| URL_SAFE_NO_PAD.decode(input.as_bytes()))
+        .or_else(|_| URL_SAFE.decode(input.as_bytes()))
 }
 
 fn share_link_to_profile(
@@ -394,6 +445,9 @@ fn share_link_to_profile(
 ) -> Result<OutboundProfile, SkippedOutboundProfile> {
     let url =
         Url::parse(link).map_err(|error| skip(format!("link-{}", index + 1), error.to_string()))?;
+    if url.scheme() == "ss" {
+        return shadowsocks_share_link_to_profile(&url, link, index);
+    }
     let query: HashMap<String, String> = url.query_pairs().into_owned().collect();
     let tag = non_empty(url.fragment().map(ToString::to_string))
         .unwrap_or_else(|| format!("proxy-{}", index + 1));
@@ -425,12 +479,99 @@ fn share_link_to_profile(
         transport,
         security,
         credential,
+        cipher: None,
         flow,
     };
     profile
         .validate()
         .map_err(|error| skip(tag, format!("invalid profile: {error}")))?;
     Ok(profile)
+}
+
+fn shadowsocks_share_link_to_profile(
+    url: &Url,
+    link: &str,
+    index: usize,
+) -> Result<OutboundProfile, SkippedOutboundProfile> {
+    let tag = non_empty(url.fragment().map(ToString::to_string))
+        .unwrap_or_else(|| format!("proxy-{}", index + 1));
+    let (cipher, credential, server, port) =
+        if let Some(server) = url.host_str().map(ToString::to_string) {
+            let port = url.port().unwrap_or(8388);
+            let (cipher, password) = shadowsocks_userinfo(url)
+                .ok_or_else(|| skip(tag.clone(), "missing shadowsocks method/password"))?;
+            (cipher, password, server, port)
+        } else {
+            decode_legacy_shadowsocks_share_body(link)
+                .ok_or_else(|| skip(tag.clone(), "invalid shadowsocks share body"))?
+        };
+
+    let profile = OutboundProfile {
+        tag: tag.clone(),
+        protocol: ProxyProtocol::Shadowsocks,
+        endpoint: Endpoint::new(server, port),
+        transport: TransportKind::Tcp,
+        security: SecurityKind::None,
+        credential,
+        cipher: Some(cipher),
+        flow: None,
+    };
+    profile
+        .validate()
+        .map_err(|error| skip(tag, format!("invalid profile: {error}")))?;
+    Ok(profile)
+}
+
+fn shadowsocks_userinfo(url: &Url) -> Option<(String, String)> {
+    if !url.username().is_empty() {
+        if let Some(password) = url.password() {
+            return Some((url.username().to_string(), password.to_string()));
+        }
+        let decoded = decode_base64_flexible(url.username()).ok()?;
+        let decoded = String::from_utf8(decoded).ok()?;
+        let (cipher, password) = decoded.split_once(':')?;
+        return Some((cipher.to_string(), password.to_string()));
+    }
+    None
+}
+
+fn decode_legacy_shadowsocks_share_body(link: &str) -> Option<(String, String, String, u16)> {
+    let body = link.strip_prefix("ss://")?;
+    let body = body.split('#').next().unwrap_or(body);
+    let body = body.split('?').next().unwrap_or(body);
+    let decoded = decode_base64_flexible(body).ok()?;
+    let decoded = String::from_utf8(decoded).ok()?;
+    let (method_password, server_port) = decoded.rsplit_once('@')?;
+    let (cipher, password) = method_password.split_once(':')?;
+    let (server, port) = split_host_port(server_port, 8388)?;
+    Some((cipher.to_string(), password.to_string(), server, port))
+}
+
+fn split_host_port(value: &str, default_port: u16) -> Option<(String, u16)> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if value.starts_with('[') {
+        let end = value.find(']')?;
+        let host = value[1..end].to_string();
+        let port = value[end + 1..]
+            .strip_prefix(':')
+            .and_then(|port| port.parse::<u16>().ok())
+            .unwrap_or(default_port);
+        return Some((host, port));
+    }
+    let colon_count = value
+        .as_bytes()
+        .iter()
+        .filter(|byte| **byte == b':')
+        .count();
+    if colon_count == 1 {
+        let (host, port) = value.rsplit_once(':')?;
+        let port = port.parse::<u16>().ok().unwrap_or(default_port);
+        return Some((host.to_string(), port));
+    }
+    Some((value.to_string(), default_port))
 }
 
 fn share_link_transport(
@@ -553,6 +694,14 @@ pub fn encode_trojan_tcp_request_header(
     Ok(header)
 }
 
+pub fn encode_shadowsocks_tcp_request_header(
+    target: &Endpoint,
+) -> Result<Vec<u8>, ProtocolEncodingError> {
+    let mut header = Vec::with_capacity(4 + target.host.len());
+    encode_shadowsocks_target(&mut header, target)?;
+    Ok(header)
+}
+
 fn looks_like_uuid(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() != 36 {
@@ -618,6 +767,33 @@ fn encode_trojan_target(
         return Err(ProtocolEncodingError::InvalidTargetHost);
     }
     output.push(TROJAN_ATYP_DOMAIN);
+    output.push(host.len() as u8);
+    output.extend_from_slice(host.as_bytes());
+    output.extend_from_slice(&target.port.to_be_bytes());
+    Ok(())
+}
+
+fn encode_shadowsocks_target(
+    output: &mut Vec<u8>,
+    target: &Endpoint,
+) -> Result<(), ProtocolEncodingError> {
+    let host = target.host.trim().trim_matches(['[', ']']);
+    if let Ok(ip) = host.parse::<Ipv4Addr>() {
+        output.push(SHADOWSOCKS_ATYP_IPV4);
+        output.extend_from_slice(&ip.octets());
+        output.extend_from_slice(&target.port.to_be_bytes());
+        return Ok(());
+    }
+    if let Ok(ip) = host.parse::<Ipv6Addr>() {
+        output.push(SHADOWSOCKS_ATYP_IPV6);
+        output.extend_from_slice(&ip.octets());
+        output.extend_from_slice(&target.port.to_be_bytes());
+        return Ok(());
+    }
+    if host.is_empty() || host.len() > u8::MAX as usize {
+        return Err(ProtocolEncodingError::InvalidTargetHost);
+    }
+    output.push(SHADOWSOCKS_ATYP_DOMAIN);
     output.push(host.len() as u8);
     output.extend_from_slice(host.as_bytes());
     output.extend_from_slice(&target.port.to_be_bytes());
@@ -697,6 +873,7 @@ mod tests {
             },
             security: tls(),
             credential: "password".to_string(),
+            cipher: None,
             flow: None,
         };
 
@@ -715,6 +892,7 @@ mod tests {
             transport: TransportKind::Tcp,
             security: tls(),
             credential: "not-a-uuid".to_string(),
+            cipher: None,
             flow: None,
         };
 
@@ -733,6 +911,7 @@ mod tests {
             transport: TransportKind::Tcp,
             security: tls(),
             credential: "auth".to_string(),
+            cipher: None,
             flow: None,
         };
 
@@ -810,5 +989,13 @@ mod tests {
             &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
         );
         assert_eq!(&header[76..], b"\x01\xbb\r\n");
+    }
+
+    #[test]
+    fn encodes_shadowsocks_tcp_request_header_for_domain_target() {
+        let header = encode_shadowsocks_tcp_request_header(&Endpoint::new("example.com", 443))
+            .expect("ss header");
+
+        assert_eq!(&header, b"\x03\x0bexample.com\x01\xbb");
     }
 }

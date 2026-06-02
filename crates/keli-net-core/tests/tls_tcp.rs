@@ -41,6 +41,7 @@ fn registry_from_trojan_tls_tcp_profile_relays_over_tls() {
             skip_verify: true,
         },
         credential: "password".to_string(),
+        cipher: None,
         flow: None,
     }])
     .expect("profile registry");
@@ -99,6 +100,7 @@ fn registry_from_vless_tls_tcp_profile_relays_over_tls() {
             skip_verify: true,
         },
         credential: "00112233-4455-6677-8899-aabbccddeeff".to_string(),
+        cipher: None,
         flow: None,
     }])
     .expect("profile registry");

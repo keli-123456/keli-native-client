@@ -120,15 +120,41 @@ proxies:
 }
 
 #[test]
-fn reports_unsupported_proxy_without_dropping_supported_entries() {
+fn parses_shadowsocks_tcp_proxy_from_mihomo_yaml() {
     let yaml = r#"
 proxies:
-  - name: ss-not-yet
+  - name: SS-AEAD
     type: ss
     server: ss.example.com
     port: 8388
-    cipher: 2022-blake3-aes-128-gcm
+    cipher: chacha20-ietf-poly1305
     password: secret
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "SS-AEAD");
+    assert_eq!(profile.protocol, ProxyProtocol::Shadowsocks);
+    assert_eq!(profile.endpoint, Endpoint::new("ss.example.com", 8388));
+    assert_eq!(profile.transport, TransportKind::Tcp);
+    assert_eq!(profile.security, SecurityKind::None);
+    assert_eq!(profile.credential, "secret");
+    assert_eq!(profile.cipher, Some("chacha20-ietf-poly1305".to_string()));
+    profile.validate().expect("valid profile");
+}
+
+#[test]
+fn reports_unsupported_proxy_without_dropping_supported_entries() {
+    let yaml = r#"
+proxies:
+  - name: tuic-not-yet
+    type: tuic
+    server: tuic.example.com
+    port: 443
+    token: secret
   - name: tcp-vless
     type: vless
     server: vless.example.com
@@ -141,6 +167,6 @@ proxies:
     assert_eq!(parsed.profiles.len(), 1);
     assert_eq!(parsed.profiles[0].tag, "tcp-vless");
     assert_eq!(parsed.skipped.len(), 1);
-    assert_eq!(parsed.skipped[0].name, "ss-not-yet");
+    assert_eq!(parsed.skipped[0].name, "tuic-not-yet");
     assert!(parsed.skipped[0].reason.contains("unsupported protocol"));
 }
