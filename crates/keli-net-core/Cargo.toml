@@ -6,6 +6,10 @@ version.workspace = true
 
 [dependencies]
 base64.workspace = true
+bytes.workspace = true
+h3.workspace = true
+h3-quinn.workspace = true
+http.workspace = true
 keli-protocol.workspace = true
 rand.workspace = true
 quinn.workspace = true

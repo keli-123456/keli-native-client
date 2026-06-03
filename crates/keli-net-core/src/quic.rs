@@ -1,6 +1,11 @@
 use std::io;
 use std::sync::Arc;
 
+use keli_protocol::build_hy2_auth_request;
+
+pub type Hy2H3Connection = h3::client::Connection<h3_quinn::Connection, bytes::Bytes>;
+pub type Hy2H3SendRequest = h3::client::SendRequest<h3_quinn::OpenStreams, bytes::Bytes>;
+
 pub fn h3_rustls_client_config(skip_verify: bool) -> io::Result<rustls::ClientConfig> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let builder = rustls::ClientConfig::builder_with_provider(provider.clone())
@@ -29,6 +34,29 @@ pub fn h3_quic_client_config(skip_verify: bool) -> io::Result<quinn::ClientConfi
     let crypto = quinn::crypto::rustls::QuicClientConfig::try_from(tls)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
     Ok(quinn::ClientConfig::new(Arc::new(crypto)))
+}
+
+pub fn hy2_auth_http_request(
+    auth: &str,
+    cc_rx: u64,
+    padding: &str,
+) -> io::Result<http::Request<()>> {
+    let request = build_hy2_auth_request(auth, cc_rx, padding)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    http::Request::builder()
+        .method(request.method)
+        .uri("https://hysteria/auth")
+        .header("Hysteria-Auth", request.auth)
+        .header("Hysteria-CC-RX", request.cc_rx)
+        .header("Hysteria-Padding", request.padding)
+        .body(())
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+}
+
+pub async fn h3_client_from_quinn_connection(
+    connection: quinn::Connection,
+) -> Result<(Hy2H3Connection, Hy2H3SendRequest), h3::error::ConnectionError> {
+    h3::client::new(h3_quinn::Connection::new(connection)).await
 }
 
 #[derive(Debug)]
