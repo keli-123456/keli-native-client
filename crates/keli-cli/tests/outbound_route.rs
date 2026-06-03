@@ -282,6 +282,62 @@ fn http_connect_relays_through_registered_hy2_route() {
     hy2_thread.join().expect("hy2 thread");
 }
 
+#[test]
+fn http_connect_relays_through_registered_tuic_route() {
+    let (tuic_addr, tuic_thread) = spawn_tuic_echo_server();
+    let inbound = TcpListener::bind("127.0.0.1:0").expect("bind inbound");
+    let inbound_port = inbound.local_addr().expect("inbound addr").port();
+    let outbounds = OutboundRegistry::from_profiles([keli_protocol::OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: keli_protocol::ProxyProtocol::Tuic,
+        endpoint: Endpoint::new("127.0.0.1", tuic_addr.port()),
+        transport: keli_protocol::TransportKind::Quic,
+        security: keli_protocol::SecurityKind::Tls {
+            sni: Some("localhost".to_string()),
+            skip_verify: true,
+        },
+        credential: "00112233-4455-6677-8899-aabbccddeeff:secret".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("build TUIC outbound registry");
+    let runtime = MixedProxyRuntime::with_routes_and_outbounds(
+        RouteEngine::new(RouteAction::Outbound("proxy".to_string())),
+        outbounds,
+    );
+    let inbound_thread = thread::spawn(move || {
+        let (mut stream, _) = inbound.accept().expect("accept inbound");
+        handle_mixed_connection_with_routes(&mut stream, &runtime)
+            .expect("handle TUIC outbound route");
+    });
+
+    let mut client = TcpStream::connect(("127.0.0.1", inbound_port)).expect("connect inbound");
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    write!(
+        client,
+        "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n"
+    )
+    .expect("write CONNECT");
+
+    let mut connect_response = Vec::new();
+    read_until_header_end(&mut client, &mut connect_response);
+    assert_eq!(
+        connect_response,
+        b"HTTP/1.1 200 Connection Established\r\n\r\n"
+    );
+
+    client.write_all(b"ping").expect("write ping");
+    let mut response = [0; 4];
+    client.read_exact(&mut response).expect("read pong");
+    assert_eq!(&response, b"pong");
+    client.shutdown(Shutdown::Both).ok();
+
+    inbound_thread.join().expect("inbound thread");
+    tuic_thread.join().expect("tuic thread");
+}
+
 fn read_until_header_end(stream: &mut TcpStream, output: &mut Vec<u8>) {
     let mut byte = [0; 1];
     while !output.ends_with(b"\r\n\r\n") {
@@ -395,6 +451,58 @@ fn spawn_hy2_echo_server() -> (SocketAddr, thread::JoinHandle<()>) {
         });
     });
     (addr_rx.recv().expect("receive HY2 addr"), handle)
+}
+
+fn spawn_tuic_echo_server() -> (SocketAddr, thread::JoinHandle<()>) {
+    let (addr_tx, addr_rx) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build TUIC test runtime");
+        runtime.block_on(async move {
+            let endpoint = quinn::Endpoint::server(
+                hy2_h3_test_server_config(),
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            )
+            .expect("bind TUIC test server");
+            addr_tx
+                .send(endpoint.local_addr().expect("TUIC test server addr"))
+                .expect("send TUIC addr");
+            let incoming = endpoint.accept().await.expect("accept TUIC connection");
+            let connection = incoming.await.expect("TUIC QUIC connection");
+            let mut auth_recv = connection.accept_uni().await.expect("accept TUIC auth");
+            let auth = auth_recv
+                .read_to_end(64)
+                .await
+                .expect("read TUIC auth command");
+            let expected_auth = keli_net_core::tuic_authenticate_command(
+                &connection,
+                "00112233-4455-6677-8899-aabbccddeeff",
+                "secret",
+            )
+            .expect("expected TUIC auth");
+            assert_eq!(auth, expected_auth);
+            let (mut send, mut recv) = connection.accept_bi().await.expect("accept TUIC TCP");
+            let expected_connect =
+                keli_protocol::encode_tuic_connect_command(&Endpoint::new("example.com", 443))
+                    .expect("expected TUIC connect");
+            let mut connect = vec![0; expected_connect.len()];
+            recv.read_exact(&mut connect)
+                .await
+                .expect("read TUIC connect command");
+            assert_eq!(connect, expected_connect);
+            let mut payload = [0; 4];
+            recv.read_exact(&mut payload)
+                .await
+                .expect("read TUIC payload");
+            assert_eq!(&payload, b"ping");
+            send.write_all(b"pong").await.expect("write TUIC response");
+            send.finish().expect("finish TUIC response stream");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        });
+    });
+    (addr_rx.recv().expect("receive TUIC addr"), handle)
 }
 
 fn hy2_h3_test_server_config() -> quinn::ServerConfig {
