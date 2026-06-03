@@ -26,6 +26,8 @@ pub enum ClientErrorKind {
     TunPermissionMissing,
     SystemProxyLoop,
     RouteNoOutbound,
+    NoSupportedOutbounds,
+    OutboundNotFound(String),
     ConfigInvalid(String),
 }
 
@@ -142,14 +144,11 @@ impl SubscriptionPreflightReport {
             Some(tag) if self.supported_tags.iter().any(|supported| supported == tag) => {
                 Ok(tag.to_string())
             }
-            Some(tag) => Err(ClientErrorKind::ConfigInvalid(format!(
-                "outbound tag not found: {tag}"
-            ))),
-            None => self.default_outbound.clone().ok_or_else(|| {
-                ClientErrorKind::ConfigInvalid(
-                    "profile config did not contain supported outbounds".to_string(),
-                )
-            }),
+            Some(tag) => Err(ClientErrorKind::OutboundNotFound(tag.to_string())),
+            None => self
+                .default_outbound
+                .clone()
+                .ok_or_else(|| ClientErrorKind::NoSupportedOutbounds),
         }
     }
 }
@@ -304,7 +303,25 @@ proxies:
             report
                 .select_outbound(Some("MISSING"))
                 .expect_err("missing"),
-            ClientErrorKind::ConfigInvalid("outbound tag not found: MISSING".to_string())
+            ClientErrorKind::OutboundNotFound("MISSING".to_string())
+        );
+    }
+
+    #[test]
+    fn preflight_reports_no_supported_outbounds_as_typed_error() {
+        let config = r#"
+proxies:
+  - name: VMESS-OLD
+    type: vmess
+    server: vmess.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+"#;
+        let report = preflight_subscription_config(config).expect("preflight");
+
+        assert_eq!(
+            report.select_outbound(None).expect_err("no outbound"),
+            ClientErrorKind::NoSupportedOutbounds
         );
     }
 
@@ -343,7 +360,7 @@ proxies:
         assert_eq!(
             build_connection_plan(config, Some("MISSING"), "127.0.0.1:7890")
                 .expect_err("unknown outbound"),
-            ClientErrorKind::ConfigInvalid("outbound tag not found: MISSING".to_string())
+            ClientErrorKind::OutboundNotFound("MISSING".to_string())
         );
     }
 
@@ -395,7 +412,7 @@ proxies:
 
         assert_eq!(
             error,
-            ClientErrorKind::ConfigInvalid("outbound tag not found: MISSING".to_string())
+            ClientErrorKind::OutboundNotFound("MISSING".to_string())
         );
         assert_eq!(session.phase(), &ConnectionPhase::Failed(error));
     }
