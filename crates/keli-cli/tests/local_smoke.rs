@@ -85,6 +85,43 @@ fn smoke_mixed_json_reports_machine_readable_success() {
     ss_thread.join().expect("ss thread");
 }
 
+#[test]
+fn smoke_mixed_http_connect_reports_selected_outbound_and_payload_round_trip() {
+    let (ss_port, ss_thread) = spawn_shadowsocks_tcp_echo_server();
+    let config = format!(
+        r#"proxies:
+  - name: SS-READY
+    type: ss
+    server: 127.0.0.1
+    port: {ss_port}
+    cipher: aes-256-gcm
+    password: secret
+"#
+    );
+
+    let report = keli_cli::smoke_mixed_http_connect_from_subscription_config_text(
+        &config,
+        Some("SS-READY".to_string()),
+        "example.com:443",
+        b"ping",
+        b"pong",
+        Duration::from_secs(2),
+    )
+    .expect("local mixed http connect smoke");
+
+    assert_eq!(report.inbound, "mixed-http-connect-smoke");
+    assert_eq!(report.target.host, "example.com");
+    assert_eq!(report.target.port, 443);
+    assert_eq!(
+        report.route_action,
+        RouteAction::Outbound("SS-READY".to_string())
+    );
+    assert_eq!(report.upload_bytes, 4);
+    assert_eq!(report.download_bytes, 4);
+    assert_eq!(report.error_kind, None);
+    ss_thread.join().expect("ss thread");
+}
+
 fn spawn_shadowsocks_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind ss tcp server");
     let port = listener.local_addr().expect("ss tcp addr").port();

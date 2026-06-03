@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use keli_cli::{parse_cli_command, CliCommand, ProbeOutputFormat};
+use keli_cli::{parse_cli_command, CliCommand, ProbeOutputFormat, SmokeInboundKind};
 
 #[test]
 fn parses_listen_mixed_once_command() {
@@ -258,8 +258,37 @@ fn parses_smoke_mixed_json_command() {
             target: "example.com:443".to_string(),
             payload: Some("ping".to_string()),
             expect: Some("pong".to_string()),
+            inbound: SmokeInboundKind::Socks5,
             output: ProbeOutputFormat::Json,
             first_byte_timeout: Duration::from_millis(1500),
+        }
+    );
+}
+
+#[test]
+fn parses_smoke_mixed_http_connect_inbound_command() {
+    let command = parse_cli_command([
+        "smoke-mixed",
+        "--profile-config",
+        "subscription.yaml",
+        "--target",
+        "example.com:443",
+        "--inbound",
+        "http-connect",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::SmokeMixed {
+            profile_config: "subscription.yaml".to_string(),
+            outbound_tag: None,
+            target: "example.com:443".to_string(),
+            payload: None,
+            expect: None,
+            inbound: SmokeInboundKind::HttpConnect,
+            output: ProbeOutputFormat::Text,
+            first_byte_timeout: Duration::from_secs(30),
         }
     );
 }
