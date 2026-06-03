@@ -183,6 +183,11 @@ proxies:
 fn reports_unsupported_proxy_without_dropping_supported_entries() {
     let yaml = r#"
 proxies:
+  - name: hy2-not-yet
+    type: hy2
+    server: hy2.example.com
+    port: 443
+    password: secret
   - name: tuic-not-yet
     type: tuic
     server: tuic.example.com
@@ -199,7 +204,9 @@ proxies:
 
     assert_eq!(parsed.profiles.len(), 1);
     assert_eq!(parsed.profiles[0].tag, "tcp-vless");
-    assert_eq!(parsed.skipped.len(), 1);
-    assert_eq!(parsed.skipped[0].name, "tuic-not-yet");
-    assert!(parsed.skipped[0].reason.contains("unsupported protocol"));
+    assert_eq!(parsed.skipped.len(), 2);
+    assert_eq!(parsed.skipped[0].name, "hy2-not-yet");
+    assert!(parsed.skipped[0].reason.contains("HY2 outbound runtime"));
+    assert_eq!(parsed.skipped[1].name, "tuic-not-yet");
+    assert!(parsed.skipped[1].reason.contains("TUIC outbound runtime"));
 }

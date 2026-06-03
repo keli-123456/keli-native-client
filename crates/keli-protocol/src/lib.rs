@@ -22,6 +22,9 @@ const TROJAN_ATYP_IPV6: u8 = 0x04;
 const SHADOWSOCKS_ATYP_IPV4: u8 = 0x01;
 const SHADOWSOCKS_ATYP_DOMAIN: u8 = 0x03;
 const SHADOWSOCKS_ATYP_IPV6: u8 = 0x04;
+const HY2_RUNTIME_MISSING: &str =
+    "HY2 outbound runtime requires QUIC/H3 and is not implemented yet";
+const TUIC_RUNTIME_MISSING: &str = "TUIC outbound runtime requires QUIC and is not implemented yet";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyProtocol {
@@ -302,7 +305,14 @@ fn mihomo_proxy_to_profile(
         return Err(skip(name, "missing port"));
     };
 
-    let protocol = match protocol_name.to_ascii_lowercase().as_str() {
+    let protocol_name = protocol_name.to_ascii_lowercase();
+    if matches!(protocol_name.as_str(), "hy2" | "hysteria2") {
+        return Err(skip(name, HY2_RUNTIME_MISSING));
+    }
+    if protocol_name == "tuic" {
+        return Err(skip(name, TUIC_RUNTIME_MISSING));
+    }
+    let protocol = match protocol_name.as_str() {
         "trojan" => ProxyProtocol::Trojan,
         "vless" => ProxyProtocol::Vless,
         "ss" | "shadowsocks" => ProxyProtocol::Shadowsocks,
@@ -465,6 +475,12 @@ fn share_link_to_profile(
     let query: HashMap<String, String> = url.query_pairs().into_owned().collect();
     let tag = non_empty(url.fragment().map(ToString::to_string))
         .unwrap_or_else(|| format!("proxy-{}", index + 1));
+    if matches!(url.scheme(), "hy2" | "hysteria2") {
+        return Err(skip(tag, HY2_RUNTIME_MISSING));
+    }
+    if url.scheme() == "tuic" {
+        return Err(skip(tag, TUIC_RUNTIME_MISSING));
+    }
     let Some(server) = url.host_str().map(ToString::to_string) else {
         return Err(skip(tag, "missing server"));
     };

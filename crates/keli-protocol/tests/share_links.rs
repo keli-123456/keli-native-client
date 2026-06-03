@@ -103,3 +103,21 @@ fn parses_anytls_share_link() {
     assert_eq!(profile.credential, "secret");
     assert_eq!(profile.cipher, None);
 }
+
+#[test]
+fn skips_known_quic_protocols_until_runtime_exists() {
+    let links = "\
+hysteria2://secret@hy2.example.com:443/?insecure=1&sni=sni.example.com#hy2
+tuic://00112233-4455-6677-8899-aabbccddeeff:secret@tuic.example.com:443#tuic
+vless://00112233-4455-6677-8899-aabbccddeeff@example.com:443?security=tls#vless";
+
+    let parsed = parse_share_outbound_profiles(links).expect("parse share links");
+
+    assert_eq!(parsed.profiles.len(), 1);
+    assert_eq!(parsed.profiles[0].tag, "vless");
+    assert_eq!(parsed.skipped.len(), 2);
+    assert_eq!(parsed.skipped[0].name, "hy2");
+    assert!(parsed.skipped[0].reason.contains("HY2 outbound runtime"));
+    assert_eq!(parsed.skipped[1].name, "tuic");
+    assert!(parsed.skipped[1].reason.contains("TUIC outbound runtime"));
+}
