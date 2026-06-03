@@ -38,6 +38,7 @@ pub enum ProxyProtocol {
     Vmess,
     Vless,
     Naive,
+    Mieru,
     Hy2,
     Shadowsocks,
     AnyTls,
@@ -130,6 +131,11 @@ impl OutboundProfile {
                 Err(ProtocolValidationError::MissingTls)
             }
             (ProxyProtocol::Naive, _, _) => Err(ProtocolValidationError::InvalidNaiveTransport),
+            (ProxyProtocol::Mieru, _, _) if !is_user_password_credential(&self.credential) => {
+                Err(ProtocolValidationError::InvalidMieruCredential)
+            }
+            (ProxyProtocol::Mieru, TransportKind::Tcp, SecurityKind::None) => Ok(()),
+            (ProxyProtocol::Mieru, _, _) => Err(ProtocolValidationError::InvalidMieruTransport),
             (ProxyProtocol::Hy2, TransportKind::Quic, SecurityKind::Tls { .. }) => Ok(()),
             (ProxyProtocol::Hy2, _, _) => Err(ProtocolValidationError::InvalidHy2Transport),
             (ProxyProtocol::Tuic, TransportKind::Quic, SecurityKind::Tls { .. }) => {
@@ -175,6 +181,8 @@ pub enum ProtocolValidationError {
     InvalidVmessTransport,
     InvalidNaiveCredential,
     InvalidNaiveTransport,
+    InvalidMieruCredential,
+    InvalidMieruTransport,
     InvalidWebSocketPath,
     InvalidHy2Transport,
     InvalidTuicCredential,
@@ -200,6 +208,12 @@ impl fmt::Display for ProtocolValidationError {
                 write!(f, "Naive credential must be formatted as username:password")
             }
             Self::InvalidNaiveTransport => write!(f, "Naive requires TCP transport with TLS"),
+            Self::InvalidMieruCredential => {
+                write!(f, "Mieru credential must be formatted as username:password")
+            }
+            Self::InvalidMieruTransport => {
+                write!(f, "Mieru currently supports TCP transport without TLS")
+            }
             Self::InvalidWebSocketPath => write!(f, "WebSocket path must start with '/'"),
             Self::InvalidHy2Transport => write!(f, "HY2 requires QUIC transport with TLS"),
             Self::InvalidTuicCredential => {
@@ -316,6 +330,7 @@ struct MihomoProxy {
     protocol: Option<String>,
     server: Option<String>,
     port: Option<u16>,
+    port_range: Option<String>,
     password: Option<String>,
     token: Option<String>,
     username: Option<String>,
@@ -327,6 +342,7 @@ struct MihomoProxy {
     servername: Option<String>,
     skip_cert_verify: Option<bool>,
     network: Option<String>,
+    transport: Option<String>,
     ws_opts: Option<MihomoWsOptions>,
 }
 
@@ -347,16 +363,13 @@ fn mihomo_proxy_to_profile(
     let Some(server) = non_empty(proxy.server) else {
         return Err(skip(name, "missing server"));
     };
-    let Some(port) = proxy.port else {
-        return Err(skip(name, "missing port"));
-    };
-
     let protocol_name = protocol_name.to_ascii_lowercase();
     let protocol = match protocol_name.as_str() {
         "trojan" => ProxyProtocol::Trojan,
         "vmess" => ProxyProtocol::Vmess,
         "vless" => ProxyProtocol::Vless,
         "naive" => ProxyProtocol::Naive,
+        "mieru" => ProxyProtocol::Mieru,
         "hy2" | "hysteria2" => ProxyProtocol::Hy2,
         "ss" | "shadowsocks" => ProxyProtocol::Shadowsocks,
         "anytls" | "any-tls" => ProxyProtocol::AnyTls,
@@ -377,6 +390,13 @@ fn mihomo_proxy_to_profile(
                 .ok_or_else(|| skip(name.clone(), "missing naive username"))?;
             let password = non_empty(proxy.password)
                 .ok_or_else(|| skip(name.clone(), "missing naive password"))?;
+            format!("{username}:{password}")
+        }
+        ProxyProtocol::Mieru => {
+            let username = non_empty(proxy.username)
+                .ok_or_else(|| skip(name.clone(), "missing mieru username"))?;
+            let password = non_empty(proxy.password)
+                .ok_or_else(|| skip(name.clone(), "missing mieru password"))?;
             format!("{username}:{password}")
         }
         ProxyProtocol::Shadowsocks => non_empty(proxy.password)
@@ -400,13 +420,10 @@ fn mihomo_proxy_to_profile(
     let flow = matches!(protocol, ProxyProtocol::Vless)
         .then(|| non_empty(proxy.flow))
         .flatten();
-    let transport = mihomo_transport(
-        &name,
-        &server,
-        &protocol,
-        proxy.network.as_deref(),
-        proxy.ws_opts,
-    )?;
+    let port = profile_port(proxy.port, proxy.port_range.as_deref())
+        .ok_or_else(|| skip(name.clone(), "missing port"))?;
+    let network = proxy.network.as_deref().or(proxy.transport.as_deref());
+    let transport = mihomo_transport(&name, &server, &protocol, network, proxy.ws_opts)?;
     let security = mihomo_security(
         &protocol,
         &server,
@@ -449,6 +466,19 @@ fn mihomo_transport(
             other => Err(skip(
                 name.to_string(),
                 format!("unsupported QUIC transport: {other}"),
+            )),
+        };
+    }
+    if matches!(protocol, ProxyProtocol::Mieru) {
+        return match network
+            .map(|value| value.to_ascii_lowercase())
+            .as_deref()
+            .unwrap_or("tcp")
+        {
+            "" | "tcp" => Ok(TransportKind::Tcp),
+            other => Err(skip(
+                name.to_string(),
+                format!("unsupported Mieru transport: {other}"),
             )),
         };
     }
@@ -515,6 +545,22 @@ fn non_empty(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn profile_port(port: Option<u16>, port_range: Option<&str>) -> Option<u16> {
+    port.or_else(|| first_port_in_range(port_range?))
+}
+
+fn first_port_in_range(value: &str) -> Option<u16> {
+    let first = value
+        .split(',')
+        .map(str::trim)
+        .find(|part| !part.is_empty())?;
+    let first = first
+        .split_once('-')
+        .map(|(start, _)| start)
+        .unwrap_or(first);
+    first.trim().parse::<u16>().ok()
+}
+
 fn is_supported_shadowsocks_aead_cipher(cipher: &str) -> bool {
     matches!(
         cipher.to_ascii_lowercase().as_str(),
@@ -561,16 +607,22 @@ fn share_link_to_profile(
     }
     let query: HashMap<String, String> = url.query_pairs().into_owned().collect();
     let tag = non_empty(url.fragment().map(ToString::to_string))
+        .or_else(|| {
+            query
+                .get("profile")
+                .cloned()
+                .and_then(|profile| non_empty(Some(profile)))
+        })
         .unwrap_or_else(|| format!("proxy-{}", index + 1));
     let Some(server) = url.host_str().map(ToString::to_string) else {
         return Err(skip(tag, "missing server"));
     };
-    let port = url.port().unwrap_or(443);
     let protocol = match url.scheme() {
         "trojan" => ProxyProtocol::Trojan,
         "vmess" => ProxyProtocol::Vmess,
         "vless" => ProxyProtocol::Vless,
         "naive" => ProxyProtocol::Naive,
+        "mieru" | "mierus" => ProxyProtocol::Mieru,
         "hy2" | "hysteria2" => ProxyProtocol::Hy2,
         "anytls" | "any-tls" => ProxyProtocol::AnyTls,
         "tuic" => ProxyProtocol::Tuic,
@@ -591,9 +643,18 @@ fn share_link_to_profile(
                 .ok_or_else(|| skip(tag.clone(), "missing naive password"))?;
             format!("{username}:{password}")
         }
+        ProxyProtocol::Mieru => {
+            let username = non_empty(Some(url.username().to_string()))
+                .ok_or_else(|| skip(tag.clone(), "missing mieru username"))?;
+            let password = non_empty(url.password().map(ToString::to_string))
+                .ok_or_else(|| skip(tag.clone(), "missing mieru password"))?;
+            format!("{username}:{password}")
+        }
         _ => non_empty(Some(url.username().to_string()))
             .ok_or_else(|| skip(tag.clone(), "missing credential"))?,
     };
+    let port = share_link_port(&protocol, &url, &query)
+        .ok_or_else(|| skip(tag.clone(), "missing port"))?;
     let transport = share_link_transport(&tag, &server, &protocol, &query)?;
     let security = share_link_security(&protocol, &server, &query);
     let flow = matches!(protocol, ProxyProtocol::Vless)
@@ -687,6 +748,21 @@ fn decode_legacy_shadowsocks_share_body(link: &str) -> Option<(String, String, S
     Some((cipher.to_string(), password.to_string(), server, port))
 }
 
+fn share_link_port(
+    protocol: &ProxyProtocol,
+    url: &Url,
+    query: &HashMap<String, String>,
+) -> Option<u16> {
+    if matches!(protocol, ProxyProtocol::Mieru) {
+        return url.port().or_else(|| {
+            query
+                .get("port")
+                .and_then(|value| first_port_in_range(value))
+        });
+    }
+    Some(url.port().unwrap_or(443))
+}
+
 fn split_host_port(value: &str, default_port: u16) -> Option<(String, u16)> {
     let value = value.trim();
     if value.is_empty() {
@@ -732,6 +808,22 @@ fn share_link_transport(
             other => Err(skip(
                 tag.to_string(),
                 format!("unsupported QUIC transport: {other}"),
+            )),
+        };
+    }
+    if matches!(protocol, ProxyProtocol::Mieru) {
+        return match query
+            .get("protocol")
+            .or_else(|| query.get("type"))
+            .or_else(|| query.get("network"))
+            .map(|value| value.to_ascii_lowercase())
+            .as_deref()
+            .unwrap_or("tcp")
+        {
+            "" | "tcp" => Ok(TransportKind::Tcp),
+            other => Err(skip(
+                tag.to_string(),
+                format!("unsupported Mieru transport: {other}"),
             )),
         };
     }

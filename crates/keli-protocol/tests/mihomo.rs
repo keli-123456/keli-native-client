@@ -160,6 +160,35 @@ proxies:
 }
 
 #[test]
+fn parses_mieru_tcp_proxy_with_port_range_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: Mieru-TCP
+    type: mieru
+    server: mieru.example.com
+    port-range: 30000-30002
+    username: user
+    password: pass
+    transport: TCP
+    udp: true
+    multiplexing: MULTIPLEXING_LOW
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "Mieru-TCP");
+    assert_eq!(profile.protocol, ProxyProtocol::Mieru);
+    assert_eq!(profile.endpoint, Endpoint::new("mieru.example.com", 30000));
+    assert_eq!(profile.transport, TransportKind::Tcp);
+    assert_eq!(profile.security, SecurityKind::None);
+    assert_eq!(profile.credential, "user:pass");
+    profile.validate().expect("valid mieru profile");
+}
+
+#[test]
 fn parses_vless_flow_from_mihomo_yaml() {
     let yaml = r#"
 proxies:
