@@ -20,6 +20,8 @@ use keli_protocol::{
 
 const DEFAULT_FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+const SUPPORTED_OUTBOUNDS: &str =
+    "direct,trojan-tcp,trojan-ws,vless-tcp,vless-ws,shadowsocks-tcp,anytls-tls-tcp,hy2-quic,tuic-quic";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
@@ -191,6 +193,11 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
 }
 
 fn print_doctor() {
+    let mut stdout = io::stdout();
+    write_doctor_report(&mut stdout).expect("write doctor report");
+}
+
+pub fn write_doctor_report(mut writer: impl Write) -> io::Result<()> {
     let capabilities = PlatformCapabilities::detect();
     let inbound = LocalInbound::Mixed {
         listen: "127.0.0.1".to_string(),
@@ -214,17 +221,23 @@ fn print_doctor() {
         flow: None,
     };
 
-    println!("keli-native-client doctor");
-    println!("version={}", env!("CARGO_PKG_VERSION"));
-    println!("platform={:?}", capabilities.platform);
-    println!("system_proxy={}", capabilities.system_proxy);
-    println!("tun={}", capabilities.tun);
-    println!("secure_storage={}", capabilities.secure_storage);
-    println!("inbound={inbound:?}");
-    println!("route_default={route_engine:?}");
-    println!("dns_engine=system_resolver cache_ttl=60s");
-    println!("sample_profile_valid={}", profile.validate().is_ok());
-    println!("initial_phase={:?}", ConnectionPhase::Idle);
+    writeln!(writer, "keli-native-client doctor")?;
+    writeln!(writer, "version={}", env!("CARGO_PKG_VERSION"))?;
+    writeln!(writer, "platform={:?}", capabilities.platform)?;
+    writeln!(writer, "system_proxy={}", capabilities.system_proxy)?;
+    writeln!(writer, "tun={}", capabilities.tun)?;
+    writeln!(writer, "secure_storage={}", capabilities.secure_storage)?;
+    writeln!(writer, "inbound={inbound:?}")?;
+    writeln!(writer, "route_default={route_engine:?}")?;
+    writeln!(writer, "dns_engine=system_resolver cache_ttl=60s")?;
+    writeln!(writer, "supported_outbounds={SUPPORTED_OUTBOUNDS}")?;
+    writeln!(
+        writer,
+        "sample_profile_valid={}",
+        profile.validate().is_ok()
+    )?;
+    writeln!(writer, "initial_phase={:?}", ConnectionPhase::Idle)?;
+    Ok(())
 }
 
 fn listen_mixed(listen: &str, once: bool, runtime: &MixedProxyRuntime) -> io::Result<()> {
