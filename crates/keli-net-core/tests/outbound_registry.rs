@@ -466,6 +466,68 @@ fn registry_from_vmess_tcp_profile_relays_over_vmess_tcp() {
 }
 
 #[test]
+fn registry_from_vmess_ws_profile_relays_over_websocket() {
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind vmess ws server");
+    let port = listener.local_addr().expect("vmess ws addr").port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept vmess ws server");
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /vmess HTTP/1.1\r\n"));
+        assert!(request.contains("Host: edge.example\r\n"));
+        let key = header_value(&request, "Sec-WebSocket-Key").expect("client key");
+        let accept = websocket_accept_for_key(&key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .expect("write ws response");
+        let request_header = read_masked_client_frame(&mut stream);
+        let mut cursor = std::io::Cursor::new(request_header);
+        let request = read_vmess_aead_request(&mut cursor, uuid);
+        assert_eq!(request.target_host, "example.com");
+        assert_eq!(request.target_port, 443);
+        assert_eq!(request.command, 0x01);
+        assert_eq!(request.security, VMESS_SECURITY_NONE);
+
+        let mut response_header = Vec::new();
+        write_vmess_aead_response_header(&mut response_header, &request);
+        write_server_binary_frame_for_vmess_test(&mut stream, &response_header);
+        let payload = read_masked_client_frame(&mut stream);
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"\x82\x04pong").expect("write pong");
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Vmess,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::WebSocket {
+            path: "/vmess".to_string(),
+            host: Some("edge.example".to_string()),
+        },
+        security: SecurityKind::None,
+        credential: uuid.to_string(),
+        cipher: Some("none".to_string()),
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let mut stream = registry
+        .connect(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+        )
+        .expect("registered vmess ws outbound should connect");
+    stream.write_all(b"ping").expect("write payload");
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).expect("read payload");
+
+    assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn registry_from_mieru_tcp_profile_relays_over_mieru_tcp() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind mieru server");
     let port = listener.local_addr().expect("mieru addr").port();
@@ -815,7 +877,7 @@ struct VmessRequestForTest {
     response_header: u8,
 }
 
-fn read_vmess_aead_request(stream: &mut std::net::TcpStream, uuid: &str) -> VmessRequestForTest {
+fn read_vmess_aead_request(stream: &mut impl Read, uuid: &str) -> VmessRequestForTest {
     let uuid = parse_uuid_bytes_for_vmess_test(uuid);
     let cmd_key = vmess_cmd_key_for_test(&uuid);
     let mut auth_id = [0; 16];
@@ -870,10 +932,7 @@ fn read_vmess_aead_request(stream: &mut std::net::TcpStream, uuid: &str) -> Vmes
     }
 }
 
-fn write_vmess_aead_response_header(
-    stream: &mut std::net::TcpStream,
-    request: &VmessRequestForTest,
-) {
+fn write_vmess_aead_response_header(stream: &mut impl Write, request: &VmessRequestForTest) {
     let response_key = first_16_sha256_for_test(&request.request_body_key);
     let response_iv = first_16_sha256_for_test(&request.request_body_iv);
     let header = [request.response_header, 0x00, 0x00, 0x00];
@@ -900,6 +959,17 @@ fn write_vmess_aead_response_header(
     stream
         .write_all(&encrypted_payload)
         .expect("write response payload");
+}
+
+fn write_server_binary_frame_for_vmess_test(stream: &mut impl Write, payload: &[u8]) {
+    assert!(
+        payload.len() <= 125,
+        "test frame payload should stay compact"
+    );
+    stream
+        .write_all(&[0x82, payload.len() as u8])
+        .expect("write ws frame header");
+    stream.write_all(payload).expect("write ws frame payload");
 }
 
 fn parse_uuid_bytes_for_vmess_test(value: &str) -> [u8; 16] {

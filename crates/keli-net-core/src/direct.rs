@@ -192,6 +192,9 @@ pub struct OutboundRegistry {
     vless_ws_tags: HashMap<String, VlessWsOutbound>,
     vless_tls_ws_tags: HashMap<String, VlessTlsWsOutbound>,
     vmess_tcp_tags: HashMap<String, VmessTcpOutbound>,
+    vmess_tls_tcp_tags: HashMap<String, VmessTlsTcpOutbound>,
+    vmess_ws_tags: HashMap<String, VmessWsOutbound>,
+    vmess_tls_ws_tags: HashMap<String, VmessTlsWsOutbound>,
     shadowsocks_tcp_tags: HashMap<String, ShadowsocksTcpOutbound>,
     anytls_tls_tcp_tags: HashMap<String, AnyTlsTlsTcpOutbound>,
     naive_h2_tcp_tags: HashMap<String, crate::NaiveH2TcpOutbound>,
@@ -270,6 +273,32 @@ impl OutboundRegistry {
             }
             (ProxyProtocol::Vmess, TransportKind::Tcp, SecurityKind::None) => {
                 self.add_vmess_tcp(tag, VmessTcpOutbound::new(endpoint, credential));
+                Ok(())
+            }
+            (ProxyProtocol::Vmess, TransportKind::Tcp, SecurityKind::Tls { sni, skip_verify }) => {
+                let sni = sni.unwrap_or_else(|| endpoint.host.clone());
+                self.add_vmess_tls_tcp(
+                    tag,
+                    VmessTlsTcpOutbound::new(endpoint, credential, sni, skip_verify),
+                );
+                Ok(())
+            }
+            (ProxyProtocol::Vmess, TransportKind::WebSocket { path, host }, SecurityKind::None) => {
+                let host = host.unwrap_or_else(|| endpoint.host.clone());
+                self.add_vmess_ws(tag, VmessWsOutbound::new(endpoint, host, path, credential));
+                Ok(())
+            }
+            (
+                ProxyProtocol::Vmess,
+                TransportKind::WebSocket { path, host },
+                SecurityKind::Tls { sni, skip_verify },
+            ) => {
+                let host = host.unwrap_or_else(|| endpoint.host.clone());
+                let sni = sni.unwrap_or_else(|| host.clone());
+                self.add_vmess_tls_ws(
+                    tag,
+                    VmessTlsWsOutbound::new(endpoint, host, path, credential, sni, skip_verify),
+                );
                 Ok(())
             }
             (ProxyProtocol::Vless, TransportKind::Tcp, SecurityKind::None) => {
@@ -424,6 +453,18 @@ impl OutboundRegistry {
         self.vmess_tcp_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_vmess_tls_tcp(&mut self, tag: impl Into<String>, outbound: VmessTlsTcpOutbound) {
+        self.vmess_tls_tcp_tags.insert(tag.into(), outbound);
+    }
+
+    pub fn add_vmess_ws(&mut self, tag: impl Into<String>, outbound: VmessWsOutbound) {
+        self.vmess_ws_tags.insert(tag.into(), outbound);
+    }
+
+    pub fn add_vmess_tls_ws(&mut self, tag: impl Into<String>, outbound: VmessTlsWsOutbound) {
+        self.vmess_tls_ws_tags.insert(tag.into(), outbound);
+    }
+
     pub fn add_shadowsocks_tcp(
         &mut self,
         tag: impl Into<String>,
@@ -481,6 +522,12 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vless_tls_ws_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vmess_tcp_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vmess_tls_tcp_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vmess_ws_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vmess_tls_ws_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
@@ -2088,6 +2135,128 @@ impl VmessTcpOutbound {
         let request = write_vmess_tcp_request_header(&mut stream, &self.uuid, &target)?;
         read_vmess_response_header_from_stream(&mut stream, &request)?;
         Ok(OutboundConnection::Tcp(stream))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmessTlsTcpOutbound {
+    pub server: Endpoint,
+    pub uuid: String,
+    pub sni: String,
+    pub skip_verify: bool,
+}
+
+impl VmessTlsTcpOutbound {
+    pub fn new(
+        server: Endpoint,
+        uuid: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+    ) -> Self {
+        Self {
+            server,
+            uuid: uuid.into(),
+            sni: sni.into(),
+            skip_verify,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let request = write_vmess_tcp_request_header(&mut stream, &self.uuid, &target)?;
+        read_vmess_response_header_from_stream(&mut stream, &request)?;
+        Ok(OutboundConnection::Owned(Box::new(stream)))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmessWsOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub path: String,
+    pub uuid: String,
+}
+
+impl VmessWsOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        path: impl Into<String>,
+        uuid: impl Into<String>,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            path: path.into(),
+            uuid: uuid.into(),
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = crate::WebSocketClientStream::connect(stream, &self.host, &self.path)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let request = write_vmess_tcp_request_header(&mut stream, &self.uuid, &target)?;
+        read_vmess_response_header_from_stream(&mut stream, &request)?;
+        Ok(OutboundConnection::WebSocket(stream))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmessTlsWsOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub path: String,
+    pub uuid: String,
+    pub sni: String,
+    pub skip_verify: bool,
+}
+
+impl VmessTlsWsOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        path: impl Into<String>,
+        uuid: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            path: path.into(),
+            uuid: uuid.into(),
+            sni: sni.into(),
+            skip_verify,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
+        let mut stream =
+            crate::OwnedWebSocketClientStream::connect(stream, &self.host, &self.path)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let request = write_vmess_tcp_request_header(&mut stream, &self.uuid, &target)?;
+        read_vmess_response_header_from_stream(&mut stream, &request)?;
+        Ok(OutboundConnection::Owned(Box::new(stream)))
     }
 }
 

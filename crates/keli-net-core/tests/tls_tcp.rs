@@ -12,6 +12,10 @@ use rcgen::generate_simple_self_signed;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use sha2::{Digest, Sha256};
 
+mod support;
+
+use support::vmess::{read_vmess_aead_request, write_vmess_aead_response_header};
+
 #[test]
 fn registry_from_trojan_tls_tcp_profile_relays_over_tls() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind trojan tls tcp server");
@@ -115,6 +119,58 @@ fn registry_from_vless_tls_tcp_profile_relays_over_tls() {
             Duration::from_secs(1),
         )
         .expect("connect vless tls tcp");
+    stream.write_all(b"ping").expect("write payload");
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).expect("read response");
+
+    assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
+fn registry_from_vmess_tls_tcp_profile_relays_over_tls() {
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vmess tls tcp server");
+    let port = listener.local_addr().expect("server addr").port();
+    let server_config = tls_server_config();
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept vmess tls tcp");
+        let connection = rustls::ServerConnection::new(server_config).expect("server tls");
+        let mut stream = rustls::StreamOwned::new(connection, stream);
+        let request = read_vmess_aead_request(&mut stream, uuid);
+        assert_eq!(request.target_host, "example.com");
+        assert_eq!(request.target_port, 443);
+        assert_eq!(request.command, 0x01);
+        assert_eq!(request.security, 0x05);
+
+        write_vmess_aead_response_header(&mut stream, &request);
+        let mut payload = [0; 4];
+        stream.read_exact(&mut payload).expect("read payload");
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"pong").expect("write pong");
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Vmess,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Tcp,
+        security: SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: true,
+        },
+        credential: uuid.to_string(),
+        cipher: Some("none".to_string()),
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let mut stream = registry
+        .connect(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+        )
+        .expect("connect vmess tls tcp");
     stream.write_all(b"ping").expect("write payload");
     let mut response = [0; 4];
     stream.read_exact(&mut response).expect("read response");

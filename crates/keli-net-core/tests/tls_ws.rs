@@ -9,6 +9,10 @@ use keli_protocol::{Endpoint, OutboundProfile, ProxyProtocol, SecurityKind, Tran
 use rcgen::generate_simple_self_signed;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
+mod support;
+
+use support::vmess::{read_vmess_aead_request, write_vmess_aead_response_header};
+
 #[test]
 fn registry_from_vless_tls_ws_profile_relays_over_tls_websocket() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind tls ws server");
@@ -138,6 +142,74 @@ fn registry_from_trojan_tls_ws_profile_relays_over_tls_websocket() {
     server.join().expect("server thread");
 }
 
+#[test]
+fn registry_from_vmess_tls_ws_profile_relays_over_tls_websocket() {
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vmess tls ws server");
+    let port = listener.local_addr().expect("vmess tls ws addr").port();
+    let server_config = tls_server_config();
+    let server = thread::spawn(move || {
+        let (tcp, _) = listener.accept().expect("accept vmess tls ws");
+        let connection = rustls::ServerConnection::new(server_config).expect("server tls");
+        let mut stream = rustls::StreamOwned::new(connection, tcp);
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /vmess HTTP/1.1\r\n"));
+        assert!(request.contains("Host: edge.example\r\n"));
+        let key = header_value(&request, "Sec-WebSocket-Key").expect("client key");
+        let accept = websocket_accept_for_key(&key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .expect("write ws response");
+        let request_header = read_masked_client_frame(&mut stream);
+        let mut cursor = std::io::Cursor::new(request_header);
+        let vmess = read_vmess_aead_request(&mut cursor, uuid);
+        assert_eq!(vmess.target_host, "example.com");
+        assert_eq!(vmess.target_port, 443);
+        assert_eq!(vmess.command, 0x01);
+        assert_eq!(vmess.security, 0x05);
+
+        let mut response_header = Vec::new();
+        write_vmess_aead_response_header(&mut response_header, &vmess);
+        write_server_binary_frame(&mut stream, &response_header);
+        let payload = read_masked_client_frame(&mut stream);
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"\x82\x04pong").expect("write pong");
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Vmess,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::WebSocket {
+            path: "/vmess".to_string(),
+            host: Some("edge.example".to_string()),
+        },
+        security: SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: true,
+        },
+        credential: uuid.to_string(),
+        cipher: Some("none".to_string()),
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let mut stream = registry
+        .connect(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+        )
+        .expect("registered vmess tls ws outbound should connect");
+    stream.write_all(b"ping").expect("write payload");
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).expect("read payload");
+
+    assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
 fn tls_server_config() -> Arc<rustls::ServerConfig> {
     let cert = generate_simple_self_signed(vec!["edge.example".to_string()]).expect("self cert");
     let cert_der: CertificateDer<'static> = cert.cert.der().clone();
@@ -186,4 +258,15 @@ fn read_masked_client_frame(stream: &mut impl Read) -> Vec<u8> {
         *byte ^= mask[index % 4];
     }
     payload
+}
+
+fn write_server_binary_frame(stream: &mut impl Write, payload: &[u8]) {
+    assert!(
+        payload.len() <= 125,
+        "test frame payload should stay compact"
+    );
+    stream
+        .write_all(&[0x82, payload.len() as u8])
+        .expect("write frame header");
+    stream.write_all(payload).expect("write frame payload");
 }
