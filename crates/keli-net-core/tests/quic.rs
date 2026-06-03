@@ -1,3 +1,5 @@
+mod support;
+
 use std::future::poll_fn;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
@@ -8,6 +10,13 @@ use std::time::Duration;
 use keli_net_core::{h3_quic_client_config, h3_rustls_client_config};
 use rcgen::generate_simple_self_signed;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use support::vmess::{
+    read_vmess_aead_request_async, read_vmess_aes128_gcm_chunk_async,
+    write_vmess_aead_response_header_async, write_vmess_aes128_gcm_response_chunk_async,
+};
+
+const VLESS_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
+const VMESS_UUID: &str = "11111111-1111-1111-1111-111111111111";
 
 #[test]
 fn h3_tls_config_advertises_http3_alpn() {
@@ -910,6 +919,225 @@ async fn hy2_udp_datagram_round_trips_udp_payload() {
 }
 
 #[tokio::test]
+async fn registry_from_vless_quic_profile_relays_over_legacy_quic_stream() {
+    let server_endpoint = quinn::Endpoint::server(
+        legacy_quic_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local vless quic server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let (mut send, mut recv) = connection
+            .accept_bi()
+            .await
+            .expect("accept VLESS QUIC stream");
+        let expected = keli_protocol::encode_vless_tcp_request_header(
+            VLESS_UUID,
+            &keli_protocol::Endpoint::new("example.com", 443),
+            None,
+        )
+        .expect("expected VLESS request");
+        let mut request = vec![0; expected.len()];
+        recv.read_exact(&mut request)
+            .await
+            .expect("read VLESS QUIC request");
+        assert_eq!(request, expected);
+        send.write_all(&[0x00, 0x00])
+            .await
+            .expect("write VLESS response header");
+        let mut payload = [0; 4];
+        recv.read_exact(&mut payload)
+            .await
+            .expect("read relayed payload");
+        assert_eq!(&payload, b"ping");
+        send.write_all(b"pong").await.expect("write response");
+        send.finish().expect("finish VLESS QUIC response stream");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    });
+    let client = tokio::task::spawn_blocking(move || {
+        let registry =
+            keli_net_core::OutboundRegistry::from_profiles([keli_protocol::OutboundProfile {
+                tag: "vless-quic".to_string(),
+                protocol: keli_protocol::ProxyProtocol::Vless,
+                endpoint: keli_protocol::Endpoint::new("127.0.0.1", server_addr.port()),
+                transport: keli_protocol::TransportKind::Quic {
+                    security: None,
+                    key: None,
+                    header_type: None,
+                },
+                security: keli_protocol::SecurityKind::Tls {
+                    sni: Some("localhost".to_string()),
+                    skip_verify: true,
+                },
+                credential: VLESS_UUID.to_string(),
+                cipher: None,
+                flow: None,
+            }])
+            .expect("build VLESS QUIC registry");
+        let mut stream = registry
+            .connect(
+                "vless-quic",
+                &keli_net_core::OutboundTarget::new("example.com", 443),
+                Duration::from_secs(2),
+            )
+            .expect("connect VLESS QUIC outbound");
+        stream.write_all(b"ping").expect("write payload");
+        let mut response = [0; 4];
+        stream.read_exact(&mut response).expect("read payload");
+        response
+    });
+
+    assert_eq!(client.await.expect("client task"), *b"pong");
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn registry_from_trojan_quic_profile_relays_over_legacy_quic_stream() {
+    let server_endpoint = quinn::Endpoint::server(
+        legacy_quic_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local trojan quic server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let (mut send, mut recv) = connection
+            .accept_bi()
+            .await
+            .expect("accept Trojan QUIC stream");
+        let expected = keli_protocol::encode_trojan_tcp_request_header(
+            "password",
+            &keli_protocol::Endpoint::new("example.com", 443),
+        )
+        .expect("expected Trojan request");
+        let mut request = vec![0; expected.len()];
+        recv.read_exact(&mut request)
+            .await
+            .expect("read Trojan QUIC request");
+        assert_eq!(request, expected);
+        let mut payload = [0; 4];
+        recv.read_exact(&mut payload)
+            .await
+            .expect("read relayed payload");
+        assert_eq!(&payload, b"ping");
+        send.write_all(b"pong").await.expect("write response");
+        send.finish().expect("finish Trojan QUIC response stream");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    });
+    let client = tokio::task::spawn_blocking(move || {
+        let registry =
+            keli_net_core::OutboundRegistry::from_profiles([keli_protocol::OutboundProfile {
+                tag: "trojan-quic".to_string(),
+                protocol: keli_protocol::ProxyProtocol::Trojan,
+                endpoint: keli_protocol::Endpoint::new("127.0.0.1", server_addr.port()),
+                transport: keli_protocol::TransportKind::Quic {
+                    security: None,
+                    key: None,
+                    header_type: None,
+                },
+                security: keli_protocol::SecurityKind::Tls {
+                    sni: Some("localhost".to_string()),
+                    skip_verify: true,
+                },
+                credential: "password".to_string(),
+                cipher: None,
+                flow: None,
+            }])
+            .expect("build Trojan QUIC registry");
+        let mut stream = registry
+            .connect(
+                "trojan-quic",
+                &keli_net_core::OutboundTarget::new("example.com", 443),
+                Duration::from_secs(2),
+            )
+            .expect("connect Trojan QUIC outbound");
+        stream.write_all(b"ping").expect("write payload");
+        let mut response = [0; 4];
+        stream.read_exact(&mut response).expect("read payload");
+        response
+    });
+
+    assert_eq!(client.await.expect("client task"), *b"pong");
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn registry_from_vmess_quic_profile_relays_over_legacy_quic_stream() {
+    let server_endpoint = quinn::Endpoint::server(
+        legacy_quic_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local vmess quic server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let (mut send, mut recv) = connection
+            .accept_bi()
+            .await
+            .expect("accept VMess QUIC stream");
+        let request = read_vmess_aead_request_async(&mut recv, VMESS_UUID).await;
+        assert_eq!(request.target_host, "example.com");
+        assert_eq!(request.target_port, 443);
+        assert_eq!(request.command, 0x01);
+        assert_eq!(request.security, 0x03);
+        write_vmess_aead_response_header_async(&mut send, &request).await;
+        let payload = read_vmess_aes128_gcm_chunk_async(&mut recv, &request).await;
+        assert_eq!(payload, b"ping");
+        write_vmess_aes128_gcm_response_chunk_async(&mut send, &request, b"pong").await;
+        send.finish().expect("finish VMess QUIC response stream");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    });
+    let client = tokio::task::spawn_blocking(move || {
+        let registry =
+            keli_net_core::OutboundRegistry::from_profiles([keli_protocol::OutboundProfile {
+                tag: "vmess-quic".to_string(),
+                protocol: keli_protocol::ProxyProtocol::Vmess,
+                endpoint: keli_protocol::Endpoint::new("127.0.0.1", server_addr.port()),
+                transport: keli_protocol::TransportKind::Quic {
+                    security: None,
+                    key: None,
+                    header_type: None,
+                },
+                security: keli_protocol::SecurityKind::Tls {
+                    sni: Some("localhost".to_string()),
+                    skip_verify: true,
+                },
+                credential: VMESS_UUID.to_string(),
+                cipher: None,
+                flow: None,
+            }])
+            .expect("build VMess QUIC registry");
+        let mut stream = registry
+            .connect(
+                "vmess-quic",
+                &keli_net_core::OutboundTarget::new("example.com", 443),
+                Duration::from_secs(2),
+            )
+            .expect("connect VMess QUIC outbound");
+        stream.write_all(b"ping").expect("write payload");
+        let mut response = [0; 4];
+        stream.read_exact(&mut response).expect("read payload");
+        response
+    });
+
+    assert_eq!(client.await.expect("client task"), *b"pong");
+    server.await.expect("server task");
+}
+
+#[tokio::test]
 async fn registry_from_hy2_profile_relays_over_quic_tcp_stream() {
     let server_endpoint = quinn::Endpoint::server(
         hy2_h3_test_server_config(),
@@ -1461,5 +1689,22 @@ fn hy2_h3_test_server_config() -> quinn::ServerConfig {
     tls.alpn_protocols = vec![b"h3".to_vec()];
     quinn::ServerConfig::with_crypto(Arc::new(
         quinn::crypto::rustls::QuicServerConfig::try_from(tls).expect("quic server config"),
+    ))
+}
+
+fn legacy_quic_test_server_config() -> quinn::ServerConfig {
+    let cert = generate_simple_self_signed(vec!["localhost".to_string()]).expect("cert");
+    let cert_der: CertificateDer<'static> = cert.cert.der().clone();
+    let key_der = PrivateKeyDer::Pkcs8(cert.signing_key.serialize_der().into());
+    let tls = rustls::ServerConfig::builder_with_provider(
+        rustls::crypto::ring::default_provider().into(),
+    )
+    .with_protocol_versions(&[&rustls::version::TLS13])
+    .expect("server protocol versions")
+    .with_no_client_auth()
+    .with_single_cert(vec![cert_der], key_der)
+    .expect("server config");
+    quinn::ServerConfig::with_crypto(Arc::new(
+        quinn::crypto::rustls::QuicServerConfig::try_from(tls).expect("legacy quic server config"),
     ))
 }

@@ -8,8 +8,8 @@ use aes_gcm::{Aes128Gcm, Nonce as AesGcmNonce};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChachaNonce, XChaCha20Poly1305, XNonce};
 use hmac::{Hmac, Mac};
 use keli_net_core::{
-    websocket_accept_for_key, OutboundProfileError, OutboundRegistry, OutboundTarget,
-    ShadowsocksTcpOutbound, TrojanTcpOutbound, VlessTcpOutbound,
+    websocket_accept_for_key, OutboundRegistry, OutboundTarget, ShadowsocksTcpOutbound,
+    TrojanTcpOutbound, VlessTcpOutbound,
 };
 use keli_protocol::{Endpoint, OutboundProfile, ProxyProtocol, SecurityKind, TransportKind};
 use md5::{Digest as Md5Digest, Md5};
@@ -852,45 +852,6 @@ fn registry_from_mieru_tcp_profile_relays_over_mieru_tcp() {
 
     assert_eq!(&response, b"pong");
     server.join().expect("server thread");
-}
-
-#[test]
-fn unsupported_transports_report_security_context() {
-    let error = OutboundRegistry::from_profiles([OutboundProfile {
-        tag: "proxy".to_string(),
-        protocol: ProxyProtocol::Vless,
-        endpoint: Endpoint::new("example.com", 443),
-        transport: TransportKind::Quic {
-            security: None,
-            key: None,
-            header_type: None,
-        },
-        security: SecurityKind::Tls {
-            sni: Some("edge.example".to_string()),
-            skip_verify: false,
-        },
-        credential: "00112233-4455-6677-8899-aabbccddeeff".to_string(),
-        cipher: None,
-        flow: None,
-    }])
-    .expect_err("vless quic profile should be explicit unsupported");
-
-    assert_eq!(
-        error,
-        OutboundProfileError::UnsupportedTransport {
-            tag: "proxy".to_string(),
-            protocol: ProxyProtocol::Vless,
-            transport: TransportKind::Quic {
-                security: None,
-                key: None,
-                header_type: None,
-            },
-            security: SecurityKind::Tls {
-                sni: Some("edge.example".to_string()),
-                skip_verify: false,
-            },
-        }
-    );
 }
 
 #[derive(Debug)]

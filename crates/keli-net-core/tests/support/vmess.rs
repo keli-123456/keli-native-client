@@ -7,6 +7,7 @@ use hmac::{Hmac, Mac};
 use md5::{Digest as Md5Digest, Md5};
 use sha2::{Digest as Sha2Digest, Sha256};
 use sha3::digest::{ExtendableOutput, Update, XofReader};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 const VMESS_KDF_ROOT: &[u8] = b"VMess AEAD KDF";
 const VMESS_AUTH_ID_KEY: &[u8] = b"AES Auth ID Encryption";
@@ -31,6 +32,7 @@ pub struct VmessRequestForTest {
     response_header: u8,
 }
 
+#[allow(dead_code)]
 pub fn read_vmess_aead_request(stream: &mut impl Read, uuid: &str) -> VmessRequestForTest {
     let uuid = parse_uuid_bytes_for_vmess_test(uuid);
     let cmd_key = vmess_cmd_key_for_test(&uuid);
@@ -86,6 +88,68 @@ pub fn read_vmess_aead_request(stream: &mut impl Read, uuid: &str) -> VmessReque
     }
 }
 
+#[allow(dead_code)]
+pub async fn read_vmess_aead_request_async<R>(stream: &mut R, uuid: &str) -> VmessRequestForTest
+where
+    R: AsyncRead + Unpin,
+{
+    let uuid = parse_uuid_bytes_for_vmess_test(uuid);
+    let cmd_key = vmess_cmd_key_for_test(&uuid);
+    let mut auth_id = [0; 16];
+    let mut encrypted_len = [0; 18];
+    let mut nonce = [0; 8];
+    stream.read_exact(&mut auth_id).await.expect("read auth id");
+    assert!(vmess_auth_id_is_valid_for_test(&cmd_key, &auth_id));
+    stream
+        .read_exact(&mut encrypted_len)
+        .await
+        .expect("read header length");
+    stream.read_exact(&mut nonce).await.expect("read nonce");
+
+    let len_key = vmess_kdf16_for_test(&cmd_key, &[VMESS_HEADER_LENGTH_KEY, &auth_id, &nonce]);
+    let len_nonce = first_12_for_test(&vmess_kdf_for_test(
+        &cmd_key,
+        &[VMESS_HEADER_LENGTH_NONCE, &auth_id, &nonce],
+    ));
+    let len_plain = vmess_aes_gcm_open_for_test(&len_key, &len_nonce, &encrypted_len, &auth_id);
+    let header_len = u16::from_be_bytes([len_plain[0], len_plain[1]]) as usize;
+    let mut encrypted_header = vec![0; header_len + 16];
+    stream
+        .read_exact(&mut encrypted_header)
+        .await
+        .expect("read request header");
+    let payload_key = vmess_kdf16_for_test(&cmd_key, &[VMESS_HEADER_PAYLOAD_KEY, &auth_id, &nonce]);
+    let payload_nonce = first_12_for_test(&vmess_kdf_for_test(
+        &cmd_key,
+        &[VMESS_HEADER_PAYLOAD_NONCE, &auth_id, &nonce],
+    ));
+    let header =
+        vmess_aes_gcm_open_for_test(&payload_key, &payload_nonce, &encrypted_header, &auth_id);
+
+    assert_eq!(header[0], 0x01);
+    let request_body_iv = header[1..17].try_into().expect("request iv");
+    let request_body_key = header[17..33].try_into().expect("request key");
+    let response_header = header[33];
+    let security = header[35] & 0x0f;
+    let command = header[37];
+    let target_port = u16::from_be_bytes([header[38], header[39]]);
+    assert_eq!(header[40], 0x02, "test only expects a domain target");
+    let domain_len = header[41] as usize;
+    let target_host =
+        String::from_utf8(header[42..42 + domain_len].to_vec()).expect("domain target");
+
+    VmessRequestForTest {
+        target_host,
+        target_port,
+        command,
+        security,
+        request_body_key,
+        request_body_iv,
+        response_header,
+    }
+}
+
+#[allow(dead_code)]
 pub fn write_vmess_aead_response_header(stream: &mut impl Write, request: &VmessRequestForTest) {
     let response_key = first_16_sha256_for_test(&request.request_body_key);
     let response_iv = first_16_sha256_for_test(&request.request_body_iv);
@@ -116,6 +180,43 @@ pub fn write_vmess_aead_response_header(stream: &mut impl Write, request: &Vmess
 }
 
 #[allow(dead_code)]
+pub async fn write_vmess_aead_response_header_async<W>(
+    stream: &mut W,
+    request: &VmessRequestForTest,
+) where
+    W: AsyncWrite + Unpin,
+{
+    let response_key = first_16_sha256_for_test(&request.request_body_key);
+    let response_iv = first_16_sha256_for_test(&request.request_body_iv);
+    let header = [request.response_header, 0x00, 0x00, 0x00];
+    let len_key = vmess_kdf16_for_test(&response_key, &[VMESS_RESPONSE_HEADER_LENGTH_KEY]);
+    let len_nonce = first_12_for_test(&vmess_kdf_for_test(
+        &response_iv,
+        &[VMESS_RESPONSE_HEADER_LENGTH_IV],
+    ));
+    let payload_key = vmess_kdf16_for_test(&response_key, &[VMESS_RESPONSE_HEADER_PAYLOAD_KEY]);
+    let payload_nonce = first_12_for_test(&vmess_kdf_for_test(
+        &response_iv,
+        &[VMESS_RESPONSE_HEADER_PAYLOAD_IV],
+    ));
+    let encrypted_len = vmess_aes_gcm_seal_for_test(
+        &len_key,
+        &len_nonce,
+        &(header.len() as u16).to_be_bytes(),
+        &[],
+    );
+    let encrypted_payload = vmess_aes_gcm_seal_for_test(&payload_key, &payload_nonce, &header, &[]);
+    stream
+        .write_all(&encrypted_len)
+        .await
+        .expect("write response len");
+    stream
+        .write_all(&encrypted_payload)
+        .await
+        .expect("write response payload");
+}
+
+#[allow(dead_code)]
 pub fn read_vmess_aes128_gcm_chunk(
     stream: &mut impl Read,
     request: &VmessRequestForTest,
@@ -129,6 +230,30 @@ pub fn read_vmess_aes128_gcm_chunk(
     let mut encrypted_payload = vec![0; usize::from(len)];
     stream
         .read_exact(&mut encrypted_payload)
+        .expect("read vmess encrypted chunk");
+    let nonce = vmess_body_nonce_for_test(&request.request_body_iv, 0);
+    vmess_aes_gcm_open_for_test(&request.request_body_key, &nonce, &encrypted_payload, &[])
+}
+
+#[allow(dead_code)]
+pub async fn read_vmess_aes128_gcm_chunk_async<R>(
+    stream: &mut R,
+    request: &VmessRequestForTest,
+) -> Vec<u8>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut encrypted_len = [0; 2];
+    stream
+        .read_exact(&mut encrypted_len)
+        .await
+        .expect("read vmess masked chunk length");
+    let mask = vmess_chunk_mask_for_test(&request.request_body_iv);
+    let len = u16::from_be_bytes(encrypted_len) ^ mask;
+    let mut encrypted_payload = vec![0; usize::from(len)];
+    stream
+        .read_exact(&mut encrypted_payload)
+        .await
         .expect("read vmess encrypted chunk");
     let nonce = vmess_body_nonce_for_test(&request.request_body_iv, 0);
     vmess_aes_gcm_open_for_test(&request.request_body_key, &nonce, &encrypted_payload, &[])
@@ -150,6 +275,29 @@ pub fn write_vmess_aes128_gcm_response_chunk(
         .expect("write vmess masked chunk length");
     stream
         .write_all(&encrypted_payload)
+        .expect("write vmess encrypted chunk");
+}
+
+#[allow(dead_code)]
+pub async fn write_vmess_aes128_gcm_response_chunk_async<W>(
+    stream: &mut W,
+    request: &VmessRequestForTest,
+    payload: &[u8],
+) where
+    W: AsyncWrite + Unpin,
+{
+    let response_key = first_16_sha256_for_test(&request.request_body_key);
+    let response_iv = first_16_sha256_for_test(&request.request_body_iv);
+    let nonce = vmess_body_nonce_for_test(&response_iv, 0);
+    let encrypted_payload = vmess_aes_gcm_seal_for_test(&response_key, &nonce, payload, &[]);
+    let masked_len = (encrypted_payload.len() as u16) ^ vmess_chunk_mask_for_test(&response_iv);
+    stream
+        .write_all(&masked_len.to_be_bytes())
+        .await
+        .expect("write vmess masked chunk length");
+    stream
+        .write_all(&encrypted_payload)
+        .await
         .expect("write vmess encrypted chunk");
 }
 

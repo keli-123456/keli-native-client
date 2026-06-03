@@ -1,17 +1,28 @@
+use std::fmt;
 use std::future::poll_fn;
-use std::io;
+use std::io::{self, IoSliceMut};
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::{mpsc, Arc, Mutex};
+use std::task::{Context, Poll};
 
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes128Gcm, Nonce as AesNonce};
+use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChaChaNonce};
 use keli_protocol::{
     build_hy2_auth_request, decode_hy2_tcp_response, decode_hy2_udp_message,
     decode_tuic_packet_command, encode_hy2_tcp_request, encode_hy2_udp_message,
     encode_tuic_authenticate_command, encode_tuic_connect_command, encode_tuic_packet_command,
     is_hy2_auth_success_status, Endpoint, Hy2UdpMessage, ProtocolDecodingError, TuicPacketCommand,
 };
+use quinn::Runtime;
+use rand::RngCore;
+use sha2::{Digest, Sha256};
 
 pub type Hy2H3Connection = h3::client::Connection<h3_quinn::Connection, bytes::Bytes>;
 pub type Hy2H3SendRequest = h3::client::SendRequest<h3_quinn::OpenStreams, bytes::Bytes>;
+pub const LEGACY_QUIC_INTERNAL_SERVER_NAME: &str = "quic.internal.v2fly.org";
+const QUIC_SALT: &[u8] = b"v2ray-quic-salt";
 const HY2_TCP_RESPONSE_PREFETCH_LIMIT: usize = 64 * 1024;
 
 pub fn h3_rustls_client_config(skip_verify: bool) -> io::Result<rustls::ClientConfig> {
@@ -69,6 +80,381 @@ pub async fn h3_quic_connect(
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
         .await
         .map_err(|error| io::Error::new(io::ErrorKind::TimedOut, error))
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LegacyQuicTransportConfig {
+    pub security: Option<String>,
+    pub key: Option<String>,
+    pub header_type: Option<String>,
+}
+
+impl LegacyQuicTransportConfig {
+    pub fn new(security: Option<String>, key: Option<String>, header_type: Option<String>) -> Self {
+        Self {
+            security,
+            key,
+            header_type,
+        }
+    }
+
+    fn validate(&self) -> io::Result<()> {
+        let security = self.normalized_security();
+        let key = self.normalized_key();
+        if security.eq_ignore_ascii_case("none") && !key.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "legacy QUIC key is supported only with encrypted packet security",
+            ));
+        }
+        let _ = QuicPacketSecurity::from_name_and_key(&security, &key)?;
+        let header = self.normalized_header_type();
+        if !header.eq_ignore_ascii_case("none") {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("legacy QUIC packet header {header} is not supported yet"),
+            ));
+        }
+        Ok(())
+    }
+
+    fn packet_security(&self) -> io::Result<Option<QuicPacketSecurity>> {
+        QuicPacketSecurity::from_name_and_key(&self.normalized_security(), &self.normalized_key())
+    }
+
+    fn normalized_security(&self) -> String {
+        self.security
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("none")
+            .to_ascii_lowercase()
+    }
+
+    fn normalized_key(&self) -> String {
+        self.key
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    fn normalized_header_type(&self) -> String {
+        self.header_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("none")
+            .to_ascii_lowercase()
+    }
+}
+
+pub fn legacy_quic_client_config(skip_verify: bool) -> io::Result<quinn::ClientConfig> {
+    let tls = legacy_quic_rustls_client_config(skip_verify)?;
+    let crypto = quinn::crypto::rustls::QuicClientConfig::try_from(tls)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    Ok(quinn::ClientConfig::new(Arc::new(crypto)))
+}
+
+pub fn legacy_quic_rustls_client_config(skip_verify: bool) -> io::Result<rustls::ClientConfig> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let builder = rustls::ClientConfig::builder_with_provider(provider.clone())
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+
+    if skip_verify {
+        Ok(builder
+            .dangerous()
+            .with_custom_certificate_verifier(QuicInsecureServerVerifier::new(provider))
+            .with_no_client_auth())
+    } else {
+        let root_store =
+            rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        Ok(builder
+            .with_root_certificates(root_store)
+            .with_no_client_auth())
+    }
+}
+
+pub fn legacy_quic_client_endpoint(
+    bind_addr: SocketAddr,
+    skip_verify: bool,
+    transport: &LegacyQuicTransportConfig,
+) -> io::Result<quinn::Endpoint> {
+    transport.validate()?;
+    let mut endpoint = if let Some(security) = transport.packet_security()? {
+        let socket = std::net::UdpSocket::bind(bind_addr)?;
+        let runtime = Arc::new(quinn::TokioRuntime);
+        let socket = runtime.wrap_udp_socket(socket)?;
+        let socket = Arc::new(QuicPacketUdpSocket::new(socket, security));
+        quinn::Endpoint::new_with_abstract_socket(
+            quinn::EndpointConfig::default(),
+            None,
+            socket,
+            runtime,
+        )?
+    } else {
+        quinn::Endpoint::client(bind_addr)?
+    };
+    endpoint.set_default_client_config(legacy_quic_client_config(skip_verify)?);
+    Ok(endpoint)
+}
+
+pub async fn legacy_quic_connect(
+    endpoint: &quinn::Endpoint,
+    server_addr: SocketAddr,
+    server_name: &str,
+) -> io::Result<quinn::Connection> {
+    if server_name.trim().is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "legacy QUIC server name is empty",
+        ));
+    }
+    endpoint
+        .connect(server_addr, server_name)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
+        .await
+        .map_err(|error| io::Error::new(io::ErrorKind::TimedOut, error))
+}
+
+struct QuicPacketUdpSocket {
+    inner: Arc<dyn quinn::AsyncUdpSocket>,
+    security: QuicPacketSecurity,
+}
+
+impl QuicPacketUdpSocket {
+    fn new(inner: Arc<dyn quinn::AsyncUdpSocket>, security: QuicPacketSecurity) -> Self {
+        Self { inner, security }
+    }
+}
+
+impl fmt::Debug for QuicPacketUdpSocket {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("QuicPacketUdpSocket")
+            .field("security", &self.security.name())
+            .finish_non_exhaustive()
+    }
+}
+
+impl quinn::AsyncUdpSocket for QuicPacketUdpSocket {
+    fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn quinn::UdpPoller>> {
+        self.inner.clone().create_io_poller()
+    }
+
+    fn try_send(&self, transmit: &quinn::udp::Transmit) -> io::Result<()> {
+        let segment_size = transmit.segment_size.unwrap_or(transmit.contents.len());
+        if segment_size == 0 || segment_size >= transmit.contents.len() {
+            let packet = self.security.seal_packet(transmit.contents)?;
+            let wrapped = quinn::udp::Transmit {
+                destination: transmit.destination,
+                ecn: transmit.ecn,
+                contents: &packet,
+                segment_size: None,
+                src_ip: transmit.src_ip,
+            };
+            return self.inner.try_send(&wrapped);
+        }
+
+        let segment_count = transmit.contents.len().div_ceil(segment_size);
+        let wrapped_segment_size = segment_size + self.security.packet_overhead();
+        let mut packet = Vec::with_capacity(
+            transmit.contents.len() + segment_count * self.security.packet_overhead(),
+        );
+        for chunk in transmit.contents.chunks(segment_size) {
+            self.security.seal_packet_into(chunk, &mut packet)?;
+        }
+        let wrapped = quinn::udp::Transmit {
+            destination: transmit.destination,
+            ecn: transmit.ecn,
+            contents: &packet,
+            segment_size: Some(wrapped_segment_size),
+            src_ip: transmit.src_ip,
+        };
+        self.inner.try_send(&wrapped)
+    }
+
+    fn poll_recv(
+        &self,
+        cx: &mut Context<'_>,
+        bufs: &mut [IoSliceMut<'_>],
+        meta: &mut [quinn::udp::RecvMeta],
+    ) -> Poll<io::Result<usize>> {
+        match self.inner.poll_recv(cx, bufs, meta) {
+            Poll::Ready(Ok(read)) => {
+                for index in 0..read {
+                    if !self.security.open_meta(&mut bufs[index], &mut meta[index]) {
+                        meta[index].len = 0;
+                        meta[index].stride = 0;
+                    }
+                }
+                Poll::Ready(Ok(read))
+            }
+            other => other,
+        }
+    }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.inner.local_addr()
+    }
+
+    fn max_transmit_segments(&self) -> usize {
+        self.inner.max_transmit_segments()
+    }
+
+    fn max_receive_segments(&self) -> usize {
+        self.inner.max_receive_segments()
+    }
+
+    fn may_fragment(&self) -> bool {
+        self.inner.may_fragment()
+    }
+}
+
+enum QuicPacketSecurity {
+    Aes128Gcm(Aes128Gcm),
+    ChaCha20Poly1305(ChaCha20Poly1305),
+}
+
+impl QuicPacketSecurity {
+    fn from_name_and_key(security: &str, key: &str) -> io::Result<Option<Self>> {
+        let security = security.trim().to_ascii_lowercase();
+        if security.is_empty() || security == "none" {
+            return Ok(None);
+        }
+
+        let digest = quic_packet_key(key);
+        match security.as_str() {
+            "aes-128-gcm" | "aes128-gcm" => {
+                let cipher = Aes128Gcm::new_from_slice(&digest[..16]).map_err(|error| {
+                    io::Error::new(io::ErrorKind::InvalidInput, error.to_string())
+                })?;
+                Ok(Some(Self::Aes128Gcm(cipher)))
+            }
+            "chacha20-poly1305" | "chacha20-ietf-poly1305" => {
+                let cipher = ChaCha20Poly1305::new_from_slice(&digest).map_err(|error| {
+                    io::Error::new(io::ErrorKind::InvalidInput, error.to_string())
+                })?;
+                Ok(Some(Self::ChaCha20Poly1305(cipher)))
+            }
+            _ => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("legacy QUIC packet security {security} is not supported"),
+            )),
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Aes128Gcm(_) => "aes-128-gcm",
+            Self::ChaCha20Poly1305(_) => "chacha20-poly1305",
+        }
+    }
+
+    fn nonce_size(&self) -> usize {
+        12
+    }
+
+    fn tag_size(&self) -> usize {
+        16
+    }
+
+    fn packet_overhead(&self) -> usize {
+        self.nonce_size() + self.tag_size()
+    }
+
+    fn seal_packet(&self, input: &[u8]) -> io::Result<Vec<u8>> {
+        let mut output = Vec::with_capacity(input.len() + self.packet_overhead());
+        self.seal_packet_into(input, &mut output)?;
+        Ok(output)
+    }
+
+    fn seal_packet_into(&self, input: &[u8], output: &mut Vec<u8>) -> io::Result<()> {
+        let mut nonce = [0u8; 12];
+        rand::thread_rng().fill_bytes(&mut nonce);
+        output.extend_from_slice(&nonce);
+        let encrypted = match self {
+            Self::Aes128Gcm(cipher) => cipher
+                .encrypt(AesNonce::from_slice(&nonce), input)
+                .map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "legacy QUIC packet seal failed")
+                })?,
+            Self::ChaCha20Poly1305(cipher) => cipher
+                .encrypt(ChaChaNonce::from_slice(&nonce), input)
+                .map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "legacy QUIC packet seal failed")
+                })?,
+        };
+        output.extend_from_slice(&encrypted);
+        Ok(())
+    }
+
+    fn open_packet(&self, input: &[u8]) -> Option<Vec<u8>> {
+        if input.len() <= self.packet_overhead() {
+            return None;
+        }
+        let (nonce, payload) = input.split_at(self.nonce_size());
+        match self {
+            Self::Aes128Gcm(cipher) => cipher.decrypt(AesNonce::from_slice(nonce), payload).ok(),
+            Self::ChaCha20Poly1305(cipher) => {
+                cipher.decrypt(ChaChaNonce::from_slice(nonce), payload).ok()
+            }
+        }
+    }
+
+    fn open_meta(&self, buffer: &mut IoSliceMut<'_>, meta: &mut quinn::udp::RecvMeta) -> bool {
+        let stride = if meta.stride == 0 {
+            meta.len
+        } else {
+            meta.stride
+        };
+        if stride <= self.packet_overhead() {
+            return false;
+        }
+
+        let mut input_offset = 0usize;
+        let mut output_offset = 0usize;
+        let mut output_stride = 0usize;
+        let mut segment_count = 0usize;
+        while input_offset < meta.len {
+            let packet_len = stride.min(meta.len - input_offset);
+            if packet_len <= self.packet_overhead() {
+                return false;
+            }
+
+            let Some(plain) = self.open_packet(&buffer[input_offset..input_offset + packet_len])
+            else {
+                return false;
+            };
+            let plain_len = plain.len();
+            buffer[output_offset..output_offset + plain_len].copy_from_slice(&plain);
+            if segment_count == 0 {
+                output_stride = plain_len;
+            }
+            segment_count += 1;
+            input_offset += packet_len;
+            output_offset += plain_len;
+        }
+
+        meta.len = output_offset;
+        meta.stride = if segment_count <= 1 {
+            output_offset
+        } else {
+            output_stride
+        };
+        true
+    }
+}
+
+fn quic_packet_key(key: &str) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(key.as_bytes());
+    hasher.update(QUIC_SALT);
+    let digest = hasher.finalize();
+    let mut output = [0u8; 32];
+    output.copy_from_slice(&digest);
+    output
 }
 
 pub fn tuic_export_token(
@@ -375,6 +761,226 @@ pub struct TuicQuicTcpStream {
 pub struct TuicClientSession {
     endpoint: quinn::Endpoint,
     connection: quinn::Connection,
+}
+
+pub struct LegacyQuicTcpStream {
+    runtime: Arc<tokio::runtime::Runtime>,
+    _endpoint: quinn::Endpoint,
+    _connection: quinn::Connection,
+    send: Arc<Mutex<quinn::SendStream>>,
+    read_rx: mpsc::Receiver<io::Result<Vec<u8>>>,
+    read_buffer: Vec<u8>,
+    read_offset: usize,
+    reader: tokio::task::JoinHandle<()>,
+    nonblocking: bool,
+    eof: bool,
+}
+
+impl LegacyQuicTcpStream {
+    pub fn connect(
+        bind_addr: SocketAddr,
+        server_addr: SocketAddr,
+        server_name: &str,
+        skip_verify: bool,
+        transport: LegacyQuicTransportConfig,
+        timeout: std::time::Duration,
+    ) -> io::Result<Self> {
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .thread_name("keli-legacy-quic-runtime")
+                .build()
+                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?,
+        );
+        let (endpoint, connection, send, recv) = runtime.block_on(async {
+            let endpoint = legacy_quic_client_endpoint(bind_addr, skip_verify, &transport)?;
+            let connection = tokio::time::timeout(
+                timeout,
+                legacy_quic_connect(&endpoint, server_addr, server_name),
+            )
+            .await
+            .map_err(|_| {
+                io::Error::new(io::ErrorKind::TimedOut, "legacy QUIC handshake timed out")
+            })??;
+            let (send, recv) = tokio::time::timeout(timeout, connection.open_bi())
+                .await
+                .map_err(|_| {
+                    io::Error::new(io::ErrorKind::TimedOut, "legacy QUIC stream open timed out")
+                })?
+                .map_err(|error| {
+                    io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}"))
+                })?;
+            Ok::<_, io::Error>((endpoint, connection, send, recv))
+        })?;
+        Ok(Self::from_stream(runtime, endpoint, connection, send, recv))
+    }
+
+    fn from_stream(
+        runtime: Arc<tokio::runtime::Runtime>,
+        endpoint: quinn::Endpoint,
+        connection: quinn::Connection,
+        send: quinn::SendStream,
+        mut recv: quinn::RecvStream,
+    ) -> Self {
+        let send = Arc::new(Mutex::new(send));
+        let (read_tx, read_rx) = mpsc::channel();
+        let reader = runtime.spawn(async move {
+            let mut buffer = vec![0; 16 * 1024];
+            loop {
+                match recv.read(&mut buffer).await {
+                    Ok(Some(bytes)) => {
+                        if bytes == 0 {
+                            continue;
+                        }
+                        if read_tx.send(Ok(buffer[..bytes].to_vec())).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        let _ = read_tx.send(Ok(Vec::new()));
+                        break;
+                    }
+                    Err(error) => {
+                        let _ = read_tx.send(Err(io::Error::new(
+                            io::ErrorKind::ConnectionAborted,
+                            format!("{error:?}"),
+                        )));
+                        break;
+                    }
+                }
+            }
+        });
+        Self {
+            runtime,
+            _endpoint: endpoint,
+            _connection: connection,
+            send,
+            read_rx,
+            read_buffer: Vec::new(),
+            read_offset: 0,
+            reader,
+            nonblocking: false,
+            eof: false,
+        }
+    }
+
+    pub fn set_nonblocking_mode(&mut self, nonblocking: bool) {
+        self.nonblocking = nonblocking;
+    }
+
+    pub fn shutdown_write(&mut self) -> io::Result<()> {
+        let mut send = self.send.lock().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                "legacy QUIC send stream lock poisoned",
+            )
+        })?;
+        send.finish()
+            .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))
+    }
+
+    pub fn shutdown_both(&mut self) -> io::Result<()> {
+        self.shutdown_write().ok();
+        self.reader.abort();
+        Ok(())
+    }
+
+    fn read_from_buffer(&mut self, buffer: &mut [u8]) -> Option<usize> {
+        if self.read_offset >= self.read_buffer.len() {
+            self.read_buffer.clear();
+            self.read_offset = 0;
+            return None;
+        }
+        let remaining = &self.read_buffer[self.read_offset..];
+        let amount = remaining.len().min(buffer.len());
+        buffer[..amount].copy_from_slice(&remaining[..amount]);
+        self.read_offset += amount;
+        if self.read_offset >= self.read_buffer.len() {
+            self.read_buffer.clear();
+            self.read_offset = 0;
+        }
+        Some(amount)
+    }
+
+    fn receive_next_read_chunk(&mut self) -> io::Result<bool> {
+        if self.eof {
+            return Ok(false);
+        }
+        let received = if self.nonblocking {
+            match self.read_rx.try_recv() {
+                Ok(received) => received,
+                Err(mpsc::TryRecvError::Empty) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "legacy QUIC stream has no data available",
+                    ));
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.eof = true;
+                    return Ok(false);
+                }
+            }
+        } else {
+            match self.read_rx.recv() {
+                Ok(received) => received,
+                Err(_) => {
+                    self.eof = true;
+                    return Ok(false);
+                }
+            }
+        }?;
+        if received.is_empty() {
+            self.eof = true;
+            Ok(false)
+        } else {
+            self.read_buffer = received;
+            self.read_offset = 0;
+            Ok(true)
+        }
+    }
+}
+
+impl std::io::Read for LegacyQuicTcpStream {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if let Some(bytes) = self.read_from_buffer(buffer) {
+            return Ok(bytes);
+        }
+        if !self.receive_next_read_chunk()? {
+            return Ok(0);
+        }
+        Ok(self.read_from_buffer(buffer).unwrap_or(0))
+    }
+}
+
+impl std::io::Write for LegacyQuicTcpStream {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let mut send = self.send.lock().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                "legacy QUIC send stream lock poisoned",
+            )
+        })?;
+        self.runtime
+            .block_on(send.write_all(buffer))
+            .map_err(|error| {
+                io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}"))
+            })?;
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Drop for LegacyQuicTcpStream {
+    fn drop(&mut self) {
+        self.reader.abort();
+    }
 }
 
 impl TuicClientSession {

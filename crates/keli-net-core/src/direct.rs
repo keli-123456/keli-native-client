@@ -204,6 +204,7 @@ pub struct OutboundRegistry {
     trojan_tls_grpc_tags: HashMap<String, TrojanTlsGrpcOutbound>,
     trojan_h2_tags: HashMap<String, TrojanH2Outbound>,
     trojan_tls_h2_tags: HashMap<String, TrojanTlsH2Outbound>,
+    trojan_quic_tags: HashMap<String, TrojanQuicOutbound>,
     vless_tcp_tags: HashMap<String, VlessTcpOutbound>,
     vless_tls_tcp_tags: HashMap<String, VlessTlsTcpOutbound>,
     vless_ws_tags: HashMap<String, VlessWsOutbound>,
@@ -214,6 +215,7 @@ pub struct OutboundRegistry {
     vless_tls_grpc_tags: HashMap<String, VlessTlsGrpcOutbound>,
     vless_h2_tags: HashMap<String, VlessH2Outbound>,
     vless_tls_h2_tags: HashMap<String, VlessTlsH2Outbound>,
+    vless_quic_tags: HashMap<String, VlessQuicOutbound>,
     vmess_tcp_tags: HashMap<String, VmessTcpOutbound>,
     vmess_tls_tcp_tags: HashMap<String, VmessTlsTcpOutbound>,
     vmess_ws_tags: HashMap<String, VmessWsOutbound>,
@@ -224,6 +226,7 @@ pub struct OutboundRegistry {
     vmess_tls_grpc_tags: HashMap<String, VmessTlsGrpcOutbound>,
     vmess_h2_tags: HashMap<String, VmessH2Outbound>,
     vmess_tls_h2_tags: HashMap<String, VmessTlsH2Outbound>,
+    vmess_quic_tags: HashMap<String, VmessQuicOutbound>,
     shadowsocks_tcp_tags: HashMap<String, ShadowsocksTcpOutbound>,
     anytls_tls_tcp_tags: HashMap<String, AnyTlsTlsTcpOutbound>,
     naive_h2_tcp_tags: HashMap<String, crate::NaiveH2TcpOutbound>,
@@ -375,6 +378,49 @@ impl OutboundRegistry {
                 self.add_trojan_tls_h2(
                     tag,
                     TrojanTlsH2Outbound::new(endpoint, host, path, credential, sni, skip_verify),
+                );
+                Ok(())
+            }
+            (
+                ProxyProtocol::Trojan,
+                TransportKind::Quic {
+                    security: quic_security,
+                    key,
+                    header_type,
+                },
+                SecurityKind::None,
+            ) => {
+                self.add_trojan_quic(
+                    tag,
+                    TrojanQuicOutbound::new(
+                        endpoint,
+                        credential,
+                        crate::LEGACY_QUIC_INTERNAL_SERVER_NAME,
+                        true,
+                        crate::LegacyQuicTransportConfig::new(quic_security, key, header_type),
+                    ),
+                );
+                Ok(())
+            }
+            (
+                ProxyProtocol::Trojan,
+                TransportKind::Quic {
+                    security: quic_security,
+                    key,
+                    header_type,
+                },
+                SecurityKind::Tls { sni, skip_verify },
+            ) => {
+                let sni = sni.unwrap_or_else(|| endpoint.host.clone());
+                self.add_trojan_quic(
+                    tag,
+                    TrojanQuicOutbound::new(
+                        endpoint,
+                        credential,
+                        sni,
+                        skip_verify,
+                        crate::LegacyQuicTransportConfig::new(quic_security, key, header_type),
+                    ),
                 );
                 Ok(())
             }
@@ -553,6 +599,53 @@ impl OutboundRegistry {
                 );
                 Ok(())
             }
+            (
+                ProxyProtocol::Vmess,
+                TransportKind::Quic {
+                    security: quic_security,
+                    key,
+                    header_type,
+                },
+                SecurityKind::None,
+            ) => {
+                let vmess_security = vmess_security_from_profile_cipher(&tag, cipher.as_deref())?;
+                self.add_vmess_quic(
+                    tag,
+                    VmessQuicOutbound::new_with_security(
+                        endpoint,
+                        credential,
+                        crate::LEGACY_QUIC_INTERNAL_SERVER_NAME,
+                        true,
+                        crate::LegacyQuicTransportConfig::new(quic_security, key, header_type),
+                        vmess_security,
+                    ),
+                );
+                Ok(())
+            }
+            (
+                ProxyProtocol::Vmess,
+                TransportKind::Quic {
+                    security: quic_security,
+                    key,
+                    header_type,
+                },
+                SecurityKind::Tls { sni, skip_verify },
+            ) => {
+                let sni = sni.unwrap_or_else(|| endpoint.host.clone());
+                let vmess_security = vmess_security_from_profile_cipher(&tag, cipher.as_deref())?;
+                self.add_vmess_quic(
+                    tag,
+                    VmessQuicOutbound::new_with_security(
+                        endpoint,
+                        credential,
+                        sni,
+                        skip_verify,
+                        crate::LegacyQuicTransportConfig::new(quic_security, key, header_type),
+                        vmess_security,
+                    ),
+                );
+                Ok(())
+            }
             (ProxyProtocol::Vless, TransportKind::Tcp, SecurityKind::None) => {
                 self.add_vless_tcp(tag, VlessTcpOutbound::new(endpoint, credential, flow));
                 Ok(())
@@ -681,6 +774,51 @@ impl OutboundRegistry {
                         flow,
                         sni,
                         skip_verify,
+                    ),
+                );
+                Ok(())
+            }
+            (
+                ProxyProtocol::Vless,
+                TransportKind::Quic {
+                    security: quic_security,
+                    key,
+                    header_type,
+                },
+                SecurityKind::None,
+            ) => {
+                self.add_vless_quic(
+                    tag,
+                    VlessQuicOutbound::new(
+                        endpoint,
+                        credential,
+                        flow,
+                        crate::LEGACY_QUIC_INTERNAL_SERVER_NAME,
+                        true,
+                        crate::LegacyQuicTransportConfig::new(quic_security, key, header_type),
+                    ),
+                );
+                Ok(())
+            }
+            (
+                ProxyProtocol::Vless,
+                TransportKind::Quic {
+                    security: quic_security,
+                    key,
+                    header_type,
+                },
+                SecurityKind::Tls { sni, skip_verify },
+            ) => {
+                let sni = sni.unwrap_or_else(|| endpoint.host.clone());
+                self.add_vless_quic(
+                    tag,
+                    VlessQuicOutbound::new(
+                        endpoint,
+                        credential,
+                        flow,
+                        sni,
+                        skip_verify,
+                        crate::LegacyQuicTransportConfig::new(quic_security, key, header_type),
                     ),
                 );
                 Ok(())
@@ -817,6 +955,10 @@ impl OutboundRegistry {
         self.trojan_tls_h2_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_trojan_quic(&mut self, tag: impl Into<String>, outbound: TrojanQuicOutbound) {
+        self.trojan_quic_tags.insert(tag.into(), outbound);
+    }
+
     pub fn add_vless_tcp(&mut self, tag: impl Into<String>, outbound: VlessTcpOutbound) {
         self.vless_tcp_tags.insert(tag.into(), outbound);
     }
@@ -865,6 +1007,10 @@ impl OutboundRegistry {
         self.vless_tls_h2_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_vless_quic(&mut self, tag: impl Into<String>, outbound: VlessQuicOutbound) {
+        self.vless_quic_tags.insert(tag.into(), outbound);
+    }
+
     pub fn add_vmess_tcp(&mut self, tag: impl Into<String>, outbound: VmessTcpOutbound) {
         self.vmess_tcp_tags.insert(tag.into(), outbound);
     }
@@ -911,6 +1057,10 @@ impl OutboundRegistry {
 
     pub fn add_vmess_tls_h2(&mut self, tag: impl Into<String>, outbound: VmessTlsH2Outbound) {
         self.vmess_tls_h2_tags.insert(tag.into(), outbound);
+    }
+
+    pub fn add_vmess_quic(&mut self, tag: impl Into<String>, outbound: VmessQuicOutbound) {
+        self.vmess_quic_tags.insert(tag.into(), outbound);
     }
 
     pub fn add_shadowsocks_tcp(
@@ -973,6 +1123,8 @@ impl OutboundRegistry {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.trojan_tls_h2_tags.get(tag) {
             outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.trojan_quic_tags.get(tag) {
+            outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tls_tcp_tags.get(tag) {
@@ -993,6 +1145,8 @@ impl OutboundRegistry {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tls_h2_tags.get(tag) {
             outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vless_quic_tags.get(tag) {
+            outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vmess_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vmess_tls_tcp_tags.get(tag) {
@@ -1012,6 +1166,8 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vmess_h2_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vmess_tls_h2_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vmess_quic_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
@@ -1779,6 +1935,56 @@ impl VlessTlsH2Outbound {
             self.skip_verify,
             &self.host,
             &self.path,
+        )?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        read_vless_response_header_from_stream(&mut stream)?;
+        Ok(OutboundConnection::Owned(Box::new(stream)))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VlessQuicOutbound {
+    pub server: Endpoint,
+    pub uuid: String,
+    pub flow: Option<String>,
+    pub sni: String,
+    pub skip_verify: bool,
+    pub transport: crate::LegacyQuicTransportConfig,
+}
+
+impl VlessQuicOutbound {
+    pub fn new(
+        server: Endpoint,
+        uuid: impl Into<String>,
+        flow: Option<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+        transport: crate::LegacyQuicTransportConfig,
+    ) -> Self {
+        Self {
+            server,
+            uuid: uuid.into(),
+            flow,
+            sni: sni.into(),
+            skip_verify,
+            transport,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let mut stream = connect_legacy_quic_stream(
+            &self.server,
+            &self.sni,
+            self.skip_verify,
+            &self.transport,
+            timeout,
         )?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
@@ -2726,6 +2932,48 @@ fn write_anytls_auth(stream: &mut impl Write, password: &str) -> io::Result<()> 
     stream.write_all(&padding)
 }
 
+fn connect_legacy_quic_stream(
+    server: &Endpoint,
+    sni: &str,
+    skip_verify: bool,
+    transport: &crate::LegacyQuicTransportConfig,
+    timeout: Duration,
+) -> io::Result<crate::LegacyQuicTcpStream> {
+    let mut last_error = None;
+    for server_addr in resolve_endpoint_socket_addrs(server)? {
+        let bind_addr = hy2_bind_addr_for(server_addr);
+        match crate::LegacyQuicTcpStream::connect(
+            bind_addr,
+            server_addr,
+            sni,
+            skip_verify,
+            transport.clone(),
+            timeout,
+        ) {
+            Ok(stream) => return Ok(stream),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::AddrNotAvailable,
+            format!("no address resolved for {}:{}", server.host, server.port),
+        )
+    }))
+}
+
+fn resolve_endpoint_socket_addrs(endpoint: &Endpoint) -> io::Result<Vec<SocketAddr>> {
+    let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+    dns.resolve(&endpoint.host, endpoint.port)
+        .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error))
+        .map(|addresses| {
+            addresses
+                .into_iter()
+                .map(|address| SocketAddr::new(address.ip, address.port))
+                .collect()
+        })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrojanTcpOutbound {
     pub server: Endpoint,
@@ -3137,6 +3385,52 @@ impl TrojanTlsH2Outbound {
             self.skip_verify,
             &self.host,
             &self.path,
+        )?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_trojan_tcp_request_header(&self.password, &target)
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        Ok(OutboundConnection::Owned(Box::new(stream)))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrojanQuicOutbound {
+    pub server: Endpoint,
+    pub password: String,
+    pub sni: String,
+    pub skip_verify: bool,
+    pub transport: crate::LegacyQuicTransportConfig,
+}
+
+impl TrojanQuicOutbound {
+    pub fn new(
+        server: Endpoint,
+        password: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+        transport: crate::LegacyQuicTransportConfig,
+    ) -> Self {
+        Self {
+            server,
+            password: password.into(),
+            sni: sni.into(),
+            skip_verify,
+            transport,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let mut stream = connect_legacy_quic_stream(
+            &self.server,
+            &self.sni,
+            self.skip_verify,
+            &self.transport,
+            timeout,
         )?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let header = encode_trojan_tcp_request_header(&self.password, &target)
@@ -3860,6 +4154,72 @@ impl VmessTlsH2Outbound {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmessQuicOutbound {
+    pub server: Endpoint,
+    pub uuid: String,
+    pub sni: String,
+    pub skip_verify: bool,
+    pub transport: crate::LegacyQuicTransportConfig,
+    pub security: VmessBodySecurity,
+}
+
+impl VmessQuicOutbound {
+    pub fn new(
+        server: Endpoint,
+        uuid: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+        transport: crate::LegacyQuicTransportConfig,
+    ) -> Self {
+        Self::new_with_security(
+            server,
+            uuid,
+            sni,
+            skip_verify,
+            transport,
+            VmessBodySecurity::None,
+        )
+    }
+
+    pub fn new_with_security(
+        server: Endpoint,
+        uuid: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+        transport: crate::LegacyQuicTransportConfig,
+        security: VmessBodySecurity,
+    ) -> Self {
+        Self {
+            server,
+            uuid: uuid.into(),
+            sni: sni.into(),
+            skip_verify,
+            transport,
+            security,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let mut stream = connect_legacy_quic_stream(
+            &self.server,
+            &self.sni,
+            self.skip_verify,
+            &self.transport,
+            timeout,
+        )?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let request =
+            write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
+        read_vmess_response_header_from_stream(&mut stream, &request)?;
+        vmess_connection_from_stream(stream, request, self.security)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct VmessClientRequest {
     request_body_key: [u8; 16],
     request_body_iv: [u8; 16],
@@ -4523,6 +4883,21 @@ impl<S: OwnedRelayStream> OwnedRelayStream for crate::OwnedWebSocketClientStream
 
     fn shutdown_both(&mut self) -> io::Result<()> {
         self.inner_mut().shutdown_both()
+    }
+}
+
+impl OwnedRelayStream for crate::LegacyQuicTcpStream {
+    fn set_nonblocking_mode(&mut self, nonblocking: bool) -> io::Result<()> {
+        self.set_nonblocking_mode(nonblocking);
+        Ok(())
+    }
+
+    fn shutdown_write(&mut self) -> io::Result<()> {
+        self.shutdown_write()
+    }
+
+    fn shutdown_both(&mut self) -> io::Result<()> {
+        self.shutdown_both()
     }
 }
 
