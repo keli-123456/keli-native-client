@@ -12,6 +12,7 @@ use keli_net_core::{
 };
 use rcgen::generate_simple_self_signed;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use sha2::{Digest, Sha256};
 use shadowsocks_crypto::kind::CipherKind;
 use shadowsocks_crypto::v1::{openssl_bytes_to_key, Cipher};
 
@@ -491,6 +492,65 @@ fn socks5_connect_relays_registered_shadowsocks_outbound_route() {
 }
 
 #[test]
+fn socks5_connect_relays_registered_anytls_outbound_route() {
+    let (anytls_port, anytls_thread) = spawn_anytls_tcp_echo_server();
+    let inbound = TcpListener::bind("127.0.0.1:0").expect("bind inbound");
+    let inbound_port = inbound.local_addr().expect("inbound addr").port();
+    let outbounds = OutboundRegistry::from_profiles([keli_protocol::OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: keli_protocol::ProxyProtocol::AnyTls,
+        endpoint: keli_protocol::Endpoint::new("127.0.0.1", anytls_port),
+        transport: keli_protocol::TransportKind::Tcp,
+        security: keli_protocol::SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: true,
+        },
+        credential: "secret".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("build AnyTLS outbound registry");
+    let runtime = MixedProxyRuntime::with_routes_and_outbounds(
+        RouteEngine::new(RouteAction::Outbound("proxy".to_string())),
+        outbounds,
+    );
+    let inbound_thread = thread::spawn(move || {
+        let (mut stream, _) = inbound.accept().expect("accept inbound");
+        handle_socks5_connection_with_routes(&mut stream, &runtime).expect("handle socks5");
+    });
+
+    let mut client = TcpStream::connect(("127.0.0.1", inbound_port)).expect("connect inbound");
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    client.write_all(&[0x05, 0x01, 0x00]).expect("write hello");
+    let mut hello = [0; 2];
+    client.read_exact(&mut hello).expect("read hello response");
+    assert_eq!(hello, [0x05, 0x00]);
+
+    client
+        .write_all(&[
+            0x05, 0x01, 0x00, 0x03, 0x0b, b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.', b'c',
+            b'o', b'm', 0x01, 0xbb,
+        ])
+        .expect("write connect request");
+    let mut connect_response = [0; 10];
+    client
+        .read_exact(&mut connect_response)
+        .expect("read connect response");
+    assert_eq!(connect_response, [0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+
+    client.write_all(b"ping").expect("write ping");
+    let mut response = [0; 4];
+    client.read_exact(&mut response).expect("read pong");
+    assert_eq!(&response, b"pong");
+    client.shutdown(Shutdown::Both).ok();
+
+    inbound_thread.join().expect("inbound thread");
+    anytls_thread.join().expect("anytls thread");
+}
+
+#[test]
 fn socks5_udp_associate_relays_registered_tuic_outbound_route() {
     let (tuic_addr, tuic_thread) = spawn_tuic_udp_echo_server();
     let inbound = TcpListener::bind("127.0.0.1:0").expect("bind inbound");
@@ -584,6 +644,43 @@ fn spawn_shadowsocks_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
         socket
             .send_to(&response, from)
             .expect("write ss udp response");
+    });
+    (port, handle)
+}
+
+fn spawn_anytls_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind anytls tcp server");
+    let port = listener.local_addr().expect("anytls tcp addr").port();
+    let server_config = tls_server_config();
+    let handle = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept anytls tcp server");
+        let connection = rustls::ServerConnection::new(server_config).expect("server tls");
+        let mut stream = rustls::StreamOwned::new(connection, stream);
+
+        assert_anytls_auth(&mut stream, "secret");
+        let (cmd, sid, settings) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid), (4, 0));
+        let settings = String::from_utf8(settings).expect("settings utf8");
+        assert!(settings.contains("v=2"));
+        assert!(settings.contains("client=keli-native-client/"));
+        assert!(settings.contains("padding-md5="));
+
+        let (cmd, sid, data) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid, data.len()), (1, 1, 0));
+
+        let (cmd, sid, target) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid), (2, 1));
+        assert_eq!(&target, b"\x03\x0bexample.com\x01\xbb");
+
+        let (cmd, sid, payload) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid), (2, 1));
+        assert_eq!(&payload, b"ping");
+
+        write_anytls_frame(&mut stream, 10, 0, b"v=2");
+        write_anytls_frame(&mut stream, 7, 1, b"");
+        write_anytls_frame(&mut stream, 2, 1, b"pong");
+        stream.conn.send_close_notify();
+        stream.flush().expect("flush anytls close notify");
     });
     (port, handle)
 }
@@ -748,6 +845,22 @@ fn hy2_h3_test_server_config() -> quinn::ServerConfig {
     ))
 }
 
+fn tls_server_config() -> Arc<rustls::ServerConfig> {
+    let cert = generate_simple_self_signed(vec!["edge.example".to_string()]).expect("cert");
+    let cert_der: CertificateDer<'static> = cert.cert.der().clone();
+    let key_der = PrivateKeyDer::Pkcs8(cert.signing_key.serialize_der().into());
+    Arc::new(
+        rustls::ServerConfig::builder_with_provider(
+            rustls::crypto::ring::default_provider().into(),
+        )
+        .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+        .expect("server protocol versions")
+        .with_no_client_auth()
+        .with_single_cert(vec![cert_der], key_der)
+        .expect("server config"),
+    )
+}
+
 fn shadowsocks_key(kind: CipherKind, password: &str) -> Vec<u8> {
     let mut key = vec![0; kind.key_len()];
     openssl_bytes_to_key(password.as_bytes(), &mut key);
@@ -807,4 +920,41 @@ fn write_ss_chunk(stream: &mut TcpStream, cipher: &mut Cipher, payload: &[u8]) {
     stream
         .write_all(&encrypted_payload)
         .expect("write encrypted ss chunk payload");
+}
+
+fn assert_anytls_auth(stream: &mut impl Read, password: &str) {
+    let mut header = [0; 34];
+    stream.read_exact(&mut header).expect("read anytls auth");
+    let expected = Sha256::digest(password.as_bytes());
+    assert_eq!(&header[..32], expected.as_slice());
+    let padding_len = u16::from_be_bytes([header[32], header[33]]) as usize;
+    assert_eq!(padding_len, 30);
+    let mut padding = vec![0; padding_len];
+    stream
+        .read_exact(&mut padding)
+        .expect("read anytls auth padding");
+}
+
+fn read_anytls_frame(stream: &mut impl Read) -> (u8, u32, Vec<u8>) {
+    let mut header = [0; 7];
+    stream
+        .read_exact(&mut header)
+        .expect("read anytls frame header");
+    let cmd = header[0];
+    let sid = u32::from_be_bytes([header[1], header[2], header[3], header[4]]);
+    let len = u16::from_be_bytes([header[5], header[6]]) as usize;
+    let mut data = vec![0; len];
+    stream
+        .read_exact(&mut data)
+        .expect("read anytls frame data");
+    (cmd, sid, data)
+}
+
+fn write_anytls_frame(stream: &mut impl Write, cmd: u8, sid: u32, data: &[u8]) {
+    let mut header = [0; 7];
+    header[0] = cmd;
+    header[1..5].copy_from_slice(&sid.to_be_bytes());
+    header[5..7].copy_from_slice(&(data.len() as u16).to_be_bytes());
+    stream.write_all(&header).expect("write anytls header");
+    stream.write_all(data).expect("write anytls data");
 }
