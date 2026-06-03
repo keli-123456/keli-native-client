@@ -1,11 +1,12 @@
 use std::fs;
 use std::io::{Read, Write};
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream, UdpSocket};
 use std::str::FromStr;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use keli_cli::{run, CliCommand};
+use keli_net_core::{encode_socks5_udp_datagram, parse_socks5_udp_datagram, Socks5Address};
 use shadowsocks_crypto::kind::CipherKind;
 use shadowsocks_crypto::v1::{openssl_bytes_to_key, Cipher};
 
@@ -54,6 +55,73 @@ fn listen_mixed_once_uses_profile_config_for_socks5_connect() {
     let mut response = [0; 4];
     client.read_exact(&mut response).expect("read pong");
     assert_eq!(&response, b"pong");
+    client.shutdown(Shutdown::Both).ok();
+
+    server_thread.join().expect("listen thread");
+    ss_thread.join().expect("ss thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_socks5_udp_associate() {
+    let (ss_port, ss_thread) = spawn_shadowsocks_udp_echo_server();
+    let profile_path = write_temp_profile_config(ss_port);
+    let listen = free_local_addr();
+    let run_listen = listen.clone();
+    let run_profile_path = profile_path.clone();
+    let server_thread = thread::spawn(move || {
+        run(CliCommand::ListenMixed {
+            listen: run_listen,
+            once: true,
+            block_domains: Vec::new(),
+            profile_config: Some(run_profile_path),
+            outbound_tag: Some("SS-READY".to_string()),
+            first_byte_timeout: Duration::from_secs(2),
+            idle_timeout: Duration::from_secs(2),
+        })
+        .expect("run listen-mixed once");
+    });
+
+    let mut client = connect_with_retry(&listen);
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    client.write_all(&[0x05, 0x01, 0x00]).expect("write hello");
+    let mut hello = [0; 2];
+    client.read_exact(&mut hello).expect("read hello response");
+    assert_eq!(hello, [0x05, 0x00]);
+
+    client
+        .write_all(&[0x05, 0x03, 0x00, 0x01, 127, 0, 0, 1, 0x00, 0x00])
+        .expect("write udp associate request");
+    let mut reply = [0; 10];
+    client.read_exact(&mut reply).expect("read udp reply");
+    assert_eq!(&reply[..4], &[0x05, 0x00, 0x00, 0x01]);
+    let relay_port = u16::from_be_bytes([reply[8], reply[9]]);
+    assert_ne!(relay_port, 0);
+
+    let udp_client = UdpSocket::bind("127.0.0.1:0").expect("bind udp client");
+    udp_client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("udp timeout");
+    let request = encode_socks5_udp_datagram(
+        &Socks5Address::Domain("example.com".to_string()),
+        53,
+        b"ping",
+    )
+    .expect("encode socks5 udp");
+    udp_client
+        .send_to(&request, ("127.0.0.1", relay_port))
+        .expect("send udp request");
+
+    let mut response = [0; 1500];
+    let (size, _) = udp_client
+        .recv_from(&mut response)
+        .expect("read udp response");
+    let response = parse_socks5_udp_datagram(&response[..size]).expect("parse udp response");
+    assert_eq!(response.address, Socks5Address::Ipv4(Ipv4Addr::LOCALHOST));
+    assert_eq!(response.port, 53);
+    assert_eq!(response.payload, b"pong");
     client.shutdown(Shutdown::Both).ok();
 
     server_thread.join().expect("listen thread");
@@ -129,6 +197,29 @@ fn spawn_shadowsocks_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
     (port, handle)
 }
 
+fn spawn_shadowsocks_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let socket = UdpSocket::bind("127.0.0.1:0").expect("bind ss udp server");
+    socket
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("ss udp timeout");
+    let port = socket.local_addr().expect("ss udp addr").port();
+    let handle = thread::spawn(move || {
+        let kind = CipherKind::from_str("aes-256-gcm").expect("cipher");
+        let key = shadowsocks_key(kind, "secret");
+        let mut request = [0; 1500];
+        let (size, from) = socket.recv_from(&mut request).expect("read ss udp request");
+        let plaintext = decrypt_ss_udp_packet(kind, &key, &request[..size]);
+        assert_eq!(plaintext, b"\x03\x0bexample.com\x005ping");
+
+        let salt = vec![9; kind.salt_len()];
+        let response = encrypt_ss_udp_packet(kind, &key, &salt, b"\x01\x7f\x00\x00\x01\x005pong");
+        socket
+            .send_to(&response, from)
+            .expect("write ss udp response");
+    });
+    (port, handle)
+}
+
 fn shadowsocks_key(kind: CipherKind, password: &str) -> Vec<u8> {
     let mut key = vec![0; kind.key_len()];
     openssl_bytes_to_key(password.as_bytes(), &mut key);
@@ -166,4 +257,26 @@ fn write_ss_chunk(stream: &mut TcpStream, cipher: &mut Cipher, payload: &[u8]) {
     stream
         .write_all(&encrypted_payload)
         .expect("write encrypted ss chunk payload");
+}
+
+fn decrypt_ss_udp_packet(kind: CipherKind, key: &[u8], packet: &[u8]) -> Vec<u8> {
+    let salt_len = kind.salt_len();
+    let tag_len = kind.tag_len();
+    let (salt, payload) = packet.split_at(salt_len);
+    let mut payload = payload.to_vec();
+    let mut cipher = Cipher::new(kind, key, salt);
+    assert!(cipher.decrypt_packet(&mut payload));
+    payload.truncate(payload.len() - tag_len);
+    payload
+}
+
+fn encrypt_ss_udp_packet(kind: CipherKind, key: &[u8], salt: &[u8], plaintext: &[u8]) -> Vec<u8> {
+    let tag_len = kind.tag_len();
+    let mut payload = vec![0; plaintext.len() + tag_len];
+    payload[..plaintext.len()].copy_from_slice(plaintext);
+    let mut cipher = Cipher::new(kind, key, salt);
+    cipher.encrypt_packet(&mut payload);
+    let mut packet = salt.to_vec();
+    packet.extend_from_slice(&payload);
+    packet
 }
