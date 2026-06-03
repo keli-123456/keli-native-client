@@ -435,6 +435,62 @@ fn socks5_udp_associate_relays_registered_shadowsocks_outbound_route() {
 }
 
 #[test]
+fn socks5_connect_relays_registered_shadowsocks_outbound_route() {
+    let (ss_port, ss_thread) = spawn_shadowsocks_tcp_echo_server();
+    let inbound = TcpListener::bind("127.0.0.1:0").expect("bind inbound");
+    let inbound_port = inbound.local_addr().expect("inbound addr").port();
+    let outbounds = OutboundRegistry::from_profiles([keli_protocol::OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: keli_protocol::ProxyProtocol::Shadowsocks,
+        endpoint: keli_protocol::Endpoint::new("127.0.0.1", ss_port),
+        transport: keli_protocol::TransportKind::Tcp,
+        security: keli_protocol::SecurityKind::None,
+        credential: "secret".to_string(),
+        cipher: Some("aes-256-gcm".to_string()),
+        flow: None,
+    }])
+    .expect("build Shadowsocks outbound registry");
+    let runtime = MixedProxyRuntime::with_routes_and_outbounds(
+        RouteEngine::new(RouteAction::Outbound("proxy".to_string())),
+        outbounds,
+    );
+    let inbound_thread = thread::spawn(move || {
+        let (mut stream, _) = inbound.accept().expect("accept inbound");
+        handle_socks5_connection_with_routes(&mut stream, &runtime).expect("handle socks5");
+    });
+
+    let mut client = TcpStream::connect(("127.0.0.1", inbound_port)).expect("connect inbound");
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    client.write_all(&[0x05, 0x01, 0x00]).expect("write hello");
+    let mut hello = [0; 2];
+    client.read_exact(&mut hello).expect("read hello response");
+    assert_eq!(hello, [0x05, 0x00]);
+
+    client
+        .write_all(&[
+            0x05, 0x01, 0x00, 0x03, 0x0b, b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.', b'c',
+            b'o', b'm', 0x01, 0xbb,
+        ])
+        .expect("write connect request");
+    let mut connect_response = [0; 10];
+    client
+        .read_exact(&mut connect_response)
+        .expect("read connect response");
+    assert_eq!(connect_response, [0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+
+    client.write_all(b"ping").expect("write ping");
+    let mut response = [0; 4];
+    client.read_exact(&mut response).expect("read pong");
+    assert_eq!(&response, b"pong");
+    client.shutdown(Shutdown::Both).ok();
+
+    inbound_thread.join().expect("inbound thread");
+    ss_thread.join().expect("ss thread");
+}
+
+#[test]
 fn socks5_udp_associate_relays_registered_tuic_outbound_route() {
     let (tuic_addr, tuic_thread) = spawn_tuic_udp_echo_server();
     let inbound = TcpListener::bind("127.0.0.1:0").expect("bind inbound");
@@ -528,6 +584,32 @@ fn spawn_shadowsocks_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
         socket
             .send_to(&response, from)
             .expect("write ss udp response");
+    });
+    (port, handle)
+}
+
+fn spawn_shadowsocks_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind ss tcp server");
+    let port = listener.local_addr().expect("ss tcp addr").port();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept ss tcp server");
+        let kind = CipherKind::from_str("aes-256-gcm").expect("cipher");
+        let key = shadowsocks_key(kind, "secret");
+
+        let mut client_salt = vec![0; kind.salt_len()];
+        stream
+            .read_exact(&mut client_salt)
+            .expect("read client salt");
+        let mut client_cipher = Cipher::new(kind, &key, &client_salt);
+        let request_header = read_ss_chunk(&mut stream, &mut client_cipher);
+        assert_eq!(request_header, b"\x03\x0bexample.com\x01\xbb");
+        let payload = read_ss_chunk(&mut stream, &mut client_cipher);
+        assert_eq!(&payload, b"ping");
+
+        let server_salt = vec![7; kind.salt_len()];
+        stream.write_all(&server_salt).expect("write server salt");
+        let mut server_cipher = Cipher::new(kind, &key, &server_salt);
+        write_ss_chunk(&mut stream, &mut server_cipher, b"pong");
     });
     (port, handle)
 }
@@ -692,4 +774,37 @@ fn encrypt_ss_udp_packet(kind: CipherKind, key: &[u8], salt: &[u8], plaintext: &
     let mut packet = salt.to_vec();
     packet.extend_from_slice(&payload);
     packet
+}
+
+fn read_ss_chunk(stream: &mut TcpStream, cipher: &mut Cipher) -> Vec<u8> {
+    let mut encrypted_len = vec![0; 2 + cipher.tag_len()];
+    stream
+        .read_exact(&mut encrypted_len)
+        .expect("read encrypted ss chunk length");
+    assert!(cipher.decrypt_packet(&mut encrypted_len));
+    encrypted_len.truncate(2);
+    let len = u16::from_be_bytes([encrypted_len[0], encrypted_len[1]]) as usize;
+    let mut encrypted_payload = vec![0; len + cipher.tag_len()];
+    stream
+        .read_exact(&mut encrypted_payload)
+        .expect("read encrypted ss chunk payload");
+    assert!(cipher.decrypt_packet(&mut encrypted_payload));
+    encrypted_payload.truncate(len);
+    encrypted_payload
+}
+
+fn write_ss_chunk(stream: &mut TcpStream, cipher: &mut Cipher, payload: &[u8]) {
+    let tag_len = cipher.tag_len();
+    let mut encrypted_len = vec![0; 2 + tag_len];
+    encrypted_len[..2].copy_from_slice(&(payload.len() as u16).to_be_bytes());
+    cipher.encrypt_packet(&mut encrypted_len);
+    stream
+        .write_all(&encrypted_len)
+        .expect("write encrypted ss chunk length");
+    let mut encrypted_payload = vec![0; payload.len() + tag_len];
+    encrypted_payload[..payload.len()].copy_from_slice(payload);
+    cipher.encrypt_packet(&mut encrypted_payload);
+    stream
+        .write_all(&encrypted_payload)
+        .expect("write encrypted ss chunk payload");
 }

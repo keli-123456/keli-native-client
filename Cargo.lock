@@ -755,7 +755,7 @@ dependencies = [
 
 [[package]]
 name = "keli-cli"
-version = "0.1.40"
+version = "0.1.41"
 dependencies = [
  "bytes",
  "h3",
@@ -774,11 +774,11 @@ dependencies = [
 
 [[package]]
 name = "keli-client-core"
-version = "0.1.40"
+version = "0.1.41"
 
 [[package]]
 name = "keli-net-core"
-version = "0.1.40"
+version = "0.1.41"
 dependencies = [
  "base64",
  "bytes",
@@ -799,11 +799,11 @@ dependencies = [
 
 [[package]]
 name = "keli-platform"
-version = "0.1.40"
+version = "0.1.41"
 
 [[package]]
 name = "keli-protocol"
-version = "0.1.40"
+version = "0.1.41"
 dependencies = [
  "base64",
  "serde",
