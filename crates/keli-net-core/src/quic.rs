@@ -4,9 +4,10 @@ use std::net::SocketAddr;
 use std::sync::{mpsc, Arc, Mutex};
 
 use keli_protocol::{
-    build_hy2_auth_request, decode_hy2_tcp_response, encode_hy2_tcp_request,
-    encode_tuic_authenticate_command, encode_tuic_connect_command, is_hy2_auth_success_status,
-    Endpoint, ProtocolDecodingError,
+    build_hy2_auth_request, decode_hy2_tcp_response, decode_tuic_packet_command,
+    encode_hy2_tcp_request, encode_tuic_authenticate_command, encode_tuic_connect_command,
+    encode_tuic_packet_command, is_hy2_auth_success_status, Endpoint, ProtocolDecodingError,
+    TuicPacketCommand,
 };
 
 pub type Hy2H3Connection = h3::client::Connection<h3_quinn::Connection, bytes::Bytes>;
@@ -124,6 +125,59 @@ pub async fn tuic_authenticate(
     stream
         .finish()
         .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))
+}
+
+pub fn tuic_send_packet_datagram(
+    connection: &quinn::Connection,
+    associate_id: u16,
+    packet_id: u16,
+    fragment_total: u8,
+    fragment_id: u8,
+    target: &Endpoint,
+    payload: &[u8],
+) -> io::Result<()> {
+    let command = encode_tuic_packet_command(
+        associate_id,
+        packet_id,
+        fragment_total,
+        fragment_id,
+        target,
+        payload,
+    )
+    .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    connection
+        .send_datagram(bytes::Bytes::from(command))
+        .map_err(tuic_datagram_send_error_to_io)
+}
+
+pub async fn tuic_read_packet_datagram(
+    connection: &quinn::Connection,
+) -> io::Result<TuicPacketCommand> {
+    let datagram = connection
+        .read_datagram()
+        .await
+        .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))?;
+    decode_tuic_packet_command(&datagram)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
+fn tuic_datagram_send_error_to_io(error: quinn::SendDatagramError) -> io::Error {
+    match error {
+        quinn::SendDatagramError::UnsupportedByPeer => io::Error::new(
+            io::ErrorKind::Unsupported,
+            "TUIC QUIC datagrams are not supported by peer",
+        ),
+        quinn::SendDatagramError::Disabled => io::Error::new(
+            io::ErrorKind::Unsupported,
+            "TUIC QUIC datagrams are disabled locally",
+        ),
+        quinn::SendDatagramError::TooLarge => {
+            io::Error::new(io::ErrorKind::InvalidInput, "TUIC datagram is too large")
+        }
+        quinn::SendDatagramError::ConnectionLost(error) => {
+            io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}"))
+        }
+    }
 }
 
 pub fn hy2_auth_http_request(
@@ -273,6 +327,25 @@ impl TuicClientSession {
 
     pub async fn open_tcp_stream(&self, target: &Endpoint) -> io::Result<TuicQuicTcpStream> {
         tuic_open_tcp_stream(&self.connection, target).await
+    }
+
+    pub async fn relay_udp_datagram(
+        &self,
+        associate_id: u16,
+        packet_id: u16,
+        target: &Endpoint,
+        payload: &[u8],
+    ) -> io::Result<TuicPacketCommand> {
+        tuic_send_packet_datagram(
+            &self.connection,
+            associate_id,
+            packet_id,
+            1,
+            0,
+            target,
+            payload,
+        )?;
+        tuic_read_packet_datagram(&self.connection).await
     }
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {

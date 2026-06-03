@@ -25,7 +25,9 @@ const SHADOWSOCKS_ATYP_IPV6: u8 = 0x04;
 const TUIC_VERSION: u8 = 0x05;
 const TUIC_COMMAND_AUTHENTICATE: u8 = 0x00;
 const TUIC_COMMAND_CONNECT: u8 = 0x01;
+const TUIC_COMMAND_PACKET: u8 = 0x02;
 const TUIC_COMMAND_HEARTBEAT: u8 = 0x04;
+const TUIC_ATYP_NONE: u8 = 0xff;
 const TUIC_ATYP_DOMAIN: u8 = 0x00;
 const TUIC_ATYP_IPV4: u8 = 0x01;
 const TUIC_ATYP_IPV6: u8 = 0x02;
@@ -751,6 +753,7 @@ pub enum ProtocolEncodingError {
     InvalidPassword,
     InvalidTargetHost,
     FlowTooLong,
+    PacketTooLong,
 }
 
 impl fmt::Display for ProtocolEncodingError {
@@ -760,6 +763,7 @@ impl fmt::Display for ProtocolEncodingError {
             Self::InvalidPassword => write!(f, "Trojan password is empty"),
             Self::InvalidTargetHost => write!(f, "VLESS target host is invalid"),
             Self::FlowTooLong => write!(f, "VLESS flow is too long"),
+            Self::PacketTooLong => write!(f, "UDP packet payload is too long"),
         }
     }
 }
@@ -771,6 +775,9 @@ pub enum ProtocolDecodingError {
     UnexpectedEof,
     InvalidUtf8,
     InvalidHy2Status(u8),
+    InvalidTuicVersion(u8),
+    InvalidTuicCommand(u8),
+    InvalidTuicAddressType(u8),
 }
 
 impl fmt::Display for ProtocolDecodingError {
@@ -780,6 +787,15 @@ impl fmt::Display for ProtocolDecodingError {
             Self::InvalidUtf8 => write!(f, "protocol message contains invalid UTF-8"),
             Self::InvalidHy2Status(status) => {
                 write!(f, "HY2 TCP response status is invalid: {status}")
+            }
+            Self::InvalidTuicVersion(version) => {
+                write!(f, "TUIC command version is invalid: {version}")
+            }
+            Self::InvalidTuicCommand(command) => {
+                write!(f, "TUIC command type is invalid: {command}")
+            }
+            Self::InvalidTuicAddressType(address_type) => {
+                write!(f, "TUIC address type is invalid: {address_type}")
             }
         }
     }
@@ -801,6 +817,16 @@ pub struct Hy2AuthRequest {
     pub auth: String,
     pub cc_rx: String,
     pub padding: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TuicPacketCommand {
+    pub associate_id: u16,
+    pub packet_id: u16,
+    pub fragment_total: u8,
+    pub fragment_id: u8,
+    pub source: Endpoint,
+    pub payload: Vec<u8>,
 }
 
 pub fn build_hy2_auth_request(
@@ -902,8 +928,65 @@ pub fn encode_tuic_connect_command(target: &Endpoint) -> Result<Vec<u8>, Protoco
     Ok(command)
 }
 
+pub fn encode_tuic_packet_command(
+    associate_id: u16,
+    packet_id: u16,
+    fragment_total: u8,
+    fragment_id: u8,
+    target: &Endpoint,
+    payload: &[u8],
+) -> Result<Vec<u8>, ProtocolEncodingError> {
+    if payload.len() > u16::MAX as usize {
+        return Err(ProtocolEncodingError::PacketTooLong);
+    }
+    let mut command = Vec::with_capacity(12 + target.host.len() + payload.len());
+    command.push(TUIC_VERSION);
+    command.push(TUIC_COMMAND_PACKET);
+    command.extend_from_slice(&associate_id.to_be_bytes());
+    command.extend_from_slice(&packet_id.to_be_bytes());
+    command.push(fragment_total);
+    command.push(fragment_id);
+    command.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+    encode_tuic_target(&mut command, target)?;
+    command.extend_from_slice(payload);
+    Ok(command)
+}
+
 pub fn encode_tuic_heartbeat_command() -> [u8; 2] {
     [TUIC_VERSION, TUIC_COMMAND_HEARTBEAT]
+}
+
+pub fn decode_tuic_packet_command(
+    input: &[u8],
+) -> Result<TuicPacketCommand, ProtocolDecodingError> {
+    let mut offset = 0;
+    let version = read_u8(input, &mut offset)?;
+    if version != TUIC_VERSION {
+        return Err(ProtocolDecodingError::InvalidTuicVersion(version));
+    }
+    let command_type = read_u8(input, &mut offset)?;
+    if command_type != TUIC_COMMAND_PACKET {
+        return Err(ProtocolDecodingError::InvalidTuicCommand(command_type));
+    }
+    let associate_id = read_u16(input, &mut offset)?;
+    let packet_id = read_u16(input, &mut offset)?;
+    let fragment_total = read_u8(input, &mut offset)?;
+    let fragment_id = read_u8(input, &mut offset)?;
+    let size = read_u16(input, &mut offset)? as usize;
+    let source = decode_tuic_target(input, &mut offset)?;
+    let payload_end = offset
+        .checked_add(size)
+        .filter(|end| *end <= input.len())
+        .ok_or(ProtocolDecodingError::UnexpectedEof)?;
+    let payload = input[offset..payload_end].to_vec();
+    Ok(TuicPacketCommand {
+        associate_id,
+        packet_id,
+        fragment_total,
+        fragment_id,
+        source,
+        payload,
+    })
 }
 
 pub fn decode_hy2_tcp_response(
@@ -966,6 +1049,33 @@ fn decode_quic_varint(input: &[u8], offset: usize) -> Result<(u64, usize), Proto
         value = (value << 8) | u64::from(*byte);
     }
     Ok((value, length))
+}
+
+fn read_u8(input: &[u8], offset: &mut usize) -> Result<u8, ProtocolDecodingError> {
+    let byte = *input
+        .get(*offset)
+        .ok_or(ProtocolDecodingError::UnexpectedEof)?;
+    *offset += 1;
+    Ok(byte)
+}
+
+fn read_u16(input: &[u8], offset: &mut usize) -> Result<u16, ProtocolDecodingError> {
+    let bytes = read_bytes(input, offset, 2)?;
+    Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
+}
+
+fn read_bytes<'a>(
+    input: &'a [u8],
+    offset: &mut usize,
+    amount: usize,
+) -> Result<&'a [u8], ProtocolDecodingError> {
+    let end = offset
+        .checked_add(amount)
+        .filter(|end| *end <= input.len())
+        .ok_or(ProtocolDecodingError::UnexpectedEof)?;
+    let bytes = &input[*offset..end];
+    *offset = end;
+    Ok(bytes)
 }
 
 fn looks_like_uuid(value: &str) -> bool {
@@ -1098,6 +1208,35 @@ fn encode_tuic_target(
     output.extend_from_slice(host.as_bytes());
     output.extend_from_slice(&target.port.to_be_bytes());
     Ok(())
+}
+
+fn decode_tuic_target(input: &[u8], offset: &mut usize) -> Result<Endpoint, ProtocolDecodingError> {
+    match read_u8(input, offset)? {
+        TUIC_ATYP_NONE => Ok(Endpoint::new("", 0)),
+        TUIC_ATYP_DOMAIN => {
+            let length = read_u8(input, offset)? as usize;
+            let domain = read_bytes(input, offset, length)?;
+            let host = String::from_utf8(domain.to_vec())
+                .map_err(|_| ProtocolDecodingError::InvalidUtf8)?;
+            let port = read_u16(input, offset)?;
+            Ok(Endpoint::new(host, port))
+        }
+        TUIC_ATYP_IPV4 => {
+            let bytes = read_bytes(input, offset, 4)?;
+            let host = Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]).to_string();
+            let port = read_u16(input, offset)?;
+            Ok(Endpoint::new(host, port))
+        }
+        TUIC_ATYP_IPV6 => {
+            let bytes = read_bytes(input, offset, 16)?;
+            let mut octets = [0; 16];
+            octets.copy_from_slice(bytes);
+            let host = Ipv6Addr::from(octets).to_string();
+            let port = read_u16(input, offset)?;
+            Ok(Endpoint::new(host, port))
+        }
+        other => Err(ProtocolDecodingError::InvalidTuicAddressType(other)),
+    }
 }
 
 fn hex_nibble(byte: u8) -> Result<u8, ProtocolEncodingError> {
@@ -1271,6 +1410,44 @@ mod tests {
     #[test]
     fn encodes_tuic_heartbeat_command() {
         assert_eq!(encode_tuic_heartbeat_command(), [0x05, 0x04]);
+    }
+
+    #[test]
+    fn encodes_tuic_packet_command_for_udp_payload() {
+        let packet = encode_tuic_packet_command(
+            0x1234,
+            0x5678,
+            1,
+            0,
+            &Endpoint::new("example.com", 53),
+            b"ping",
+        )
+        .expect("tuic UDP packet command");
+
+        assert_eq!(
+            packet,
+            [
+                0x05, 0x02, 0x12, 0x34, 0x56, 0x78, 0x01, 0x00, 0x00, 0x04, 0x00, 0x0b, b'e', b'x',
+                b'a', b'm', b'p', b'l', b'e', b'.', b'c', b'o', b'm', 0x00, 0x35, b'p', b'i', b'n',
+                b'g',
+            ]
+        );
+    }
+
+    #[test]
+    fn decodes_tuic_packet_command_for_udp_payload() {
+        let packet = decode_tuic_packet_command(&[
+            0x05, 0x02, 0xab, 0xcd, 0x00, 0x07, 0x01, 0x00, 0x00, 0x04, 0x01, 127, 0, 0, 1, 0x1f,
+            0x90, b'p', b'o', b'n', b'g',
+        ])
+        .expect("decode tuic UDP packet");
+
+        assert_eq!(packet.associate_id, 0xabcd);
+        assert_eq!(packet.packet_id, 7);
+        assert_eq!(packet.fragment_total, 1);
+        assert_eq!(packet.fragment_id, 0);
+        assert_eq!(packet.source, Endpoint::new("127.0.0.1", 8080));
+        assert_eq!(packet.payload, b"pong");
     }
 
     #[test]

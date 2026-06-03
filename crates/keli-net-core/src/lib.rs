@@ -31,9 +31,10 @@ pub use quic::{
     h3_client_from_quinn_connection, h3_quic_client_config, h3_quic_client_endpoint,
     h3_quic_connect, h3_rustls_client_config, hy2_auth_http_request, hy2_authenticate_h3,
     hy2_open_authenticated_tcp_stream, hy2_open_tcp_stream, tuic_authenticate,
-    tuic_authenticate_command, tuic_export_token, tuic_open_tcp_stream, validate_hy2_auth_response,
-    Hy2BlockingTcpStream, Hy2ClientSession, Hy2H3Connection, Hy2H3SendRequest, Hy2QuicTcpStream,
-    TuicBlockingTcpStream, TuicClientSession, TuicQuicTcpStream,
+    tuic_authenticate_command, tuic_export_token, tuic_open_tcp_stream, tuic_read_packet_datagram,
+    tuic_send_packet_datagram, validate_hy2_auth_response, Hy2BlockingTcpStream, Hy2ClientSession,
+    Hy2H3Connection, Hy2H3SendRequest, Hy2QuicTcpStream, TuicBlockingTcpStream, TuicClientSession,
+    TuicQuicTcpStream,
 };
 pub use socks5::{
     encode_socks5_udp_datagram, parse_socks5_handshake, parse_socks5_request,

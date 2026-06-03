@@ -437,6 +437,8 @@ impl OutboundRegistry {
     ) -> io::Result<UdpRelayResponse> {
         if self.direct_tags.contains(tag) {
             DirectUdpConnector::relay_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.tuic_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
         } else {
             Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -1126,6 +1128,66 @@ impl TuicOutbound {
         }))
     }
 
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let associate_id = random_nonzero_u16();
+        let packet_id = random_nonzero_u16();
+        let mut last_error = None;
+        for server_addr in self.resolve_server_addrs()? {
+            let bind_addr = hy2_bind_addr_for(server_addr);
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .thread_name("keli-tuic-udp-runtime")
+                .build()
+                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+            let result = runtime.block_on(async {
+                tokio::time::timeout(timeout, async {
+                    let session = crate::TuicClientSession::connect(
+                        bind_addr,
+                        server_addr,
+                        &self.sni,
+                        self.skip_verify,
+                        &self.uuid,
+                        &self.password,
+                    )
+                    .await?;
+                    session
+                        .relay_udp_datagram(associate_id, packet_id, &target, payload)
+                        .await
+                })
+                .await
+                .map_err(|_| {
+                    io::Error::new(io::ErrorKind::TimedOut, "TUIC UDP response timed out")
+                })?
+            });
+            match result {
+                Ok(packet) => {
+                    let source = endpoint_to_socket_addr(&packet.source)?;
+                    return Ok(UdpRelayResponse {
+                        source,
+                        payload: packet.payload,
+                    });
+                }
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                format!(
+                    "no address resolved for {}:{}",
+                    self.server.host, self.server.port
+                ),
+            )
+        }))
+    }
+
     fn resolve_server_addrs(&self) -> io::Result<Vec<SocketAddr>> {
         let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
         dns.resolve(&self.server.host, self.server.port)
@@ -1257,6 +1319,23 @@ fn hy2_bind_addr_for(server_addr: SocketAddr) -> SocketAddr {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
     } else {
         SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
+    }
+}
+
+fn endpoint_to_socket_addr(endpoint: &Endpoint) -> io::Result<SocketAddr> {
+    let host = endpoint.host.trim().trim_matches(['[', ']']);
+    let ip = host
+        .parse::<IpAddr>()
+        .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error))?;
+    Ok(SocketAddr::new(ip, endpoint.port))
+}
+
+fn random_nonzero_u16() -> u16 {
+    let value = (rand::thread_rng().next_u32() & 0xffff) as u16;
+    if value == 0 {
+        1
+    } else {
+        value
     }
 }
 

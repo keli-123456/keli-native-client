@@ -232,6 +232,107 @@ async fn tuic_open_tcp_stream_sends_connect_command_and_relays_payload() {
     server.await.expect("server task");
 }
 
+#[tokio::test]
+async fn tuic_packet_datagram_round_trips_udp_payload() {
+    let server_endpoint = quinn::Endpoint::server(
+        hy2_h3_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local TUIC UDP server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let mut auth_recv = connection.accept_uni().await.expect("accept TUIC auth");
+        let auth = auth_recv
+            .read_to_end(64)
+            .await
+            .expect("read TUIC auth command");
+        let expected_auth = keli_net_core::tuic_authenticate_command(
+            &connection,
+            "00112233-4455-6677-8899-aabbccddeeff",
+            "secret",
+        )
+        .expect("expected auth");
+        assert_eq!(auth, expected_auth);
+
+        let packet = tokio::time::timeout(
+            Duration::from_secs(2),
+            keli_net_core::tuic_read_packet_datagram(&connection),
+        )
+        .await
+        .expect("server waits for TUIC packet")
+        .expect("server reads TUIC packet");
+        assert_eq!(packet.associate_id, 0x1234);
+        assert_eq!(packet.packet_id, 0x0001);
+        assert_eq!(packet.fragment_total, 1);
+        assert_eq!(packet.fragment_id, 0);
+        assert_eq!(
+            packet.source,
+            keli_protocol::Endpoint::new("example.com", 53)
+        );
+        assert_eq!(packet.payload, b"ping");
+
+        keli_net_core::tuic_send_packet_datagram(
+            &connection,
+            packet.associate_id,
+            packet.packet_id,
+            packet.fragment_total,
+            packet.fragment_id,
+            &keli_protocol::Endpoint::new("127.0.0.1", 53),
+            b"pong",
+        )
+        .expect("server sends TUIC packet response");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    });
+
+    let client_endpoint = keli_net_core::h3_quic_client_endpoint(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        true,
+    )
+    .expect("build client endpoint");
+    let connection = keli_net_core::h3_quic_connect(&client_endpoint, server_addr, "localhost")
+        .await
+        .expect("connect local QUIC peer");
+    keli_net_core::tuic_authenticate(
+        &connection,
+        "00112233-4455-6677-8899-aabbccddeeff",
+        "secret",
+    )
+    .await
+    .expect("authenticate TUIC connection");
+
+    keli_net_core::tuic_send_packet_datagram(
+        &connection,
+        0x1234,
+        0x0001,
+        1,
+        0,
+        &keli_protocol::Endpoint::new("example.com", 53),
+        b"ping",
+    )
+    .expect("client sends TUIC packet");
+    let response = tokio::time::timeout(
+        Duration::from_secs(2),
+        keli_net_core::tuic_read_packet_datagram(&connection),
+    )
+    .await
+    .expect("client waits for TUIC response")
+    .expect("client reads TUIC response");
+    assert_eq!(response.associate_id, 0x1234);
+    assert_eq!(response.packet_id, 0x0001);
+    assert_eq!(
+        response.source,
+        keli_protocol::Endpoint::new("127.0.0.1", 53)
+    );
+    assert_eq!(response.payload, b"pong");
+
+    server.await.expect("server task");
+}
+
 #[test]
 fn hy2_auth_response_requires_official_233_status() {
     keli_net_core::validate_hy2_auth_response(
@@ -891,6 +992,154 @@ async fn registry_from_tuic_profile_relays_over_quic_tcp_stream() {
     });
 
     assert_eq!(client.await.expect("client task"), *b"pong");
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn registry_from_tuic_profile_relays_udp_over_quic_datagram() {
+    let server_endpoint = quinn::Endpoint::server(
+        hy2_h3_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local registry tuic UDP server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let mut auth_recv = connection.accept_uni().await.expect("accept TUIC auth");
+        let auth = auth_recv
+            .read_to_end(64)
+            .await
+            .expect("read TUIC auth command");
+        let expected_auth = keli_net_core::tuic_authenticate_command(
+            &connection,
+            "00112233-4455-6677-8899-aabbccddeeff",
+            "secret",
+        )
+        .expect("expected auth");
+        assert_eq!(auth, expected_auth);
+
+        let packet = keli_net_core::tuic_read_packet_datagram(&connection)
+            .await
+            .expect("read TUIC UDP request");
+        assert_eq!(
+            packet.source,
+            keli_protocol::Endpoint::new("example.com", 53)
+        );
+        assert_eq!(packet.payload, b"ping");
+        keli_net_core::tuic_send_packet_datagram(
+            &connection,
+            packet.associate_id,
+            packet.packet_id,
+            packet.fragment_total,
+            packet.fragment_id,
+            &keli_protocol::Endpoint::new("127.0.0.1", 53),
+            b"pong",
+        )
+        .expect("send TUIC UDP response");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    });
+
+    let client = tokio::task::spawn_blocking(move || {
+        let registry =
+            keli_net_core::OutboundRegistry::from_profiles([keli_protocol::OutboundProfile {
+                tag: "tuic".to_string(),
+                protocol: keli_protocol::ProxyProtocol::Tuic,
+                endpoint: keli_protocol::Endpoint::new("127.0.0.1", server_addr.port()),
+                transport: keli_protocol::TransportKind::Quic,
+                security: keli_protocol::SecurityKind::Tls {
+                    sni: Some("localhost".to_string()),
+                    skip_verify: true,
+                },
+                credential: "00112233-4455-6677-8899-aabbccddeeff:secret".to_string(),
+                cipher: None,
+                flow: None,
+            }])
+            .expect("build TUIC registry");
+        registry
+            .relay_udp_datagram(
+                "tuic",
+                &keli_net_core::OutboundTarget::new("example.com", 53),
+                b"ping",
+                Duration::from_secs(2),
+            )
+            .expect("relay TUIC UDP datagram")
+    });
+
+    let response = client.await.expect("client task");
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("source addr")
+    );
+    assert_eq!(response.payload, b"pong");
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn registry_from_tuic_profile_times_out_waiting_for_udp_response() {
+    let server_endpoint = quinn::Endpoint::server(
+        hy2_h3_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local registry tuic UDP timeout server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let mut auth_recv = connection.accept_uni().await.expect("accept TUIC auth");
+        let auth = auth_recv
+            .read_to_end(64)
+            .await
+            .expect("read TUIC auth command");
+        let expected_auth = keli_net_core::tuic_authenticate_command(
+            &connection,
+            "00112233-4455-6677-8899-aabbccddeeff",
+            "secret",
+        )
+        .expect("expected auth");
+        assert_eq!(auth, expected_auth);
+
+        let packet = keli_net_core::tuic_read_packet_datagram(&connection)
+            .await
+            .expect("read TUIC UDP request");
+        assert_eq!(packet.payload, b"ping");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    });
+
+    let client = tokio::task::spawn_blocking(move || {
+        let registry =
+            keli_net_core::OutboundRegistry::from_profiles([keli_protocol::OutboundProfile {
+                tag: "tuic".to_string(),
+                protocol: keli_protocol::ProxyProtocol::Tuic,
+                endpoint: keli_protocol::Endpoint::new("127.0.0.1", server_addr.port()),
+                transport: keli_protocol::TransportKind::Quic,
+                security: keli_protocol::SecurityKind::Tls {
+                    sni: Some("localhost".to_string()),
+                    skip_verify: true,
+                },
+                credential: "00112233-4455-6677-8899-aabbccddeeff:secret".to_string(),
+                cipher: None,
+                flow: None,
+            }])
+            .expect("build TUIC registry");
+        registry
+            .relay_udp_datagram(
+                "tuic",
+                &keli_net_core::OutboundTarget::new("example.com", 53),
+                b"ping",
+                Duration::from_millis(50),
+            )
+            .expect_err("slow TUIC UDP response should time out")
+    });
+
+    let error = client.await.expect("client task");
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
     server.await.expect("server task");
 }
 
