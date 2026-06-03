@@ -29,7 +29,8 @@ pub use metrics::{ConnectionErrorKind, ConnectionReport};
 pub use quic::{
     h3_client_from_quinn_connection, h3_quic_client_config, h3_quic_client_endpoint,
     h3_quic_connect, h3_rustls_client_config, hy2_auth_http_request, hy2_authenticate_h3,
-    validate_hy2_auth_response, Hy2H3Connection, Hy2H3SendRequest,
+    hy2_open_authenticated_tcp_stream, hy2_open_tcp_stream, validate_hy2_auth_response,
+    Hy2H3Connection, Hy2H3SendRequest, Hy2QuicTcpStream,
 };
 pub use socks5::{
     parse_socks5_handshake, parse_socks5_request, socks5_no_auth_response, socks5_reply,
