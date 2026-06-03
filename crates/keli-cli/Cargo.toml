@@ -18,4 +18,5 @@ http.workspace = true
 quinn.workspace = true
 rcgen.workspace = true
 rustls.workspace = true
+shadowsocks-crypto.workspace = true
 tokio.workspace = true

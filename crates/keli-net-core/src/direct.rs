@@ -437,6 +437,8 @@ impl OutboundRegistry {
     ) -> io::Result<UdpRelayResponse> {
         if self.direct_tags.contains(tag) {
             DirectUdpConnector::relay_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.hy2_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.tuic_tags.get(tag) {
@@ -843,6 +845,64 @@ impl ShadowsocksTcpOutbound {
         stream.write_all(&header)?;
         Ok(OutboundConnection::Owned(Box::new(stream)))
     }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let cipher_kind = shadowsocks_cipher_kind(&self.cipher)?;
+        let key = shadowsocks_key(cipher_kind, &self.password);
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let packet = shadowsocks_encrypt_udp_packet(cipher_kind, &key, &target, payload)?;
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        let addresses = dns
+            .resolve(&server.host, server.port)
+            .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error))?
+            .into_iter()
+            .map(|address| SocketAddr::new(address.ip, address.port));
+        let mut last_error = None;
+        for address in addresses {
+            let bind_addr = hy2_bind_addr_for(address);
+            let socket = match UdpSocket::bind(bind_addr) {
+                Ok(socket) => socket,
+                Err(error) => {
+                    last_error = Some(error);
+                    continue;
+                }
+            };
+            socket.set_read_timeout(Some(timeout))?;
+            if let Err(error) = socket.send_to(&packet, address) {
+                last_error = Some(error);
+                continue;
+            }
+
+            let mut response = vec![0; 65_535];
+            match socket.recv_from(&mut response) {
+                Ok((size, _)) => {
+                    response.truncate(size);
+                    let (source, payload) =
+                        shadowsocks_decrypt_udp_packet(cipher_kind, &key, &response)?;
+                    return Ok(UdpRelayResponse {
+                        source: endpoint_to_socket_addr(&source)?,
+                        payload,
+                    });
+                }
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                format!(
+                    "no address resolved for {}:{}",
+                    self.server.host, self.server.port
+                ),
+            )
+        }))
+    }
 }
 
 pub struct ShadowsocksTcpStream {
@@ -981,6 +1041,111 @@ fn shadowsocks_key(kind: CipherKind, password: &str) -> Vec<u8> {
     let mut key = vec![0; kind.key_len()];
     openssl_bytes_to_key(password.as_bytes(), &mut key);
     key
+}
+
+fn shadowsocks_encrypt_udp_packet(
+    cipher_kind: CipherKind,
+    key: &[u8],
+    target: &Endpoint,
+    payload: &[u8],
+) -> io::Result<Vec<u8>> {
+    let mut salt = vec![0; cipher_kind.salt_len()];
+    rand::thread_rng().fill_bytes(&mut salt);
+    let header = encode_shadowsocks_tcp_request_header(target).map_err(protocol_encoding_to_io)?;
+    let tag_len = cipher_kind.tag_len();
+    let mut encrypted = vec![0; header.len() + payload.len() + tag_len];
+    encrypted[..header.len()].copy_from_slice(&header);
+    encrypted[header.len()..header.len() + payload.len()].copy_from_slice(payload);
+    let mut cipher = Cipher::new(cipher_kind, key, &salt);
+    cipher.encrypt_packet(&mut encrypted);
+    let mut packet = salt;
+    packet.extend_from_slice(&encrypted);
+    Ok(packet)
+}
+
+fn shadowsocks_decrypt_udp_packet(
+    cipher_kind: CipherKind,
+    key: &[u8],
+    packet: &[u8],
+) -> io::Result<(Endpoint, Vec<u8>)> {
+    let salt_len = cipher_kind.salt_len();
+    let tag_len = cipher_kind.tag_len();
+    if packet.len() < salt_len + tag_len {
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "missing shadowsocks UDP salt or tag",
+        ));
+    }
+    let (salt, encrypted) = packet.split_at(salt_len);
+    let mut payload = encrypted.to_vec();
+    let mut cipher = Cipher::new(cipher_kind, key, salt);
+    if !cipher.decrypt_packet(&mut payload) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid shadowsocks UDP packet tag",
+        ));
+    }
+    payload.truncate(payload.len() - tag_len);
+    let (source, consumed) = decode_shadowsocks_udp_address(&payload)?;
+    Ok((source, payload[consumed..].to_vec()))
+}
+
+fn decode_shadowsocks_udp_address(payload: &[u8]) -> io::Result<(Endpoint, usize)> {
+    let atyp = payload.first().copied().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "missing shadowsocks UDP address type",
+        )
+    })?;
+    match atyp {
+        0x01 => {
+            if payload.len() < 7 {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "missing shadowsocks UDP IPv4 address",
+                ));
+            }
+            let ip = Ipv4Addr::new(payload[1], payload[2], payload[3], payload[4]);
+            let port = u16::from_be_bytes([payload[5], payload[6]]);
+            Ok((Endpoint::new(ip.to_string(), port), 7))
+        }
+        0x03 => {
+            let len = payload.get(1).copied().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "missing shadowsocks UDP domain length",
+                )
+            })? as usize;
+            let required = 2 + len + 2;
+            if payload.len() < required {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "missing shadowsocks UDP domain address",
+                ));
+            }
+            let host = std::str::from_utf8(&payload[2..2 + len])
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+            let port = u16::from_be_bytes([payload[2 + len], payload[2 + len + 1]]);
+            Ok((Endpoint::new(host, port), required))
+        }
+        0x04 => {
+            if payload.len() < 19 {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "missing shadowsocks UDP IPv6 address",
+                ));
+            }
+            let mut octets = [0; 16];
+            octets.copy_from_slice(&payload[1..17]);
+            let ip = Ipv6Addr::from(octets);
+            let port = u16::from_be_bytes([payload[17], payload[18]]);
+            Ok((Endpoint::new(ip.to_string(), port), 19))
+        }
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("unsupported shadowsocks UDP address type: {atyp}"),
+        )),
+    }
 }
 
 fn read_exact_or_clean_eof(reader: &mut impl Read, buffer: &mut [u8]) -> io::Result<bool> {

@@ -230,6 +230,53 @@ fn registered_shadowsocks_tcp_outbound_encrypts_header_and_relays_stream() {
 }
 
 #[test]
+fn registered_shadowsocks_udp_outbound_encrypts_datagram_and_relays_response() {
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind ss udp server");
+    socket
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .expect("ss udp timeout");
+    let port = socket.local_addr().expect("ss udp addr").port();
+    let server = std::thread::spawn(move || {
+        let kind = CipherKind::from_str("aes-256-gcm").expect("cipher");
+        let key = shadowsocks_key(kind, "secret");
+        let mut request = [0; 1500];
+        let (size, from) = socket.recv_from(&mut request).expect("read ss udp request");
+        let plaintext = decrypt_ss_udp_packet(kind, &key, &request[..size]);
+        assert_eq!(
+            plaintext, b"\x03\x0bexample.com\x005ping",
+            "SS UDP request starts with SOCKS5-style target address"
+        );
+
+        let response =
+            encrypt_ss_udp_packet(kind, &key, &[8; 32], b"\x01\x7f\x00\x00\x01\x005pong");
+        socket
+            .send_to(&response, from)
+            .expect("write ss udp response");
+    });
+    let mut registry = OutboundRegistry::new();
+    registry.add_shadowsocks_tcp(
+        "proxy",
+        ShadowsocksTcpOutbound::new(Endpoint::new("127.0.0.1", port), "aes-256-gcm", "secret"),
+    );
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("example.com", 53),
+            b"ping",
+            Duration::from_secs(1),
+        )
+        .expect("registered shadowsocks UDP outbound should relay");
+
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("response source")
+    );
+    assert_eq!(response.payload, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn registry_from_vless_ws_profile_connects_with_profile_transport() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind vless ws server");
     let port = listener.local_addr().expect("vless ws addr").port();
@@ -468,4 +515,26 @@ fn write_ss_chunk(stream: &mut std::net::TcpStream, cipher: &mut Cipher, payload
     stream
         .write_all(&encrypted_payload)
         .expect("write encrypted ss chunk payload");
+}
+
+fn decrypt_ss_udp_packet(kind: CipherKind, key: &[u8], packet: &[u8]) -> Vec<u8> {
+    let salt_len = kind.salt_len();
+    let tag_len = kind.tag_len();
+    let (salt, payload) = packet.split_at(salt_len);
+    let mut payload = payload.to_vec();
+    let mut cipher = Cipher::new(kind, key, salt);
+    assert!(cipher.decrypt_packet(&mut payload));
+    payload.truncate(payload.len() - tag_len);
+    payload
+}
+
+fn encrypt_ss_udp_packet(kind: CipherKind, key: &[u8], salt: &[u8], plaintext: &[u8]) -> Vec<u8> {
+    let tag_len = kind.tag_len();
+    let mut payload = vec![0; plaintext.len() + tag_len];
+    payload[..plaintext.len()].copy_from_slice(plaintext);
+    let mut cipher = Cipher::new(kind, key, salt);
+    cipher.encrypt_packet(&mut payload);
+    let mut packet = salt.to_vec();
+    packet.extend_from_slice(&payload);
+    packet
 }
