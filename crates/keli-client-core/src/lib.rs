@@ -113,6 +113,22 @@ impl SubscriptionPreflightReport {
     pub fn default_outbound(&self) -> Option<&str> {
         self.default_outbound.as_deref()
     }
+
+    pub fn select_outbound(&self, preferred: Option<&str>) -> Result<String, ClientErrorKind> {
+        match preferred {
+            Some(tag) if self.supported_tags.iter().any(|supported| supported == tag) => {
+                Ok(tag.to_string())
+            }
+            Some(tag) => Err(ClientErrorKind::ConfigInvalid(format!(
+                "outbound tag not found: {tag}"
+            ))),
+            None => self.default_outbound.clone().ok_or_else(|| {
+                ClientErrorKind::ConfigInvalid(
+                    "profile config did not contain supported outbounds".to_string(),
+                )
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -204,5 +220,33 @@ proxies:
         assert_eq!(report.supported_tags(), &["SS-READY".to_string()]);
         assert_eq!(report.skipped()[0].name, "VMESS-OLD");
         assert_eq!(report.skipped()[0].reason, "unsupported protocol: vmess");
+    }
+
+    #[test]
+    fn preflight_selects_default_or_reports_missing_outbound() {
+        let config = r#"
+proxies:
+  - name: SS-READY
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+"#;
+        let report = preflight_subscription_config(config).expect("preflight");
+
+        assert_eq!(report.select_outbound(None).expect("default"), "SS-READY");
+        assert_eq!(
+            report
+                .select_outbound(Some("SS-READY"))
+                .expect("explicit outbound"),
+            "SS-READY"
+        );
+        assert_eq!(
+            report
+                .select_outbound(Some("MISSING"))
+                .expect_err("missing"),
+            ClientErrorKind::ConfigInvalid("outbound tag not found: MISSING".to_string())
+        );
     }
 }
