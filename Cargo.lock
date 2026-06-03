@@ -755,7 +755,7 @@ dependencies = [
 
 [[package]]
 name = "keli-cli"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "keli-client-core",
  "keli-net-core",
@@ -765,11 +765,11 @@ dependencies = [
 
 [[package]]
 name = "keli-client-core"
-version = "0.1.18"
+version = "0.1.19"
 
 [[package]]
 name = "keli-net-core"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "base64",
  "bytes",
@@ -784,16 +784,17 @@ dependencies = [
  "sha1 0.10.6",
  "sha2",
  "shadowsocks-crypto",
+ "tokio",
  "webpki-roots",
 ]
 
 [[package]]
 name = "keli-platform"
-version = "0.1.18"
+version = "0.1.19"
 
 [[package]]
 name = "keli-protocol"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "base64",
  "serde",
@@ -1526,7 +1527,19 @@ dependencies = [
  "mio",
  "pin-project-lite",
  "socket2",
+ "tokio-macros",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

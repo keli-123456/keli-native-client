@@ -1,7 +1,8 @@
 use std::io;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
-use keli_protocol::build_hy2_auth_request;
+use keli_protocol::{build_hy2_auth_request, is_hy2_auth_success_status};
 
 pub type Hy2H3Connection = h3::client::Connection<h3_quinn::Connection, bytes::Bytes>;
 pub type Hy2H3SendRequest = h3::client::SendRequest<h3_quinn::OpenStreams, bytes::Bytes>;
@@ -36,6 +37,15 @@ pub fn h3_quic_client_config(skip_verify: bool) -> io::Result<quinn::ClientConfi
     Ok(quinn::ClientConfig::new(Arc::new(crypto)))
 }
 
+pub fn h3_quic_client_endpoint(
+    bind_addr: SocketAddr,
+    skip_verify: bool,
+) -> io::Result<quinn::Endpoint> {
+    let mut endpoint = quinn::Endpoint::client(bind_addr)?;
+    endpoint.set_default_client_config(h3_quic_client_config(skip_verify)?);
+    Ok(endpoint)
+}
+
 pub fn hy2_auth_http_request(
     auth: &str,
     cc_rx: u64,
@@ -57,6 +67,18 @@ pub async fn h3_client_from_quinn_connection(
     connection: quinn::Connection,
 ) -> Result<(Hy2H3Connection, Hy2H3SendRequest), h3::error::ConnectionError> {
     h3::client::new(h3_quinn::Connection::new(connection)).await
+}
+
+pub fn validate_hy2_auth_response(response: &http::Response<()>) -> io::Result<()> {
+    let status = response.status().as_u16();
+    if is_hy2_auth_success_status(status) {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("HY2 auth failed with HTTP/3 status {status}"),
+        ))
+    }
 }
 
 #[derive(Debug)]

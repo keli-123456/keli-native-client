@@ -1,3 +1,5 @@
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
 use keli_net_core::{h3_quic_client_config, h3_rustls_client_config};
 
 #[test]
@@ -32,4 +34,34 @@ fn hy2_h3_client_handles_are_send() {
 
     assert_send::<keli_net_core::Hy2H3Connection>();
     assert_send::<keli_net_core::Hy2H3SendRequest>();
+}
+
+#[tokio::test]
+async fn h3_quic_client_endpoint_binds_to_requested_local_addr() {
+    let endpoint = keli_net_core::h3_quic_client_endpoint(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        true,
+    )
+    .expect("build HY2 H3 client endpoint");
+
+    assert_eq!(
+        endpoint.local_addr().expect("local addr").ip(),
+        Ipv4Addr::LOCALHOST
+    );
+}
+
+#[test]
+fn hy2_auth_response_requires_official_233_status() {
+    keli_net_core::validate_hy2_auth_response(
+        &http::Response::builder().status(233).body(()).unwrap(),
+    )
+    .expect("233 auth response is accepted");
+
+    let error = keli_net_core::validate_hy2_auth_response(
+        &http::Response::builder().status(401).body(()).unwrap(),
+    )
+    .expect_err("non-233 auth response should fail");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    assert!(error.to_string().contains("401"));
 }

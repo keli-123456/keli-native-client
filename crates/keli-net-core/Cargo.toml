@@ -21,3 +21,4 @@ webpki-roots.workspace = true
 
 [dev-dependencies]
 rcgen.workspace = true
+tokio.workspace = true
