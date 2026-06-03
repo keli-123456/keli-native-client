@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use keli_cli::{parse_cli_command, CliCommand};
+use keli_cli::{parse_cli_command, CliCommand, ProbeOutputFormat};
 
 #[test]
 fn parses_listen_mixed_once_command() {
@@ -142,6 +142,7 @@ fn parses_probe_outbound_command() {
             payload: Some("ping".to_string()),
             expect: Some("pong".to_string()),
             udp: false,
+            output: ProbeOutputFormat::Text,
             first_byte_timeout: Duration::from_millis(1500),
         }
     );
@@ -174,6 +175,35 @@ fn parses_probe_outbound_udp_command() {
             payload: Some("ping".to_string()),
             expect: Some("pong".to_string()),
             udp: true,
+            output: ProbeOutputFormat::Text,
+            first_byte_timeout: Duration::from_secs(30),
+        }
+    );
+}
+
+#[test]
+fn parses_probe_outbound_json_command() {
+    let command = parse_cli_command([
+        "probe-outbound",
+        "--profile-config",
+        "subscription.yaml",
+        "--target",
+        "example.com:443",
+        "--format",
+        "json",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::ProbeOutbound {
+            profile_config: "subscription.yaml".to_string(),
+            outbound_tag: None,
+            target: "example.com:443".to_string(),
+            payload: None,
+            expect: None,
+            udp: false,
+            output: ProbeOutputFormat::Json,
             first_byte_timeout: Duration::from_secs(30),
         }
     );

@@ -46,8 +46,15 @@ pub enum CliCommand {
         payload: Option<String>,
         expect: Option<String>,
         udp: bool,
+        output: ProbeOutputFormat,
         first_byte_timeout: Duration,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProbeOutputFormat {
+    Text,
+    Json,
 }
 
 #[derive(Debug, Clone)]
@@ -136,12 +143,13 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             payload,
             expect,
             udp,
+            output,
             first_byte_timeout,
         } => {
             let config_text = fs::read_to_string(&profile_config)
                 .map_err(|error| format!("read profile config {profile_config}: {error}"))?;
             let mut stdout = io::stdout();
-            probe_outbound_from_subscription_config_text(
+            probe_outbound_from_subscription_config_text_with_format(
                 &config_text,
                 outbound_tag,
                 &target,
@@ -149,6 +157,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 expect.as_deref().map(str::as_bytes),
                 udp,
                 first_byte_timeout,
+                output,
                 &mut stdout,
             )
         }
@@ -163,7 +172,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli probe-outbound --profile-config subscription.yaml [--outbound-tag proxy] --target example.com:443 [--payload ping] [--expect pong] [--first-byte-timeout-ms 30000]"
+        "       keli-cli probe-outbound --profile-config subscription.yaml [--outbound-tag proxy] --target example.com:443 [--payload ping] [--expect pong] [--udp] [--format text|json] [--first-byte-timeout-ms 30000]"
     )
 }
 
@@ -239,6 +248,7 @@ fn parse_probe_outbound(args: impl Iterator<Item = String>) -> Result<CliCommand
     let mut payload = None;
     let mut expect = None;
     let mut udp = false;
+    let mut output = ProbeOutputFormat::Text;
     let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut args = args.peekable();
 
@@ -275,6 +285,12 @@ fn parse_probe_outbound(args: impl Iterator<Item = String>) -> Result<CliCommand
                 );
             }
             "--udp" => udp = true,
+            "--format" => {
+                output = parse_probe_output_format(
+                    args.next()
+                        .ok_or_else(|| "--format requires text or json".to_string())?,
+                )?;
+            }
             "--first-byte-timeout-ms" => {
                 first_byte_timeout = parse_duration_ms(
                     args.next()
@@ -294,8 +310,17 @@ fn parse_probe_outbound(args: impl Iterator<Item = String>) -> Result<CliCommand
         payload,
         expect,
         udp,
+        output,
         first_byte_timeout,
     })
+}
+
+fn parse_probe_output_format(value: String) -> Result<ProbeOutputFormat, String> {
+    match value.as_str() {
+        "text" => Ok(ProbeOutputFormat::Text),
+        "json" => Ok(ProbeOutputFormat::Json),
+        other => Err(format!("unknown probe-outbound format: {other}")),
+    }
 }
 
 fn print_doctor() {
@@ -929,6 +954,30 @@ pub fn probe_outbound_from_subscription_config_text(
     first_byte_timeout: Duration,
     mut writer: impl Write,
 ) -> Result<(), String> {
+    probe_outbound_from_subscription_config_text_with_format(
+        config_text,
+        outbound_tag,
+        target,
+        payload,
+        expect,
+        udp,
+        first_byte_timeout,
+        ProbeOutputFormat::Text,
+        &mut writer,
+    )
+}
+
+pub fn probe_outbound_from_subscription_config_text_with_format(
+    config_text: &str,
+    outbound_tag: Option<String>,
+    target: &str,
+    payload: &[u8],
+    expect: Option<&[u8]>,
+    udp: bool,
+    first_byte_timeout: Duration,
+    output: ProbeOutputFormat,
+    mut writer: impl Write,
+) -> Result<(), String> {
     let relay_options = RelayOptions {
         first_byte_timeout: Some(first_byte_timeout),
         idle_timeout: Some(first_byte_timeout),
@@ -947,6 +996,7 @@ pub fn probe_outbound_from_subscription_config_text(
             payload,
             expect,
             first_byte_timeout,
+            output,
             writer,
         );
     }
@@ -964,21 +1014,18 @@ pub fn probe_outbound_from_subscription_config_text(
         Ok(RouteConnect::Blocked { route_action }) => {
             report.route_action = route_action;
             report.record_error(ConnectionErrorKind::RouteBlocked);
-            writeln!(writer, "probe status=error {}", report.summary_line())
-                .map_err(|error| error.to_string())?;
+            write_probe_result(&mut writer, "error", &report, output)?;
             return Err("probe route blocked".to_string());
         }
         Ok(RouteConnect::UnsupportedOutbound { tag, route_action }) => {
             report.route_action = route_action;
             report.record_error(ConnectionErrorKind::UnsupportedOutbound);
-            writeln!(writer, "probe status=error {}", report.summary_line())
-                .map_err(|error| error.to_string())?;
+            write_probe_result(&mut writer, "error", &report, output)?;
             return Err(format!("outbound route is not implemented: {tag}"));
         }
         Err(error) => {
             report.record_error(ConnectionErrorKind::from_io(&error));
-            writeln!(writer, "probe status=error {}", report.summary_line())
-                .map_err(|write_error| write_error.to_string())?;
+            write_probe_result(&mut writer, "error", &report, output)?;
             return Err(format!("probe connect failed: {error}"));
         }
     };
@@ -986,7 +1033,7 @@ pub fn probe_outbound_from_subscription_config_text(
     if !payload.is_empty() {
         remote
             .write_all(payload)
-            .map_err(|error| probe_io_error(error, &mut report, &mut writer))?;
+            .map_err(|error| probe_io_error(error, &mut report, &mut writer, output))?;
         report.upload_bytes = payload.len() as u64;
     }
 
@@ -995,13 +1042,12 @@ pub fn probe_outbound_from_subscription_config_text(
         let mut received = vec![0; expected.len()];
         remote
             .read_exact(&mut received)
-            .map_err(|error| probe_io_error(error, &mut report, &mut writer))?;
+            .map_err(|error| probe_io_error(error, &mut report, &mut writer, output))?;
         report.record_first_byte_duration(started.elapsed());
         report.download_bytes = received.len() as u64;
         if received != expected {
             report.record_error(ConnectionErrorKind::ProtocolError);
-            writeln!(writer, "probe status=error {}", report.summary_line())
-                .map_err(|error| error.to_string())?;
+            write_probe_result(&mut writer, "error", &report, output)?;
             return Err(format!(
                 "probe response mismatch: expected {:?}, got {:?}",
                 String::from_utf8_lossy(expected),
@@ -1010,7 +1056,7 @@ pub fn probe_outbound_from_subscription_config_text(
         }
     }
 
-    writeln!(writer, "probe status=ok {}", report.summary_line()).map_err(|error| error.to_string())
+    write_probe_result(&mut writer, "ok", &report, output)
 }
 
 fn parse_probe_target(target: &str) -> Result<OutboundTarget, String> {
@@ -1047,6 +1093,7 @@ fn probe_udp_outbound(
     payload: &[u8],
     expect: Option<&[u8]>,
     timeout: Duration,
+    output: ProbeOutputFormat,
     mut writer: impl Write,
 ) -> Result<(), String> {
     let mut report = ConnectionReport::new("probe-udp", target.clone(), RouteAction::Direct);
@@ -1056,8 +1103,7 @@ fn probe_udp_outbound(
         RouteAction::Block => {
             report.route_action = RouteAction::Block;
             report.record_error(ConnectionErrorKind::RouteBlocked);
-            writeln!(writer, "probe status=error {}", report.summary_line())
-                .map_err(|error| error.to_string())?;
+            write_probe_result(&mut writer, "error", &report, output)?;
             return Err("probe route blocked".to_string());
         }
         RouteAction::Outbound(tag) => {
@@ -1076,8 +1122,7 @@ fn probe_udp_outbound(
         Ok(response) => response,
         Err(error) => {
             report.record_error(ConnectionErrorKind::from_io(&error));
-            writeln!(writer, "probe status=error {}", report.summary_line())
-                .map_err(|write_error| write_error.to_string())?;
+            write_probe_result(&mut writer, "error", &report, output)?;
             return Err(format!("probe UDP relay failed: {error}"));
         }
     };
@@ -1088,8 +1133,7 @@ fn probe_udp_outbound(
     if let Some(expected) = expect {
         if response.payload != expected {
             report.record_error(ConnectionErrorKind::ProtocolError);
-            writeln!(writer, "probe status=error {}", report.summary_line())
-                .map_err(|error| error.to_string())?;
+            write_probe_result(&mut writer, "error", &report, output)?;
             return Err(format!(
                 "probe UDP response mismatch: expected {:?}, got {:?}",
                 String::from_utf8_lossy(expected),
@@ -1098,17 +1142,59 @@ fn probe_udp_outbound(
         }
     }
 
-    writeln!(writer, "probe status=ok {}", report.summary_line()).map_err(|error| error.to_string())
+    write_probe_result(&mut writer, "ok", &report, output)
 }
 
 fn probe_io_error(
     error: io::Error,
     report: &mut ConnectionReport,
     writer: &mut impl Write,
+    output: ProbeOutputFormat,
 ) -> String {
     report.record_error(ConnectionErrorKind::from_io(&error));
-    let _ = writeln!(writer, "probe status=error {}", report.summary_line());
+    let _ = write_probe_result(writer, "error", report, output);
     format!("probe relay failed: {error}")
+}
+
+fn write_probe_result(
+    writer: &mut impl Write,
+    status: &str,
+    report: &ConnectionReport,
+    output: ProbeOutputFormat,
+) -> Result<(), String> {
+    match output {
+        ProbeOutputFormat::Text => {
+            writeln!(writer, "probe status={status} {}", report.summary_line())
+                .map_err(|error| error.to_string())
+        }
+        ProbeOutputFormat::Json => {
+            let (route, outbound_tag) = probe_route_fields(&report.route_action);
+            let value = serde_json::json!({
+                "status": status,
+                "inbound": report.inbound.as_str(),
+                "target": format!("{}:{}", report.target.host, report.target.port),
+                "target_host": report.target.host.as_str(),
+                "target_port": report.target.port,
+                "route": route,
+                "outbound_tag": outbound_tag,
+                "connect_ms": report.connect_ms,
+                "first_byte_ms": report.first_byte_ms,
+                "upload_bytes": report.upload_bytes,
+                "download_bytes": report.download_bytes,
+                "error_kind": report.error_kind.map(ConnectionErrorKind::as_str),
+            });
+            writeln!(writer, "{value}").map_err(|error| error.to_string())
+        }
+    }
+}
+
+fn probe_route_fields(route_action: &RouteAction) -> (&'static str, Option<&str>) {
+    match route_action {
+        RouteAction::Direct => ("direct", None),
+        RouteAction::Block => ("block", None),
+        RouteAction::HijackDns => ("hijack_dns", None),
+        RouteAction::Outbound(tag) => ("outbound", Some(tag.as_str())),
+    }
 }
 
 fn mixed_runtime_from_parsed_profiles(

@@ -9,6 +9,7 @@ keli-client-core.workspace = true
 keli-net-core.workspace = true
 keli-platform.workspace = true
 keli-protocol.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 bytes.workspace = true

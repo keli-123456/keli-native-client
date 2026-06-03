@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use keli_cli::CliCommand;
+use keli_cli::{CliCommand, ProbeOutputFormat};
 use shadowsocks_crypto::kind::CipherKind;
 use shadowsocks_crypto::v1::{openssl_bytes_to_key, Cipher};
 
@@ -57,12 +57,53 @@ fn run_probe_outbound_command_uses_profile_config_path() {
         payload: Some("ping".to_string()),
         expect: Some("pong".to_string()),
         udp: false,
+        output: ProbeOutputFormat::Text,
         first_byte_timeout: Duration::from_secs(2),
     })
     .expect("run probe command");
 
     ss_thread.join().expect("ss thread");
     std::fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn probe_outbound_json_reports_machine_readable_success() {
+    let (ss_port, ss_thread) = spawn_shadowsocks_tcp_echo_server();
+    let config = format!(
+        r#"proxies:
+  - name: SS-READY
+    type: ss
+    server: 127.0.0.1
+    port: {ss_port}
+    cipher: aes-256-gcm
+    password: secret
+"#
+    );
+    let mut output = Vec::new();
+
+    keli_cli::probe_outbound_from_subscription_config_text_with_format(
+        &config,
+        Some("SS-READY".to_string()),
+        "example.com:443",
+        b"ping",
+        Some(b"pong"),
+        false,
+        Duration::from_secs(2),
+        ProbeOutputFormat::Json,
+        &mut output,
+    )
+    .expect("probe outbound");
+
+    let output: serde_json::Value = serde_json::from_slice(&output).expect("json output");
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["inbound"], "probe-outbound");
+    assert_eq!(output["target"], "example.com:443");
+    assert_eq!(output["route"], "outbound");
+    assert_eq!(output["outbound_tag"], "SS-READY");
+    assert_eq!(output["upload_bytes"], 4);
+    assert_eq!(output["download_bytes"], 4);
+    assert_eq!(output["error_kind"], serde_json::Value::Null);
+    ss_thread.join().expect("ss thread");
 }
 
 #[test]
