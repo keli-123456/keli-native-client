@@ -54,3 +54,31 @@ fn socks5_connect_relays_to_direct_tcp_target() {
     inbound_thread.join().expect("inbound thread");
     target_thread.join().expect("target thread");
 }
+
+#[test]
+fn socks5_udp_associate_returns_network_unreachable_until_udp_relay_exists() {
+    let inbound = TcpListener::bind("127.0.0.1:0").expect("bind inbound");
+    let inbound_port = inbound.local_addr().expect("inbound addr").port();
+    let inbound_thread = thread::spawn(move || {
+        let (mut stream, _) = inbound.accept().expect("accept inbound");
+        handle_socks5_connection(&mut stream).expect("handle socks5");
+    });
+
+    let mut client = TcpStream::connect(("127.0.0.1", inbound_port)).expect("connect inbound");
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    client.write_all(&[0x05, 0x01, 0x00]).expect("write hello");
+    let mut hello = [0; 2];
+    client.read_exact(&mut hello).expect("read hello response");
+    assert_eq!(hello, [0x05, 0x00]);
+
+    client
+        .write_all(&[0x05, 0x03, 0x00, 0x01, 127, 0, 0, 1, 0x00, 0x00])
+        .expect("write udp associate request");
+    let mut reply = [0; 10];
+    client.read_exact(&mut reply).expect("read udp reply");
+    assert_eq!(reply, [0x05, 0x03, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+
+    inbound_thread.join().expect("inbound thread");
+}

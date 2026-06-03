@@ -28,6 +28,13 @@ pub struct Socks5Request {
     pub port: u16,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Socks5UdpDatagram {
+    pub address: Socks5Address,
+    pub port: u16,
+    pub payload: Vec<u8>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Socks5ReplyCode {
     Succeeded,
@@ -66,6 +73,9 @@ pub enum Socks5Error {
     EmptyMethodList,
     EmptyDomain,
     InvalidDomain,
+    FragmentedUdpDatagram,
+    DomainTooLong,
+    TruncatedUdpDatagram,
 }
 
 impl fmt::Display for Socks5Error {
@@ -82,6 +92,11 @@ impl fmt::Display for Socks5Error {
             Self::EmptyMethodList => write!(f, "SOCKS5 handshake has no methods"),
             Self::EmptyDomain => write!(f, "SOCKS5 request has an empty domain"),
             Self::InvalidDomain => write!(f, "SOCKS5 request domain is not valid UTF-8"),
+            Self::FragmentedUdpDatagram => {
+                write!(f, "SOCKS5 fragmented UDP datagrams are not supported")
+            }
+            Self::DomainTooLong => write!(f, "SOCKS5 domain is too long"),
+            Self::TruncatedUdpDatagram => write!(f, "SOCKS5 UDP datagram is truncated"),
         }
     }
 }
@@ -182,6 +197,88 @@ pub fn socks5_reply(code: Socks5ReplyCode) -> [u8; 10] {
     ]
 }
 
+pub fn parse_socks5_udp_datagram(input: &[u8]) -> Result<Socks5UdpDatagram, Socks5Error> {
+    if input.len() < 4 {
+        return Err(Socks5Error::TruncatedUdpDatagram);
+    }
+    if input[0] != 0x00 || input[1] != 0x00 {
+        return Err(Socks5Error::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "SOCKS5 UDP reserved bytes must be zero",
+        )));
+    }
+    if input[2] != 0x00 {
+        return Err(Socks5Error::FragmentedUdpDatagram);
+    }
+    let mut offset = 4;
+    let address = match input[3] {
+        0x01 => {
+            let bytes = read_slice(input, &mut offset, 4)?;
+            Socks5Address::Ipv4(Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]))
+        }
+        0x03 => {
+            let length = *read_slice(input, &mut offset, 1)?
+                .first()
+                .ok_or(Socks5Error::TruncatedUdpDatagram)? as usize;
+            if length == 0 {
+                return Err(Socks5Error::EmptyDomain);
+            }
+            let bytes = read_slice(input, &mut offset, length)?;
+            let domain =
+                String::from_utf8(bytes.to_vec()).map_err(|_| Socks5Error::InvalidDomain)?;
+            Socks5Address::Domain(domain)
+        }
+        0x04 => {
+            let bytes = read_slice(input, &mut offset, 16)?;
+            let mut octets = [0; 16];
+            octets.copy_from_slice(bytes);
+            Socks5Address::Ipv6(Ipv6Addr::from(octets))
+        }
+        other => return Err(Socks5Error::UnsupportedAddressType(other)),
+    };
+    let port_bytes = read_slice(input, &mut offset, 2)?;
+    let port = u16::from_be_bytes([port_bytes[0], port_bytes[1]]);
+    Ok(Socks5UdpDatagram {
+        address,
+        port,
+        payload: input[offset..].to_vec(),
+    })
+}
+
+pub fn encode_socks5_udp_datagram(
+    address: &Socks5Address,
+    port: u16,
+    payload: &[u8],
+) -> Result<Vec<u8>, Socks5Error> {
+    let mut output = Vec::with_capacity(10 + payload.len());
+    output.extend_from_slice(&[0x00, 0x00, 0x00]);
+    match address {
+        Socks5Address::Ipv4(ip) => {
+            output.push(0x01);
+            output.extend_from_slice(&ip.octets());
+        }
+        Socks5Address::Domain(domain) => {
+            let domain = domain.trim();
+            if domain.is_empty() {
+                return Err(Socks5Error::EmptyDomain);
+            }
+            if domain.len() > u8::MAX as usize {
+                return Err(Socks5Error::DomainTooLong);
+            }
+            output.push(0x03);
+            output.push(domain.len() as u8);
+            output.extend_from_slice(domain.as_bytes());
+        }
+        Socks5Address::Ipv6(ip) => {
+            output.push(0x04);
+            output.extend_from_slice(&ip.octets());
+        }
+    }
+    output.extend_from_slice(&port.to_be_bytes());
+    output.extend_from_slice(payload);
+    Ok(output)
+}
+
 fn read_u8(reader: &mut impl Read) -> Result<u8, Socks5Error> {
     let mut byte = [0; 1];
     reader.read_exact(&mut byte)?;
@@ -192,4 +289,18 @@ fn read_u16(reader: &mut impl Read) -> Result<u16, Socks5Error> {
     let mut bytes = [0; 2];
     reader.read_exact(&mut bytes)?;
     Ok(u16::from_be_bytes(bytes))
+}
+
+fn read_slice<'a>(
+    input: &'a [u8],
+    offset: &mut usize,
+    length: usize,
+) -> Result<&'a [u8], Socks5Error> {
+    let end = offset
+        .checked_add(length)
+        .filter(|end| *end <= input.len())
+        .ok_or(Socks5Error::TruncatedUdpDatagram)?;
+    let slice = &input[*offset..end];
+    *offset = end;
+    Ok(slice)
 }

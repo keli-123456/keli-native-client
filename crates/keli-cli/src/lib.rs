@@ -278,9 +278,17 @@ pub fn handle_socks5_connection_with_routes(
         request.command, request.address, request.port
     );
 
-    if request.command != Socks5Command::Connect {
-        stream.write_all(&socks5_reply(Socks5ReplyCode::CommandNotSupported))?;
-        return Ok(());
+    match request.command {
+        Socks5Command::Connect => {}
+        Socks5Command::UdpAssociate => {
+            println!("socks5 udp associate requested but UDP relay is not enabled yet");
+            stream.write_all(&socks5_reply(Socks5ReplyCode::NetworkUnreachable))?;
+            return Ok(());
+        }
+        Socks5Command::Bind => {
+            stream.write_all(&socks5_reply(Socks5ReplyCode::CommandNotSupported))?;
+            return Ok(());
+        }
     }
 
     let target = OutboundTarget::from_socks5_request(&request);
