@@ -219,6 +219,61 @@ fn registered_trojan_tcp_outbound_writes_header_and_relays_stream() {
 }
 
 #[test]
+fn registry_from_trojan_httpupgrade_profile_relays_after_upgrade() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind trojan hu server");
+    let port = listener.local_addr().expect("trojan hu addr").port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept trojan hu server");
+        let request = read_http_request(&mut stream);
+        assert_httpupgrade_request(&request, "/trojan-upgrade", "edge.example");
+        stream
+            .write_all(httpupgrade_response().as_bytes())
+            .expect("write httpupgrade response");
+
+        let mut request_header = [0; 76];
+        stream
+            .read_exact(&mut request_header)
+            .expect("read trojan request header");
+        assert_eq!(
+            &request_header[..],
+            b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x01\x03\x0bexample.com\x01\xbb\r\n"
+        );
+        let mut payload = [0; 4];
+        stream.read_exact(&mut payload).expect("read relay payload");
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"pong").expect("write relay payload");
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Trojan,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::HttpUpgrade {
+            path: "/trojan-upgrade".to_string(),
+            host: Some("edge.example".to_string()),
+        },
+        security: SecurityKind::None,
+        credential: "password".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let mut stream = registry
+        .connect(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+        )
+        .expect("registered trojan httpupgrade outbound should connect");
+    stream.write_all(b"ping").expect("write payload");
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).expect("read payload");
+
+    assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn registered_shadowsocks_tcp_outbound_encrypts_header_and_relays_stream() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ss server");
     let port = listener.local_addr().expect("ss addr").port();
@@ -378,6 +433,68 @@ fn registry_from_vless_ws_profile_connects_with_profile_transport() {
 }
 
 #[test]
+fn registry_from_vless_httpupgrade_profile_relays_after_upgrade() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind vless hu server");
+    let port = listener.local_addr().expect("vless hu addr").port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept vless hu server");
+        let request = read_http_request(&mut stream);
+        assert_httpupgrade_request(&request, "/vless-upgrade", "edge.example");
+        stream
+            .write_all(httpupgrade_response().as_bytes())
+            .expect("write httpupgrade response");
+
+        let mut request_header = [0; 34];
+        stream
+            .read_exact(&mut request_header)
+            .expect("read vless request header");
+        assert_eq!(
+            &request_header[..],
+            &[
+                0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
+                0xdd, 0xee, 0xff, 0x00, 0x01, 0x01, 0xbb, 0x02, 0x0b, b'e', b'x', b'a', b'm', b'p',
+                b'l', b'e', b'.', b'c', b'o', b'm',
+            ]
+        );
+        stream
+            .write_all(&[0x00, 0x00])
+            .expect("write vless response header");
+        let mut payload = [0; 4];
+        stream.read_exact(&mut payload).expect("read relay payload");
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"pong").expect("write relay payload");
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Vless,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::HttpUpgrade {
+            path: "/vless-upgrade".to_string(),
+            host: Some("edge.example".to_string()),
+        },
+        security: SecurityKind::None,
+        credential: "00112233-4455-6677-8899-aabbccddeeff".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let mut stream = registry
+        .connect(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+        )
+        .expect("registered vless httpupgrade outbound should connect");
+    stream.write_all(b"ping").expect("write payload");
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).expect("read payload");
+
+    assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn registry_from_vless_tcp_profile_preserves_flow() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind vless server");
     let port = listener.local_addr().expect("vless addr").port();
@@ -527,6 +644,61 @@ fn registry_from_vmess_ws_profile_relays_over_websocket() {
             Duration::from_secs(1),
         )
         .expect("registered vmess ws outbound should connect");
+    stream.write_all(b"ping").expect("write payload");
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).expect("read payload");
+
+    assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
+fn registry_from_vmess_httpupgrade_profile_relays_after_upgrade() {
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind vmess hu server");
+    let port = listener.local_addr().expect("vmess hu addr").port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept vmess hu server");
+        let request = read_http_request(&mut stream);
+        assert_httpupgrade_request(&request, "/vmess-upgrade", "edge.example");
+        stream
+            .write_all(httpupgrade_response().as_bytes())
+            .expect("write httpupgrade response");
+
+        let request = read_vmess_aead_request(&mut stream, uuid);
+        assert_eq!(request.target_host, "example.com");
+        assert_eq!(request.target_port, 443);
+        assert_eq!(request.command, 0x01);
+        assert_eq!(request.security, VMESS_SECURITY_NONE);
+
+        write_vmess_aead_response_header(&mut stream, &request);
+        let mut payload = [0; 4];
+        stream.read_exact(&mut payload).expect("read relay payload");
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"pong").expect("write relay payload");
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Vmess,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::HttpUpgrade {
+            path: "/vmess-upgrade".to_string(),
+            host: Some("edge.example".to_string()),
+        },
+        security: SecurityKind::None,
+        credential: uuid.to_string(),
+        cipher: Some("none".to_string()),
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let mut stream = registry
+        .connect(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+        )
+        .expect("registered vmess httpupgrade outbound should connect");
     stream.write_all(b"ping").expect("write payload");
     let mut response = [0; 4];
     stream.read_exact(&mut response).expect("read payload");
@@ -1364,6 +1536,27 @@ fn header_value(request: &str, name: &str) -> Option<String> {
         key.eq_ignore_ascii_case(name)
             .then(|| value.trim().to_string())
     })
+}
+
+fn assert_httpupgrade_request(request: &str, path: &str, host: &str) {
+    assert!(request.starts_with(&format!("GET {path} HTTP/1.1\r\n")));
+    assert_eq!(header_value(request, "Host").as_deref(), Some(host));
+    assert_eq!(
+        header_value(request, "Connection").as_deref(),
+        Some("Upgrade")
+    );
+    assert_eq!(
+        header_value(request, "Upgrade").as_deref(),
+        Some("websocket")
+    );
+    assert!(
+        header_value(request, "Sec-WebSocket-Key").is_none(),
+        "HTTPUpgrade should not send a WebSocket frame key"
+    );
+}
+
+fn httpupgrade_response() -> &'static str {
+    "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n"
 }
 
 fn read_masked_client_frame(stream: &mut std::net::TcpStream) -> Vec<u8> {

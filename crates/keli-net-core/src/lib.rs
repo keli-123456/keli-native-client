@@ -16,9 +16,11 @@ pub use direct::{
     relay_tcp_bidirectional, relay_tcp_bidirectional_with_options, AnyTlsTlsTcpOutbound,
     DirectTcpConnector, DirectUdpConnector, Hy2Outbound, OutboundConnection, OutboundProfileError,
     OutboundRegistry, OutboundTarget, OwnedRelayStream, RelayError, RelayOptions, RelayStats,
-    ShadowsocksTcpOutbound, TlsTcpStream, TrojanTcpOutbound, TrojanTlsTcpOutbound,
-    TrojanTlsWsOutbound, TrojanWsOutbound, UdpRelayResponse, VlessTcpOutbound, VlessTlsTcpOutbound,
-    VlessTlsWsOutbound, VlessWsOutbound, VmessBodySecurity, VmessTcpOutbound, VmessTlsTcpOutbound,
+    ShadowsocksTcpOutbound, TlsTcpStream, TrojanHttpUpgradeOutbound, TrojanTcpOutbound,
+    TrojanTlsHttpUpgradeOutbound, TrojanTlsTcpOutbound, TrojanTlsWsOutbound, TrojanWsOutbound,
+    UdpRelayResponse, VlessHttpUpgradeOutbound, VlessTcpOutbound, VlessTlsHttpUpgradeOutbound,
+    VlessTlsTcpOutbound, VlessTlsWsOutbound, VlessWsOutbound, VmessBodySecurity,
+    VmessHttpUpgradeOutbound, VmessTcpOutbound, VmessTlsHttpUpgradeOutbound, VmessTlsTcpOutbound,
     VmessTlsWsOutbound, VmessWsOutbound,
 };
 pub use dns::{DnsCache, DnsEngine, DnsError, DnsResolver, ResolvedAddress, SystemDnsResolver};

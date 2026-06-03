@@ -52,6 +52,7 @@ const VMESS_RESPONSE_HEADER_LENGTH_IV: &[u8] = b"AEAD Resp Header Len IV";
 const VMESS_RESPONSE_HEADER_PAYLOAD_KEY: &[u8] = b"AEAD Resp Header Key";
 const VMESS_RESPONSE_HEADER_PAYLOAD_IV: &[u8] = b"AEAD Resp Header IV";
 const VMESS_CMD_KEY_SALT: &[u8] = b"c48619fe-8f02-49e0-b9e9-edf763e17e21";
+const HTTPUPGRADE_HEADER_LIMIT: usize = 16 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutboundTarget {
@@ -197,14 +198,20 @@ pub struct OutboundRegistry {
     trojan_tls_tcp_tags: HashMap<String, TrojanTlsTcpOutbound>,
     trojan_ws_tags: HashMap<String, TrojanWsOutbound>,
     trojan_tls_ws_tags: HashMap<String, TrojanTlsWsOutbound>,
+    trojan_httpupgrade_tags: HashMap<String, TrojanHttpUpgradeOutbound>,
+    trojan_tls_httpupgrade_tags: HashMap<String, TrojanTlsHttpUpgradeOutbound>,
     vless_tcp_tags: HashMap<String, VlessTcpOutbound>,
     vless_tls_tcp_tags: HashMap<String, VlessTlsTcpOutbound>,
     vless_ws_tags: HashMap<String, VlessWsOutbound>,
     vless_tls_ws_tags: HashMap<String, VlessTlsWsOutbound>,
+    vless_httpupgrade_tags: HashMap<String, VlessHttpUpgradeOutbound>,
+    vless_tls_httpupgrade_tags: HashMap<String, VlessTlsHttpUpgradeOutbound>,
     vmess_tcp_tags: HashMap<String, VmessTcpOutbound>,
     vmess_tls_tcp_tags: HashMap<String, VmessTlsTcpOutbound>,
     vmess_ws_tags: HashMap<String, VmessWsOutbound>,
     vmess_tls_ws_tags: HashMap<String, VmessTlsWsOutbound>,
+    vmess_httpupgrade_tags: HashMap<String, VmessHttpUpgradeOutbound>,
+    vmess_tls_httpupgrade_tags: HashMap<String, VmessTlsHttpUpgradeOutbound>,
     shadowsocks_tcp_tags: HashMap<String, ShadowsocksTcpOutbound>,
     anytls_tls_tcp_tags: HashMap<String, AnyTlsTlsTcpOutbound>,
     naive_h2_tcp_tags: HashMap<String, crate::NaiveH2TcpOutbound>,
@@ -281,6 +288,38 @@ impl OutboundRegistry {
                 );
                 Ok(())
             }
+            (
+                ProxyProtocol::Trojan,
+                TransportKind::HttpUpgrade { path, host },
+                SecurityKind::None,
+            ) => {
+                let host = host.unwrap_or_else(|| endpoint.host.clone());
+                self.add_trojan_httpupgrade(
+                    tag,
+                    TrojanHttpUpgradeOutbound::new(endpoint, host, path, credential),
+                );
+                Ok(())
+            }
+            (
+                ProxyProtocol::Trojan,
+                TransportKind::HttpUpgrade { path, host },
+                SecurityKind::Tls { sni, skip_verify },
+            ) => {
+                let host = host.unwrap_or_else(|| endpoint.host.clone());
+                let sni = sni.unwrap_or_else(|| host.clone());
+                self.add_trojan_tls_httpupgrade(
+                    tag,
+                    TrojanTlsHttpUpgradeOutbound::new(
+                        endpoint,
+                        host,
+                        path,
+                        credential,
+                        sni,
+                        skip_verify,
+                    ),
+                );
+                Ok(())
+            }
             (ProxyProtocol::Vmess, TransportKind::Tcp, SecurityKind::None) => {
                 let vmess_security = vmess_security_from_profile_cipher(&tag, cipher.as_deref())?;
                 self.add_vmess_tcp(
@@ -341,6 +380,47 @@ impl OutboundRegistry {
                 );
                 Ok(())
             }
+            (
+                ProxyProtocol::Vmess,
+                TransportKind::HttpUpgrade { path, host },
+                SecurityKind::None,
+            ) => {
+                let host = host.unwrap_or_else(|| endpoint.host.clone());
+                let vmess_security = vmess_security_from_profile_cipher(&tag, cipher.as_deref())?;
+                self.add_vmess_httpupgrade(
+                    tag,
+                    VmessHttpUpgradeOutbound::new_with_security(
+                        endpoint,
+                        host,
+                        path,
+                        credential,
+                        vmess_security,
+                    ),
+                );
+                Ok(())
+            }
+            (
+                ProxyProtocol::Vmess,
+                TransportKind::HttpUpgrade { path, host },
+                SecurityKind::Tls { sni, skip_verify },
+            ) => {
+                let host = host.unwrap_or_else(|| endpoint.host.clone());
+                let sni = sni.unwrap_or_else(|| host.clone());
+                let vmess_security = vmess_security_from_profile_cipher(&tag, cipher.as_deref())?;
+                self.add_vmess_tls_httpupgrade(
+                    tag,
+                    VmessTlsHttpUpgradeOutbound::new_with_security(
+                        endpoint,
+                        host,
+                        path,
+                        credential,
+                        sni,
+                        skip_verify,
+                        vmess_security,
+                    ),
+                );
+                Ok(())
+            }
             (ProxyProtocol::Vless, TransportKind::Tcp, SecurityKind::None) => {
                 self.add_vless_tcp(tag, VlessTcpOutbound::new(endpoint, credential, flow));
                 Ok(())
@@ -371,6 +451,39 @@ impl OutboundRegistry {
                 self.add_vless_tls_ws(
                     tag,
                     VlessTlsWsOutbound::new(
+                        endpoint,
+                        host,
+                        path,
+                        credential,
+                        flow,
+                        sni,
+                        skip_verify,
+                    ),
+                );
+                Ok(())
+            }
+            (
+                ProxyProtocol::Vless,
+                TransportKind::HttpUpgrade { path, host },
+                SecurityKind::None,
+            ) => {
+                let host = host.unwrap_or_else(|| endpoint.host.clone());
+                self.add_vless_httpupgrade(
+                    tag,
+                    VlessHttpUpgradeOutbound::new(endpoint, host, path, credential, flow),
+                );
+                Ok(())
+            }
+            (
+                ProxyProtocol::Vless,
+                TransportKind::HttpUpgrade { path, host },
+                SecurityKind::Tls { sni, skip_verify },
+            ) => {
+                let host = host.unwrap_or_else(|| endpoint.host.clone());
+                let sni = sni.unwrap_or_else(|| host.clone());
+                self.add_vless_tls_httpupgrade(
+                    tag,
+                    VlessTlsHttpUpgradeOutbound::new(
                         endpoint,
                         host,
                         path,
@@ -473,6 +586,23 @@ impl OutboundRegistry {
         self.trojan_tls_ws_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_trojan_httpupgrade(
+        &mut self,
+        tag: impl Into<String>,
+        outbound: TrojanHttpUpgradeOutbound,
+    ) {
+        self.trojan_httpupgrade_tags.insert(tag.into(), outbound);
+    }
+
+    pub fn add_trojan_tls_httpupgrade(
+        &mut self,
+        tag: impl Into<String>,
+        outbound: TrojanTlsHttpUpgradeOutbound,
+    ) {
+        self.trojan_tls_httpupgrade_tags
+            .insert(tag.into(), outbound);
+    }
+
     pub fn add_vless_tcp(&mut self, tag: impl Into<String>, outbound: VlessTcpOutbound) {
         self.vless_tcp_tags.insert(tag.into(), outbound);
     }
@@ -489,6 +619,22 @@ impl OutboundRegistry {
         self.vless_tls_ws_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_vless_httpupgrade(
+        &mut self,
+        tag: impl Into<String>,
+        outbound: VlessHttpUpgradeOutbound,
+    ) {
+        self.vless_httpupgrade_tags.insert(tag.into(), outbound);
+    }
+
+    pub fn add_vless_tls_httpupgrade(
+        &mut self,
+        tag: impl Into<String>,
+        outbound: VlessTlsHttpUpgradeOutbound,
+    ) {
+        self.vless_tls_httpupgrade_tags.insert(tag.into(), outbound);
+    }
+
     pub fn add_vmess_tcp(&mut self, tag: impl Into<String>, outbound: VmessTcpOutbound) {
         self.vmess_tcp_tags.insert(tag.into(), outbound);
     }
@@ -503,6 +649,22 @@ impl OutboundRegistry {
 
     pub fn add_vmess_tls_ws(&mut self, tag: impl Into<String>, outbound: VmessTlsWsOutbound) {
         self.vmess_tls_ws_tags.insert(tag.into(), outbound);
+    }
+
+    pub fn add_vmess_httpupgrade(
+        &mut self,
+        tag: impl Into<String>,
+        outbound: VmessHttpUpgradeOutbound,
+    ) {
+        self.vmess_httpupgrade_tags.insert(tag.into(), outbound);
+    }
+
+    pub fn add_vmess_tls_httpupgrade(
+        &mut self,
+        tag: impl Into<String>,
+        outbound: VmessTlsHttpUpgradeOutbound,
+    ) {
+        self.vmess_tls_httpupgrade_tags.insert(tag.into(), outbound);
     }
 
     pub fn add_shadowsocks_tcp(
@@ -553,6 +715,10 @@ impl OutboundRegistry {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.trojan_tls_ws_tags.get(tag) {
             outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.trojan_httpupgrade_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.trojan_tls_httpupgrade_tags.get(tag) {
+            outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tls_tcp_tags.get(tag) {
@@ -561,6 +727,10 @@ impl OutboundRegistry {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tls_ws_tags.get(tag) {
             outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vless_httpupgrade_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vless_tls_httpupgrade_tags.get(tag) {
+            outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vmess_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vmess_tls_tcp_tags.get(tag) {
@@ -568,6 +738,10 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vmess_ws_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vmess_tls_ws_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vmess_httpupgrade_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vmess_tls_httpupgrade_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
@@ -803,6 +977,84 @@ impl OwnedRelayStream for TlsTcpStream {
     }
 }
 
+fn connect_httpupgrade_client<S: Read + Write>(
+    mut stream: S,
+    host: &str,
+    path: &str,
+) -> io::Result<S> {
+    let path = path.trim();
+    let path = if path.is_empty() { "/" } else { path };
+    let host = host.trim();
+    if host.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "HTTPUpgrade host is required",
+        ));
+    }
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n"
+    );
+    stream.write_all(request.as_bytes())?;
+    stream.flush()?;
+
+    let response = read_httpupgrade_response(&mut stream)?;
+    validate_httpupgrade_response(&response)?;
+    Ok(stream)
+}
+
+fn read_httpupgrade_response(stream: &mut impl Read) -> io::Result<String> {
+    let mut bytes = Vec::new();
+    let mut byte = [0; 1];
+    while bytes.len() < HTTPUPGRADE_HEADER_LIMIT {
+        stream.read_exact(&mut byte)?;
+        bytes.push(byte[0]);
+        if bytes.ends_with(b"\r\n\r\n") {
+            return String::from_utf8(bytes)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error));
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "HTTPUpgrade response header is too large",
+    ))
+}
+
+fn validate_httpupgrade_response(response: &str) -> io::Result<()> {
+    let mut lines = response.split("\r\n");
+    let status = lines.next().unwrap_or_default();
+    if !status.contains(" 101 ") {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "HTTPUpgrade server did not switch protocols",
+        ));
+    }
+    let mut saw_upgrade = false;
+    let mut saw_connection = false;
+    for line in lines {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        if name.eq_ignore_ascii_case("Upgrade") && value.eq_ignore_ascii_case("websocket") {
+            saw_upgrade = true;
+        } else if name.eq_ignore_ascii_case("Connection")
+            && value
+                .split(',')
+                .any(|part| part.trim().eq_ignore_ascii_case("upgrade"))
+        {
+            saw_connection = true;
+        }
+    }
+    if saw_upgrade && saw_connection {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "HTTPUpgrade response is invalid",
+        ))
+    }
+}
+
 fn tls_client_config(skip_verify: bool) -> io::Result<Arc<rustls::ClientConfig>> {
     tls_client_config_with_alpn(skip_verify, Vec::new())
 }
@@ -968,6 +1220,99 @@ impl VlessTlsWsOutbound {
         let stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
         let mut stream =
             crate::OwnedWebSocketClientStream::connect(stream, &self.host, &self.path)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        read_vless_response_header_from_stream(&mut stream)?;
+        Ok(OutboundConnection::Owned(Box::new(stream)))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VlessHttpUpgradeOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub path: String,
+    pub uuid: String,
+    pub flow: Option<String>,
+}
+
+impl VlessHttpUpgradeOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        path: impl Into<String>,
+        uuid: impl Into<String>,
+        flow: Option<String>,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            path: path.into(),
+            uuid: uuid.into(),
+            flow,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = connect_httpupgrade_client(stream, &self.host, &self.path)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        read_vless_response_header_from_stream(&mut stream)?;
+        Ok(OutboundConnection::Tcp(stream))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VlessTlsHttpUpgradeOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub path: String,
+    pub uuid: String,
+    pub flow: Option<String>,
+    pub sni: String,
+    pub skip_verify: bool,
+}
+
+impl VlessTlsHttpUpgradeOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        path: impl Into<String>,
+        uuid: impl Into<String>,
+        flow: Option<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            path: path.into(),
+            uuid: uuid.into(),
+            flow,
+            sni: sni.into(),
+            skip_verify,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
+        let mut stream = connect_httpupgrade_client(stream, &self.host, &self.path)?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
             .map_err(protocol_encoding_to_io)?;
@@ -2067,6 +2412,91 @@ impl TrojanTlsWsOutbound {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrojanHttpUpgradeOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub path: String,
+    pub password: String,
+}
+
+impl TrojanHttpUpgradeOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        path: impl Into<String>,
+        password: impl Into<String>,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            path: path.into(),
+            password: password.into(),
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = connect_httpupgrade_client(stream, &self.host, &self.path)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_trojan_tcp_request_header(&self.password, &target)
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        Ok(OutboundConnection::Tcp(stream))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrojanTlsHttpUpgradeOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub path: String,
+    pub password: String,
+    pub sni: String,
+    pub skip_verify: bool,
+}
+
+impl TrojanTlsHttpUpgradeOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        path: impl Into<String>,
+        password: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            path: path.into(),
+            password: password.into(),
+            sni: sni.into(),
+            skip_verify,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
+        let mut stream = connect_httpupgrade_client(stream, &self.host, &self.path)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_trojan_tcp_request_header(&self.password, &target)
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        Ok(OutboundConnection::Owned(Box::new(stream)))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VlessTcpOutbound {
     pub server: Endpoint,
     pub uuid: String,
@@ -2396,6 +2826,132 @@ impl VmessTlsWsOutbound {
         let stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
         let mut stream =
             crate::OwnedWebSocketClientStream::connect(stream, &self.host, &self.path)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let request =
+            write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
+        read_vmess_response_header_from_stream(&mut stream, &request)?;
+        vmess_connection_from_stream(stream, request, self.security)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmessHttpUpgradeOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub path: String,
+    pub uuid: String,
+    pub security: VmessBodySecurity,
+}
+
+impl VmessHttpUpgradeOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        path: impl Into<String>,
+        uuid: impl Into<String>,
+    ) -> Self {
+        Self::new_with_security(server, host, path, uuid, VmessBodySecurity::None)
+    }
+
+    pub fn new_with_security(
+        server: Endpoint,
+        host: impl Into<String>,
+        path: impl Into<String>,
+        uuid: impl Into<String>,
+        security: VmessBodySecurity,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            path: path.into(),
+            uuid: uuid.into(),
+            security,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = connect_httpupgrade_client(stream, &self.host, &self.path)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let request =
+            write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
+        read_vmess_response_header_from_stream(&mut stream, &request)?;
+        match self.security {
+            VmessBodySecurity::None => Ok(OutboundConnection::Tcp(stream)),
+            _ => Ok(OutboundConnection::Owned(Box::new(VmessAeadStream::new(
+                stream,
+                request,
+                self.security,
+            )))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmessTlsHttpUpgradeOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub path: String,
+    pub uuid: String,
+    pub sni: String,
+    pub skip_verify: bool,
+    pub security: VmessBodySecurity,
+}
+
+impl VmessTlsHttpUpgradeOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        path: impl Into<String>,
+        uuid: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+    ) -> Self {
+        Self::new_with_security(
+            server,
+            host,
+            path,
+            uuid,
+            sni,
+            skip_verify,
+            VmessBodySecurity::None,
+        )
+    }
+
+    pub fn new_with_security(
+        server: Endpoint,
+        host: impl Into<String>,
+        path: impl Into<String>,
+        uuid: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+        security: VmessBodySecurity,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            path: path.into(),
+            uuid: uuid.into(),
+            sni: sni.into(),
+            skip_verify,
+            security,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
+        let mut stream = connect_httpupgrade_client(stream, &self.host, &self.path)?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let request =
             write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
