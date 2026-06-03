@@ -35,6 +35,7 @@ const TUIC_ATYP_IPV6: u8 = 0x02;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyProtocol {
     Trojan,
+    Vmess,
     Vless,
     Hy2,
     Shadowsocks,
@@ -111,6 +112,11 @@ impl OutboundProfile {
             (ProxyProtocol::Trojan, _, SecurityKind::None) => {
                 Err(ProtocolValidationError::MissingTls)
             }
+            (ProxyProtocol::Vmess, _, _) if !looks_like_uuid(&self.credential) => {
+                Err(ProtocolValidationError::InvalidUuid)
+            }
+            (ProxyProtocol::Vmess, TransportKind::Tcp, SecurityKind::None) => Ok(()),
+            (ProxyProtocol::Vmess, _, _) => Err(ProtocolValidationError::InvalidVmessTransport),
             (ProxyProtocol::Vless, _, _) if !looks_like_uuid(&self.credential) => {
                 Err(ProtocolValidationError::InvalidUuid)
             }
@@ -157,6 +163,7 @@ pub enum ProtocolValidationError {
     MissingCredential { protocol: ProxyProtocol },
     MissingTls,
     InvalidUuid,
+    InvalidVmessTransport,
     InvalidWebSocketPath,
     InvalidHy2Transport,
     InvalidTuicCredential,
@@ -176,7 +183,8 @@ impl fmt::Display for ProtocolValidationError {
                 write!(f, "{protocol:?} credential is empty")
             }
             Self::MissingTls => write!(f, "TLS is required for this profile"),
-            Self::InvalidUuid => write!(f, "VLESS credential must be a UUID"),
+            Self::InvalidUuid => write!(f, "proxy credential must be a UUID"),
+            Self::InvalidVmessTransport => write!(f, "VMess currently supports TCP without TLS"),
             Self::InvalidWebSocketPath => write!(f, "WebSocket path must start with '/'"),
             Self::InvalidHy2Transport => write!(f, "HY2 requires QUIC transport with TLS"),
             Self::InvalidTuicCredential => {
@@ -330,6 +338,7 @@ fn mihomo_proxy_to_profile(
     let protocol_name = protocol_name.to_ascii_lowercase();
     let protocol = match protocol_name.as_str() {
         "trojan" => ProxyProtocol::Trojan,
+        "vmess" => ProxyProtocol::Vmess,
         "vless" => ProxyProtocol::Vless,
         "hy2" | "hysteria2" => ProxyProtocol::Hy2,
         "ss" | "shadowsocks" => ProxyProtocol::Shadowsocks,
@@ -340,6 +349,9 @@ fn mihomo_proxy_to_profile(
     let credential = match protocol {
         ProxyProtocol::Trojan => non_empty(proxy.password)
             .ok_or_else(|| skip(name.clone(), "missing trojan password"))?,
+        ProxyProtocol::Vmess => {
+            non_empty(proxy.uuid).ok_or_else(|| skip(name.clone(), "missing vmess uuid"))?
+        }
         ProxyProtocol::Vless => {
             non_empty(proxy.uuid).ok_or_else(|| skip(name.clone(), "missing vless uuid"))?
         }
@@ -358,7 +370,7 @@ fn mihomo_proxy_to_profile(
             format!("{uuid}:{password}")
         }
     };
-    let cipher = matches!(protocol, ProxyProtocol::Shadowsocks)
+    let cipher = matches!(protocol, ProxyProtocol::Shadowsocks | ProxyProtocol::Vmess)
         .then(|| non_empty(proxy.cipher))
         .flatten();
     let flow = matches!(protocol, ProxyProtocol::Vless)
@@ -528,6 +540,7 @@ fn share_link_to_profile(
     let port = url.port().unwrap_or(443);
     let protocol = match url.scheme() {
         "trojan" => ProxyProtocol::Trojan,
+        "vmess" => ProxyProtocol::Vmess,
         "vless" => ProxyProtocol::Vless,
         "hy2" | "hysteria2" => ProxyProtocol::Hy2,
         "anytls" | "any-tls" => ProxyProtocol::AnyTls,
@@ -554,6 +567,14 @@ fn share_link_to_profile(
                 .and_then(|flow| non_empty(Some(flow)))
         })
         .flatten();
+    let cipher = matches!(protocol, ProxyProtocol::Vmess)
+        .then(|| {
+            query
+                .get("cipher")
+                .cloned()
+                .and_then(|cipher| non_empty(Some(cipher)))
+        })
+        .flatten();
     let profile = OutboundProfile {
         tag: tag.clone(),
         protocol,
@@ -561,7 +582,7 @@ fn share_link_to_profile(
         transport,
         security,
         credential,
-        cipher: None,
+        cipher,
         flow,
     };
     profile

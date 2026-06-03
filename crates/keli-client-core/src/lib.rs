@@ -271,12 +271,13 @@ proxies:
         let report = preflight_subscription_config(config).expect("preflight");
 
         assert!(report.is_usable());
-        assert_eq!(report.supported_count(), 1);
-        assert_eq!(report.skipped_count(), 1);
+        assert_eq!(report.supported_count(), 2);
+        assert_eq!(report.skipped_count(), 0);
         assert_eq!(report.default_outbound(), Some("SS-READY"));
-        assert_eq!(report.supported_tags(), &["SS-READY".to_string()]);
-        assert_eq!(report.skipped()[0].name, "VMESS-OLD");
-        assert_eq!(report.skipped()[0].reason, "unsupported protocol: vmess");
+        assert_eq!(
+            report.supported_tags(),
+            &["SS-READY".to_string(), "VMESS-OLD".to_string()]
+        );
     }
 
     #[test]
@@ -319,10 +320,7 @@ proxies:
 "#;
         let report = preflight_subscription_config(config).expect("preflight");
 
-        assert_eq!(
-            report.select_outbound(None).expect_err("no outbound"),
-            ClientErrorKind::NoSupportedOutbounds
-        );
+        assert_eq!(report.select_outbound(None).expect("default"), "VMESS-OLD");
     }
 
     #[test]

@@ -33,6 +33,25 @@ fn parses_vless_ws_tls_share_link() {
 }
 
 #[test]
+fn parses_vmess_tcp_share_link() {
+    let links = "vmess://00112233-4455-6677-8899-aabbccddeeff@example.com:443?security=none&type=tcp&cipher=none#vmess-tcp";
+
+    let parsed = parse_share_outbound_profiles(links).expect("parse share links");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "vmess-tcp");
+    assert_eq!(profile.protocol, ProxyProtocol::Vmess);
+    assert_eq!(profile.endpoint, Endpoint::new("example.com", 443));
+    assert_eq!(profile.transport, TransportKind::Tcp);
+    assert_eq!(profile.security, SecurityKind::None);
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    assert_eq!(profile.cipher, Some("none".to_string()));
+    profile.validate().expect("valid vmess profile");
+}
+
+#[test]
 fn parses_base64_trojan_ws_tls_share_link() {
     let base64_links = "dHJvamFuOi8vcGFzc3dvcmRAZXhhbXBsZS5jb206NDQzP3NlY3VyaXR5PXRscyZzbmk9ZWRnZS5leGFtcGxlJnR5cGU9d3MmaG9zdD1lZGdlLmV4YW1wbGUmcGF0aD0lMkZhbnN3ZXImYWxsb3dJbnNlY3VyZT0xI3Ryb2phbi13cw==";
 

@@ -17,7 +17,8 @@ use keli_net_core::{
 use keli_platform::PlatformCapabilities;
 use keli_protocol::{
     parse_mihomo_outbound_profiles, parse_subscription_outbound_profiles, Endpoint,
-    OutboundProfile, ProxyProtocol, SecurityKind, TransportKind,
+    OutboundProfile, ParsedOutboundProfiles, ProxyProtocol, SecurityKind, SkippedOutboundProfile,
+    TransportKind,
 };
 
 const DEFAULT_FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -1692,32 +1693,37 @@ pub fn write_profile_check_report_from_subscription_config_text(
 ) -> Result<(), String> {
     let parsed = parse_subscription_outbound_profiles(config_text)
         .map_err(|error| format!("profile config parse failed: {error}"))?;
-    let registry_error = OutboundRegistry::from_profiles(parsed.profiles.clone())
-        .err()
-        .map(|error| error.to_string());
+    let parsed = profiles_with_registry_supported_outbounds(parsed);
     let default_outbound = parsed.profiles.first().map(|profile| profile.tag.as_str());
-    let status = if parsed.profiles.is_empty() || registry_error.is_some() {
+    let status = if parsed.profiles.is_empty() {
         "error"
     } else {
         "ok"
     };
 
-    write_profile_check_report(
-        &mut writer,
-        status,
-        &parsed,
-        default_outbound,
-        registry_error.as_deref(),
-        output,
-    )?;
+    write_profile_check_report(&mut writer, status, &parsed, default_outbound, None, output)?;
 
-    if let Some(error) = registry_error {
-        return Err(format!("profile registry check failed: {error}"));
-    }
     if parsed.profiles.is_empty() {
         return Err("profile config did not contain supported outbounds".to_string());
     }
     Ok(())
+}
+
+fn profiles_with_registry_supported_outbounds(
+    parsed: ParsedOutboundProfiles,
+) -> ParsedOutboundProfiles {
+    let mut profiles = Vec::new();
+    let mut skipped = parsed.skipped;
+    for profile in parsed.profiles {
+        match OutboundRegistry::from_profiles([profile.clone()]) {
+            Ok(_) => profiles.push(profile),
+            Err(error) => skipped.push(SkippedOutboundProfile {
+                name: profile.tag,
+                reason: format!("registry unsupported: {error}"),
+            }),
+        }
+    }
+    ParsedOutboundProfiles { profiles, skipped }
 }
 
 fn write_profile_check_report(

@@ -34,6 +34,6 @@ proxies:
     assert_eq!(report["skipped"][0]["name"], "VMESS-OLD");
     assert_eq!(
         report["skipped"][0]["reason"],
-        "unsupported protocol: vmess"
+        "registry unsupported: outbound profile VMESS-OLD transport is unsupported: Vmess/Tcp/None"
     );
 }

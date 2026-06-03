@@ -97,6 +97,34 @@ proxies:
 }
 
 #[test]
+fn parses_vmess_tcp_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: VMess-TCP
+    type: vmess
+    server: vmess.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    alterId: 0
+    cipher: none
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "VMess-TCP");
+    assert_eq!(profile.protocol, ProxyProtocol::Vmess);
+    assert_eq!(profile.endpoint, Endpoint::new("vmess.example.com", 443));
+    assert_eq!(profile.transport, TransportKind::Tcp);
+    assert_eq!(profile.security, SecurityKind::None);
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    assert_eq!(profile.cipher, Some("none".to_string()));
+    profile.validate().expect("valid profile");
+}
+
+#[test]
 fn parses_vless_flow_from_mihomo_yaml() {
     let yaml = r#"
 proxies:
