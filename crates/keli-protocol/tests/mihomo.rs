@@ -125,6 +125,41 @@ proxies:
 }
 
 #[test]
+fn parses_naive_tcp_tls_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: Naive-TLS
+    type: naive
+    server: naive.example.com
+    port: 443
+    username: user
+    password: pass
+    tls: true
+    sni: edge.example.com
+    skip-cert-verify: true
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "Naive-TLS");
+    assert_eq!(profile.protocol, ProxyProtocol::Naive);
+    assert_eq!(profile.endpoint, Endpoint::new("naive.example.com", 443));
+    assert_eq!(profile.transport, TransportKind::Tcp);
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("edge.example.com".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(profile.credential, "user:pass");
+    profile.validate().expect("valid profile");
+}
+
+#[test]
 fn parses_vless_flow_from_mihomo_yaml() {
     let yaml = r#"
 proxies:
