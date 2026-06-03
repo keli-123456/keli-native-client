@@ -1,5 +1,6 @@
 use std::io::{Read, Write};
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
@@ -9,6 +10,8 @@ use keli_net_core::{
     VlessWsOutbound,
 };
 use keli_protocol::Endpoint;
+use rcgen::generate_simple_self_signed;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
 #[test]
 fn http_connect_uses_registered_outbound_route() {
@@ -223,6 +226,62 @@ fn http_connect_relays_through_registered_vless_ws_route() {
     vless_ws_thread.join().expect("vless ws thread");
 }
 
+#[test]
+fn http_connect_relays_through_registered_hy2_route() {
+    let (hy2_addr, hy2_thread) = spawn_hy2_echo_server();
+    let inbound = TcpListener::bind("127.0.0.1:0").expect("bind inbound");
+    let inbound_port = inbound.local_addr().expect("inbound addr").port();
+    let outbounds = OutboundRegistry::from_profiles([keli_protocol::OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: keli_protocol::ProxyProtocol::Hy2,
+        endpoint: Endpoint::new("127.0.0.1", hy2_addr.port()),
+        transport: keli_protocol::TransportKind::Quic,
+        security: keli_protocol::SecurityKind::Tls {
+            sni: Some("localhost".to_string()),
+            skip_verify: true,
+        },
+        credential: "secret".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("build HY2 outbound registry");
+    let runtime = MixedProxyRuntime::with_routes_and_outbounds(
+        RouteEngine::new(RouteAction::Outbound("proxy".to_string())),
+        outbounds,
+    );
+    let inbound_thread = thread::spawn(move || {
+        let (mut stream, _) = inbound.accept().expect("accept inbound");
+        handle_mixed_connection_with_routes(&mut stream, &runtime)
+            .expect("handle HY2 outbound route");
+    });
+
+    let mut client = TcpStream::connect(("127.0.0.1", inbound_port)).expect("connect inbound");
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    write!(
+        client,
+        "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n"
+    )
+    .expect("write CONNECT");
+
+    let mut connect_response = Vec::new();
+    read_until_header_end(&mut client, &mut connect_response);
+    assert_eq!(
+        connect_response,
+        b"HTTP/1.1 200 Connection Established\r\n\r\n"
+    );
+
+    client.write_all(b"ping").expect("write ping");
+    let mut response = [0; 4];
+    client.read_exact(&mut response).expect("read pong");
+    assert_eq!(&response, b"pong");
+    client.shutdown(Shutdown::Both).ok();
+
+    inbound_thread.join().expect("inbound thread");
+    hy2_thread.join().expect("hy2 thread");
+}
+
 fn read_until_header_end(stream: &mut TcpStream, output: &mut Vec<u8>) {
     let mut byte = [0; 1];
     while !output.ends_with(b"\r\n\r\n") {
@@ -272,4 +331,86 @@ fn read_masked_client_frame(stream: &mut TcpStream) -> Vec<u8> {
         *byte ^= mask[index % 4];
     }
     payload
+}
+
+fn spawn_hy2_echo_server() -> (SocketAddr, thread::JoinHandle<()>) {
+    let (addr_tx, addr_rx) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build HY2 test runtime");
+        runtime.block_on(async move {
+            let endpoint = quinn::Endpoint::server(
+                hy2_h3_test_server_config(),
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            )
+            .expect("bind HY2 test server");
+            addr_tx
+                .send(endpoint.local_addr().expect("HY2 test server addr"))
+                .expect("send HY2 addr");
+            let incoming = endpoint.accept().await.expect("accept HY2 connection");
+            let connection = incoming.await.expect("HY2 QUIC connection");
+            let mut h3_connection: h3::server::Connection<h3_quinn::Connection, bytes::Bytes> =
+                h3::server::builder()
+                    .build(h3_quinn::Connection::new(connection.clone()))
+                    .await
+                    .expect("HY2 H3 server connection");
+            let resolver = h3_connection
+                .accept()
+                .await
+                .expect("accept HY2 auth")
+                .expect("HY2 auth request exists");
+            let (request, mut auth_stream) =
+                resolver.resolve_request().await.expect("resolve HY2 auth");
+            assert_eq!(request.headers()["Hysteria-Auth"], "secret");
+            auth_stream
+                .send_response(http::Response::builder().status(233).body(()).unwrap())
+                .await
+                .expect("send HY2 auth OK");
+            auth_stream.finish().await.expect("finish HY2 auth OK");
+            let (mut send, mut recv) = connection.accept_bi().await.expect("accept HY2 TCP");
+            let mut request = [0; 19];
+            recv.read_exact(&mut request)
+                .await
+                .expect("read HY2 TCP request");
+            assert_eq!(
+                request,
+                [
+                    0x44, 0x01, 0x0f, b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.', b'c', b'o',
+                    b'm', b':', b'4', b'4', b'3', 0x00,
+                ]
+            );
+            send.write_all(&[0x00, 0x00, 0x00])
+                .await
+                .expect("write HY2 TCP OK response");
+            let mut payload = [0; 4];
+            recv.read_exact(&mut payload)
+                .await
+                .expect("read HY2 payload");
+            assert_eq!(&payload, b"ping");
+            send.write_all(b"pong").await.expect("write HY2 response");
+            send.finish().expect("finish HY2 response stream");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        });
+    });
+    (addr_rx.recv().expect("receive HY2 addr"), handle)
+}
+
+fn hy2_h3_test_server_config() -> quinn::ServerConfig {
+    let cert = generate_simple_self_signed(vec!["localhost".to_string()]).expect("cert");
+    let cert_der: CertificateDer<'static> = cert.cert.der().clone();
+    let key_der = PrivateKeyDer::Pkcs8(cert.signing_key.serialize_der().into());
+    let mut tls = rustls::ServerConfig::builder_with_provider(
+        rustls::crypto::ring::default_provider().into(),
+    )
+    .with_protocol_versions(&[&rustls::version::TLS13])
+    .expect("server protocol versions")
+    .with_no_client_auth()
+    .with_single_cert(vec![cert_der], key_der)
+    .expect("server config");
+    tls.alpn_protocols = vec![b"h3".to_vec()];
+    quinn::ServerConfig::with_crypto(Arc::new(
+        quinn::crypto::rustls::QuicServerConfig::try_from(tls).expect("quic server config"),
+    ))
 }

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, Shutdown, SocketAddr, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpStream};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -101,6 +101,7 @@ pub struct OutboundRegistry {
     vless_tls_ws_tags: HashMap<String, VlessTlsWsOutbound>,
     shadowsocks_tcp_tags: HashMap<String, ShadowsocksTcpOutbound>,
     anytls_tls_tcp_tags: HashMap<String, AnyTlsTlsTcpOutbound>,
+    hy2_tags: HashMap<String, Hy2Outbound>,
 }
 
 impl OutboundRegistry {
@@ -230,6 +231,14 @@ impl OutboundRegistry {
                 );
                 Ok(())
             }
+            (ProxyProtocol::Hy2, TransportKind::Quic, SecurityKind::Tls { sni, skip_verify }) => {
+                let sni = sni.unwrap_or_else(|| endpoint.host.clone());
+                self.add_hy2(
+                    tag,
+                    Hy2Outbound::new(endpoint, credential, sni, skip_verify),
+                );
+                Ok(())
+            }
             (protocol, transport, security) => Err(OutboundProfileError::UnsupportedTransport {
                 tag,
                 protocol,
@@ -287,6 +296,10 @@ impl OutboundRegistry {
         self.anytls_tls_tcp_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_hy2(&mut self, tag: impl Into<String>, outbound: Hy2Outbound) {
+        self.hy2_tags.insert(tag.into(), outbound);
+    }
+
     pub fn connect(
         &self,
         tag: &str,
@@ -314,6 +327,8 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.anytls_tls_tcp_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.hy2_tags.get(tag) {
             outbound.connect(target, timeout)
         } else {
             Err(io::Error::new(
@@ -946,6 +961,20 @@ pub struct Hy2Outbound {
 }
 
 impl Hy2Outbound {
+    pub fn new(
+        server: Endpoint,
+        auth: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+    ) -> Self {
+        Self {
+            server,
+            auth: auth.into(),
+            sni: sni.into(),
+            skip_verify,
+        }
+    }
+
     pub fn from_profile(profile: OutboundProfile) -> Result<Self, OutboundProfileError> {
         profile
             .validate()
@@ -994,6 +1023,61 @@ impl Hy2Outbound {
 
     pub fn skip_verify(&self) -> bool {
         self.skip_verify
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        _timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let mut last_error = None;
+        for server_addr in self.resolve_server_addrs()? {
+            let bind_addr = hy2_bind_addr_for(server_addr);
+            match crate::Hy2BlockingTcpStream::connect(
+                bind_addr,
+                server_addr,
+                &self.sni,
+                self.skip_verify,
+                &self.auth,
+                0,
+                "",
+                &target,
+                b"",
+            ) {
+                Ok(stream) => return Ok(OutboundConnection::Owned(Box::new(stream))),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                format!(
+                    "no address resolved for {}:{}",
+                    self.server.host, self.server.port
+                ),
+            )
+        }))
+    }
+
+    fn resolve_server_addrs(&self) -> io::Result<Vec<SocketAddr>> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        dns.resolve(&self.server.host, self.server.port)
+            .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error))
+            .map(|addresses| {
+                addresses
+                    .into_iter()
+                    .map(|address| SocketAddr::new(address.ip, address.port))
+                    .collect()
+            })
+    }
+}
+
+fn hy2_bind_addr_for(server_addr: SocketAddr) -> SocketAddr {
+    if server_addr.is_ipv4() {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
+    } else {
+        SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
     }
 }
 
@@ -1489,6 +1573,21 @@ impl<S: OwnedRelayStream> OwnedRelayStream for crate::OwnedWebSocketClientStream
 
     fn shutdown_both(&mut self) -> io::Result<()> {
         self.inner_mut().shutdown_both()
+    }
+}
+
+impl OwnedRelayStream for crate::Hy2BlockingTcpStream {
+    fn set_nonblocking_mode(&mut self, nonblocking: bool) -> io::Result<()> {
+        self.set_nonblocking_mode(nonblocking);
+        Ok(())
+    }
+
+    fn shutdown_write(&mut self) -> io::Result<()> {
+        self.shutdown_write()
+    }
+
+    fn shutdown_both(&mut self) -> io::Result<()> {
+        self.shutdown_both()
     }
 }
 

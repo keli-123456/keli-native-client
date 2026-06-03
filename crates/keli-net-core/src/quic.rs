@@ -1,7 +1,7 @@
 use std::future::poll_fn;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{mpsc, Arc, Mutex};
 
 use keli_protocol::{
     build_hy2_auth_request, decode_hy2_tcp_response, encode_hy2_tcp_request,
@@ -182,6 +182,217 @@ pub struct Hy2QuicTcpStream {
     recv: quinn::RecvStream,
     read_buffer: Vec<u8>,
     read_offset: usize,
+}
+
+pub struct Hy2BlockingTcpStream {
+    runtime: Arc<tokio::runtime::Runtime>,
+    _session: Hy2ClientSession,
+    send: Arc<Mutex<quinn::SendStream>>,
+    read_rx: mpsc::Receiver<io::Result<Vec<u8>>>,
+    read_buffer: Vec<u8>,
+    read_offset: usize,
+    reader: tokio::task::JoinHandle<()>,
+    nonblocking: bool,
+    eof: bool,
+}
+
+impl Hy2BlockingTcpStream {
+    pub fn connect(
+        bind_addr: SocketAddr,
+        server_addr: SocketAddr,
+        server_name: &str,
+        skip_verify: bool,
+        auth: &str,
+        cc_rx: u64,
+        auth_padding: &str,
+        target: &Endpoint,
+        tcp_padding: &[u8],
+    ) -> io::Result<Self> {
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .thread_name("keli-hy2-runtime")
+                .build()
+                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?,
+        );
+        let session = runtime.block_on(Hy2ClientSession::connect(
+            bind_addr,
+            server_addr,
+            server_name,
+            skip_verify,
+            auth,
+            cc_rx,
+            auth_padding,
+        ))?;
+        let stream = runtime.block_on(session.open_tcp_stream(target, tcp_padding))?;
+        Ok(Self::from_session_stream(runtime, session, stream))
+    }
+
+    fn from_session_stream(
+        runtime: Arc<tokio::runtime::Runtime>,
+        session: Hy2ClientSession,
+        stream: Hy2QuicTcpStream,
+    ) -> Self {
+        let Hy2QuicTcpStream {
+            send,
+            mut recv,
+            read_buffer,
+            read_offset,
+        } = stream;
+        let send = Arc::new(Mutex::new(send));
+        let (read_tx, read_rx) = mpsc::channel();
+        let reader = runtime.spawn(async move {
+            let mut buffer = vec![0; 16 * 1024];
+            loop {
+                match recv.read(&mut buffer).await {
+                    Ok(Some(bytes)) => {
+                        if bytes == 0 {
+                            continue;
+                        }
+                        if read_tx.send(Ok(buffer[..bytes].to_vec())).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        let _ = read_tx.send(Ok(Vec::new()));
+                        break;
+                    }
+                    Err(error) => {
+                        let _ = read_tx.send(Err(io::Error::new(
+                            io::ErrorKind::ConnectionAborted,
+                            format!("{error:?}"),
+                        )));
+                        break;
+                    }
+                }
+            }
+        });
+        Self {
+            runtime,
+            _session: session,
+            send,
+            read_rx,
+            read_buffer,
+            read_offset,
+            reader,
+            nonblocking: false,
+            eof: false,
+        }
+    }
+
+    pub fn set_nonblocking_mode(&mut self, nonblocking: bool) {
+        self.nonblocking = nonblocking;
+    }
+
+    pub fn shutdown_write(&mut self) -> io::Result<()> {
+        let mut send = self
+            .send
+            .lock()
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "HY2 send stream lock poisoned"))?;
+        send.finish()
+            .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))
+    }
+
+    pub fn shutdown_both(&mut self) -> io::Result<()> {
+        self.shutdown_write().ok();
+        self.reader.abort();
+        Ok(())
+    }
+
+    fn read_from_buffer(&mut self, buffer: &mut [u8]) -> Option<usize> {
+        if self.read_offset >= self.read_buffer.len() {
+            self.read_buffer.clear();
+            self.read_offset = 0;
+            return None;
+        }
+        let remaining = &self.read_buffer[self.read_offset..];
+        let amount = remaining.len().min(buffer.len());
+        buffer[..amount].copy_from_slice(&remaining[..amount]);
+        self.read_offset += amount;
+        if self.read_offset >= self.read_buffer.len() {
+            self.read_buffer.clear();
+            self.read_offset = 0;
+        }
+        Some(amount)
+    }
+
+    fn receive_next_read_chunk(&mut self) -> io::Result<bool> {
+        if self.eof {
+            return Ok(false);
+        }
+        let received = if self.nonblocking {
+            match self.read_rx.try_recv() {
+                Ok(received) => received,
+                Err(mpsc::TryRecvError::Empty) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "HY2 stream has no data available",
+                    ));
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.eof = true;
+                    return Ok(false);
+                }
+            }
+        } else {
+            match self.read_rx.recv() {
+                Ok(received) => received,
+                Err(_) => {
+                    self.eof = true;
+                    return Ok(false);
+                }
+            }
+        }?;
+        if received.is_empty() {
+            self.eof = true;
+            Ok(false)
+        } else {
+            self.read_buffer = received;
+            self.read_offset = 0;
+            Ok(true)
+        }
+    }
+}
+
+impl std::io::Read for Hy2BlockingTcpStream {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if let Some(bytes) = self.read_from_buffer(buffer) {
+            return Ok(bytes);
+        }
+        if !self.receive_next_read_chunk()? {
+            return Ok(0);
+        }
+        Ok(self.read_from_buffer(buffer).unwrap_or(0))
+    }
+}
+
+impl std::io::Write for Hy2BlockingTcpStream {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let mut send = self
+            .send
+            .lock()
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "HY2 send stream lock poisoned"))?;
+        self.runtime
+            .block_on(send.write_all(buffer))
+            .map_err(|error| {
+                io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}"))
+            })?;
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Drop for Hy2BlockingTcpStream {
+    fn drop(&mut self) {
+        self.reader.abort();
+    }
 }
 
 impl Hy2QuicTcpStream {

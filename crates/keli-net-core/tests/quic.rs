@@ -1,6 +1,8 @@
 use std::future::poll_fn;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
+use std::io::{Read, Write};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::sync::{mpsc, Arc};
+use std::thread;
 use std::time::Duration;
 
 use keli_net_core::{h3_quic_client_config, h3_rustls_client_config};
@@ -39,6 +41,13 @@ fn hy2_h3_client_handles_are_send() {
 
     assert_send::<keli_net_core::Hy2H3Connection>();
     assert_send::<keli_net_core::Hy2H3SendRequest>();
+}
+
+#[test]
+fn hy2_blocking_tcp_stream_can_be_used_by_owned_relay() {
+    fn assert_owned<T: keli_net_core::OwnedRelayStream>() {}
+
+    assert_owned::<keli_net_core::Hy2BlockingTcpStream>();
 }
 
 #[tokio::test]
@@ -471,6 +480,274 @@ async fn hy2_client_session_rejects_failed_h3_auth() {
 
     assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
     assert!(error.to_string().contains("401"));
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn hy2_blocking_tcp_stream_bridges_into_std_read_write() {
+    let server_endpoint = quinn::Endpoint::server(
+        hy2_h3_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local blocking hy2 server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let mut h3_connection: h3::server::Connection<h3_quinn::Connection, bytes::Bytes> =
+            h3::server::builder()
+                .build(h3_quinn::Connection::new(connection.clone()))
+                .await
+                .expect("server h3 connection");
+        let resolver = h3_connection
+            .accept()
+            .await
+            .expect("accept auth request")
+            .expect("auth request exists");
+        let (_request, mut auth_stream) = resolver
+            .resolve_request()
+            .await
+            .expect("resolve auth request");
+        auth_stream
+            .send_response(http::Response::builder().status(233).body(()).unwrap())
+            .await
+            .expect("send auth OK");
+        auth_stream.finish().await.expect("finish auth OK");
+
+        let (mut send, mut recv) = connection.accept_bi().await.expect("accept HY2 TCP stream");
+        let mut request = [0; 19];
+        recv.read_exact(&mut request)
+            .await
+            .expect("read HY2 TCP request");
+        send.write_all(&[0x00, 0x00, 0x00])
+            .await
+            .expect("write HY2 TCP OK response");
+        let mut payload = [0; 4];
+        recv.read_exact(&mut payload)
+            .await
+            .expect("read relayed payload");
+        assert_eq!(&payload, b"ping");
+        send.write_all(b"pong").await.expect("write response");
+        send.finish().expect("finish HY2 response stream");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    });
+    let client = tokio::task::spawn_blocking(move || {
+        let target = keli_protocol::Endpoint::new("example.com", 443);
+        let mut stream = keli_net_core::Hy2BlockingTcpStream::connect(
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            server_addr,
+            "localhost",
+            true,
+            "secret",
+            0,
+            "pad",
+            &target,
+            b"",
+        )
+        .expect("connect blocking HY2 stream");
+        stream.write_all(b"ping").expect("write payload");
+        let mut response = [0; 4];
+        stream.read_exact(&mut response).expect("read payload");
+        response
+    });
+
+    assert_eq!(client.await.expect("client task"), *b"pong");
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn registry_from_hy2_profile_relays_over_quic_tcp_stream() {
+    let server_endpoint = quinn::Endpoint::server(
+        hy2_h3_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local registry hy2 server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let mut h3_connection: h3::server::Connection<h3_quinn::Connection, bytes::Bytes> =
+            h3::server::builder()
+                .build(h3_quinn::Connection::new(connection.clone()))
+                .await
+                .expect("server h3 connection");
+        let resolver = h3_connection
+            .accept()
+            .await
+            .expect("accept auth request")
+            .expect("auth request exists");
+        let (request, mut auth_stream) = resolver
+            .resolve_request()
+            .await
+            .expect("resolve auth request");
+        assert_eq!(request.headers()["Hysteria-Auth"], "secret");
+        auth_stream
+            .send_response(http::Response::builder().status(233).body(()).unwrap())
+            .await
+            .expect("send auth OK");
+        auth_stream.finish().await.expect("finish auth OK");
+
+        let (mut send, mut recv) = connection.accept_bi().await.expect("accept HY2 TCP stream");
+        let mut request = [0; 19];
+        recv.read_exact(&mut request)
+            .await
+            .expect("read HY2 TCP request");
+        send.write_all(&[0x00, 0x00, 0x00])
+            .await
+            .expect("write HY2 TCP OK response");
+        let mut payload = [0; 4];
+        recv.read_exact(&mut payload)
+            .await
+            .expect("read relayed payload");
+        assert_eq!(&payload, b"ping");
+        send.write_all(b"pong").await.expect("write response");
+        send.finish().expect("finish HY2 response stream");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    });
+    let client = tokio::task::spawn_blocking(move || {
+        let registry =
+            keli_net_core::OutboundRegistry::from_profiles([keli_protocol::OutboundProfile {
+                tag: "hy2".to_string(),
+                protocol: keli_protocol::ProxyProtocol::Hy2,
+                endpoint: keli_protocol::Endpoint::new("127.0.0.1", server_addr.port()),
+                transport: keli_protocol::TransportKind::Quic,
+                security: keli_protocol::SecurityKind::Tls {
+                    sni: Some("localhost".to_string()),
+                    skip_verify: true,
+                },
+                credential: "secret".to_string(),
+                cipher: None,
+                flow: None,
+            }])
+            .expect("build HY2 registry");
+        let mut stream = registry
+            .connect(
+                "hy2",
+                &keli_net_core::OutboundTarget::new("example.com", 443),
+                Duration::from_secs(2),
+            )
+            .expect("connect HY2 outbound");
+        stream.write_all(b"ping").expect("write payload");
+        let mut response = [0; 4];
+        stream.read_exact(&mut response).expect("read payload");
+        response
+    });
+
+    assert_eq!(client.await.expect("client task"), *b"pong");
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn hy2_blocking_tcp_stream_relays_via_owned_nonblocking_loop() {
+    let server_endpoint = quinn::Endpoint::server(
+        hy2_h3_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local relay hy2 server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let mut h3_connection: h3::server::Connection<h3_quinn::Connection, bytes::Bytes> =
+            h3::server::builder()
+                .build(h3_quinn::Connection::new(connection.clone()))
+                .await
+                .expect("server h3 connection");
+        let resolver = h3_connection
+            .accept()
+            .await
+            .expect("accept auth request")
+            .expect("auth request exists");
+        let (_request, mut auth_stream) = resolver
+            .resolve_request()
+            .await
+            .expect("resolve auth request");
+        auth_stream
+            .send_response(http::Response::builder().status(233).body(()).unwrap())
+            .await
+            .expect("send auth OK");
+        auth_stream.finish().await.expect("finish auth OK");
+
+        let (mut send, mut recv) = connection.accept_bi().await.expect("accept HY2 TCP stream");
+        let mut request = [0; 19];
+        recv.read_exact(&mut request)
+            .await
+            .expect("read HY2 TCP request");
+        send.write_all(&[0x00, 0x00, 0x00])
+            .await
+            .expect("write HY2 TCP OK response");
+        let mut payload = [0; 4];
+        recv.read_exact(&mut payload)
+            .await
+            .expect("read relayed payload");
+        assert_eq!(&payload, b"ping");
+        send.write_all(b"pong").await.expect("write response");
+        send.finish().expect("finish HY2 response stream");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    });
+
+    let (addr_tx, addr_rx) = mpsc::channel();
+    let relay = thread::spawn(move || {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind local relay client");
+        addr_tx
+            .send(listener.local_addr().expect("local relay addr"))
+            .expect("send relay addr");
+        let (client, _) = listener.accept().expect("accept relay client");
+        let target = keli_protocol::Endpoint::new("example.com", 443);
+        let stream = keli_net_core::Hy2BlockingTcpStream::connect(
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            server_addr,
+            "localhost",
+            true,
+            "secret",
+            0,
+            "pad",
+            &target,
+            b"",
+        )
+        .expect("connect blocking HY2 stream");
+        keli_net_core::relay_owned_bidirectional_with_options(
+            client,
+            stream,
+            keli_net_core::RelayOptions {
+                first_byte_timeout: Some(Duration::from_secs(2)),
+                idle_timeout: Some(Duration::from_secs(2)),
+            },
+        )
+    });
+
+    let response = tokio::task::spawn_blocking(move || {
+        let addr = addr_rx.recv().expect("receive relay addr");
+        let mut client = TcpStream::connect(addr).expect("connect relay client");
+        client.write_all(b"ping").expect("write client payload");
+        client
+            .shutdown(std::net::Shutdown::Write)
+            .expect("close client write side");
+        let mut response = [0; 4];
+        client
+            .read_exact(&mut response)
+            .expect("read relay response");
+        response
+    })
+    .await
+    .expect("client task");
+
+    assert_eq!(response, *b"pong");
+    let stats = relay
+        .join()
+        .expect("relay thread")
+        .expect("relay completes over HY2 stream");
+    assert_eq!(stats.client_to_remote_bytes, 4);
+    assert_eq!(stats.remote_to_client_bytes, 4);
     server.await.expect("server task");
 }
 

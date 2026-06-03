@@ -9,3 +9,13 @@ keli-client-core.workspace = true
 keli-net-core.workspace = true
 keli-platform.workspace = true
 keli-protocol.workspace = true
+
+[dev-dependencies]
+bytes.workspace = true
+h3.workspace = true
+h3-quinn.workspace = true
+http.workspace = true
+quinn.workspace = true
+rcgen.workspace = true
+rustls.workspace = true
+tokio.workspace = true
