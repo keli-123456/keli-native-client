@@ -87,6 +87,28 @@ pub async fn h3_client_from_quinn_connection(
     h3::client::new(h3_quinn::Connection::new(connection)).await
 }
 
+pub async fn hy2_authenticate_h3(
+    send_request: &mut Hy2H3SendRequest,
+    auth: &str,
+    cc_rx: u64,
+    padding: &str,
+) -> io::Result<()> {
+    let request = hy2_auth_http_request(auth, cc_rx, padding)?;
+    let mut stream = send_request
+        .send_request(request)
+        .await
+        .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))?;
+    stream
+        .finish()
+        .await
+        .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))?;
+    let response = stream
+        .recv_response()
+        .await
+        .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))?;
+    validate_hy2_auth_response(&response)
+}
+
 pub fn validate_hy2_auth_response(response: &http::Response<()>) -> io::Result<()> {
     let status = response.status().as_u16();
     if is_hy2_auth_success_status(status) {
