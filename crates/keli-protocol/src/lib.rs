@@ -118,6 +118,17 @@ impl OutboundProfile {
                 Err(ProtocolValidationError::InvalidUuid)
             }
             (ProxyProtocol::Vmess, TransportKind::Tcp, SecurityKind::None) => Ok(()),
+            (ProxyProtocol::Vmess, TransportKind::Tcp, SecurityKind::Tls { .. }) => Ok(()),
+            (
+                ProxyProtocol::Vmess,
+                TransportKind::WebSocket { path, .. },
+                SecurityKind::None | SecurityKind::Tls { .. },
+            ) if path.starts_with('/') => Ok(()),
+            (
+                ProxyProtocol::Vmess,
+                TransportKind::WebSocket { .. },
+                SecurityKind::None | SecurityKind::Tls { .. },
+            ) => Err(ProtocolValidationError::InvalidWebSocketPath),
             (ProxyProtocol::Vmess, _, _) => Err(ProtocolValidationError::InvalidVmessTransport),
             (ProxyProtocol::Vless, _, _) if !looks_like_uuid(&self.credential) => {
                 Err(ProtocolValidationError::InvalidUuid)
@@ -203,7 +214,9 @@ impl fmt::Display for ProtocolValidationError {
             }
             Self::MissingTls => write!(f, "TLS is required for this profile"),
             Self::InvalidUuid => write!(f, "proxy credential must be a UUID"),
-            Self::InvalidVmessTransport => write!(f, "VMess currently supports TCP without TLS"),
+            Self::InvalidVmessTransport => {
+                write!(f, "VMess currently supports TCP/WS with optional TLS")
+            }
             Self::InvalidNaiveCredential => {
                 write!(f, "Naive credential must be formatted as username:password")
             }
@@ -350,6 +363,23 @@ struct MihomoProxy {
 struct MihomoWsOptions {
     path: Option<String>,
     headers: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct VmessJsonShare {
+    ps: Option<String>,
+    add: Option<String>,
+    port: Option<serde_json::Value>,
+    id: Option<String>,
+    net: Option<String>,
+    host: Option<String>,
+    path: Option<String>,
+    tls: Option<String>,
+    sni: Option<String>,
+    servername: Option<String>,
+    scy: Option<String>,
+    cipher: Option<String>,
+    allow_insecure: Option<serde_json::Value>,
 }
 
 fn mihomo_proxy_to_profile(
@@ -600,6 +630,9 @@ fn share_link_to_profile(
     link: &str,
     index: usize,
 ) -> Result<OutboundProfile, SkippedOutboundProfile> {
+    if let Some(profile) = vmess_json_share_link_to_profile(link, index)? {
+        return Ok(profile);
+    }
     let url =
         Url::parse(link).map_err(|error| skip(format!("link-{}", index + 1), error.to_string()))?;
     if url.scheme() == "ss" {
@@ -687,6 +720,101 @@ fn share_link_to_profile(
         .validate()
         .map_err(|error| skip(tag, format!("invalid profile: {error}")))?;
     Ok(profile)
+}
+
+fn vmess_json_share_link_to_profile(
+    link: &str,
+    index: usize,
+) -> Result<Option<OutboundProfile>, SkippedOutboundProfile> {
+    let Some(body) = link.strip_prefix("vmess://") else {
+        return Ok(None);
+    };
+    if body.contains('@') {
+        return Ok(None);
+    }
+    let body = body.split('#').next().unwrap_or(body);
+    let body = body.split('?').next().unwrap_or(body);
+    let bytes = decode_base64_flexible(body)
+        .map_err(|error| skip(format!("proxy-{}", index + 1), error.to_string()))?;
+    let config: VmessJsonShare = serde_json::from_slice(&bytes)
+        .map_err(|error| skip(format!("proxy-{}", index + 1), error.to_string()))?;
+    let tag = non_empty(config.ps).unwrap_or_else(|| format!("proxy-{}", index + 1));
+    let server = non_empty(config.add).ok_or_else(|| skip(tag.clone(), "missing server"))?;
+    let port = config
+        .port
+        .as_ref()
+        .and_then(json_value_to_u16)
+        .ok_or_else(|| skip(tag.clone(), "missing port"))?;
+    let credential = non_empty(config.id).ok_or_else(|| skip(tag.clone(), "missing vmess uuid"))?;
+    let network = non_empty(config.net).unwrap_or_else(|| "tcp".to_string());
+    let transport = match network.to_ascii_lowercase().as_str() {
+        "" | "tcp" => TransportKind::Tcp,
+        "ws" | "websocket" => TransportKind::WebSocket {
+            path: non_empty(config.path).unwrap_or_else(|| "/".to_string()),
+            host: non_empty(config.host).or_else(|| Some(server.clone())),
+        },
+        other => {
+            return Err(skip(
+                tag,
+                format!("unsupported VMess JSON transport: {other}"),
+            ))
+        }
+    };
+    let tls_enabled = non_empty(config.tls)
+        .map(|tls| matches!(tls.to_ascii_lowercase().as_str(), "tls" | "true" | "1"))
+        .unwrap_or(false);
+    let security = if tls_enabled {
+        SecurityKind::Tls {
+            sni: non_empty(config.sni)
+                .or_else(|| non_empty(config.servername))
+                .or_else(|| Some(server.clone())),
+            skip_verify: config
+                .allow_insecure
+                .as_ref()
+                .map(truthy_json_value)
+                .unwrap_or(false),
+        }
+    } else {
+        SecurityKind::None
+    };
+    let cipher = non_empty(config.scy)
+        .or_else(|| non_empty(config.cipher))
+        .or_else(|| Some("auto".to_string()));
+    let profile = OutboundProfile {
+        tag: tag.clone(),
+        protocol: ProxyProtocol::Vmess,
+        endpoint: Endpoint::new(server, port),
+        transport,
+        security,
+        credential,
+        cipher,
+        flow: None,
+    };
+    profile
+        .validate()
+        .map_err(|error| skip(tag, format!("invalid profile: {error}")))?;
+    Ok(Some(profile))
+}
+
+fn json_value_to_u16(value: &serde_json::Value) -> Option<u16> {
+    match value {
+        serde_json::Value::Number(number) => {
+            number.as_u64().and_then(|port| u16::try_from(port).ok())
+        }
+        serde_json::Value::String(value) => value.trim().parse::<u16>().ok(),
+        _ => None,
+    }
+}
+
+fn truthy_json_value(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Bool(value) => *value,
+        serde_json::Value::Number(number) => number.as_u64().unwrap_or(0) != 0,
+        serde_json::Value::String(value) => {
+            matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes")
+        }
+        _ => false,
+    }
 }
 
 fn shadowsocks_share_link_to_profile(

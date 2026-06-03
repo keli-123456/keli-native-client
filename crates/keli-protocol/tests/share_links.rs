@@ -52,6 +52,37 @@ fn parses_vmess_tcp_share_link() {
 }
 
 #[test]
+fn parses_vmess_base64_json_ws_tls_share_link() {
+    let links = "vmess://eyJ2IjoiMiIsInBzIjoidm1lc3MtanNvbiIsImFkZCI6ImV4YW1wbGUuY29tIiwicG9ydCI6IjQ0MyIsImlkIjoiMDAxMTIyMzMtNDQ1NS02Njc3LTg4OTktYWFiYmNjZGRlZWZmIiwiYWlkIjoiMCIsIm5ldCI6IndzIiwidHlwZSI6IndzIiwiaG9zdCI6Imhvc3QuZXhhbXBsZSIsInBhdGgiOiIvdm1lc3MiLCJ0bHMiOiJ0bHMiLCJzbmkiOiJlZGdlLmV4YW1wbGUifQ==";
+
+    let parsed = parse_share_outbound_profiles(links).expect("parse share links");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "vmess-json");
+    assert_eq!(profile.protocol, ProxyProtocol::Vmess);
+    assert_eq!(profile.endpoint, Endpoint::new("example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::WebSocket {
+            path: "/vmess".to_string(),
+            host: Some("host.example".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: false,
+        }
+    );
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    assert_eq!(profile.cipher, Some("auto".to_string()));
+    profile.validate().expect("valid vmess json ws tls profile");
+}
+
+#[test]
 fn parses_naive_tcp_tls_share_link() {
     let links = "naive://user:pass@example.com:443?security=tls&sni=edge.example.com&allowInsecure=1#naive-tls";
 

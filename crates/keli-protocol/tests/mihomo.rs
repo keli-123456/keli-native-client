@@ -125,6 +125,54 @@ proxies:
 }
 
 #[test]
+fn parses_vmess_ws_tls_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: VMess-WS
+    type: vmess
+    server: vmess.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    alterId: 0
+    cipher: auto
+    tls: true
+    servername: edge.example.com
+    skip-cert-verify: true
+    network: ws
+    ws-opts:
+      path: /vmess
+      headers:
+        Host: host.example.com
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "VMess-WS");
+    assert_eq!(profile.protocol, ProxyProtocol::Vmess);
+    assert_eq!(profile.endpoint, Endpoint::new("vmess.example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::WebSocket {
+            path: "/vmess".to_string(),
+            host: Some("host.example.com".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("edge.example.com".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    assert_eq!(profile.cipher, Some("auto".to_string()));
+    profile.validate().expect("valid vmess ws tls profile");
+}
+
+#[test]
 fn parses_naive_tcp_tls_proxy_from_mihomo_yaml() {
     let yaml = r#"
 proxies:
