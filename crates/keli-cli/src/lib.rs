@@ -21,6 +21,7 @@ use keli_protocol::{
 
 const DEFAULT_FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+const UDP_RELAY_POLL_INTERVAL: Duration = Duration::from_millis(200);
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,trojan-tcp,trojan-ws,vless-tcp,vless-ws,shadowsocks-tcp,anytls-tls-tcp,hy2-quic,tuic-quic";
 
@@ -337,21 +338,97 @@ fn handle_socks5_udp_associate(
     runtime: &MixedProxyRuntime,
 ) -> io::Result<()> {
     let relay = UdpSocket::bind("127.0.0.1:0")?;
-    let timeout = runtime
+    let first_byte_timeout = runtime
         .relay_options
         .first_byte_timeout
         .unwrap_or(DEFAULT_FIRST_BYTE_TIMEOUT);
-    relay.set_read_timeout(Some(timeout))?;
+    let idle_timeout = runtime
+        .relay_options
+        .idle_timeout
+        .unwrap_or(DEFAULT_IDLE_TIMEOUT);
+    relay.set_read_timeout(Some(UDP_RELAY_POLL_INTERVAL))?;
     let outbound = UdpSocket::bind("0.0.0.0:0")?;
-    outbound.set_read_timeout(Some(timeout))?;
+    outbound.set_read_timeout(Some(first_byte_timeout))?;
 
     let bound_addr = relay.local_addr()?;
     stream.write_all(&socks5_success_reply_for_bound_addr(bound_addr))?;
+    stream.set_nonblocking(true)?;
+    let session_result = relay_socks5_udp_session(
+        stream,
+        runtime,
+        &relay,
+        &outbound,
+        first_byte_timeout,
+        idle_timeout,
+    );
+    stream.set_nonblocking(false).ok();
+    session_result
+}
 
+fn relay_socks5_udp_session(
+    stream: &TcpStream,
+    runtime: &MixedProxyRuntime,
+    relay: &UdpSocket,
+    outbound: &UdpSocket,
+    first_byte_timeout: Duration,
+    idle_timeout: Duration,
+) -> io::Result<()> {
     let mut request_buffer = [0; 65_535];
-    let (request_size, client_udp_addr) = relay.recv_from(&mut request_buffer)?;
-    let datagram =
-        parse_socks5_udp_datagram(&request_buffer[..request_size]).map_err(to_io_error)?;
+    let started = Instant::now();
+    let mut last_activity = started;
+    let mut received_datagram = false;
+
+    loop {
+        if socks5_udp_control_is_closed(stream)? {
+            return Ok(());
+        }
+
+        match relay.recv_from(&mut request_buffer) {
+            Ok((request_size, client_udp_addr)) => {
+                received_datagram = true;
+                relay_socks5_udp_datagram(
+                    runtime,
+                    relay,
+                    outbound,
+                    &request_buffer[..request_size],
+                    client_udp_addr,
+                )?;
+                last_activity = Instant::now();
+            }
+            Err(error)
+                if error.kind() == io::ErrorKind::WouldBlock
+                    || error.kind() == io::ErrorKind::TimedOut =>
+            {
+                if socks5_udp_control_is_closed(stream)? {
+                    return Ok(());
+                }
+                let timeout = if received_datagram {
+                    idle_timeout
+                } else {
+                    first_byte_timeout
+                };
+                let reference = if received_datagram {
+                    last_activity
+                } else {
+                    started
+                };
+                if reference.elapsed() >= timeout {
+                    return Ok(());
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn relay_socks5_udp_datagram(
+    runtime: &MixedProxyRuntime,
+    relay: &UdpSocket,
+    outbound: &UdpSocket,
+    request: &[u8],
+    client_udp_addr: SocketAddr,
+) -> io::Result<()> {
+    let datagram = parse_socks5_udp_datagram(request).map_err(to_io_error)?;
     let target = outbound_target_from_socks5_udp(&datagram.address, datagram.port);
     let mut report = ConnectionReport::new("socks5-udp", target.clone(), RouteAction::Direct);
 
@@ -377,13 +454,31 @@ fn handle_socks5_udp_associate(
         }
     }
 
-    let remote_addr = resolve_udp_socket_addr(&target)?;
+    let remote_addr = match resolve_udp_socket_addr(&target) {
+        Ok(remote_addr) => remote_addr,
+        Err(error) => {
+            report.record_error(ConnectionErrorKind::from_io(&error));
+            println!("{}", report.summary_line());
+            return Ok(());
+        }
+    };
     let started = Instant::now();
-    outbound.send_to(&datagram.payload, remote_addr)?;
+    if let Err(error) = outbound.send_to(&datagram.payload, remote_addr) {
+        report.record_error(ConnectionErrorKind::from_io(&error));
+        println!("{}", report.summary_line());
+        return Ok(());
+    }
     report.upload_bytes = datagram.payload.len() as u64;
 
     let mut response_buffer = [0; 65_535];
-    let (response_size, response_from) = outbound.recv_from(&mut response_buffer)?;
+    let (response_size, response_from) = match outbound.recv_from(&mut response_buffer) {
+        Ok(response) => response,
+        Err(error) => {
+            report.record_error(ConnectionErrorKind::from_io(&error));
+            println!("{}", report.summary_line());
+            return Ok(());
+        }
+    };
     report.record_first_byte_duration(started.elapsed());
     report.download_bytes = response_size as u64;
 
@@ -397,6 +492,22 @@ fn handle_socks5_udp_associate(
     relay.send_to(&response, client_udp_addr)?;
     println!("{}", report.summary_line());
     Ok(())
+}
+
+fn socks5_udp_control_is_closed(stream: &TcpStream) -> io::Result<bool> {
+    let mut buffer = [0; 1];
+    match stream.peek(&mut buffer) {
+        Ok(0) => Ok(true),
+        Ok(_) => Ok(false),
+        Err(error)
+            if error.kind() == io::ErrorKind::WouldBlock
+                || error.kind() == io::ErrorKind::TimedOut =>
+        {
+            Ok(false)
+        }
+        Err(error) if error.kind() == io::ErrorKind::ConnectionReset => Ok(true),
+        Err(error) => Err(error),
+    }
 }
 
 fn socks5_success_reply_for_bound_addr(bound_addr: SocketAddr) -> Vec<u8> {
