@@ -937,6 +937,66 @@ impl AnyTlsTlsTcpOutbound {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hy2Outbound {
+    server: Endpoint,
+    auth: String,
+    sni: String,
+    skip_verify: bool,
+}
+
+impl Hy2Outbound {
+    pub fn from_profile(profile: OutboundProfile) -> Result<Self, OutboundProfileError> {
+        profile
+            .validate()
+            .map_err(|source| OutboundProfileError::Validation {
+                tag: profile.tag.clone(),
+                source,
+            })?;
+        let OutboundProfile {
+            tag,
+            protocol,
+            endpoint,
+            transport,
+            security,
+            credential,
+            ..
+        } = profile;
+        match (protocol, transport, security) {
+            (ProxyProtocol::Hy2, TransportKind::Quic, SecurityKind::Tls { sni, skip_verify }) => {
+                Ok(Self {
+                    sni: sni.unwrap_or_else(|| endpoint.host.clone()),
+                    server: endpoint,
+                    auth: credential,
+                    skip_verify,
+                })
+            }
+            (protocol, transport, security) => Err(OutboundProfileError::UnsupportedTransport {
+                tag,
+                protocol,
+                transport,
+                security,
+            }),
+        }
+    }
+
+    pub fn server(&self) -> &Endpoint {
+        &self.server
+    }
+
+    pub fn auth(&self) -> &str {
+        &self.auth
+    }
+
+    pub fn sni(&self) -> &str {
+        &self.sni
+    }
+
+    pub fn skip_verify(&self) -> bool {
+        self.skip_verify
+    }
+}
+
 pub struct AnyTlsTcpStream {
     inner: TlsTcpStream,
     read_buffer: Vec<u8>,

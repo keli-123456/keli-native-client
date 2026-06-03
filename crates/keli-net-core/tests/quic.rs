@@ -65,3 +65,23 @@ fn hy2_auth_response_requires_official_233_status() {
     assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
     assert!(error.to_string().contains("401"));
 }
+
+#[tokio::test]
+async fn h3_quic_connect_rejects_empty_server_name_before_network() {
+    let endpoint = keli_net_core::h3_quic_client_endpoint(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        true,
+    )
+    .expect("build HY2 H3 client endpoint");
+
+    let error = keli_net_core::h3_quic_connect(
+        &endpoint,
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 443),
+        "",
+    )
+    .await
+    .expect_err("empty server name should fail before network connect");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    assert!(error.to_string().contains("server name"));
+}

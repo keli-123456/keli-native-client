@@ -338,6 +338,29 @@ fn unsupported_transports_report_security_context() {
     );
 }
 
+#[test]
+fn hy2_outbound_from_profile_preserves_server_auth_and_sni() {
+    let outbound = keli_net_core::Hy2Outbound::from_profile(OutboundProfile {
+        tag: "hy2".to_string(),
+        protocol: ProxyProtocol::Hy2,
+        endpoint: Endpoint::new("hy2.example.com", 443),
+        transport: TransportKind::Quic,
+        security: SecurityKind::Tls {
+            sni: Some("sni.example.com".to_string()),
+            skip_verify: true,
+        },
+        credential: "secret".to_string(),
+        cipher: None,
+        flow: None,
+    })
+    .expect("hy2 outbound profile");
+
+    assert_eq!(outbound.server(), &Endpoint::new("hy2.example.com", 443));
+    assert_eq!(outbound.auth(), "secret");
+    assert_eq!(outbound.sni(), "sni.example.com");
+    assert!(outbound.skip_verify());
+}
+
 fn read_http_request(stream: &mut std::net::TcpStream) -> String {
     let mut bytes = Vec::new();
     let mut byte = [0; 1];

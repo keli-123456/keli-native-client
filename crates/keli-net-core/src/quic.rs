@@ -46,6 +46,24 @@ pub fn h3_quic_client_endpoint(
     Ok(endpoint)
 }
 
+pub async fn h3_quic_connect(
+    endpoint: &quinn::Endpoint,
+    server_addr: SocketAddr,
+    server_name: &str,
+) -> io::Result<quinn::Connection> {
+    if server_name.trim().is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "HY2 QUIC server name is empty",
+        ));
+    }
+    endpoint
+        .connect(server_addr, server_name)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
+        .await
+        .map_err(|error| io::Error::new(io::ErrorKind::TimedOut, error))
+}
+
 pub fn hy2_auth_http_request(
     auth: &str,
     cc_rx: u64,

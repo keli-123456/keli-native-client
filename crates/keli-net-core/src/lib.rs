@@ -12,9 +12,9 @@ mod websocket;
 pub use direct::{
     relay_outbound_bidirectional_with_options, relay_owned_bidirectional_with_options,
     relay_tcp_bidirectional, relay_tcp_bidirectional_with_options, AnyTlsTlsTcpOutbound,
-    DirectTcpConnector, OutboundConnection, OutboundProfileError, OutboundRegistry, OutboundTarget,
-    OwnedRelayStream, RelayError, RelayOptions, RelayStats, ShadowsocksTcpOutbound, TlsTcpStream,
-    TrojanTcpOutbound, TrojanTlsTcpOutbound, TrojanTlsWsOutbound, TrojanWsOutbound,
+    DirectTcpConnector, Hy2Outbound, OutboundConnection, OutboundProfileError, OutboundRegistry,
+    OutboundTarget, OwnedRelayStream, RelayError, RelayOptions, RelayStats, ShadowsocksTcpOutbound,
+    TlsTcpStream, TrojanTcpOutbound, TrojanTlsTcpOutbound, TrojanTlsWsOutbound, TrojanWsOutbound,
     VlessTcpOutbound, VlessTlsTcpOutbound, VlessTlsWsOutbound, VlessWsOutbound,
 };
 pub use dns::{DnsCache, DnsEngine, DnsError, DnsResolver, ResolvedAddress, SystemDnsResolver};
@@ -28,8 +28,8 @@ pub use http_proxy::{
 pub use metrics::{ConnectionErrorKind, ConnectionReport};
 pub use quic::{
     h3_client_from_quinn_connection, h3_quic_client_config, h3_quic_client_endpoint,
-    h3_rustls_client_config, hy2_auth_http_request, validate_hy2_auth_response, Hy2H3Connection,
-    Hy2H3SendRequest,
+    h3_quic_connect, h3_rustls_client_config, hy2_auth_http_request, validate_hy2_auth_response,
+    Hy2H3Connection, Hy2H3SendRequest,
 };
 pub use socks5::{
     parse_socks5_handshake, parse_socks5_request, socks5_no_auth_response, socks5_reply,
