@@ -7,6 +7,8 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
+use base64::Engine;
+use bytes::Buf;
 use keli_net_core::{h3_quic_client_config, h3_rustls_client_config};
 use rcgen::generate_simple_self_signed;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
@@ -1127,6 +1129,105 @@ async fn registry_from_vmess_quic_profile_relays_over_legacy_quic_stream() {
                 Duration::from_secs(2),
             )
             .expect("connect VMess QUIC outbound");
+        stream.write_all(b"ping").expect("write payload");
+        let mut response = [0; 4];
+        stream.read_exact(&mut response).expect("read payload");
+        response
+    });
+
+    assert_eq!(client.await.expect("client task"), *b"pong");
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn registry_from_naive_quic_profile_relays_over_h3_connect() {
+    let server_endpoint = quinn::Endpoint::server(
+        hy2_h3_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local naive h3 server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let mut h3_connection: h3::server::Connection<h3_quinn::Connection, bytes::Bytes> =
+            h3::server::builder()
+                .build(h3_quinn::Connection::new(connection.clone()))
+                .await
+                .expect("server h3 connection");
+        let resolver = h3_connection
+            .accept()
+            .await
+            .expect("accept naive CONNECT request")
+            .expect("naive request exists");
+        let (request, mut stream) = resolver
+            .resolve_request()
+            .await
+            .expect("resolve naive request");
+        assert_eq!(request.method(), http::Method::CONNECT);
+        assert_eq!(
+            request
+                .uri()
+                .authority()
+                .map(|authority| authority.as_str()),
+            Some("example.com:443")
+        );
+        assert_eq!(
+            request.headers()["proxy-authorization"],
+            format!(
+                "Basic {}",
+                base64::engine::general_purpose::STANDARD.encode("user:pass")
+            )
+        );
+
+        stream
+            .send_response(http::Response::builder().status(200).body(()).unwrap())
+            .await
+            .expect("send naive h3 OK");
+        let mut payload = stream
+            .recv_data()
+            .await
+            .expect("read naive h3 data")
+            .expect("client sent data");
+        let payload = payload.copy_to_bytes(payload.remaining());
+        assert_eq!(&payload[..], b"ping");
+        stream
+            .send_data(bytes::Bytes::from_static(b"pong"))
+            .await
+            .expect("write naive h3 response");
+        stream.finish().await.expect("finish naive h3 stream");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    });
+    let client = tokio::task::spawn_blocking(move || {
+        let registry =
+            keli_net_core::OutboundRegistry::from_profiles([keli_protocol::OutboundProfile {
+                tag: "naive-quic".to_string(),
+                protocol: keli_protocol::ProxyProtocol::Naive,
+                endpoint: keli_protocol::Endpoint::new("127.0.0.1", server_addr.port()),
+                transport: keli_protocol::TransportKind::Quic {
+                    security: None,
+                    key: None,
+                    header_type: None,
+                },
+                security: keli_protocol::SecurityKind::Tls {
+                    sni: Some("localhost".to_string()),
+                    skip_verify: true,
+                },
+                credential: "user:pass".to_string(),
+                cipher: None,
+                flow: None,
+            }])
+            .expect("build Naive QUIC registry");
+        let mut stream = registry
+            .connect(
+                "naive-quic",
+                &keli_net_core::OutboundTarget::new("example.com", 443),
+                Duration::from_secs(2),
+            )
+            .expect("connect Naive QUIC outbound");
         stream.write_all(b"ping").expect("write payload");
         let mut response = [0; 4];
         stream.read_exact(&mut response).expect("read payload");

@@ -222,7 +222,11 @@ impl OutboundProfile {
             (ProxyProtocol::Naive, _, _) if !is_user_password_credential(&self.credential) => {
                 Err(ProtocolValidationError::InvalidNaiveCredential)
             }
-            (ProxyProtocol::Naive, TransportKind::Tcp, SecurityKind::Tls { .. }) => Ok(()),
+            (
+                ProxyProtocol::Naive,
+                TransportKind::Tcp | TransportKind::Quic { .. },
+                SecurityKind::Tls { .. },
+            ) => Ok(()),
             (ProxyProtocol::Naive, _, SecurityKind::None) => {
                 Err(ProtocolValidationError::MissingTls)
             }
@@ -307,7 +311,9 @@ impl fmt::Display for ProtocolValidationError {
             Self::InvalidNaiveCredential => {
                 write!(f, "Naive credential must be formatted as username:password")
             }
-            Self::InvalidNaiveTransport => write!(f, "Naive requires TCP transport with TLS"),
+            Self::InvalidNaiveTransport => {
+                write!(f, "Naive requires TCP or QUIC transport with TLS")
+            }
             Self::InvalidMieruCredential => {
                 write!(f, "Mieru credential must be formatted as username:password")
             }
