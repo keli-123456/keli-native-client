@@ -401,7 +401,11 @@ fn http_connect_relays_through_registered_hy2_route() {
         tag: "proxy".to_string(),
         protocol: keli_protocol::ProxyProtocol::Hy2,
         endpoint: Endpoint::new("127.0.0.1", hy2_addr.port()),
-        transport: keli_protocol::TransportKind::Quic,
+        transport: keli_protocol::TransportKind::Quic {
+            security: None,
+            key: None,
+            header_type: None,
+        },
         security: keli_protocol::SecurityKind::Tls {
             sni: Some("localhost".to_string()),
             skip_verify: true,
@@ -457,7 +461,11 @@ fn http_connect_relays_through_registered_tuic_route() {
         tag: "proxy".to_string(),
         protocol: keli_protocol::ProxyProtocol::Tuic,
         endpoint: Endpoint::new("127.0.0.1", tuic_addr.port()),
-        transport: keli_protocol::TransportKind::Quic,
+        transport: keli_protocol::TransportKind::Quic {
+            security: None,
+            key: None,
+            header_type: None,
+        },
         security: keli_protocol::SecurityKind::Tls {
             sni: Some("localhost".to_string()),
             skip_verify: true,

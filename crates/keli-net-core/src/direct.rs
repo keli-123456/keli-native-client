@@ -725,7 +725,11 @@ impl OutboundRegistry {
                 );
                 Ok(())
             }
-            (ProxyProtocol::Hy2, TransportKind::Quic, SecurityKind::Tls { sni, skip_verify }) => {
+            (
+                ProxyProtocol::Hy2,
+                TransportKind::Quic { .. },
+                SecurityKind::Tls { sni, skip_verify },
+            ) => {
                 let sni = sni.unwrap_or_else(|| endpoint.host.clone());
                 self.add_hy2(
                     tag,
@@ -733,7 +737,11 @@ impl OutboundRegistry {
                 );
                 Ok(())
             }
-            (ProxyProtocol::Tuic, TransportKind::Quic, SecurityKind::Tls { sni, skip_verify }) => {
+            (
+                ProxyProtocol::Tuic,
+                TransportKind::Quic { .. },
+                SecurityKind::Tls { sni, skip_verify },
+            ) => {
                 let sni = sni.unwrap_or_else(|| endpoint.host.clone());
                 let (uuid, password) = split_tuic_credential(&credential).ok_or_else(|| {
                     OutboundProfileError::Validation {
@@ -2380,14 +2388,16 @@ impl Hy2Outbound {
             ..
         } = profile;
         match (protocol, transport, security) {
-            (ProxyProtocol::Hy2, TransportKind::Quic, SecurityKind::Tls { sni, skip_verify }) => {
-                Ok(Self {
-                    sni: sni.unwrap_or_else(|| endpoint.host.clone()),
-                    server: endpoint,
-                    auth: credential,
-                    skip_verify,
-                })
-            }
+            (
+                ProxyProtocol::Hy2,
+                TransportKind::Quic { .. },
+                SecurityKind::Tls { sni, skip_verify },
+            ) => Ok(Self {
+                sni: sni.unwrap_or_else(|| endpoint.host.clone()),
+                server: endpoint,
+                auth: credential,
+                skip_verify,
+            }),
             (protocol, transport, security) => Err(OutboundProfileError::UnsupportedTransport {
                 tag,
                 protocol,

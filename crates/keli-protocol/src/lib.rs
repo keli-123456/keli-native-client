@@ -48,11 +48,26 @@ pub enum ProxyProtocol {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransportKind {
     Tcp,
-    WebSocket { path: String, host: Option<String> },
-    HttpUpgrade { path: String, host: Option<String> },
-    Http2 { path: String, host: Option<String> },
-    Grpc { service_name: Option<String> },
-    Quic,
+    WebSocket {
+        path: String,
+        host: Option<String>,
+    },
+    HttpUpgrade {
+        path: String,
+        host: Option<String>,
+    },
+    Http2 {
+        path: String,
+        host: Option<String>,
+    },
+    Grpc {
+        service_name: Option<String>,
+    },
+    Quic {
+        security: Option<String>,
+        key: Option<String>,
+        header_type: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,6 +146,11 @@ impl OutboundProfile {
             }
             (
                 ProxyProtocol::Trojan,
+                TransportKind::Quic { .. },
+                SecurityKind::None | SecurityKind::Tls { .. },
+            ) => Ok(()),
+            (
+                ProxyProtocol::Trojan,
                 TransportKind::Grpc { .. },
                 SecurityKind::None | SecurityKind::Tls { .. },
             ) => Ok(()),
@@ -175,10 +195,14 @@ impl OutboundProfile {
             ) => Err(ProtocolValidationError::InvalidHttp2Path),
             (
                 ProxyProtocol::Vmess,
+                TransportKind::Quic { .. },
+                SecurityKind::None | SecurityKind::Tls { .. },
+            ) => Ok(()),
+            (
+                ProxyProtocol::Vmess,
                 TransportKind::Grpc { .. },
                 SecurityKind::None | SecurityKind::Tls { .. },
             ) => Ok(()),
-            (ProxyProtocol::Vmess, _, _) => Err(ProtocolValidationError::InvalidVmessTransport),
             (ProxyProtocol::Vless, _, _) if !looks_like_uuid(&self.credential) => {
                 Err(ProtocolValidationError::InvalidUuid)
             }
@@ -192,6 +216,7 @@ impl OutboundProfile {
             {
                 Err(ProtocolValidationError::InvalidHttp2Path)
             }
+            (ProxyProtocol::Vless, TransportKind::Quic { .. }, _) => Ok(()),
             (ProxyProtocol::Vless, TransportKind::Grpc { .. }, _) => Ok(()),
             (ProxyProtocol::Vless, _, _) => Ok(()),
             (ProxyProtocol::Naive, _, _) if !is_user_password_credential(&self.credential) => {
@@ -207,9 +232,9 @@ impl OutboundProfile {
             }
             (ProxyProtocol::Mieru, TransportKind::Tcp, SecurityKind::None) => Ok(()),
             (ProxyProtocol::Mieru, _, _) => Err(ProtocolValidationError::InvalidMieruTransport),
-            (ProxyProtocol::Hy2, TransportKind::Quic, SecurityKind::Tls { .. }) => Ok(()),
+            (ProxyProtocol::Hy2, TransportKind::Quic { .. }, SecurityKind::Tls { .. }) => Ok(()),
             (ProxyProtocol::Hy2, _, _) => Err(ProtocolValidationError::InvalidHy2Transport),
-            (ProxyProtocol::Tuic, TransportKind::Quic, SecurityKind::Tls { .. }) => {
+            (ProxyProtocol::Tuic, TransportKind::Quic { .. }, SecurityKind::Tls { .. }) => {
                 if is_tuic_credential(&self.credential) {
                     Ok(())
                 } else {
@@ -425,6 +450,7 @@ struct MihomoProxy {
     ws_opts: Option<MihomoWsOptions>,
     httpupgrade_opts: Option<MihomoHttpUpgradeOptions>,
     h2_opts: Option<MihomoH2Options>,
+    quic_opts: Option<MihomoQuicOptions>,
     grpc_opts: Option<MihomoGrpcOptions>,
 }
 
@@ -460,6 +486,15 @@ impl StringList {
             Self::Many(values) => values.into_iter().find_map(|value| non_empty(Some(value))),
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct MihomoQuicOptions {
+    security: Option<String>,
+    key: Option<String>,
+    #[serde(alias = "headerType", alias = "header_type")]
+    header: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -567,6 +602,7 @@ fn mihomo_proxy_to_profile(
         proxy.ws_opts,
         proxy.httpupgrade_opts,
         proxy.h2_opts,
+        proxy.quic_opts,
         proxy.grpc_opts,
     )?;
     let security = mihomo_security(
@@ -602,6 +638,7 @@ fn mihomo_transport(
     ws_opts: Option<MihomoWsOptions>,
     httpupgrade_opts: Option<MihomoHttpUpgradeOptions>,
     h2_opts: Option<MihomoH2Options>,
+    quic_opts: Option<MihomoQuicOptions>,
     grpc_opts: Option<MihomoGrpcOptions>,
 ) -> Result<TransportKind, SkippedOutboundProfile> {
     if matches!(protocol, ProxyProtocol::Hy2 | ProxyProtocol::Tuic) {
@@ -610,7 +647,7 @@ fn mihomo_transport(
             .as_deref()
             .unwrap_or("")
         {
-            "" | "quic" | "hy2" | "hysteria2" | "tuic" => Ok(TransportKind::Quic),
+            "" | "quic" | "hy2" | "hysteria2" | "tuic" => Ok(default_quic_transport()),
             other => Err(skip(
                 name.to_string(),
                 format!("unsupported QUIC transport: {other}"),
@@ -664,6 +701,7 @@ fn mihomo_transport(
                 .or_else(|| Some(server.to_string()));
             Ok(TransportKind::Http2 { path, host })
         }
+        "quic" => Ok(mihomo_quic_transport(quic_opts)),
         "grpc" => {
             let service_name = grpc_opts.and_then(|opts| non_empty(opts.grpc_service_name));
             Ok(TransportKind::Grpc { service_name })
@@ -672,6 +710,23 @@ fn mihomo_transport(
             name.to_string(),
             format!("unsupported transport: {other}"),
         )),
+    }
+}
+
+fn mihomo_quic_transport(opts: Option<MihomoQuicOptions>) -> TransportKind {
+    let (security, key, header_type) = opts
+        .map(|opts| {
+            (
+                non_empty(opts.security),
+                non_empty(opts.key),
+                non_empty(opts.header),
+            )
+        })
+        .unwrap_or((None, None, None));
+    TransportKind::Quic {
+        security,
+        key,
+        header_type,
     }
 }
 
@@ -716,6 +771,14 @@ fn non_empty(value: Option<String>) -> Option<String> {
     value
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn default_quic_transport() -> TransportKind {
+    TransportKind::Quic {
+        security: None,
+        key: None,
+        header_type: None,
+    }
 }
 
 fn profile_port(port: Option<u16>, port_range: Option<&str>) -> Option<u16> {
@@ -904,6 +967,7 @@ fn vmess_json_share_link_to_profile(
             path: non_empty(config.path).unwrap_or_else(|| "/".to_string()),
             host: non_empty(config.host).or_else(|| Some(server.clone())),
         },
+        "quic" => default_quic_transport(),
         "grpc" => TransportKind::Grpc {
             service_name: non_empty(config.service_name).or_else(|| non_empty(config.path)),
         },
@@ -1086,7 +1150,7 @@ fn share_link_transport(
             .as_deref()
             .unwrap_or("")
         {
-            "" | "quic" | "hy2" | "hysteria2" | "tuic" => Ok(TransportKind::Quic),
+            "" | "quic" | "hy2" | "hysteria2" | "tuic" => Ok(default_quic_transport()),
             other => Err(skip(
                 tag.to_string(),
                 format!("unsupported QUIC transport: {other}"),
@@ -1153,6 +1217,7 @@ fn share_link_transport(
                 .and_then(|host| non_empty(Some(host)))
                 .or_else(|| Some(server.to_string())),
         }),
+        "quic" => Ok(share_link_quic_transport(query)),
         "grpc" => Ok(TransportKind::Grpc {
             service_name: query
                 .get("serviceName")
@@ -1167,6 +1232,40 @@ fn share_link_transport(
             format!("unsupported transport: {other}"),
         )),
     }
+}
+
+fn share_link_quic_transport(query: &HashMap<String, String>) -> TransportKind {
+    TransportKind::Quic {
+        security: query_first_non_empty(
+            query,
+            &[
+                "quicSecurity",
+                "quic-security",
+                "quic_security",
+                "encryption",
+            ],
+        ),
+        key: query_first_non_empty(query, &["quicKey", "quic-key", "quic_key", "key"]),
+        header_type: query_first_non_empty(
+            query,
+            &[
+                "headerType",
+                "header-type",
+                "header_type",
+                "quicHeaderType",
+                "quic-header-type",
+                "quic_header_type",
+                "header",
+            ],
+        ),
+    }
+}
+
+fn query_first_non_empty(query: &HashMap<String, String>, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| query.get(*key))
+        .cloned()
+        .and_then(|value| non_empty(Some(value)))
 }
 
 fn share_link_security(

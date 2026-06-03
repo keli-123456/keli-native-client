@@ -860,7 +860,11 @@ fn unsupported_transports_report_security_context() {
         tag: "proxy".to_string(),
         protocol: ProxyProtocol::Vless,
         endpoint: Endpoint::new("example.com", 443),
-        transport: TransportKind::Quic,
+        transport: TransportKind::Quic {
+            security: None,
+            key: None,
+            header_type: None,
+        },
         security: SecurityKind::Tls {
             sni: Some("edge.example".to_string()),
             skip_verify: false,
@@ -876,7 +880,11 @@ fn unsupported_transports_report_security_context() {
         OutboundProfileError::UnsupportedTransport {
             tag: "proxy".to_string(),
             protocol: ProxyProtocol::Vless,
-            transport: TransportKind::Quic,
+            transport: TransportKind::Quic {
+                security: None,
+                key: None,
+                header_type: None,
+            },
             security: SecurityKind::Tls {
                 sni: Some("edge.example".to_string()),
                 skip_verify: false,
@@ -1503,7 +1511,11 @@ fn hy2_outbound_from_profile_preserves_server_auth_and_sni() {
         tag: "hy2".to_string(),
         protocol: ProxyProtocol::Hy2,
         endpoint: Endpoint::new("hy2.example.com", 443),
-        transport: TransportKind::Quic,
+        transport: TransportKind::Quic {
+            security: None,
+            key: None,
+            header_type: None,
+        },
         security: SecurityKind::Tls {
             sni: Some("sni.example.com".to_string()),
             skip_verify: true,

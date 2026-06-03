@@ -967,7 +967,11 @@ async fn registry_from_hy2_profile_relays_over_quic_tcp_stream() {
                 tag: "hy2".to_string(),
                 protocol: keli_protocol::ProxyProtocol::Hy2,
                 endpoint: keli_protocol::Endpoint::new("127.0.0.1", server_addr.port()),
-                transport: keli_protocol::TransportKind::Quic,
+                transport: keli_protocol::TransportKind::Quic {
+                    security: None,
+                    key: None,
+                    header_type: None,
+                },
                 security: keli_protocol::SecurityKind::Tls {
                     sni: Some("localhost".to_string()),
                     skip_verify: true,
@@ -1058,7 +1062,11 @@ async fn registry_from_hy2_profile_relays_udp_over_quic_datagram() {
                 tag: "hy2".to_string(),
                 protocol: keli_protocol::ProxyProtocol::Hy2,
                 endpoint: keli_protocol::Endpoint::new("127.0.0.1", server_addr.port()),
-                transport: keli_protocol::TransportKind::Quic,
+                transport: keli_protocol::TransportKind::Quic {
+                    security: None,
+                    key: None,
+                    header_type: None,
+                },
                 security: keli_protocol::SecurityKind::Tls {
                     sni: Some("localhost".to_string()),
                     skip_verify: true,
@@ -1143,7 +1151,11 @@ async fn registry_from_tuic_profile_relays_over_quic_tcp_stream() {
                 tag: "tuic".to_string(),
                 protocol: keli_protocol::ProxyProtocol::Tuic,
                 endpoint: keli_protocol::Endpoint::new("127.0.0.1", server_addr.port()),
-                transport: keli_protocol::TransportKind::Quic,
+                transport: keli_protocol::TransportKind::Quic {
+                    security: None,
+                    key: None,
+                    header_type: None,
+                },
                 security: keli_protocol::SecurityKind::Tls {
                     sni: Some("localhost".to_string()),
                     skip_verify: true,
@@ -1224,7 +1236,11 @@ async fn registry_from_tuic_profile_relays_udp_over_quic_datagram() {
                 tag: "tuic".to_string(),
                 protocol: keli_protocol::ProxyProtocol::Tuic,
                 endpoint: keli_protocol::Endpoint::new("127.0.0.1", server_addr.port()),
-                transport: keli_protocol::TransportKind::Quic,
+                transport: keli_protocol::TransportKind::Quic {
+                    security: None,
+                    key: None,
+                    header_type: None,
+                },
                 security: keli_protocol::SecurityKind::Tls {
                     sni: Some("localhost".to_string()),
                     skip_verify: true,
@@ -1293,7 +1309,11 @@ async fn registry_from_tuic_profile_times_out_waiting_for_udp_response() {
                 tag: "tuic".to_string(),
                 protocol: keli_protocol::ProxyProtocol::Tuic,
                 endpoint: keli_protocol::Endpoint::new("127.0.0.1", server_addr.port()),
-                transport: keli_protocol::TransportKind::Quic,
+                transport: keli_protocol::TransportKind::Quic {
+                    security: None,
+                    key: None,
+                    header_type: None,
+                },
                 security: keli_protocol::SecurityKind::Tls {
                     sni: Some("localhost".to_string()),
                     skip_verify: true,

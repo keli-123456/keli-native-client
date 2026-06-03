@@ -228,6 +228,52 @@ proxies:
 }
 
 #[test]
+fn parses_vless_quic_tls_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: VLESS-QUIC
+    type: vless
+    server: edge.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    tls: true
+    servername: sni.example.com
+    skip-cert-verify: true
+    network: quic
+    quic-opts:
+      security: aes-128-gcm
+      key: secret
+      header: none
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "VLESS-QUIC");
+    assert_eq!(profile.protocol, ProxyProtocol::Vless);
+    assert_eq!(profile.endpoint, Endpoint::new("edge.example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::Quic {
+            security: Some("aes-128-gcm".to_string()),
+            key: Some("secret".to_string()),
+            header_type: Some("none".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("sni.example.com".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    profile.validate().expect("valid quic profile");
+}
+
+#[test]
 fn parses_trojan_grpc_tls_proxy_from_mihomo_yaml() {
     let yaml = r#"
 proxies:
@@ -566,7 +612,14 @@ proxies:
     assert_eq!(hy2.tag, "hy2-ready");
     assert_eq!(hy2.protocol, ProxyProtocol::Hy2);
     assert_eq!(hy2.endpoint, Endpoint::new("hy2.example.com", 443));
-    assert_eq!(hy2.transport, TransportKind::Quic);
+    assert_eq!(
+        hy2.transport,
+        TransportKind::Quic {
+            security: None,
+            key: None,
+            header_type: None,
+        }
+    );
     assert_eq!(
         hy2.security,
         SecurityKind::Tls {
@@ -580,7 +633,14 @@ proxies:
     assert_eq!(tuic.tag, "tuic-not-yet");
     assert_eq!(tuic.protocol, ProxyProtocol::Tuic);
     assert_eq!(tuic.endpoint, Endpoint::new("tuic.example.com", 443));
-    assert_eq!(tuic.transport, TransportKind::Quic);
+    assert_eq!(
+        tuic.transport,
+        TransportKind::Quic {
+            security: None,
+            key: None,
+            header_type: None,
+        }
+    );
     assert_eq!(
         tuic.security,
         SecurityKind::Tls {

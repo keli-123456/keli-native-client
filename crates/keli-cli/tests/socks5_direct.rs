@@ -297,7 +297,11 @@ fn socks5_udp_associate_relays_registered_hy2_outbound_route() {
         tag: "proxy".to_string(),
         protocol: keli_protocol::ProxyProtocol::Hy2,
         endpoint: keli_protocol::Endpoint::new("127.0.0.1", hy2_addr.port()),
-        transport: keli_protocol::TransportKind::Quic,
+        transport: keli_protocol::TransportKind::Quic {
+            security: None,
+            key: None,
+            header_type: None,
+        },
         security: keli_protocol::SecurityKind::Tls {
             sni: Some("localhost".to_string()),
             skip_verify: true,
@@ -559,7 +563,11 @@ fn socks5_udp_associate_relays_registered_tuic_outbound_route() {
         tag: "proxy".to_string(),
         protocol: keli_protocol::ProxyProtocol::Tuic,
         endpoint: keli_protocol::Endpoint::new("127.0.0.1", tuic_addr.port()),
-        transport: keli_protocol::TransportKind::Quic,
+        transport: keli_protocol::TransportKind::Quic {
+            security: None,
+            key: None,
+            header_type: None,
+        },
         security: keli_protocol::SecurityKind::Tls {
             sni: Some("localhost".to_string()),
             skip_verify: true,

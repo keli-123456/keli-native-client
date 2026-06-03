@@ -122,6 +122,37 @@ fn parses_vless_h2_tls_share_link() {
 }
 
 #[test]
+fn parses_vless_quic_tls_share_link() {
+    let links = "vless://00112233-4455-6677-8899-aabbccddeeff@example.com:443?security=tls&sni=edge.example&type=quic&quicSecurity=aes-128-gcm&key=secret&headerType=none#vless-quic";
+
+    let parsed = parse_share_outbound_profiles(links).expect("parse share links");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "vless-quic");
+    assert_eq!(profile.protocol, ProxyProtocol::Vless);
+    assert_eq!(profile.endpoint, Endpoint::new("example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::Quic {
+            security: Some("aes-128-gcm".to_string()),
+            key: Some("secret".to_string()),
+            header_type: Some("none".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: false,
+        }
+    );
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    profile.validate().expect("valid quic profile");
+}
+
+#[test]
 fn parses_trojan_grpc_tls_share_link() {
     let links = "trojan://password@example.com:443?security=tls&sni=edge.example&type=grpc&serviceName=GunService&allowInsecure=1#trojan-grpc";
 
@@ -358,7 +389,14 @@ vless://00112233-4455-6677-8899-aabbccddeeff@example.com:443?security=tls#vless"
     assert_eq!(hy2.tag, "hy2");
     assert_eq!(hy2.protocol, ProxyProtocol::Hy2);
     assert_eq!(hy2.endpoint, Endpoint::new("hy2.example.com", 443));
-    assert_eq!(hy2.transport, TransportKind::Quic);
+    assert_eq!(
+        hy2.transport,
+        TransportKind::Quic {
+            security: None,
+            key: None,
+            header_type: None,
+        }
+    );
     assert_eq!(
         hy2.security,
         SecurityKind::Tls {
@@ -372,7 +410,14 @@ vless://00112233-4455-6677-8899-aabbccddeeff@example.com:443?security=tls#vless"
     assert_eq!(tuic.tag, "tuic");
     assert_eq!(tuic.protocol, ProxyProtocol::Tuic);
     assert_eq!(tuic.endpoint, Endpoint::new("tuic.example.com", 443));
-    assert_eq!(tuic.transport, TransportKind::Quic);
+    assert_eq!(
+        tuic.transport,
+        TransportKind::Quic {
+            security: None,
+            key: None,
+            header_type: None,
+        }
+    );
     assert_eq!(
         tuic.security,
         SecurityKind::Tls {
