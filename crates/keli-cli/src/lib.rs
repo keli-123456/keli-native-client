@@ -26,7 +26,8 @@ const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 const UDP_RELAY_POLL_INTERVAL: Duration = Duration::from_millis(200);
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
-const SUPPORTED_UDP_OUTBOUNDS: &str = "direct,socks5-udp,shadowsocks-aead,hy2-quic,tuic-quic";
+const SUPPORTED_UDP_OUTBOUNDS: &str =
+    "direct,socks5-udp,vmess-tcp-aead-udp,shadowsocks-aead,hy2-quic,tuic-quic";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {

@@ -781,6 +781,57 @@ fn registry_from_vmess_tcp_profile_relays_over_vmess_tcp() {
 }
 
 #[test]
+fn registry_from_vmess_tcp_profile_relays_udp_over_aes_gcm_chunks() {
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind vmess udp server");
+    let port = listener.local_addr().expect("vmess udp addr").port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept vmess udp server");
+        let request = read_vmess_aead_request(&mut stream, uuid);
+        assert_eq!(request.target_host, "127.0.0.1");
+        assert_eq!(request.target_port, 53);
+        assert_eq!(request.command, 0x02);
+        assert_eq!(
+            request.option,
+            VMESS_OPTION_CHUNK_STREAM | VMESS_OPTION_CHUNK_MASKING
+        );
+        assert_eq!(request.security, VMESS_SECURITY_AES_128_GCM);
+
+        write_vmess_aead_response_header(&mut stream, &request);
+        let payload = read_vmess_aes128_gcm_chunk_for_test(&mut stream, &request);
+        assert_eq!(&payload, b"ping");
+        write_vmess_aes128_gcm_response_chunk_for_test(&mut stream, &request, b"pong");
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Vmess,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Tcp,
+        security: SecurityKind::None,
+        credential: uuid.to_string(),
+        cipher: Some("auto".to_string()),
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("127.0.0.1", 53),
+            b"ping",
+            Duration::from_secs(1),
+        )
+        .expect("registered VMess UDP outbound should relay");
+
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("response source")
+    );
+    assert_eq!(response.payload, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn registry_from_vmess_ws_profile_relays_over_websocket() {
     let uuid = "00112233-4455-6677-8899-aabbccddeeff";
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind vmess ws server");
@@ -1355,10 +1406,20 @@ fn read_vmess_aead_request(stream: &mut impl Read, uuid: &str) -> VmessRequestFo
     let security = header[35] & 0x0f;
     let command = header[37];
     let target_port = u16::from_be_bytes([header[38], header[39]]);
-    assert_eq!(header[40], 0x02, "test only expects a domain target");
-    let domain_len = header[41] as usize;
-    let target_host =
-        String::from_utf8(header[42..42 + domain_len].to_vec()).expect("domain target");
+    let (target_host, consumed) = match header[40] {
+        0x01 => {
+            let ip = std::net::Ipv4Addr::new(header[41], header[42], header[43], header[44]);
+            (ip.to_string(), 5)
+        }
+        0x02 => {
+            let domain_len = header[41] as usize;
+            let domain =
+                String::from_utf8(header[42..42 + domain_len].to_vec()).expect("domain target");
+            (domain, 2 + domain_len)
+        }
+        other => panic!("unsupported test VMess address type {other}"),
+    };
+    assert!(40 + consumed <= header.len());
 
     VmessRequestForTest {
         target_host,

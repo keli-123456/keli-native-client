@@ -33,6 +33,7 @@ use keli_protocol::{
 
 const VMESS_VERSION: u8 = 0x01;
 const VMESS_COMMAND_TCP: u8 = 0x01;
+const VMESS_COMMAND_UDP: u8 = 0x02;
 const VMESS_ATYP_IPV4: u8 = 0x01;
 const VMESS_ATYP_DOMAIN: u8 = 0x02;
 const VMESS_ATYP_IPV6: u8 = 0x03;
@@ -1327,6 +1328,8 @@ impl OutboundRegistry {
         if self.direct_tags.contains(tag) {
             DirectUdpConnector::relay_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.socks5_tcp_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.vmess_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
@@ -3115,6 +3118,31 @@ fn socks5_udp_source_addr(
     }
 }
 
+fn outbound_target_socket_addr(
+    target: &OutboundTarget,
+    timeout: Duration,
+) -> io::Result<SocketAddr> {
+    let host = target.host.trim().trim_matches(['[', ']']);
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return Ok(SocketAddr::new(ip, target.port));
+    }
+    let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(timeout));
+    dns.resolve(host, target.port)
+        .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error))?
+        .into_iter()
+        .next()
+        .map(|address| SocketAddr::new(address.ip, address.port))
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                format!(
+                    "no address resolved for outbound target {}:{}",
+                    target.host, target.port
+                ),
+            )
+        })
+}
+
 fn http_connect_proxy(
     stream: &mut TcpStream,
     target: &OutboundTarget,
@@ -4041,6 +4069,17 @@ impl VmessTcpOutbound {
             )))),
         }
     }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        send_vmess_udp_over_stream(stream, &self.uuid, self.security, target, payload, timeout)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4677,6 +4716,16 @@ fn write_vmess_tcp_request_header(
     target: &Endpoint,
     security: VmessBodySecurity,
 ) -> io::Result<VmessClientRequest> {
+    write_vmess_request_header(stream, uuid, target, security, VMESS_COMMAND_TCP)
+}
+
+fn write_vmess_request_header(
+    stream: &mut impl Write,
+    uuid: &str,
+    target: &Endpoint,
+    security: VmessBodySecurity,
+    command: u8,
+) -> io::Result<VmessClientRequest> {
     let uuid = parse_vmess_uuid_bytes(uuid)?;
     let cmd_key = vmess_cmd_key(&uuid);
     let request_body_key = random_array::<16>();
@@ -4690,7 +4739,7 @@ fn write_vmess_tcp_request_header(
     header.push(vmess_request_option(security));
     header.push(vmess_request_security(security));
     header.push(0x00);
-    header.push(VMESS_COMMAND_TCP);
+    header.push(command);
     write_vmess_target_header(&mut header, target)?;
     let checksum = fnv1a(&header);
     header.extend_from_slice(&checksum.to_be_bytes());
@@ -4707,6 +4756,48 @@ fn write_vmess_tcp_request_header(
         response_body_key: first_16_sha256(&request_body_key),
         response_body_iv: first_16_sha256(&request_body_iv),
         response_header,
+    })
+}
+
+fn send_vmess_udp_over_stream<S: Read + Write>(
+    mut stream: S,
+    uuid: &str,
+    security: VmessBodySecurity,
+    target: &OutboundTarget,
+    payload: &[u8],
+    timeout: Duration,
+) -> io::Result<UdpRelayResponse> {
+    if security == VmessBodySecurity::None {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "VMess UDP outbound requires AEAD body security",
+        ));
+    }
+    let target_endpoint = Endpoint::new(target.host.clone(), target.port);
+    let request = write_vmess_request_header(
+        &mut stream,
+        uuid,
+        &target_endpoint,
+        security,
+        VMESS_COMMAND_UDP,
+    )?;
+    stream.flush()?;
+    read_vmess_response_header_from_stream(&mut stream, &request)?;
+    let mut body = VmessAeadStream::new(stream, request, security);
+    body.write_all(payload)?;
+    body.flush()?;
+    let mut response = vec![0; 65_535];
+    let size = body.read(&mut response)?;
+    if size == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "VMess UDP outbound returned no response packet",
+        ));
+    }
+    response.truncate(size);
+    Ok(UdpRelayResponse {
+        source: outbound_target_socket_addr(target, timeout)?,
+        payload: response,
     })
 }
 
