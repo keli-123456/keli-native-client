@@ -22,8 +22,8 @@ use shadowsocks_crypto::kind::{CipherCategory, CipherKind};
 use shadowsocks_crypto::v1::{openssl_bytes_to_key, Cipher};
 
 use crate::{
-    ConnectionErrorKind, DnsCache, DnsEngine, DnsResolver, RouteTarget, Socks5Address,
-    Socks5Request, SystemDnsResolver,
+    encode_socks5_udp_datagram, parse_socks5_udp_datagram, ConnectionErrorKind, DnsCache,
+    DnsEngine, DnsResolver, RouteTarget, Socks5Address, Socks5Request, SystemDnsResolver,
 };
 use keli_protocol::{
     encode_shadowsocks_tcp_request_header, encode_trojan_tcp_request_header,
@@ -215,6 +215,36 @@ impl Socks5TcpOutbound {
         let mut stream = DirectTcpConnector::connect(&server, timeout)?;
         socks5_connect_proxy(&mut stream, target, &self.credential)?;
         Ok(OutboundConnection::Tcp(stream))
+    }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let mut control = DirectTcpConnector::connect(&server, timeout)?;
+        let control_peer = control.peer_addr()?;
+        let relay = socks5_udp_associate_proxy(&mut control, &self.credential)?;
+        let relay = socks5_udp_relay_addr(relay, control_peer, timeout)?;
+        let socket = UdpSocket::bind(hy2_bind_addr_for(relay))?;
+        socket.set_read_timeout(Some(timeout))?;
+        socket.set_write_timeout(Some(timeout))?;
+        let address = socks5_address_from_target(target)?;
+        let packet = encode_socks5_udp_datagram(&address, target.port, payload)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        socket.send_to(&packet, relay)?;
+        let mut response = vec![0; 65_535];
+        let (size, _) = socket.recv_from(&mut response)?;
+        response.truncate(size);
+        let datagram = parse_socks5_udp_datagram(&response)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let source = socks5_udp_source_addr(datagram.address, datagram.port, timeout)?;
+        Ok(UdpRelayResponse {
+            source,
+            payload: datagram.payload,
+        })
     }
 }
 
@@ -1296,6 +1326,8 @@ impl OutboundRegistry {
     ) -> io::Result<UdpRelayResponse> {
         if self.direct_tags.contains(tag) {
             DirectUdpConnector::relay_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.socks5_tcp_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.hy2_tags.get(tag) {
@@ -2849,6 +2881,20 @@ fn socks5_connect_proxy(
     target: &OutboundTarget,
     credential: &str,
 ) -> io::Result<()> {
+    socks5_negotiate_proxy(stream, credential)?;
+    let mut request = vec![0x05, 0x01, 0x00];
+    append_socks5_target(&mut request, target)?;
+    stream.write_all(&request)?;
+    read_socks5_reply_endpoint(stream, "connect").map(|_| ())
+}
+
+fn socks5_udp_associate_proxy(stream: &mut TcpStream, credential: &str) -> io::Result<Endpoint> {
+    socks5_negotiate_proxy(stream, credential)?;
+    stream.write_all(&[0x05, 0x03, 0x00, 0x01, 0, 0, 0, 0, 0, 0])?;
+    read_socks5_reply_endpoint(stream, "UDP ASSOCIATE")
+}
+
+fn socks5_negotiate_proxy(stream: &mut TcpStream, credential: &str) -> io::Result<()> {
     let credential = split_proxy_credential(credential);
     if credential.is_some() {
         stream.write_all(&[0x05, 0x02, 0x00, 0x02])?;
@@ -2887,11 +2933,7 @@ fn socks5_connect_proxy(
             ));
         }
     }
-
-    let mut request = vec![0x05, 0x01, 0x00];
-    append_socks5_target(&mut request, target)?;
-    stream.write_all(&request)?;
-    read_socks5_connect_response(stream)
+    Ok(())
 }
 
 fn send_socks5_password_auth(
@@ -2948,29 +2990,47 @@ fn append_socks5_target(request: &mut Vec<u8>, target: &OutboundTarget) -> io::R
     Ok(())
 }
 
-fn read_socks5_connect_response(stream: &mut TcpStream) -> io::Result<()> {
+fn read_socks5_reply_endpoint(stream: &mut TcpStream, operation: &str) -> io::Result<Endpoint> {
     let mut response = [0; 4];
     stream.read_exact(&mut response)?;
     if response[0] != 0x05 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "SOCKS5 outbound proxy returned invalid connect response version",
+            format!("SOCKS5 outbound proxy returned invalid {operation} response version"),
         ));
     }
     if response[1] != 0x00 {
         return Err(io::Error::new(
             io::ErrorKind::ConnectionRefused,
-            format!("SOCKS5 outbound connect failed with status {}", response[1]),
+            format!(
+                "SOCKS5 outbound {operation} failed with status {}",
+                response[1]
+            ),
         ));
     }
-    let skip = match response[3] {
-        0x01 => 4,
+    let host = match response[3] {
+        0x01 => {
+            let mut octets = [0; 4];
+            stream.read_exact(&mut octets)?;
+            Ipv4Addr::from(octets).to_string()
+        }
         0x03 => {
             let mut len = [0; 1];
             stream.read_exact(&mut len)?;
-            len[0] as usize
+            let mut host = vec![0; len[0] as usize];
+            stream.read_exact(&mut host)?;
+            String::from_utf8(host).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "SOCKS5 outbound proxy returned invalid bound domain",
+                )
+            })?
         }
-        0x04 => 16,
+        0x04 => {
+            let mut octets = [0; 16];
+            stream.read_exact(&mut octets)?;
+            Ipv6Addr::from(octets).to_string()
+        }
         atyp => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -2978,9 +3038,81 @@ fn read_socks5_connect_response(stream: &mut TcpStream) -> io::Result<()> {
             ));
         }
     };
-    let mut bound = vec![0; skip + 2];
-    stream.read_exact(&mut bound)?;
-    Ok(())
+    let mut port = [0; 2];
+    stream.read_exact(&mut port)?;
+    Ok(Endpoint::new(host, u16::from_be_bytes(port)))
+}
+
+fn socks5_address_from_target(target: &OutboundTarget) -> io::Result<Socks5Address> {
+    let host = target.host.trim().trim_matches(['[', ']']);
+    if let Ok(ip) = host.parse::<Ipv4Addr>() {
+        Ok(Socks5Address::Ipv4(ip))
+    } else if let Ok(ip) = host.parse::<Ipv6Addr>() {
+        Ok(Socks5Address::Ipv6(ip))
+    } else if !target.host.is_empty() && target.host.len() <= u8::MAX as usize {
+        Ok(Socks5Address::Domain(target.host.clone()))
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "SOCKS5 UDP target domain length is invalid",
+        ))
+    }
+}
+
+fn socks5_udp_relay_addr(
+    relay: Endpoint,
+    control_peer: SocketAddr,
+    timeout: Duration,
+) -> io::Result<SocketAddr> {
+    let host = relay.host.trim().trim_matches(['[', ']']);
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        let ip = if ip.is_unspecified() {
+            control_peer.ip()
+        } else {
+            ip
+        };
+        return Ok(SocketAddr::new(ip, relay.port));
+    }
+    let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(timeout));
+    dns.resolve(host, relay.port)
+        .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error))?
+        .into_iter()
+        .next()
+        .map(|address| SocketAddr::new(address.ip, address.port))
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                format!(
+                    "no address resolved for SOCKS5 UDP relay {}:{}",
+                    relay.host, relay.port
+                ),
+            )
+        })
+}
+
+fn socks5_udp_source_addr(
+    address: Socks5Address,
+    port: u16,
+    timeout: Duration,
+) -> io::Result<SocketAddr> {
+    match address {
+        Socks5Address::Ipv4(ip) => Ok(SocketAddr::new(IpAddr::V4(ip), port)),
+        Socks5Address::Ipv6(ip) => Ok(SocketAddr::new(IpAddr::V6(ip), port)),
+        Socks5Address::Domain(host) => {
+            let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(timeout));
+            dns.resolve(&host, port)
+                .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error))?
+                .into_iter()
+                .next()
+                .map(|address| SocketAddr::new(address.ip, address.port))
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::AddrNotAvailable,
+                        format!("no address resolved for SOCKS5 UDP source {host}:{port}"),
+                    )
+                })
+        }
+    }
 }
 
 fn http_connect_proxy(

@@ -9,8 +9,9 @@ use base64::Engine;
 use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChachaNonce, XChaCha20Poly1305, XNonce};
 use hmac::{Hmac, Mac};
 use keli_net_core::{
-    websocket_accept_for_key, OutboundRegistry, OutboundTarget, ShadowsocksTcpOutbound,
-    TrojanTcpOutbound, VlessTcpOutbound,
+    encode_socks5_udp_datagram, parse_socks5_udp_datagram, websocket_accept_for_key,
+    OutboundRegistry, OutboundTarget, ShadowsocksTcpOutbound, Socks5Address, TrojanTcpOutbound,
+    VlessTcpOutbound,
 };
 use keli_protocol::{Endpoint, OutboundProfile, ProxyProtocol, SecurityKind, TransportKind};
 use md5::{Digest as Md5Digest, Md5};
@@ -109,6 +110,90 @@ fn registered_direct_udp_outbound_relays_datagram() {
         "127.0.0.1".parse::<std::net::IpAddr>().expect("valid IP")
     );
     assert_eq!(response.source.port(), port);
+    assert_eq!(response.payload, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
+fn registry_from_socks5_profile_relays_udp_over_remote_socks5_proxy() {
+    let relay = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind socks relay udp");
+    relay
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .expect("relay timeout");
+    let relay_port = relay.local_addr().expect("relay addr").port();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind socks control");
+    let control_port = listener.local_addr().expect("control addr").port();
+    let server = std::thread::spawn(move || {
+        let (mut control, _) = listener.accept().expect("accept socks control");
+        let mut greeting = [0; 4];
+        control
+            .read_exact(&mut greeting)
+            .expect("read socks greeting");
+        assert_eq!(greeting, [0x05, 0x02, 0x00, 0x02]);
+        control
+            .write_all(&[0x05, 0x02])
+            .expect("select password auth");
+        let mut auth = [0; 12];
+        control.read_exact(&mut auth).expect("read socks auth");
+        assert_eq!(
+            auth,
+            [0x01, 0x04, b'u', b's', b'e', b'r', 0x05, b'p', b'a', b's', b's', b'1']
+        );
+        control.write_all(&[0x01, 0x00]).expect("auth ok");
+
+        let mut request = [0; 10];
+        control
+            .read_exact(&mut request)
+            .expect("read udp associate request");
+        assert_eq!(request, [0x05, 0x03, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+        let mut response = vec![0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1];
+        response.extend_from_slice(&relay_port.to_be_bytes());
+        control.write_all(&response).expect("udp associate ok");
+
+        let mut packet = [0; 1500];
+        let (size, from) = relay.recv_from(&mut packet).expect("read udp relay packet");
+        let datagram = parse_socks5_udp_datagram(&packet[..size]).expect("parse udp request");
+        assert_eq!(
+            datagram.address,
+            Socks5Address::Domain("example.com".to_string())
+        );
+        assert_eq!(datagram.port, 53);
+        assert_eq!(datagram.payload, b"ping");
+        let response = encode_socks5_udp_datagram(
+            &Socks5Address::Ipv4("127.0.0.1".parse().expect("response ip")),
+            53,
+            b"pong",
+        )
+        .expect("encode udp response");
+        relay
+            .send_to(&response, from)
+            .expect("write udp relay response");
+    });
+    let profile = OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Socks,
+        endpoint: Endpoint::new("127.0.0.1", control_port),
+        transport: TransportKind::Tcp,
+        security: SecurityKind::None,
+        credential: "user:pass1".to_string(),
+        cipher: None,
+        flow: None,
+    };
+    let registry = OutboundRegistry::from_profiles([profile]).expect("registry from socks profile");
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("example.com", 53),
+            b"ping",
+            Duration::from_secs(1),
+        )
+        .expect("registered SOCKS5 UDP outbound should relay");
+
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("response source")
+    );
     assert_eq!(response.payload, b"pong");
     server.join().expect("server thread");
 }
