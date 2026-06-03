@@ -200,18 +200,24 @@ pub struct OutboundRegistry {
     trojan_tls_ws_tags: HashMap<String, TrojanTlsWsOutbound>,
     trojan_httpupgrade_tags: HashMap<String, TrojanHttpUpgradeOutbound>,
     trojan_tls_httpupgrade_tags: HashMap<String, TrojanTlsHttpUpgradeOutbound>,
+    trojan_grpc_tags: HashMap<String, TrojanGrpcOutbound>,
+    trojan_tls_grpc_tags: HashMap<String, TrojanTlsGrpcOutbound>,
     vless_tcp_tags: HashMap<String, VlessTcpOutbound>,
     vless_tls_tcp_tags: HashMap<String, VlessTlsTcpOutbound>,
     vless_ws_tags: HashMap<String, VlessWsOutbound>,
     vless_tls_ws_tags: HashMap<String, VlessTlsWsOutbound>,
     vless_httpupgrade_tags: HashMap<String, VlessHttpUpgradeOutbound>,
     vless_tls_httpupgrade_tags: HashMap<String, VlessTlsHttpUpgradeOutbound>,
+    vless_grpc_tags: HashMap<String, VlessGrpcOutbound>,
+    vless_tls_grpc_tags: HashMap<String, VlessTlsGrpcOutbound>,
     vmess_tcp_tags: HashMap<String, VmessTcpOutbound>,
     vmess_tls_tcp_tags: HashMap<String, VmessTlsTcpOutbound>,
     vmess_ws_tags: HashMap<String, VmessWsOutbound>,
     vmess_tls_ws_tags: HashMap<String, VmessTlsWsOutbound>,
     vmess_httpupgrade_tags: HashMap<String, VmessHttpUpgradeOutbound>,
     vmess_tls_httpupgrade_tags: HashMap<String, VmessTlsHttpUpgradeOutbound>,
+    vmess_grpc_tags: HashMap<String, VmessGrpcOutbound>,
+    vmess_tls_grpc_tags: HashMap<String, VmessTlsGrpcOutbound>,
     shadowsocks_tcp_tags: HashMap<String, ShadowsocksTcpOutbound>,
     anytls_tls_tcp_tags: HashMap<String, AnyTlsTlsTcpOutbound>,
     naive_h2_tcp_tags: HashMap<String, crate::NaiveH2TcpOutbound>,
@@ -320,6 +326,34 @@ impl OutboundRegistry {
                 );
                 Ok(())
             }
+            (ProxyProtocol::Trojan, TransportKind::Grpc { service_name }, SecurityKind::None) => {
+                let host = endpoint.host.clone();
+                self.add_trojan_grpc(
+                    tag,
+                    TrojanGrpcOutbound::new(endpoint, host, service_name, credential),
+                );
+                Ok(())
+            }
+            (
+                ProxyProtocol::Trojan,
+                TransportKind::Grpc { service_name },
+                SecurityKind::Tls { sni, skip_verify },
+            ) => {
+                let sni = sni.unwrap_or_else(|| endpoint.host.clone());
+                let host = sni.clone();
+                self.add_trojan_tls_grpc(
+                    tag,
+                    TrojanTlsGrpcOutbound::new(
+                        endpoint,
+                        host,
+                        service_name,
+                        credential,
+                        sni,
+                        skip_verify,
+                    ),
+                );
+                Ok(())
+            }
             (ProxyProtocol::Vmess, TransportKind::Tcp, SecurityKind::None) => {
                 let vmess_security = vmess_security_from_profile_cipher(&tag, cipher.as_deref())?;
                 self.add_vmess_tcp(
@@ -421,6 +455,43 @@ impl OutboundRegistry {
                 );
                 Ok(())
             }
+            (ProxyProtocol::Vmess, TransportKind::Grpc { service_name }, SecurityKind::None) => {
+                let host = endpoint.host.clone();
+                let vmess_security = vmess_security_from_profile_cipher(&tag, cipher.as_deref())?;
+                self.add_vmess_grpc(
+                    tag,
+                    VmessGrpcOutbound::new_with_security(
+                        endpoint,
+                        host,
+                        service_name,
+                        credential,
+                        vmess_security,
+                    ),
+                );
+                Ok(())
+            }
+            (
+                ProxyProtocol::Vmess,
+                TransportKind::Grpc { service_name },
+                SecurityKind::Tls { sni, skip_verify },
+            ) => {
+                let sni = sni.unwrap_or_else(|| endpoint.host.clone());
+                let host = sni.clone();
+                let vmess_security = vmess_security_from_profile_cipher(&tag, cipher.as_deref())?;
+                self.add_vmess_tls_grpc(
+                    tag,
+                    VmessTlsGrpcOutbound::new_with_security(
+                        endpoint,
+                        host,
+                        service_name,
+                        credential,
+                        sni,
+                        skip_verify,
+                        vmess_security,
+                    ),
+                );
+                Ok(())
+            }
             (ProxyProtocol::Vless, TransportKind::Tcp, SecurityKind::None) => {
                 self.add_vless_tcp(tag, VlessTcpOutbound::new(endpoint, credential, flow));
                 Ok(())
@@ -487,6 +558,35 @@ impl OutboundRegistry {
                         endpoint,
                         host,
                         path,
+                        credential,
+                        flow,
+                        sni,
+                        skip_verify,
+                    ),
+                );
+                Ok(())
+            }
+            (ProxyProtocol::Vless, TransportKind::Grpc { service_name }, SecurityKind::None) => {
+                let host = endpoint.host.clone();
+                self.add_vless_grpc(
+                    tag,
+                    VlessGrpcOutbound::new(endpoint, host, service_name, credential, flow),
+                );
+                Ok(())
+            }
+            (
+                ProxyProtocol::Vless,
+                TransportKind::Grpc { service_name },
+                SecurityKind::Tls { sni, skip_verify },
+            ) => {
+                let sni = sni.unwrap_or_else(|| endpoint.host.clone());
+                let host = sni.clone();
+                self.add_vless_tls_grpc(
+                    tag,
+                    VlessTlsGrpcOutbound::new(
+                        endpoint,
+                        host,
+                        service_name,
                         credential,
                         flow,
                         sni,
@@ -603,6 +703,14 @@ impl OutboundRegistry {
             .insert(tag.into(), outbound);
     }
 
+    pub fn add_trojan_grpc(&mut self, tag: impl Into<String>, outbound: TrojanGrpcOutbound) {
+        self.trojan_grpc_tags.insert(tag.into(), outbound);
+    }
+
+    pub fn add_trojan_tls_grpc(&mut self, tag: impl Into<String>, outbound: TrojanTlsGrpcOutbound) {
+        self.trojan_tls_grpc_tags.insert(tag.into(), outbound);
+    }
+
     pub fn add_vless_tcp(&mut self, tag: impl Into<String>, outbound: VlessTcpOutbound) {
         self.vless_tcp_tags.insert(tag.into(), outbound);
     }
@@ -635,6 +743,14 @@ impl OutboundRegistry {
         self.vless_tls_httpupgrade_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_vless_grpc(&mut self, tag: impl Into<String>, outbound: VlessGrpcOutbound) {
+        self.vless_grpc_tags.insert(tag.into(), outbound);
+    }
+
+    pub fn add_vless_tls_grpc(&mut self, tag: impl Into<String>, outbound: VlessTlsGrpcOutbound) {
+        self.vless_tls_grpc_tags.insert(tag.into(), outbound);
+    }
+
     pub fn add_vmess_tcp(&mut self, tag: impl Into<String>, outbound: VmessTcpOutbound) {
         self.vmess_tcp_tags.insert(tag.into(), outbound);
     }
@@ -665,6 +781,14 @@ impl OutboundRegistry {
         outbound: VmessTlsHttpUpgradeOutbound,
     ) {
         self.vmess_tls_httpupgrade_tags.insert(tag.into(), outbound);
+    }
+
+    pub fn add_vmess_grpc(&mut self, tag: impl Into<String>, outbound: VmessGrpcOutbound) {
+        self.vmess_grpc_tags.insert(tag.into(), outbound);
+    }
+
+    pub fn add_vmess_tls_grpc(&mut self, tag: impl Into<String>, outbound: VmessTlsGrpcOutbound) {
+        self.vmess_tls_grpc_tags.insert(tag.into(), outbound);
     }
 
     pub fn add_shadowsocks_tcp(
@@ -719,6 +843,10 @@ impl OutboundRegistry {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.trojan_tls_httpupgrade_tags.get(tag) {
             outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.trojan_grpc_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.trojan_tls_grpc_tags.get(tag) {
+            outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tls_tcp_tags.get(tag) {
@@ -731,6 +859,10 @@ impl OutboundRegistry {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tls_httpupgrade_tags.get(tag) {
             outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vless_grpc_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vless_tls_grpc_tags.get(tag) {
+            outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vmess_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vmess_tls_tcp_tags.get(tag) {
@@ -742,6 +874,10 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vmess_httpupgrade_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vmess_tls_httpupgrade_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vmess_grpc_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vmess_tls_grpc_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
@@ -1313,6 +1449,105 @@ impl VlessTlsHttpUpgradeOutbound {
         let stream = DirectTcpConnector::connect(&server, timeout)?;
         let stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
         let mut stream = connect_httpupgrade_client(stream, &self.host, &self.path)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        read_vless_response_header_from_stream(&mut stream)?;
+        Ok(OutboundConnection::Owned(Box::new(stream)))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VlessGrpcOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub service_name: Option<String>,
+    pub uuid: String,
+    pub flow: Option<String>,
+}
+
+impl VlessGrpcOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        service_name: Option<String>,
+        uuid: impl Into<String>,
+        flow: Option<String>,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            service_name,
+            uuid: uuid.into(),
+            flow,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream =
+            crate::GrpcTcpStream::connect_plain(stream, &self.host, self.service_name.as_deref())?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        read_vless_response_header_from_stream(&mut stream)?;
+        Ok(OutboundConnection::Owned(Box::new(stream)))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VlessTlsGrpcOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub service_name: Option<String>,
+    pub uuid: String,
+    pub flow: Option<String>,
+    pub sni: String,
+    pub skip_verify: bool,
+}
+
+impl VlessTlsGrpcOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        service_name: Option<String>,
+        uuid: impl Into<String>,
+        flow: Option<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            service_name,
+            uuid: uuid.into(),
+            flow,
+            sni: sni.into(),
+            skip_verify,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = crate::GrpcTcpStream::connect_tls(
+            stream,
+            &self.sni,
+            self.skip_verify,
+            &self.host,
+            self.service_name.as_deref(),
+        )?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
             .map_err(protocol_encoding_to_io)?;
@@ -2497,6 +2732,97 @@ impl TrojanTlsHttpUpgradeOutbound {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrojanGrpcOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub service_name: Option<String>,
+    pub password: String,
+}
+
+impl TrojanGrpcOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        service_name: Option<String>,
+        password: impl Into<String>,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            service_name,
+            password: password.into(),
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream =
+            crate::GrpcTcpStream::connect_plain(stream, &self.host, self.service_name.as_deref())?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_trojan_tcp_request_header(&self.password, &target)
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        Ok(OutboundConnection::Owned(Box::new(stream)))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrojanTlsGrpcOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub service_name: Option<String>,
+    pub password: String,
+    pub sni: String,
+    pub skip_verify: bool,
+}
+
+impl TrojanTlsGrpcOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        service_name: Option<String>,
+        password: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            service_name,
+            password: password.into(),
+            sni: sni.into(),
+            skip_verify,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = crate::GrpcTcpStream::connect_tls(
+            stream,
+            &self.sni,
+            self.skip_verify,
+            &self.host,
+            self.service_name.as_deref(),
+        )?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let header = encode_trojan_tcp_request_header(&self.password, &target)
+            .map_err(protocol_encoding_to_io)?;
+        stream.write_all(&header)?;
+        Ok(OutboundConnection::Owned(Box::new(stream)))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VlessTcpOutbound {
     pub server: Endpoint,
     pub uuid: String,
@@ -2952,6 +3278,131 @@ impl VmessTlsHttpUpgradeOutbound {
         let stream = DirectTcpConnector::connect(&server, timeout)?;
         let stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
         let mut stream = connect_httpupgrade_client(stream, &self.host, &self.path)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let request =
+            write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
+        read_vmess_response_header_from_stream(&mut stream, &request)?;
+        vmess_connection_from_stream(stream, request, self.security)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmessGrpcOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub service_name: Option<String>,
+    pub uuid: String,
+    pub security: VmessBodySecurity,
+}
+
+impl VmessGrpcOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        service_name: Option<String>,
+        uuid: impl Into<String>,
+    ) -> Self {
+        Self::new_with_security(server, host, service_name, uuid, VmessBodySecurity::None)
+    }
+
+    pub fn new_with_security(
+        server: Endpoint,
+        host: impl Into<String>,
+        service_name: Option<String>,
+        uuid: impl Into<String>,
+        security: VmessBodySecurity,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            service_name,
+            uuid: uuid.into(),
+            security,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream =
+            crate::GrpcTcpStream::connect_plain(stream, &self.host, self.service_name.as_deref())?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let request =
+            write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
+        read_vmess_response_header_from_stream(&mut stream, &request)?;
+        vmess_connection_from_stream(stream, request, self.security)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmessTlsGrpcOutbound {
+    pub server: Endpoint,
+    pub host: String,
+    pub service_name: Option<String>,
+    pub uuid: String,
+    pub sni: String,
+    pub skip_verify: bool,
+    pub security: VmessBodySecurity,
+}
+
+impl VmessTlsGrpcOutbound {
+    pub fn new(
+        server: Endpoint,
+        host: impl Into<String>,
+        service_name: Option<String>,
+        uuid: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+    ) -> Self {
+        Self::new_with_security(
+            server,
+            host,
+            service_name,
+            uuid,
+            sni,
+            skip_verify,
+            VmessBodySecurity::None,
+        )
+    }
+
+    pub fn new_with_security(
+        server: Endpoint,
+        host: impl Into<String>,
+        service_name: Option<String>,
+        uuid: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+        security: VmessBodySecurity,
+    ) -> Self {
+        Self {
+            server,
+            host: host.into(),
+            service_name,
+            uuid: uuid.into(),
+            sni: sni.into(),
+            skip_verify,
+            security,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = crate::GrpcTcpStream::connect_tls(
+            stream,
+            &self.sni,
+            self.skip_verify,
+            &self.host,
+            self.service_name.as_deref(),
+        )?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let request =
             write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;

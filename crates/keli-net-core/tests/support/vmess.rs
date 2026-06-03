@@ -6,6 +6,7 @@ use aes_gcm::{Aes128Gcm, Nonce as AesGcmNonce};
 use hmac::{Hmac, Mac};
 use md5::{Digest as Md5Digest, Md5};
 use sha2::{Digest as Sha2Digest, Sha256};
+use sha3::digest::{ExtendableOutput, Update, XofReader};
 
 const VMESS_KDF_ROOT: &[u8] = b"VMess AEAD KDF";
 const VMESS_AUTH_ID_KEY: &[u8] = b"AES Auth ID Encryption";
@@ -114,6 +115,44 @@ pub fn write_vmess_aead_response_header(stream: &mut impl Write, request: &Vmess
         .expect("write response payload");
 }
 
+#[allow(dead_code)]
+pub fn read_vmess_aes128_gcm_chunk(
+    stream: &mut impl Read,
+    request: &VmessRequestForTest,
+) -> Vec<u8> {
+    let mut encrypted_len = [0; 2];
+    stream
+        .read_exact(&mut encrypted_len)
+        .expect("read vmess masked chunk length");
+    let mask = vmess_chunk_mask_for_test(&request.request_body_iv);
+    let len = u16::from_be_bytes(encrypted_len) ^ mask;
+    let mut encrypted_payload = vec![0; usize::from(len)];
+    stream
+        .read_exact(&mut encrypted_payload)
+        .expect("read vmess encrypted chunk");
+    let nonce = vmess_body_nonce_for_test(&request.request_body_iv, 0);
+    vmess_aes_gcm_open_for_test(&request.request_body_key, &nonce, &encrypted_payload, &[])
+}
+
+#[allow(dead_code)]
+pub fn write_vmess_aes128_gcm_response_chunk(
+    stream: &mut impl Write,
+    request: &VmessRequestForTest,
+    payload: &[u8],
+) {
+    let response_key = first_16_sha256_for_test(&request.request_body_key);
+    let response_iv = first_16_sha256_for_test(&request.request_body_iv);
+    let nonce = vmess_body_nonce_for_test(&response_iv, 0);
+    let encrypted_payload = vmess_aes_gcm_seal_for_test(&response_key, &nonce, payload, &[]);
+    let masked_len = (encrypted_payload.len() as u16) ^ vmess_chunk_mask_for_test(&response_iv);
+    stream
+        .write_all(&masked_len.to_be_bytes())
+        .expect("write vmess masked chunk length");
+    stream
+        .write_all(&encrypted_payload)
+        .expect("write vmess encrypted chunk");
+}
+
 fn parse_uuid_bytes_for_vmess_test(value: &str) -> [u8; 16] {
     let compact: String = value.chars().filter(|value| *value != '-').collect();
     let mut output = [0; 16];
@@ -149,6 +188,23 @@ fn first_16_sha256_for_test(input: &[u8; 16]) -> [u8; 16] {
 
 fn first_12_for_test(input: &[u8; 32]) -> [u8; 12] {
     input[..12].try_into().expect("first 12")
+}
+
+#[allow(dead_code)]
+fn vmess_chunk_mask_for_test(nonce: &[u8; 16]) -> u16 {
+    let mut shake = sha3::Shake128::default();
+    Update::update(&mut shake, nonce);
+    let mut reader = shake.finalize_xof();
+    let mut mask = [0; 2];
+    XofReader::read(&mut reader, &mut mask);
+    u16::from_be_bytes(mask)
+}
+
+#[allow(dead_code)]
+fn vmess_body_nonce_for_test(base: &[u8; 16], counter: u16) -> [u8; 12] {
+    let mut nonce: [u8; 12] = base[..12].try_into().expect("vmess body nonce");
+    nonce[..2].copy_from_slice(&counter.to_be_bytes());
+    nonce
 }
 
 fn vmess_kdf16_for_test(key: &[u8], path: &[&[u8]]) -> [u8; 16] {

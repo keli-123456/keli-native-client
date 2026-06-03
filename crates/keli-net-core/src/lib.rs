@@ -2,6 +2,7 @@ use std::net::IpAddr;
 
 mod direct;
 mod dns;
+mod grpc;
 mod http_connect;
 mod http_proxy;
 mod metrics;
@@ -16,14 +17,16 @@ pub use direct::{
     relay_tcp_bidirectional, relay_tcp_bidirectional_with_options, AnyTlsTlsTcpOutbound,
     DirectTcpConnector, DirectUdpConnector, Hy2Outbound, OutboundConnection, OutboundProfileError,
     OutboundRegistry, OutboundTarget, OwnedRelayStream, RelayError, RelayOptions, RelayStats,
-    ShadowsocksTcpOutbound, TlsTcpStream, TrojanHttpUpgradeOutbound, TrojanTcpOutbound,
-    TrojanTlsHttpUpgradeOutbound, TrojanTlsTcpOutbound, TrojanTlsWsOutbound, TrojanWsOutbound,
-    UdpRelayResponse, VlessHttpUpgradeOutbound, VlessTcpOutbound, VlessTlsHttpUpgradeOutbound,
-    VlessTlsTcpOutbound, VlessTlsWsOutbound, VlessWsOutbound, VmessBodySecurity,
-    VmessHttpUpgradeOutbound, VmessTcpOutbound, VmessTlsHttpUpgradeOutbound, VmessTlsTcpOutbound,
-    VmessTlsWsOutbound, VmessWsOutbound,
+    ShadowsocksTcpOutbound, TlsTcpStream, TrojanGrpcOutbound, TrojanHttpUpgradeOutbound,
+    TrojanTcpOutbound, TrojanTlsGrpcOutbound, TrojanTlsHttpUpgradeOutbound, TrojanTlsTcpOutbound,
+    TrojanTlsWsOutbound, TrojanWsOutbound, UdpRelayResponse, VlessGrpcOutbound,
+    VlessHttpUpgradeOutbound, VlessTcpOutbound, VlessTlsGrpcOutbound, VlessTlsHttpUpgradeOutbound,
+    VlessTlsTcpOutbound, VlessTlsWsOutbound, VlessWsOutbound, VmessBodySecurity, VmessGrpcOutbound,
+    VmessHttpUpgradeOutbound, VmessTcpOutbound, VmessTlsGrpcOutbound, VmessTlsHttpUpgradeOutbound,
+    VmessTlsTcpOutbound, VmessTlsWsOutbound, VmessWsOutbound,
 };
 pub use dns::{DnsCache, DnsEngine, DnsError, DnsResolver, ResolvedAddress, SystemDnsResolver};
+pub use grpc::GrpcTcpStream;
 pub use http_connect::{
     http_connect_bad_request_response, http_connect_success_response, parse_http_connect_request,
     HttpConnectError, HttpConnectRequest,
