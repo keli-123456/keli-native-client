@@ -5,6 +5,7 @@ mod dns;
 mod http_connect;
 mod http_proxy;
 mod metrics;
+mod quic;
 mod socks5;
 mod websocket;
 
@@ -25,6 +26,7 @@ pub use http_proxy::{
     http_proxy_bad_request_response, parse_http_proxy_request, HttpProxyError, HttpProxyRequest,
 };
 pub use metrics::{ConnectionErrorKind, ConnectionReport};
+pub use quic::{h3_quic_client_config, h3_rustls_client_config};
 pub use socks5::{
     parse_socks5_handshake, parse_socks5_request, socks5_no_auth_response, socks5_reply,
     Socks5Address, Socks5Command, Socks5Error, Socks5Handshake, Socks5ReplyCode, Socks5Request,

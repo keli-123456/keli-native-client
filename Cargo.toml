@@ -11,7 +11,7 @@ members = [
 [workspace.package]
 edition = "2021"
 license = "Proprietary"
-version = "0.1.13"
+version = "0.1.14"
 
 [workspace.dependencies]
 keli-client-core = { path = "crates/keli-client-core" }
@@ -20,6 +20,7 @@ keli-platform = { path = "crates/keli-platform" }
 keli-protocol = { path = "crates/keli-protocol" }
 base64 = "0.22"
 rand = "0.8"
+quinn = { version = "0.11.9", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
 rcgen = "0.14.8"
 rustls = { version = "0.23.31", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }
