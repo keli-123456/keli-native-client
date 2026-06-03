@@ -5,7 +5,8 @@ use std::sync::{mpsc, Arc, Mutex};
 
 use keli_protocol::{
     build_hy2_auth_request, decode_hy2_tcp_response, encode_hy2_tcp_request,
-    encode_tuic_authenticate_command, is_hy2_auth_success_status, Endpoint, ProtocolDecodingError,
+    encode_tuic_authenticate_command, encode_tuic_connect_command, is_hy2_auth_success_status,
+    Endpoint, ProtocolDecodingError,
 };
 
 pub type Hy2H3Connection = h3::client::Connection<h3_quinn::Connection, bytes::Bytes>;
@@ -238,6 +239,253 @@ pub struct Hy2QuicTcpStream {
     recv: quinn::RecvStream,
     read_buffer: Vec<u8>,
     read_offset: usize,
+}
+
+pub struct TuicQuicTcpStream {
+    send: quinn::SendStream,
+    recv: quinn::RecvStream,
+    read_buffer: Vec<u8>,
+    read_offset: usize,
+}
+
+pub struct TuicClientSession {
+    endpoint: quinn::Endpoint,
+    connection: quinn::Connection,
+}
+
+impl TuicClientSession {
+    pub async fn connect(
+        bind_addr: SocketAddr,
+        server_addr: SocketAddr,
+        server_name: &str,
+        skip_verify: bool,
+        uuid: &str,
+        password: &str,
+    ) -> io::Result<Self> {
+        let endpoint = h3_quic_client_endpoint(bind_addr, skip_verify)?;
+        let connection = h3_quic_connect(&endpoint, server_addr, server_name).await?;
+        tuic_authenticate(&connection, uuid, password).await?;
+        Ok(Self {
+            endpoint,
+            connection,
+        })
+    }
+
+    pub async fn open_tcp_stream(&self, target: &Endpoint) -> io::Result<TuicQuicTcpStream> {
+        tuic_open_tcp_stream(&self.connection, target).await
+    }
+
+    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.endpoint.local_addr()
+    }
+}
+
+pub struct TuicBlockingTcpStream {
+    runtime: Arc<tokio::runtime::Runtime>,
+    _session: TuicClientSession,
+    send: Arc<Mutex<quinn::SendStream>>,
+    read_rx: mpsc::Receiver<io::Result<Vec<u8>>>,
+    read_buffer: Vec<u8>,
+    read_offset: usize,
+    reader: tokio::task::JoinHandle<()>,
+    nonblocking: bool,
+    eof: bool,
+}
+
+impl TuicBlockingTcpStream {
+    pub fn connect(
+        bind_addr: SocketAddr,
+        server_addr: SocketAddr,
+        server_name: &str,
+        skip_verify: bool,
+        uuid: &str,
+        password: &str,
+        target: &Endpoint,
+    ) -> io::Result<Self> {
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .thread_name("keli-tuic-runtime")
+                .build()
+                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?,
+        );
+        let session = runtime.block_on(TuicClientSession::connect(
+            bind_addr,
+            server_addr,
+            server_name,
+            skip_verify,
+            uuid,
+            password,
+        ))?;
+        let stream = runtime.block_on(session.open_tcp_stream(target))?;
+        Ok(Self::from_session_stream(runtime, session, stream))
+    }
+
+    fn from_session_stream(
+        runtime: Arc<tokio::runtime::Runtime>,
+        session: TuicClientSession,
+        stream: TuicQuicTcpStream,
+    ) -> Self {
+        let TuicQuicTcpStream {
+            send,
+            mut recv,
+            read_buffer,
+            read_offset,
+        } = stream;
+        let send = Arc::new(Mutex::new(send));
+        let (read_tx, read_rx) = mpsc::channel();
+        let reader = runtime.spawn(async move {
+            let mut buffer = vec![0; 16 * 1024];
+            loop {
+                match recv.read(&mut buffer).await {
+                    Ok(Some(bytes)) => {
+                        if bytes == 0 {
+                            continue;
+                        }
+                        if read_tx.send(Ok(buffer[..bytes].to_vec())).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        let _ = read_tx.send(Ok(Vec::new()));
+                        break;
+                    }
+                    Err(error) => {
+                        let _ = read_tx.send(Err(io::Error::new(
+                            io::ErrorKind::ConnectionAborted,
+                            format!("{error:?}"),
+                        )));
+                        break;
+                    }
+                }
+            }
+        });
+        Self {
+            runtime,
+            _session: session,
+            send,
+            read_rx,
+            read_buffer,
+            read_offset,
+            reader,
+            nonblocking: false,
+            eof: false,
+        }
+    }
+
+    pub fn set_nonblocking_mode(&mut self, nonblocking: bool) {
+        self.nonblocking = nonblocking;
+    }
+
+    pub fn shutdown_write(&mut self) -> io::Result<()> {
+        let mut send = self
+            .send
+            .lock()
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "TUIC send stream lock poisoned"))?;
+        send.finish()
+            .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))
+    }
+
+    pub fn shutdown_both(&mut self) -> io::Result<()> {
+        self.shutdown_write().ok();
+        self.reader.abort();
+        Ok(())
+    }
+
+    fn read_from_buffer(&mut self, buffer: &mut [u8]) -> Option<usize> {
+        if self.read_offset >= self.read_buffer.len() {
+            self.read_buffer.clear();
+            self.read_offset = 0;
+            return None;
+        }
+        let remaining = &self.read_buffer[self.read_offset..];
+        let amount = remaining.len().min(buffer.len());
+        buffer[..amount].copy_from_slice(&remaining[..amount]);
+        self.read_offset += amount;
+        if self.read_offset >= self.read_buffer.len() {
+            self.read_buffer.clear();
+            self.read_offset = 0;
+        }
+        Some(amount)
+    }
+
+    fn receive_next_read_chunk(&mut self) -> io::Result<bool> {
+        if self.eof {
+            return Ok(false);
+        }
+        let received = if self.nonblocking {
+            match self.read_rx.try_recv() {
+                Ok(received) => received,
+                Err(mpsc::TryRecvError::Empty) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "TUIC stream has no data available",
+                    ));
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.eof = true;
+                    return Ok(false);
+                }
+            }
+        } else {
+            match self.read_rx.recv() {
+                Ok(received) => received,
+                Err(_) => {
+                    self.eof = true;
+                    return Ok(false);
+                }
+            }
+        }?;
+        if received.is_empty() {
+            self.eof = true;
+            Ok(false)
+        } else {
+            self.read_buffer = received;
+            self.read_offset = 0;
+            Ok(true)
+        }
+    }
+}
+
+impl std::io::Read for TuicBlockingTcpStream {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if let Some(bytes) = self.read_from_buffer(buffer) {
+            return Ok(bytes);
+        }
+        if !self.receive_next_read_chunk()? {
+            return Ok(0);
+        }
+        Ok(self.read_from_buffer(buffer).unwrap_or(0))
+    }
+}
+
+impl std::io::Write for TuicBlockingTcpStream {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let mut send = self
+            .send
+            .lock()
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "TUIC send stream lock poisoned"))?;
+        self.runtime
+            .block_on(send.write_all(buffer))
+            .map_err(|error| {
+                io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}"))
+            })?;
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Drop for TuicBlockingTcpStream {
+    fn drop(&mut self) {
+        self.reader.abort();
+    }
 }
 
 pub struct Hy2BlockingTcpStream {
@@ -501,6 +749,79 @@ impl Hy2QuicTcpStream {
             .finish()
             .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))
     }
+}
+
+impl TuicQuicTcpStream {
+    pub async fn write_all(&mut self, buffer: &[u8]) -> io::Result<()> {
+        self.send
+            .write_all(buffer)
+            .await
+            .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))
+    }
+
+    pub async fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if self.read_offset < self.read_buffer.len() {
+            let remaining = &self.read_buffer[self.read_offset..];
+            let amount = remaining.len().min(buffer.len());
+            buffer[..amount].copy_from_slice(&remaining[..amount]);
+            self.read_offset += amount;
+            if self.read_offset >= self.read_buffer.len() {
+                self.read_buffer.clear();
+                self.read_offset = 0;
+            }
+            return Ok(amount);
+        }
+        self.recv
+            .read(buffer)
+            .await
+            .map(|amount| amount.unwrap_or(0))
+            .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))
+    }
+
+    pub async fn read_exact(&mut self, buffer: &mut [u8]) -> io::Result<()> {
+        let mut offset = 0;
+        while offset < buffer.len() {
+            let amount = self.read(&mut buffer[offset..]).await?;
+            if amount == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "TUIC TCP stream closed before enough data was read",
+                ));
+            }
+            offset += amount;
+        }
+        Ok(())
+    }
+
+    pub fn finish(&mut self) -> io::Result<()> {
+        self.send
+            .finish()
+            .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))
+    }
+}
+
+pub async fn tuic_open_tcp_stream(
+    connection: &quinn::Connection,
+    target: &Endpoint,
+) -> io::Result<TuicQuicTcpStream> {
+    let request = encode_tuic_connect_command(target)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let (mut send, recv) = connection
+        .open_bi()
+        .await
+        .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))?;
+    send.write_all(&request)
+        .await
+        .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))?;
+    Ok(TuicQuicTcpStream {
+        send,
+        recv,
+        read_buffer: Vec::new(),
+        read_offset: 0,
+    })
 }
 
 pub async fn hy2_open_tcp_stream(

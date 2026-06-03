@@ -105,7 +105,7 @@ fn parses_anytls_share_link() {
 }
 
 #[test]
-fn parses_hy2_share_link_and_skips_tuic_until_runtime_exists() {
+fn parses_hy2_and_tuic_share_links() {
     let links = "\
 hysteria2://secret@hy2.example.com:443/?insecure=1&sni=sni.example.com#hy2
 tuic://00112233-4455-6677-8899-aabbccddeeff:secret@tuic.example.com:443#tuic
@@ -113,7 +113,7 @@ vless://00112233-4455-6677-8899-aabbccddeeff@example.com:443?security=tls#vless"
 
     let parsed = parse_share_outbound_profiles(links).expect("parse share links");
 
-    assert_eq!(parsed.profiles.len(), 2);
+    assert_eq!(parsed.profiles.len(), 3);
     let hy2 = &parsed.profiles[0];
     assert_eq!(hy2.tag, "hy2");
     assert_eq!(hy2.protocol, ProxyProtocol::Hy2);
@@ -128,8 +128,23 @@ vless://00112233-4455-6677-8899-aabbccddeeff@example.com:443?security=tls#vless"
     );
     assert_eq!(hy2.credential, "secret");
     hy2.validate().expect("valid hy2 profile");
-    assert_eq!(parsed.profiles[1].tag, "vless");
-    assert_eq!(parsed.skipped.len(), 1);
-    assert_eq!(parsed.skipped[0].name, "tuic");
-    assert!(parsed.skipped[0].reason.contains("TUIC outbound runtime"));
+    let tuic = &parsed.profiles[1];
+    assert_eq!(tuic.tag, "tuic");
+    assert_eq!(tuic.protocol, ProxyProtocol::Tuic);
+    assert_eq!(tuic.endpoint, Endpoint::new("tuic.example.com", 443));
+    assert_eq!(tuic.transport, TransportKind::Quic);
+    assert_eq!(
+        tuic.security,
+        SecurityKind::Tls {
+            sni: Some("tuic.example.com".to_string()),
+            skip_verify: false,
+        }
+    );
+    assert_eq!(
+        tuic.credential,
+        "00112233-4455-6677-8899-aabbccddeeff:secret"
+    );
+    tuic.validate().expect("valid tuic profile");
+    assert_eq!(parsed.profiles[2].tag, "vless");
+    assert!(parsed.skipped.is_empty());
 }

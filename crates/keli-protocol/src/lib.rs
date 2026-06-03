@@ -22,7 +22,6 @@ const TROJAN_ATYP_IPV6: u8 = 0x04;
 const SHADOWSOCKS_ATYP_IPV4: u8 = 0x01;
 const SHADOWSOCKS_ATYP_DOMAIN: u8 = 0x03;
 const SHADOWSOCKS_ATYP_IPV6: u8 = 0x04;
-const TUIC_RUNTIME_MISSING: &str = "TUIC outbound runtime requires QUIC and is not implemented yet";
 const TUIC_VERSION: u8 = 0x05;
 const TUIC_COMMAND_AUTHENTICATE: u8 = 0x00;
 const TUIC_COMMAND_CONNECT: u8 = 0x01;
@@ -38,6 +37,7 @@ pub enum ProxyProtocol {
     Hy2,
     Shadowsocks,
     AnyTls,
+    Tuic,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,6 +115,14 @@ impl OutboundProfile {
             (ProxyProtocol::Vless, _, _) => Ok(()),
             (ProxyProtocol::Hy2, TransportKind::Quic, SecurityKind::Tls { .. }) => Ok(()),
             (ProxyProtocol::Hy2, _, _) => Err(ProtocolValidationError::InvalidHy2Transport),
+            (ProxyProtocol::Tuic, TransportKind::Quic, SecurityKind::Tls { .. }) => {
+                if is_tuic_credential(&self.credential) {
+                    Ok(())
+                } else {
+                    Err(ProtocolValidationError::InvalidTuicCredential)
+                }
+            }
+            (ProxyProtocol::Tuic, _, _) => Err(ProtocolValidationError::InvalidTuicTransport),
             (ProxyProtocol::Shadowsocks, TransportKind::Tcp, SecurityKind::None) => {
                 let cipher = self
                     .cipher
@@ -149,6 +157,8 @@ pub enum ProtocolValidationError {
     InvalidUuid,
     InvalidWebSocketPath,
     InvalidHy2Transport,
+    InvalidTuicCredential,
+    InvalidTuicTransport,
     MissingShadowsocksCipher,
     InvalidShadowsocksCipher,
     InvalidShadowsocksTransport,
@@ -167,6 +177,10 @@ impl fmt::Display for ProtocolValidationError {
             Self::InvalidUuid => write!(f, "VLESS credential must be a UUID"),
             Self::InvalidWebSocketPath => write!(f, "WebSocket path must start with '/'"),
             Self::InvalidHy2Transport => write!(f, "HY2 requires QUIC transport with TLS"),
+            Self::InvalidTuicCredential => {
+                write!(f, "TUIC credential must be formatted as uuid:password")
+            }
+            Self::InvalidTuicTransport => write!(f, "TUIC requires QUIC transport with TLS"),
             Self::MissingShadowsocksCipher => write!(f, "Shadowsocks cipher is required"),
             Self::InvalidShadowsocksCipher => write!(f, "Shadowsocks cipher is unsupported"),
             Self::InvalidShadowsocksTransport => {
@@ -278,6 +292,7 @@ struct MihomoProxy {
     server: Option<String>,
     port: Option<u16>,
     password: Option<String>,
+    token: Option<String>,
     cipher: Option<String>,
     uuid: Option<String>,
     flow: Option<String>,
@@ -311,15 +326,13 @@ fn mihomo_proxy_to_profile(
     };
 
     let protocol_name = protocol_name.to_ascii_lowercase();
-    if protocol_name == "tuic" {
-        return Err(skip(name, TUIC_RUNTIME_MISSING));
-    }
     let protocol = match protocol_name.as_str() {
         "trojan" => ProxyProtocol::Trojan,
         "vless" => ProxyProtocol::Vless,
         "hy2" | "hysteria2" => ProxyProtocol::Hy2,
         "ss" | "shadowsocks" => ProxyProtocol::Shadowsocks,
         "anytls" | "any-tls" => ProxyProtocol::AnyTls,
+        "tuic" => ProxyProtocol::Tuic,
         other => return Err(skip(name, format!("unsupported protocol: {other}"))),
     };
     let credential = match protocol {
@@ -334,6 +347,14 @@ fn mihomo_proxy_to_profile(
             .ok_or_else(|| skip(name.clone(), "missing anytls password"))?,
         ProxyProtocol::Hy2 => non_empty(proxy.password)
             .ok_or_else(|| skip(name.clone(), "missing hy2 auth password"))?,
+        ProxyProtocol::Tuic => {
+            let uuid =
+                non_empty(proxy.uuid).ok_or_else(|| skip(name.clone(), "missing tuic uuid"))?;
+            let password = non_empty(proxy.password)
+                .or_else(|| non_empty(proxy.token))
+                .ok_or_else(|| skip(name.clone(), "missing tuic password"))?;
+            format!("{uuid}:{password}")
+        }
     };
     let cipher = matches!(protocol, ProxyProtocol::Shadowsocks)
         .then(|| non_empty(proxy.cipher))
@@ -380,16 +401,16 @@ fn mihomo_transport(
     network: Option<&str>,
     ws_opts: Option<MihomoWsOptions>,
 ) -> Result<TransportKind, SkippedOutboundProfile> {
-    if matches!(protocol, ProxyProtocol::Hy2) {
+    if matches!(protocol, ProxyProtocol::Hy2 | ProxyProtocol::Tuic) {
         return match network
             .map(|value| value.to_ascii_lowercase())
             .as_deref()
             .unwrap_or("")
         {
-            "" | "quic" | "hy2" | "hysteria2" => Ok(TransportKind::Quic),
+            "" | "quic" | "hy2" | "hysteria2" | "tuic" => Ok(TransportKind::Quic),
             other => Err(skip(
                 name.to_string(),
-                format!("unsupported HY2 transport: {other}"),
+                format!("unsupported QUIC transport: {other}"),
             )),
         };
     }
@@ -426,7 +447,7 @@ fn mihomo_security(
         .or_else(|| Some(server.to_string()));
     let tls_enabled = tls.unwrap_or(matches!(
         protocol,
-        ProxyProtocol::Trojan | ProxyProtocol::Hy2 | ProxyProtocol::AnyTls
+        ProxyProtocol::Trojan | ProxyProtocol::Hy2 | ProxyProtocol::AnyTls | ProxyProtocol::Tuic
     ));
     if tls_enabled {
         SecurityKind::Tls {
@@ -499,9 +520,6 @@ fn share_link_to_profile(
     let query: HashMap<String, String> = url.query_pairs().into_owned().collect();
     let tag = non_empty(url.fragment().map(ToString::to_string))
         .unwrap_or_else(|| format!("proxy-{}", index + 1));
-    if url.scheme() == "tuic" {
-        return Err(skip(tag, TUIC_RUNTIME_MISSING));
-    }
     let Some(server) = url.host_str().map(ToString::to_string) else {
         return Err(skip(tag, "missing server"));
     };
@@ -511,10 +529,19 @@ fn share_link_to_profile(
         "vless" => ProxyProtocol::Vless,
         "hy2" | "hysteria2" => ProxyProtocol::Hy2,
         "anytls" | "any-tls" => ProxyProtocol::AnyTls,
+        "tuic" => ProxyProtocol::Tuic,
         other => return Err(skip(tag, format!("unsupported protocol: {other}"))),
     };
-    let credential = non_empty(Some(url.username().to_string()))
-        .ok_or_else(|| skip(tag.clone(), "missing credential"))?;
+    let credential = if matches!(protocol, ProxyProtocol::Tuic) {
+        let uuid = non_empty(Some(url.username().to_string()))
+            .ok_or_else(|| skip(tag.clone(), "missing tuic uuid"))?;
+        let password = non_empty(url.password().map(ToString::to_string))
+            .ok_or_else(|| skip(tag.clone(), "missing tuic password"))?;
+        format!("{uuid}:{password}")
+    } else {
+        non_empty(Some(url.username().to_string()))
+            .ok_or_else(|| skip(tag.clone(), "missing credential"))?
+    };
     let transport = share_link_transport(&tag, &server, &protocol, &query)?;
     let security = share_link_security(&protocol, &server, &query);
     let flow = matches!(protocol, ProxyProtocol::Vless)
@@ -633,7 +660,7 @@ fn share_link_transport(
     protocol: &ProxyProtocol,
     query: &HashMap<String, String>,
 ) -> Result<TransportKind, SkippedOutboundProfile> {
-    if matches!(protocol, ProxyProtocol::Hy2) {
+    if matches!(protocol, ProxyProtocol::Hy2 | ProxyProtocol::Tuic) {
         return match query
             .get("type")
             .or_else(|| query.get("network"))
@@ -641,10 +668,10 @@ fn share_link_transport(
             .as_deref()
             .unwrap_or("")
         {
-            "" | "quic" | "hy2" | "hysteria2" => Ok(TransportKind::Quic),
+            "" | "quic" | "hy2" | "hysteria2" | "tuic" => Ok(TransportKind::Quic),
             other => Err(skip(
                 tag.to_string(),
-                format!("unsupported HY2 transport: {other}"),
+                format!("unsupported QUIC transport: {other}"),
             )),
         };
     }
@@ -689,7 +716,10 @@ fn share_link_security(
         .map(|value| matches!(value, "tls" | "true" | "1"))
         .unwrap_or(matches!(
             protocol,
-            ProxyProtocol::Trojan | ProxyProtocol::Hy2 | ProxyProtocol::AnyTls
+            ProxyProtocol::Trojan
+                | ProxyProtocol::Hy2
+                | ProxyProtocol::AnyTls
+                | ProxyProtocol::Tuic
         ));
     if tls_enabled {
         SecurityKind::Tls {
@@ -955,6 +985,13 @@ fn looks_like_uuid(value: &str) -> bool {
         }
     }
     true
+}
+
+fn is_tuic_credential(value: &str) -> bool {
+    let Some((uuid, password)) = value.split_once(':') else {
+        return false;
+    };
+    looks_like_uuid(uuid.trim()) && !password.trim().is_empty()
 }
 
 fn encode_trojan_password_hash(output: &mut Vec<u8>, password: &str) {

@@ -102,6 +102,7 @@ pub struct OutboundRegistry {
     shadowsocks_tcp_tags: HashMap<String, ShadowsocksTcpOutbound>,
     anytls_tls_tcp_tags: HashMap<String, AnyTlsTlsTcpOutbound>,
     hy2_tags: HashMap<String, Hy2Outbound>,
+    tuic_tags: HashMap<String, TuicOutbound>,
 }
 
 impl OutboundRegistry {
@@ -239,6 +240,20 @@ impl OutboundRegistry {
                 );
                 Ok(())
             }
+            (ProxyProtocol::Tuic, TransportKind::Quic, SecurityKind::Tls { sni, skip_verify }) => {
+                let sni = sni.unwrap_or_else(|| endpoint.host.clone());
+                let (uuid, password) = split_tuic_credential(&credential).ok_or_else(|| {
+                    OutboundProfileError::Validation {
+                        tag: tag.clone(),
+                        source: ProtocolValidationError::InvalidTuicCredential,
+                    }
+                })?;
+                self.add_tuic(
+                    tag,
+                    TuicOutbound::new(endpoint, uuid, password, sni, skip_verify),
+                );
+                Ok(())
+            }
             (protocol, transport, security) => Err(OutboundProfileError::UnsupportedTransport {
                 tag,
                 protocol,
@@ -300,6 +315,10 @@ impl OutboundRegistry {
         self.hy2_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_tuic(&mut self, tag: impl Into<String>, outbound: TuicOutbound) {
+        self.tuic_tags.insert(tag.into(), outbound);
+    }
+
     pub fn connect(
         &self,
         tag: &str,
@@ -329,6 +348,8 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.anytls_tls_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.hy2_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.tuic_tags.get(tag) {
             outbound.connect(target, timeout)
         } else {
             Err(io::Error::new(
@@ -960,6 +981,78 @@ pub struct Hy2Outbound {
     skip_verify: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TuicOutbound {
+    server: Endpoint,
+    uuid: String,
+    password: String,
+    sni: String,
+    skip_verify: bool,
+}
+
+impl TuicOutbound {
+    pub fn new(
+        server: Endpoint,
+        uuid: impl Into<String>,
+        password: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+    ) -> Self {
+        Self {
+            server,
+            uuid: uuid.into(),
+            password: password.into(),
+            sni: sni.into(),
+            skip_verify,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        _timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let mut last_error = None;
+        for server_addr in self.resolve_server_addrs()? {
+            let bind_addr = hy2_bind_addr_for(server_addr);
+            match crate::TuicBlockingTcpStream::connect(
+                bind_addr,
+                server_addr,
+                &self.sni,
+                self.skip_verify,
+                &self.uuid,
+                &self.password,
+                &target,
+            ) {
+                Ok(stream) => return Ok(OutboundConnection::Owned(Box::new(stream))),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                format!(
+                    "no address resolved for {}:{}",
+                    self.server.host, self.server.port
+                ),
+            )
+        }))
+    }
+
+    fn resolve_server_addrs(&self) -> io::Result<Vec<SocketAddr>> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        dns.resolve(&self.server.host, self.server.port)
+            .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error))
+            .map(|addresses| {
+                addresses
+                    .into_iter()
+                    .map(|address| SocketAddr::new(address.ip, address.port))
+                    .collect()
+            })
+    }
+}
+
 impl Hy2Outbound {
     pub fn new(
         server: Endpoint,
@@ -1079,6 +1172,16 @@ fn hy2_bind_addr_for(server_addr: SocketAddr) -> SocketAddr {
     } else {
         SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
     }
+}
+
+fn split_tuic_credential(credential: &str) -> Option<(String, String)> {
+    let (uuid, password) = credential.split_once(':')?;
+    let uuid = uuid.trim();
+    let password = password.trim();
+    if uuid.is_empty() || password.is_empty() {
+        return None;
+    }
+    Some((uuid.to_string(), password.to_string()))
 }
 
 pub struct AnyTlsTcpStream {
@@ -1577,6 +1680,21 @@ impl<S: OwnedRelayStream> OwnedRelayStream for crate::OwnedWebSocketClientStream
 }
 
 impl OwnedRelayStream for crate::Hy2BlockingTcpStream {
+    fn set_nonblocking_mode(&mut self, nonblocking: bool) -> io::Result<()> {
+        self.set_nonblocking_mode(nonblocking);
+        Ok(())
+    }
+
+    fn shutdown_write(&mut self) -> io::Result<()> {
+        self.shutdown_write()
+    }
+
+    fn shutdown_both(&mut self) -> io::Result<()> {
+        self.shutdown_both()
+    }
+}
+
+impl OwnedRelayStream for crate::TuicBlockingTcpStream {
     fn set_nonblocking_mode(&mut self, nonblocking: bool) -> io::Result<()> {
         self.set_nonblocking_mode(nonblocking);
         Ok(())
