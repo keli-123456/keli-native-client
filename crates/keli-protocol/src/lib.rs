@@ -724,6 +724,38 @@ pub struct Hy2TcpResponse {
     pub message: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hy2AuthRequest {
+    pub method: &'static str,
+    pub path: &'static str,
+    pub host: &'static str,
+    pub auth: String,
+    pub cc_rx: String,
+    pub padding: String,
+}
+
+pub fn build_hy2_auth_request(
+    auth: &str,
+    cc_rx: u64,
+    padding: &str,
+) -> Result<Hy2AuthRequest, ProtocolEncodingError> {
+    if auth.trim().is_empty() {
+        return Err(ProtocolEncodingError::InvalidPassword);
+    }
+    Ok(Hy2AuthRequest {
+        method: "POST",
+        path: "/auth",
+        host: "hysteria",
+        auth: auth.to_string(),
+        cc_rx: cc_rx.to_string(),
+        padding: padding.to_string(),
+    })
+}
+
+pub fn is_hy2_auth_success_status(status: u16) -> bool {
+    status == 233
+}
+
 pub fn encode_vless_tcp_request_header(
     uuid: &str,
     target: &Endpoint,
@@ -1186,5 +1218,32 @@ mod tests {
             decode_hy2_tcp_response(b"\x00\x05no").expect_err("truncated response should fail");
 
         assert_eq!(error, ProtocolDecodingError::UnexpectedEof);
+    }
+
+    #[test]
+    fn builds_hy2_auth_request_headers() {
+        let headers =
+            build_hy2_auth_request("secret", 0, "padding").expect("hy2 auth request headers");
+
+        assert_eq!(headers.method, "POST");
+        assert_eq!(headers.path, "/auth");
+        assert_eq!(headers.host, "hysteria");
+        assert_eq!(headers.auth, "secret");
+        assert_eq!(headers.cc_rx, "0");
+        assert_eq!(headers.padding, "padding");
+    }
+
+    #[test]
+    fn accepts_only_hy2_auth_status_233() {
+        assert!(is_hy2_auth_success_status(233));
+        assert!(!is_hy2_auth_success_status(200));
+        assert!(!is_hy2_auth_success_status(401));
+    }
+
+    #[test]
+    fn rejects_empty_hy2_auth() {
+        let error = build_hy2_auth_request("", 0, "").expect_err("empty HY2 auth should fail");
+
+        assert_eq!(error, ProtocolEncodingError::InvalidPassword);
     }
 }
