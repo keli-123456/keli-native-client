@@ -122,6 +122,65 @@ proxies:
 }
 
 #[test]
+fn mihomo_profile_config_accepts_shadowsocks_proxy() {
+    let yaml = r#"
+proxies:
+  - name: SS-READY
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+"#;
+
+    let runtime = mixed_runtime_from_mihomo_config_text(
+        yaml,
+        Vec::new(),
+        relay_options(),
+        Some("SS-READY".to_string()),
+    )
+    .expect("runtime from Shadowsocks mihomo config");
+
+    let decision = runtime
+        .routes
+        .decide(&RouteTarget::Domain("youtube.com".to_string()));
+    assert_eq!(
+        decision.action,
+        RouteAction::Outbound("SS-READY".to_string())
+    );
+}
+
+#[test]
+fn mihomo_profile_config_accepts_anytls_proxy() {
+    let yaml = r#"
+proxies:
+  - name: ANYTLS-READY
+    type: anytls
+    server: anytls.example.com
+    port: 443
+    password: secret
+    sni: sni.example.com
+    skip-cert-verify: true
+"#;
+
+    let runtime = mixed_runtime_from_mihomo_config_text(
+        yaml,
+        Vec::new(),
+        relay_options(),
+        Some("ANYTLS-READY".to_string()),
+    )
+    .expect("runtime from AnyTLS mihomo config");
+
+    let decision = runtime
+        .routes
+        .decide(&RouteTarget::Domain("youtube.com".to_string()));
+    assert_eq!(
+        decision.action,
+        RouteAction::Outbound("ANYTLS-READY".to_string())
+    );
+}
+
+#[test]
 fn subscription_profile_config_accepts_base64_share_links() {
     let base64_links = "dHJvamFuOi8vcGFzc3dvcmRAZXhhbXBsZS5jb206NDQzP3NlY3VyaXR5PXRscyZzbmk9ZWRnZS5leGFtcGxlJnR5cGU9d3MmaG9zdD1lZGdlLmV4YW1wbGUmcGF0aD0lMkZhbnN3ZXImYWxsb3dJbnNlY3VyZT0xI3Ryb2phbi13cw==";
 
@@ -173,6 +232,41 @@ fn subscription_profile_config_accepts_tuic_share_links() {
     assert_eq!(
         decision.action,
         RouteAction::Outbound("tuic-ready".to_string())
+    );
+}
+
+#[test]
+fn subscription_profile_config_accepts_shadowsocks_share_links() {
+    let links = "ss://YWVzLTI1Ni1nY206c2VjcmV0@ss.example.com:8388#ss-ready";
+
+    let runtime =
+        mixed_runtime_from_subscription_config_text(links, Vec::new(), relay_options(), None)
+            .expect("runtime from Shadowsocks share config");
+
+    let decision = runtime
+        .routes
+        .decide(&RouteTarget::Domain("youtube.com".to_string()));
+    assert_eq!(
+        decision.action,
+        RouteAction::Outbound("ss-ready".to_string())
+    );
+}
+
+#[test]
+fn subscription_profile_config_accepts_anytls_share_links() {
+    let links =
+        "anytls://secret@anytls.example.com:443?sni=sni.example.com&allowInsecure=1#anytls-ready";
+
+    let runtime =
+        mixed_runtime_from_subscription_config_text(links, Vec::new(), relay_options(), None)
+            .expect("runtime from AnyTLS share config");
+
+    let decision = runtime
+        .routes
+        .decide(&RouteTarget::Domain("youtube.com".to_string()));
+    assert_eq!(
+        decision.action,
+        RouteAction::Outbound("anytls-ready".to_string())
     );
 }
 
