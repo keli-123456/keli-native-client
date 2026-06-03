@@ -3,8 +3,13 @@ use std::io::{self, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpStream, UdpSocket};
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use aes::cipher::{BlockEncrypt, KeyInit as AesKeyInit};
+use aes_gcm::aead::{Aead, Payload};
+use aes_gcm::{Aes128Gcm, Nonce as AesGcmNonce};
+use hmac::{Hmac, Mac};
+use md5::{Digest as Md5Digest, Md5};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use shadowsocks_crypto::kind::{CipherCategory, CipherKind};
@@ -19,6 +24,24 @@ use keli_protocol::{
     encode_vless_tcp_request_header, Endpoint, OutboundProfile, ProtocolEncodingError,
     ProtocolValidationError, ProxyProtocol, SecurityKind, TransportKind,
 };
+
+const VMESS_VERSION: u8 = 0x01;
+const VMESS_COMMAND_TCP: u8 = 0x01;
+const VMESS_ATYP_IPV4: u8 = 0x01;
+const VMESS_ATYP_DOMAIN: u8 = 0x02;
+const VMESS_ATYP_IPV6: u8 = 0x03;
+const VMESS_SECURITY_NONE: u8 = 0x05;
+const VMESS_KDF_ROOT: &[u8] = b"VMess AEAD KDF";
+const VMESS_AUTH_ID_KEY: &[u8] = b"AES Auth ID Encryption";
+const VMESS_HEADER_LENGTH_KEY: &[u8] = b"VMess Header AEAD Key_Length";
+const VMESS_HEADER_LENGTH_NONCE: &[u8] = b"VMess Header AEAD Nonce_Length";
+const VMESS_HEADER_PAYLOAD_KEY: &[u8] = b"VMess Header AEAD Key";
+const VMESS_HEADER_PAYLOAD_NONCE: &[u8] = b"VMess Header AEAD Nonce";
+const VMESS_RESPONSE_HEADER_LENGTH_KEY: &[u8] = b"AEAD Resp Header Len Key";
+const VMESS_RESPONSE_HEADER_LENGTH_IV: &[u8] = b"AEAD Resp Header Len IV";
+const VMESS_RESPONSE_HEADER_PAYLOAD_KEY: &[u8] = b"AEAD Resp Header Key";
+const VMESS_RESPONSE_HEADER_PAYLOAD_IV: &[u8] = b"AEAD Resp Header IV";
+const VMESS_CMD_KEY_SALT: &[u8] = b"c48619fe-8f02-49e0-b9e9-edf763e17e21";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutboundTarget {
@@ -168,6 +191,7 @@ pub struct OutboundRegistry {
     vless_tls_tcp_tags: HashMap<String, VlessTlsTcpOutbound>,
     vless_ws_tags: HashMap<String, VlessWsOutbound>,
     vless_tls_ws_tags: HashMap<String, VlessTlsWsOutbound>,
+    vmess_tcp_tags: HashMap<String, VmessTcpOutbound>,
     shadowsocks_tcp_tags: HashMap<String, ShadowsocksTcpOutbound>,
     anytls_tls_tcp_tags: HashMap<String, AnyTlsTlsTcpOutbound>,
     hy2_tags: HashMap<String, Hy2Outbound>,
@@ -240,6 +264,10 @@ impl OutboundRegistry {
                     tag,
                     TrojanTlsWsOutbound::new(endpoint, host, path, credential, sni, skip_verify),
                 );
+                Ok(())
+            }
+            (ProxyProtocol::Vmess, TransportKind::Tcp, SecurityKind::None) => {
+                self.add_vmess_tcp(tag, VmessTcpOutbound::new(endpoint, credential));
                 Ok(())
             }
             (ProxyProtocol::Vless, TransportKind::Tcp, SecurityKind::None) => {
@@ -368,6 +396,10 @@ impl OutboundRegistry {
         self.vless_tls_ws_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_vmess_tcp(&mut self, tag: impl Into<String>, outbound: VmessTcpOutbound) {
+        self.vmess_tcp_tags.insert(tag.into(), outbound);
+    }
+
     pub fn add_shadowsocks_tcp(
         &mut self,
         tag: impl Into<String>,
@@ -411,6 +443,8 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vless_ws_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tls_ws_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.vmess_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
@@ -1979,6 +2013,323 @@ fn read_vless_response_header_from_stream(stream: &mut impl Read) -> io::Result<
         stream.read_exact(&mut addon)?;
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmessTcpOutbound {
+    pub server: Endpoint,
+    pub uuid: String,
+}
+
+impl VmessTcpOutbound {
+    pub fn new(server: Endpoint, uuid: impl Into<String>) -> Self {
+        Self {
+            server,
+            uuid: uuid.into(),
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let mut stream = DirectTcpConnector::connect(&server, timeout)?;
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let request = write_vmess_tcp_request_header(&mut stream, &self.uuid, &target)?;
+        read_vmess_response_header_from_stream(&mut stream, &request)?;
+        Ok(OutboundConnection::Tcp(stream))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct VmessClientRequest {
+    response_body_key: [u8; 16],
+    response_body_iv: [u8; 16],
+    response_header: u8,
+}
+
+fn write_vmess_tcp_request_header(
+    stream: &mut impl Write,
+    uuid: &str,
+    target: &Endpoint,
+) -> io::Result<VmessClientRequest> {
+    let uuid = parse_vmess_uuid_bytes(uuid)?;
+    let cmd_key = vmess_cmd_key(&uuid);
+    let request_body_key = random_array::<16>();
+    let request_body_iv = random_array::<16>();
+    let response_header = random_array::<1>()[0];
+    let mut header = Vec::new();
+    header.push(VMESS_VERSION);
+    header.extend_from_slice(&request_body_iv);
+    header.extend_from_slice(&request_body_key);
+    header.push(response_header);
+    header.push(0x00);
+    header.push(VMESS_SECURITY_NONE);
+    header.push(0x00);
+    header.push(VMESS_COMMAND_TCP);
+    write_vmess_target_header(&mut header, target)?;
+    let checksum = fnv1a(&header);
+    header.extend_from_slice(&checksum.to_be_bytes());
+
+    let auth_id = create_vmess_auth_id(&cmd_key);
+    let nonce = random_array::<8>();
+    stream.write_all(&seal_vmess_request_header(
+        &cmd_key, &auth_id, &nonce, &header,
+    )?)?;
+
+    Ok(VmessClientRequest {
+        response_body_key: first_16_sha256(&request_body_key),
+        response_body_iv: first_16_sha256(&request_body_iv),
+        response_header,
+    })
+}
+
+fn write_vmess_target_header(output: &mut Vec<u8>, target: &Endpoint) -> io::Result<()> {
+    output.extend_from_slice(&target.port.to_be_bytes());
+    if let Ok(ip) = target.host.parse::<Ipv4Addr>() {
+        output.push(VMESS_ATYP_IPV4);
+        output.extend_from_slice(&ip.octets());
+    } else if let Ok(ip) = target.host.parse::<Ipv6Addr>() {
+        output.push(VMESS_ATYP_IPV6);
+        output.extend_from_slice(&ip.octets());
+    } else {
+        let host = target.host.trim().trim_matches(['[', ']']);
+        if host.is_empty() || host.len() > u8::MAX as usize {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "vmess target host is invalid",
+            ));
+        }
+        output.push(VMESS_ATYP_DOMAIN);
+        output.push(host.len() as u8);
+        output.extend_from_slice(host.as_bytes());
+    }
+    Ok(())
+}
+
+fn seal_vmess_request_header(
+    cmd_key: &[u8; 16],
+    auth_id: &[u8; 16],
+    nonce: &[u8; 8],
+    header: &[u8],
+) -> io::Result<Vec<u8>> {
+    let len_key = vmess_kdf16(
+        cmd_key,
+        &[VMESS_HEADER_LENGTH_KEY, auth_id, nonce.as_slice()],
+    );
+    let len_nonce = first_12(&vmess_kdf(
+        cmd_key,
+        &[VMESS_HEADER_LENGTH_NONCE, auth_id, nonce.as_slice()],
+    ));
+    let payload_key = vmess_kdf16(
+        cmd_key,
+        &[VMESS_HEADER_PAYLOAD_KEY, auth_id, nonce.as_slice()],
+    );
+    let payload_nonce = first_12(&vmess_kdf(
+        cmd_key,
+        &[VMESS_HEADER_PAYLOAD_NONCE, auth_id, nonce.as_slice()],
+    ));
+    let mut output = Vec::with_capacity(42 + header.len());
+    output.extend_from_slice(auth_id);
+    output.extend_from_slice(&vmess_aes_gcm_seal(
+        &len_key,
+        &len_nonce,
+        &(header.len() as u16).to_be_bytes(),
+        auth_id,
+    )?);
+    output.extend_from_slice(nonce);
+    output.extend_from_slice(&vmess_aes_gcm_seal(
+        &payload_key,
+        &payload_nonce,
+        header,
+        auth_id,
+    )?);
+    Ok(output)
+}
+
+fn read_vmess_response_header_from_stream(
+    stream: &mut impl Read,
+    request: &VmessClientRequest,
+) -> io::Result<()> {
+    let mut len_cipher = [0; 18];
+    stream.read_exact(&mut len_cipher)?;
+    let len_key = vmess_kdf16(
+        &request.response_body_key,
+        &[VMESS_RESPONSE_HEADER_LENGTH_KEY],
+    );
+    let len_nonce = first_12(&vmess_kdf(
+        &request.response_body_iv,
+        &[VMESS_RESPONSE_HEADER_LENGTH_IV],
+    ));
+    let len = vmess_aes_gcm_open(&len_key, &len_nonce, &len_cipher, &[])?;
+    if len.len() != 2 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid vmess response header length",
+        ));
+    }
+    let len = u16::from_be_bytes([len[0], len[1]]) as usize;
+    let mut payload_cipher = vec![0; len + 16];
+    stream.read_exact(&mut payload_cipher)?;
+    let payload_key = vmess_kdf16(
+        &request.response_body_key,
+        &[VMESS_RESPONSE_HEADER_PAYLOAD_KEY],
+    );
+    let payload_nonce = first_12(&vmess_kdf(
+        &request.response_body_iv,
+        &[VMESS_RESPONSE_HEADER_PAYLOAD_IV],
+    ));
+    let payload = vmess_aes_gcm_open(&payload_key, &payload_nonce, &payload_cipher, &[])?;
+    if payload.len() < 4 || payload[0] != request.response_header {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid vmess response header",
+        ));
+    }
+    Ok(())
+}
+
+fn create_vmess_auth_id(cmd_key: &[u8; 16]) -> [u8; 16] {
+    let mut plain = [0; 16];
+    plain[..8].copy_from_slice(&unix_timestamp().to_be_bytes());
+    plain[8..12].copy_from_slice(&random_array::<4>());
+    let crc = crc32fast::hash(&plain[..12]);
+    plain[12..16].copy_from_slice(&crc.to_be_bytes());
+    let key = vmess_kdf16(cmd_key, &[VMESS_AUTH_ID_KEY]);
+    let cipher = aes::Aes128::new_from_slice(&key).expect("aes accepts 128-bit vmess auth key");
+    let mut block = aes::cipher::Block::<aes::Aes128>::clone_from_slice(&plain);
+    cipher.encrypt_block(&mut block);
+    block.into()
+}
+
+fn parse_vmess_uuid_bytes(value: &str) -> io::Result<[u8; 16]> {
+    let compact: String = value
+        .trim()
+        .chars()
+        .filter(|character| *character != '-')
+        .collect();
+    if compact.len() != 32 || !compact.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "vmess uuid is invalid",
+        ));
+    }
+    let mut output = [0; 16];
+    for (index, chunk) in compact.as_bytes().chunks(2).enumerate() {
+        let hex = std::str::from_utf8(chunk)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        output[index] = u8::from_str_radix(hex, 16)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    }
+    Ok(output)
+}
+
+fn vmess_cmd_key(uuid: &[u8; 16]) -> [u8; 16] {
+    let mut hasher = Md5::new();
+    Md5Digest::update(&mut hasher, uuid);
+    Md5Digest::update(&mut hasher, VMESS_CMD_KEY_SALT);
+    hasher.finalize().into()
+}
+
+fn vmess_kdf16(key: &[u8], path: &[&[u8]]) -> [u8; 16] {
+    vmess_kdf(key, path)[..16].try_into().expect("kdf16")
+}
+
+fn vmess_kdf(key: &[u8], path: &[&[u8]]) -> [u8; 32] {
+    if path.is_empty() {
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(VMESS_KDF_ROOT).expect("hmac key");
+        Mac::update(&mut mac, key);
+        return mac.finalize().into_bytes().into();
+    }
+    let tail = path[path.len() - 1];
+    vmess_hmac_with_hash(|input| vmess_kdf(input, &path[..path.len() - 1]), tail, key)
+}
+
+fn vmess_hmac_with_hash<H>(hash: H, key: &[u8], message: &[u8]) -> [u8; 32]
+where
+    H: Fn(&[u8]) -> [u8; 32],
+{
+    let mut normalized_key = if key.len() > 64 {
+        hash(key).to_vec()
+    } else {
+        key.to_vec()
+    };
+    normalized_key.resize(64, 0);
+    let mut inner = [0x36; 64];
+    let mut outer = [0x5c; 64];
+    for (index, key_byte) in normalized_key.iter().enumerate() {
+        inner[index] ^= key_byte;
+        outer[index] ^= key_byte;
+    }
+    let mut inner_input = Vec::with_capacity(64 + message.len());
+    inner_input.extend_from_slice(&inner);
+    inner_input.extend_from_slice(message);
+    let inner_hash = hash(&inner_input);
+    let mut outer_input = Vec::with_capacity(64 + inner_hash.len());
+    outer_input.extend_from_slice(&outer);
+    outer_input.extend_from_slice(&inner_hash);
+    hash(&outer_input)
+}
+
+fn vmess_aes_gcm_seal(
+    key: &[u8; 16],
+    nonce: &[u8; 12],
+    input: &[u8],
+    aad: &[u8],
+) -> io::Result<Vec<u8>> {
+    let cipher = Aes128Gcm::new_from_slice(key)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid vmess aes-gcm key"))?;
+    cipher
+        .encrypt(AesGcmNonce::from_slice(nonce), Payload { msg: input, aad })
+        .map_err(|_| io::Error::other("vmess aes-gcm seal failed"))
+}
+
+fn vmess_aes_gcm_open(
+    key: &[u8; 16],
+    nonce: &[u8; 12],
+    input: &[u8],
+    aad: &[u8],
+) -> io::Result<Vec<u8>> {
+    let cipher = Aes128Gcm::new_from_slice(key)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid vmess aes-gcm key"))?;
+    cipher
+        .decrypt(AesGcmNonce::from_slice(nonce), Payload { msg: input, aad })
+        .map_err(|_| io::Error::new(io::ErrorKind::PermissionDenied, "vmess aes-gcm open failed"))
+}
+
+fn first_16_sha256(input: &[u8; 16]) -> [u8; 16] {
+    let mut hasher = Sha256::new();
+    Digest::update(&mut hasher, input);
+    let digest = hasher.finalize();
+    digest[..16].try_into().expect("sha256 first 16")
+}
+
+fn first_12(input: &[u8; 32]) -> [u8; 12] {
+    input[..12].try_into().expect("first 12")
+}
+
+fn random_array<const N: usize>() -> [u8; N] {
+    let mut output = [0; N];
+    rand::thread_rng().fill_bytes(&mut output);
+    output
+}
+
+fn fnv1a(input: &[u8]) -> u32 {
+    let mut hash = 0x811c9dc5u32;
+    for byte in input {
+        hash ^= u32::from(*byte);
+        hash = hash.wrapping_mul(0x01000193);
+    }
+    hash
+}
+
+fn unix_timestamp() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
 }
 
 fn protocol_encoding_to_io(error: ProtocolEncodingError) -> io::Error {

@@ -16,7 +16,7 @@ pub use direct::{
     OutboundRegistry, OutboundTarget, OwnedRelayStream, RelayError, RelayOptions, RelayStats,
     ShadowsocksTcpOutbound, TlsTcpStream, TrojanTcpOutbound, TrojanTlsTcpOutbound,
     TrojanTlsWsOutbound, TrojanWsOutbound, UdpRelayResponse, VlessTcpOutbound, VlessTlsTcpOutbound,
-    VlessTlsWsOutbound, VlessWsOutbound,
+    VlessTlsWsOutbound, VlessWsOutbound, VmessTcpOutbound,
 };
 pub use dns::{DnsCache, DnsEngine, DnsError, DnsResolver, ResolvedAddress, SystemDnsResolver};
 pub use http_connect::{

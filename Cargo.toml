@@ -11,18 +11,23 @@ members = [
 [workspace.package]
 edition = "2021"
 license = "Proprietary"
-version = "0.1.57"
+version = "0.1.58"
 
 [workspace.dependencies]
 keli-client-core = { path = "crates/keli-client-core" }
 keli-net-core = { path = "crates/keli-net-core" }
 keli-platform = { path = "crates/keli-platform" }
 keli-protocol = { path = "crates/keli-protocol" }
+aes = "0.8"
+aes-gcm = "0.10"
 base64 = "0.22"
 bytes = "1"
+crc32fast = "1"
 h3 = "0.0.8"
 h3-quinn = "0.0.10"
+hmac = "0.12"
 http = "1"
+md-5 = "0.10"
 rand = "0.8"
 quinn = { version = "0.11.9", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
 rcgen = "0.14.8"

@@ -27,13 +27,9 @@ proxies:
 
     let report: serde_json::Value = serde_json::from_slice(&output).expect("json report");
     assert_eq!(report["status"], "ok");
-    assert_eq!(report["supported_count"], 1);
-    assert_eq!(report["skipped_count"], 1);
+    assert_eq!(report["supported_count"], 2);
+    assert_eq!(report["skipped_count"], 0);
     assert_eq!(report["default_outbound"], "SS-READY");
     assert_eq!(report["supported_tags"][0], "SS-READY");
-    assert_eq!(report["skipped"][0]["name"], "VMESS-OLD");
-    assert_eq!(
-        report["skipped"][0]["reason"],
-        "registry unsupported: outbound profile VMESS-OLD transport is unsupported: Vmess/Tcp/None"
-    );
+    assert_eq!(report["supported_tags"][1], "VMESS-OLD");
 }

@@ -238,6 +238,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crc32fast"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9481c1c90cbf2ac953f07c8d4a58aa3945c425b7185c9154d67a65e4230da511"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "crypto-common"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -312,6 +321,7 @@ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer 0.10.4",
  "crypto-common 0.1.7",
+ "subtle",
 ]
 
 [[package]]
@@ -574,7 +584,16 @@ version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4aaa26c720c68b866f2c96ef5c1264b3e6f473fe5d4ce61cd44bbe913e553018"
 dependencies = [
- "hmac",
+ "hmac 0.13.0",
+]
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest 0.10.7",
 ]
 
 [[package]]
@@ -755,7 +774,7 @@ dependencies = [
 
 [[package]]
 name = "keli-cli"
-version = "0.1.57"
+version = "0.1.58"
 dependencies = [
  "bytes",
  "h3",
@@ -776,21 +795,26 @@ dependencies = [
 
 [[package]]
 name = "keli-client-core"
-version = "0.1.57"
+version = "0.1.58"
 dependencies = [
  "keli-protocol",
 ]
 
 [[package]]
 name = "keli-net-core"
-version = "0.1.57"
+version = "0.1.58"
 dependencies = [
+ "aes",
+ "aes-gcm",
  "base64",
  "bytes",
+ "crc32fast",
  "h3",
  "h3-quinn",
+ "hmac 0.12.1",
  "http",
  "keli-protocol",
+ "md-5 0.10.6",
  "quinn",
  "rand 0.8.6",
  "rcgen",
@@ -804,11 +828,11 @@ dependencies = [
 
 [[package]]
 name = "keli-platform"
-version = "0.1.57"
+version = "0.1.58"
 
 [[package]]
 name = "keli-protocol"
-version = "0.1.57"
+version = "0.1.58"
 dependencies = [
  "base64",
  "serde",
@@ -852,6 +876,16 @@ name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+
+[[package]]
+name = "md-5"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+dependencies = [
+ "cfg-if",
+ "digest 0.10.7",
+]
 
 [[package]]
 name = "md-5"
@@ -1387,7 +1421,7 @@ dependencies = [
  "cfg-if",
  "chacha20poly1305",
  "hkdf",
- "md-5",
+ "md-5 0.11.0",
  "rand 0.10.1",
  "sha1 0.11.0",
 ]
