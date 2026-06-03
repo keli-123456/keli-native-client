@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use aes::cipher::{BlockDecrypt, KeyInit};
 use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::{Aes128Gcm, Nonce as AesGcmNonce};
+use base64::Engine;
 use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChachaNonce, XChaCha20Poly1305, XNonce};
 use hmac::{Hmac, Mac};
 use keli_net_core::{
@@ -125,6 +126,110 @@ fn missing_outbound_tag_is_unsupported() {
         .expect_err("missing outbound should fail");
 
     assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
+}
+
+#[test]
+fn registry_from_socks5_profile_relays_over_remote_socks5_proxy() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind socks proxy");
+    let port = listener.local_addr().expect("socks addr").port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept socks proxy");
+        let mut hello = [0; 4];
+        stream.read_exact(&mut hello).expect("read socks greeting");
+        assert_eq!(hello, [0x05, 0x02, 0x00, 0x02]);
+        stream.write_all(&[0x05, 0x02]).expect("choose auth");
+
+        let mut auth = [0; 12];
+        stream.read_exact(&mut auth).expect("read socks auth");
+        assert_eq!(
+            auth,
+            [0x01, 0x04, b'u', b's', b'e', b'r', 0x05, b'p', b'a', b's', b's', b'1']
+        );
+        stream.write_all(&[0x01, 0x00]).expect("auth ok");
+
+        let mut request = [0; 18];
+        stream.read_exact(&mut request).expect("read socks connect");
+        assert_eq!(&request[..5], &[0x05, 0x01, 0x00, 0x03, 11]);
+        assert_eq!(&request[5..16], b"example.com");
+        assert_eq!(u16::from_be_bytes([request[16], request[17]]), 443);
+        stream
+            .write_all(&[0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0, 0])
+            .expect("connect ok");
+        stream.write_all(b"pong").expect("write payload");
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Socks,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Tcp,
+        security: SecurityKind::None,
+        credential: "user:pass1".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let mut stream = registry
+        .connect(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+        )
+        .expect("registered socks outbound should connect");
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).expect("read payload");
+
+    assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
+fn registry_from_http_profile_relays_over_connect_proxy() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind http proxy");
+    let port = listener.local_addr().expect("http addr").port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept http proxy");
+        let mut request = Vec::new();
+        let mut byte = [0; 1];
+        while !request.ends_with(b"\r\n\r\n") {
+            stream.read_exact(&mut byte).expect("read request");
+            request.push(byte[0]);
+        }
+        let request = String::from_utf8(request).expect("request utf8");
+        assert!(request.starts_with("CONNECT example.com:443 HTTP/1.1\r\n"));
+        assert!(request.contains("Host: example.com:443\r\n"));
+        assert!(request.contains(&format!(
+            "Proxy-Authorization: Basic {}\r\n",
+            base64::engine::general_purpose::STANDARD.encode("user:pass")
+        )));
+        stream
+            .write_all(b"HTTP/1.1 200 Connection established\r\n\r\npong")
+            .expect("write response");
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Http,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Tcp,
+        security: SecurityKind::None,
+        credential: "user:pass".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let mut stream = registry
+        .connect(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+        )
+        .expect("registered HTTP outbound should connect");
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).expect("read payload");
+
+    assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
 }
 
 #[test]

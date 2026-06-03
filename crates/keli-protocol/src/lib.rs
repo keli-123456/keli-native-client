@@ -43,6 +43,8 @@ pub enum ProxyProtocol {
     Shadowsocks,
     AnyTls,
     Tuic,
+    Socks,
+    Http,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,7 +116,9 @@ impl OutboundProfile {
         if self.endpoint.host.trim().is_empty() {
             return Err(ProtocolValidationError::MissingServer);
         }
-        if self.credential.trim().is_empty() {
+        if self.credential.trim().is_empty()
+            && !matches!(self.protocol, ProxyProtocol::Socks | ProxyProtocol::Http)
+        {
             return Err(ProtocolValidationError::MissingCredential {
                 protocol: self.protocol.clone(),
             });
@@ -267,6 +271,10 @@ impl OutboundProfile {
                 Err(ProtocolValidationError::MissingTls)
             }
             (ProxyProtocol::AnyTls, _, _) => Err(ProtocolValidationError::InvalidAnyTlsTransport),
+            (ProxyProtocol::Socks, TransportKind::Tcp, SecurityKind::None) => Ok(()),
+            (ProxyProtocol::Socks, _, _) => Err(ProtocolValidationError::InvalidSocksTransport),
+            (ProxyProtocol::Http, TransportKind::Tcp, SecurityKind::None) => Ok(()),
+            (ProxyProtocol::Http, _, _) => Err(ProtocolValidationError::InvalidHttpTransport),
         }
     }
 }
@@ -293,6 +301,8 @@ pub enum ProtocolValidationError {
     InvalidShadowsocksCipher,
     InvalidShadowsocksTransport,
     InvalidAnyTlsTransport,
+    InvalidSocksTransport,
+    InvalidHttpTransport,
 }
 
 impl fmt::Display for ProtocolValidationError {
@@ -336,6 +346,12 @@ impl fmt::Display for ProtocolValidationError {
                 write!(f, "Shadowsocks currently supports TCP without TLS")
             }
             Self::InvalidAnyTlsTransport => write!(f, "AnyTLS requires TCP transport with TLS"),
+            Self::InvalidSocksTransport => {
+                write!(f, "SOCKS outbound requires TCP transport without TLS")
+            }
+            Self::InvalidHttpTransport => {
+                write!(f, "HTTP outbound requires TCP transport without TLS")
+            }
         }
     }
 }
@@ -551,6 +567,8 @@ fn mihomo_proxy_to_profile(
         "ss" | "shadowsocks" => ProxyProtocol::Shadowsocks,
         "anytls" | "any-tls" => ProxyProtocol::AnyTls,
         "tuic" => ProxyProtocol::Tuic,
+        "socks" | "socks5" => ProxyProtocol::Socks,
+        "http" => ProxyProtocol::Http,
         other => return Err(skip(name, format!("unsupported protocol: {other}"))),
     };
     let credential = match protocol {
@@ -589,6 +607,9 @@ fn mihomo_proxy_to_profile(
                 .or_else(|| non_empty(proxy.token))
                 .ok_or_else(|| skip(name.clone(), "missing tuic password"))?;
             format!("{uuid}:{password}")
+        }
+        ProxyProtocol::Socks | ProxyProtocol::Http => {
+            proxy_credential(proxy.username, proxy.password)
         }
     };
     let cipher = matches!(protocol, ProxyProtocol::Shadowsocks | ProxyProtocol::Vmess)
@@ -779,6 +800,15 @@ fn non_empty(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn proxy_credential(username: Option<String>, password: Option<String>) -> String {
+    match (non_empty(username), non_empty(password)) {
+        (Some(username), Some(password)) => format!("{username}:{password}"),
+        (Some(username), None) => username,
+        (None, Some(password)) => format!(":{password}"),
+        (None, None) => String::new(),
+    }
+}
+
 fn default_quic_transport() -> TransportKind {
     TransportKind::Quic {
         security: None,
@@ -871,6 +901,8 @@ fn share_link_to_profile(
         "hy2" | "hysteria2" => ProxyProtocol::Hy2,
         "anytls" | "any-tls" => ProxyProtocol::AnyTls,
         "tuic" => ProxyProtocol::Tuic,
+        "socks" | "socks5" => ProxyProtocol::Socks,
+        "http" => ProxyProtocol::Http,
         other => return Err(skip(tag, format!("unsupported protocol: {other}"))),
     };
     let credential = match &protocol {
@@ -895,6 +927,10 @@ fn share_link_to_profile(
                 .ok_or_else(|| skip(tag.clone(), "missing mieru password"))?;
             format!("{username}:{password}")
         }
+        ProxyProtocol::Socks | ProxyProtocol::Http => proxy_credential(
+            Some(url.username().to_string()),
+            url.password().map(ToString::to_string),
+        ),
         _ => non_empty(Some(url.username().to_string()))
             .ok_or_else(|| skip(tag.clone(), "missing credential"))?,
     };
@@ -1112,7 +1148,12 @@ fn share_link_port(
                 .and_then(|value| first_port_in_range(value))
         });
     }
-    Some(url.port().unwrap_or(443))
+    let default_port = match protocol {
+        ProxyProtocol::Socks => 1080,
+        ProxyProtocol::Http => 80,
+        _ => 443,
+    };
+    Some(url.port().unwrap_or(default_port))
 }
 
 fn split_host_port(value: &str, default_port: u16) -> Option<(String, u16)> {

@@ -582,6 +582,58 @@ proxies:
 }
 
 #[test]
+fn parses_socks5_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: SOCKS5-Proxy
+    type: socks5
+    server: socks.example.com
+    port: 1080
+    username: user
+    password: pass
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "SOCKS5-Proxy");
+    assert_eq!(profile.protocol, ProxyProtocol::Socks);
+    assert_eq!(profile.endpoint, Endpoint::new("socks.example.com", 1080));
+    assert_eq!(profile.transport, TransportKind::Tcp);
+    assert_eq!(profile.security, SecurityKind::None);
+    assert_eq!(profile.credential, "user:pass");
+    profile.validate().expect("valid socks profile");
+}
+
+#[test]
+fn parses_http_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: HTTP-Proxy
+    type: http
+    server: http.example.com
+    port: 8080
+    username: user
+    password: pass
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "HTTP-Proxy");
+    assert_eq!(profile.protocol, ProxyProtocol::Http);
+    assert_eq!(profile.endpoint, Endpoint::new("http.example.com", 8080));
+    assert_eq!(profile.transport, TransportKind::Tcp);
+    assert_eq!(profile.security, SecurityKind::None);
+    assert_eq!(profile.credential, "user:pass");
+    profile.validate().expect("valid http profile");
+}
+
+#[test]
 fn parses_hy2_and_tuic_quic_proxies_without_dropping_supported_entries() {
     let yaml = r#"
 proxies:

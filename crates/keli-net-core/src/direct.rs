@@ -8,6 +8,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use aes::cipher::{BlockEncrypt, KeyInit as AesKeyInit};
 use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::{Aes128Gcm, Nonce as AesGcmNonce};
+use base64::Engine as _;
 use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChachaNonce};
 use hmac::{Hmac, Mac};
 use md5::{Digest as Md5Digest, Md5};
@@ -191,9 +192,63 @@ impl DirectUdpConnector {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Socks5TcpOutbound {
+    pub server: Endpoint,
+    pub credential: String,
+}
+
+impl Socks5TcpOutbound {
+    pub fn new(server: Endpoint, credential: impl Into<String>) -> Self {
+        Self {
+            server,
+            credential: credential.into(),
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let mut stream = DirectTcpConnector::connect(&server, timeout)?;
+        socks5_connect_proxy(&mut stream, target, &self.credential)?;
+        Ok(OutboundConnection::Tcp(stream))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpConnectOutbound {
+    pub server: Endpoint,
+    pub credential: String,
+}
+
+impl HttpConnectOutbound {
+    pub fn new(server: Endpoint, credential: impl Into<String>) -> Self {
+        Self {
+            server,
+            credential: credential.into(),
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let mut stream = DirectTcpConnector::connect(&server, timeout)?;
+        http_connect_proxy(&mut stream, target, &self.credential)?;
+        Ok(OutboundConnection::Tcp(stream))
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct OutboundRegistry {
     direct_tags: HashSet<String>,
+    socks5_tcp_tags: HashMap<String, Socks5TcpOutbound>,
+    http_connect_tags: HashMap<String, HttpConnectOutbound>,
     trojan_tcp_tags: HashMap<String, TrojanTcpOutbound>,
     trojan_tls_tcp_tags: HashMap<String, TrojanTlsTcpOutbound>,
     trojan_ws_tags: HashMap<String, TrojanWsOutbound>,
@@ -270,6 +325,14 @@ impl OutboundRegistry {
             flow,
         } = profile;
         match (protocol, transport, security) {
+            (ProxyProtocol::Socks, TransportKind::Tcp, SecurityKind::None) => {
+                self.add_socks5_tcp(tag, Socks5TcpOutbound::new(endpoint, credential));
+                Ok(())
+            }
+            (ProxyProtocol::Http, TransportKind::Tcp, SecurityKind::None) => {
+                self.add_http_connect(tag, HttpConnectOutbound::new(endpoint, credential));
+                Ok(())
+            }
             (ProxyProtocol::Trojan, TransportKind::Tcp, SecurityKind::None) => {
                 self.add_trojan_tcp(tag, TrojanTcpOutbound::new(endpoint, credential));
                 Ok(())
@@ -919,6 +982,14 @@ impl OutboundRegistry {
         self.direct_tags.insert(tag.into());
     }
 
+    pub fn add_socks5_tcp(&mut self, tag: impl Into<String>, outbound: Socks5TcpOutbound) {
+        self.socks5_tcp_tags.insert(tag.into(), outbound);
+    }
+
+    pub fn add_http_connect(&mut self, tag: impl Into<String>, outbound: HttpConnectOutbound) {
+        self.http_connect_tags.insert(tag.into(), outbound);
+    }
+
     pub fn add_trojan_tcp(&mut self, tag: impl Into<String>, outbound: TrojanTcpOutbound) {
         self.trojan_tcp_tags.insert(tag.into(), outbound);
     }
@@ -1124,6 +1195,10 @@ impl OutboundRegistry {
     ) -> io::Result<OutboundConnection> {
         if self.direct_tags.contains(tag) {
             DirectTcpConnector::connect(target, timeout).map(OutboundConnection::Tcp)
+        } else if let Some(outbound) = self.socks5_tcp_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.http_connect_tags.get(tag) {
+            outbound.connect(target, timeout)
         } else if let Some(outbound) = self.trojan_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.trojan_tls_tcp_tags.get(tag) {
@@ -2766,6 +2841,219 @@ fn hy2_bind_addr_for(server_addr: SocketAddr) -> SocketAddr {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
     } else {
         SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
+    }
+}
+
+fn socks5_connect_proxy(
+    stream: &mut TcpStream,
+    target: &OutboundTarget,
+    credential: &str,
+) -> io::Result<()> {
+    let credential = split_proxy_credential(credential);
+    if credential.is_some() {
+        stream.write_all(&[0x05, 0x02, 0x00, 0x02])?;
+    } else {
+        stream.write_all(&[0x05, 0x01, 0x00])?;
+    }
+    let mut method = [0; 2];
+    stream.read_exact(&mut method)?;
+    if method[0] != 0x05 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "SOCKS5 outbound proxy returned invalid version",
+        ));
+    }
+    match method[1] {
+        0x00 => {}
+        0x02 => {
+            let Some((username, password)) = credential else {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "SOCKS5 outbound proxy requested credentials",
+                ));
+            };
+            send_socks5_password_auth(stream, username, password)?;
+        }
+        0xff => {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "SOCKS5 outbound proxy rejected all auth methods",
+            ));
+        }
+        other => {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("SOCKS5 outbound proxy selected unsupported auth method {other}"),
+            ));
+        }
+    }
+
+    let mut request = vec![0x05, 0x01, 0x00];
+    append_socks5_target(&mut request, target)?;
+    stream.write_all(&request)?;
+    read_socks5_connect_response(stream)
+}
+
+fn send_socks5_password_auth(
+    stream: &mut TcpStream,
+    username: &str,
+    password: &str,
+) -> io::Result<()> {
+    if username.len() > u8::MAX as usize || password.len() > u8::MAX as usize {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "SOCKS5 username/password is too long",
+        ));
+    }
+    let mut request = Vec::with_capacity(3 + username.len() + password.len());
+    request.push(0x01);
+    request.push(username.len() as u8);
+    request.extend_from_slice(username.as_bytes());
+    request.push(password.len() as u8);
+    request.extend_from_slice(password.as_bytes());
+    stream.write_all(&request)?;
+    let mut response = [0; 2];
+    stream.read_exact(&mut response)?;
+    if response == [0x01, 0x00] {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "SOCKS5 username/password authentication failed",
+        ))
+    }
+}
+
+fn append_socks5_target(request: &mut Vec<u8>, target: &OutboundTarget) -> io::Result<()> {
+    let host = target.host.trim().trim_matches(['[', ']']);
+    if let Ok(ip) = host.parse::<Ipv4Addr>() {
+        request.push(0x01);
+        request.extend_from_slice(&ip.octets());
+    } else if let Ok(ip) = host.parse::<Ipv6Addr>() {
+        request.push(0x04);
+        request.extend_from_slice(&ip.octets());
+    } else {
+        let host = target.host.as_bytes();
+        if host.is_empty() || host.len() > u8::MAX as usize {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "SOCKS5 target domain length is invalid",
+            ));
+        }
+        request.push(0x03);
+        request.push(host.len() as u8);
+        request.extend_from_slice(host);
+    }
+    request.extend_from_slice(&target.port.to_be_bytes());
+    Ok(())
+}
+
+fn read_socks5_connect_response(stream: &mut TcpStream) -> io::Result<()> {
+    let mut response = [0; 4];
+    stream.read_exact(&mut response)?;
+    if response[0] != 0x05 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "SOCKS5 outbound proxy returned invalid connect response version",
+        ));
+    }
+    if response[1] != 0x00 {
+        return Err(io::Error::new(
+            io::ErrorKind::ConnectionRefused,
+            format!("SOCKS5 outbound connect failed with status {}", response[1]),
+        ));
+    }
+    let skip = match response[3] {
+        0x01 => 4,
+        0x03 => {
+            let mut len = [0; 1];
+            stream.read_exact(&mut len)?;
+            len[0] as usize
+        }
+        0x04 => 16,
+        atyp => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("SOCKS5 outbound proxy returned unsupported bound address type {atyp}"),
+            ));
+        }
+    };
+    let mut bound = vec![0; skip + 2];
+    stream.read_exact(&mut bound)?;
+    Ok(())
+}
+
+fn http_connect_proxy(
+    stream: &mut TcpStream,
+    target: &OutboundTarget,
+    credential: &str,
+) -> io::Result<()> {
+    let authority = proxy_target_authority(target);
+    let mut request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n");
+    let credential = credential.trim();
+    if !credential.is_empty() {
+        let auth = base64::engine::general_purpose::STANDARD.encode(credential);
+        request.push_str(&format!("Proxy-Authorization: Basic {auth}\r\n"));
+    }
+    request.push_str("\r\n");
+    stream.write_all(request.as_bytes())?;
+    let response = read_http_connect_response(stream)?;
+    let status = response
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|status| status.parse::<u16>().ok())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "HTTP outbound proxy returned invalid response",
+            )
+        })?;
+    if (200..300).contains(&status) {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::ConnectionRefused,
+            format!("HTTP outbound CONNECT failed with status {status}"),
+        ))
+    }
+}
+
+fn read_http_connect_response(stream: &mut TcpStream) -> io::Result<String> {
+    let mut buffer = Vec::with_capacity(512);
+    let mut byte = [0; 1];
+    while buffer.len() < 8192 {
+        stream.read_exact(&mut byte)?;
+        buffer.push(byte[0]);
+        if buffer.ends_with(b"\r\n\r\n") {
+            return String::from_utf8(buffer).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "HTTP outbound response is not UTF-8",
+                )
+            });
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "HTTP outbound response headers are too large",
+    ))
+}
+
+fn split_proxy_credential(credential: &str) -> Option<(&str, &str)> {
+    let credential = credential.trim();
+    if credential.is_empty() {
+        return None;
+    }
+    Some(credential.split_once(':').unwrap_or((credential, "")))
+}
+
+fn proxy_target_authority(target: &OutboundTarget) -> String {
+    let host = target.host.trim().trim_matches(['[', ']']);
+    if host.parse::<Ipv6Addr>().is_ok() {
+        format!("[{host}]:{}", target.port)
+    } else {
+        format!("{host}:{}", target.port)
     }
 }
 

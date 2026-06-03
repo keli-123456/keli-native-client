@@ -376,6 +376,42 @@ fn parses_anytls_share_link() {
 }
 
 #[test]
+fn parses_socks5_share_link() {
+    let links = "socks://user:pass@example.com:1080#socks";
+
+    let parsed = parse_share_outbound_profiles(links).expect("parse share links");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "socks");
+    assert_eq!(profile.protocol, ProxyProtocol::Socks);
+    assert_eq!(profile.endpoint, Endpoint::new("example.com", 1080));
+    assert_eq!(profile.transport, TransportKind::Tcp);
+    assert_eq!(profile.security, SecurityKind::None);
+    assert_eq!(profile.credential, "user:pass");
+    profile.validate().expect("valid socks profile");
+}
+
+#[test]
+fn parses_http_share_link() {
+    let links = "http://user:pass@example.com:8080#http";
+
+    let parsed = parse_share_outbound_profiles(links).expect("parse share links");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "http");
+    assert_eq!(profile.protocol, ProxyProtocol::Http);
+    assert_eq!(profile.endpoint, Endpoint::new("example.com", 8080));
+    assert_eq!(profile.transport, TransportKind::Tcp);
+    assert_eq!(profile.security, SecurityKind::None);
+    assert_eq!(profile.credential, "user:pass");
+    profile.validate().expect("valid http profile");
+}
+
+#[test]
 fn parses_hy2_and_tuic_share_links() {
     let links = "\
 hysteria2://secret@hy2.example.com:443/?insecure=1&sni=sni.example.com#hy2
