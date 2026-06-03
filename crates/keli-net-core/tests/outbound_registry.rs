@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use aes::cipher::{BlockDecrypt, KeyInit};
 use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::{Aes128Gcm, Nonce as AesGcmNonce};
-use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChachaNonce, XChaCha20Poly1305, XNonce};
 use hmac::{Hmac, Mac};
 use keli_net_core::{
     websocket_accept_for_key, OutboundProfileError, OutboundRegistry, OutboundTarget,
@@ -35,6 +35,7 @@ const VMESS_CMD_KEY_SALT: &[u8] = b"c48619fe-8f02-49e0-b9e9-edf763e17e21";
 const VMESS_OPTION_CHUNK_STREAM: u8 = 0x01;
 const VMESS_OPTION_CHUNK_MASKING: u8 = 0x04;
 const VMESS_SECURITY_AES_128_GCM: u8 = 0x03;
+const VMESS_SECURITY_CHACHA20_POLY1305: u8 = 0x04;
 const VMESS_SECURITY_NONE: u8 = 0x05;
 const MIERU_NONCE_LEN: usize = 24;
 const MIERU_METADATA_LEN: usize = 32;
@@ -584,6 +585,55 @@ fn registry_from_vmess_auto_cipher_profile_relays_over_aes_gcm_chunks() {
 }
 
 #[test]
+fn registry_from_vmess_chacha20_poly1305_profile_relays_over_chacha_chunks() {
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind vmess server");
+    let port = listener.local_addr().expect("vmess addr").port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept vmess server");
+        let request = read_vmess_aead_request(&mut stream, uuid);
+        assert_eq!(request.target_host, "example.com");
+        assert_eq!(request.target_port, 443);
+        assert_eq!(request.command, 0x01);
+        assert_eq!(
+            request.option,
+            VMESS_OPTION_CHUNK_STREAM | VMESS_OPTION_CHUNK_MASKING
+        );
+        assert_eq!(request.security, VMESS_SECURITY_CHACHA20_POLY1305);
+
+        write_vmess_aead_response_header(&mut stream, &request);
+        let payload = read_vmess_chacha20_poly1305_chunk_for_test(&mut stream, &request);
+        assert_eq!(&payload, b"ping");
+        write_vmess_chacha20_poly1305_response_chunk_for_test(&mut stream, &request, b"pong");
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Vmess,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Tcp,
+        security: SecurityKind::None,
+        credential: uuid.to_string(),
+        cipher: Some("chacha20-poly1305".to_string()),
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let mut stream = registry
+        .connect(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+        )
+        .expect("registered vmess outbound should connect");
+    stream.write_all(b"ping").expect("write payload");
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).expect("read payload");
+
+    assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn registry_from_mieru_tcp_profile_relays_over_mieru_tcp() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind mieru server");
     let port = listener.local_addr().expect("mieru addr").port();
@@ -1056,6 +1106,58 @@ fn write_vmess_aes128_gcm_response_chunk_for_test(
         .expect("write vmess encrypted chunk");
 }
 
+fn read_vmess_chacha20_poly1305_chunk_for_test(
+    stream: &mut impl Read,
+    request: &VmessRequestForTest,
+) -> Vec<u8> {
+    let mut encrypted_len = [0; 2];
+    stream
+        .read_exact(&mut encrypted_len)
+        .expect("read vmess masked chunk length");
+    let mask = vmess_chunk_mask_for_test(&request.request_body_iv);
+    let len = u16::from_be_bytes(encrypted_len) ^ mask;
+    let mut encrypted_payload = vec![0; usize::from(len)];
+    stream
+        .read_exact(&mut encrypted_payload)
+        .expect("read vmess encrypted chunk");
+    let key = vmess_chacha20_poly1305_key_for_test(&request.request_body_key);
+    let nonce = vmess_body_nonce_for_test(&request.request_body_iv, 0);
+    vmess_chacha20_poly1305_open_for_test(&key, &nonce, &encrypted_payload)
+}
+
+fn write_vmess_chacha20_poly1305_response_chunk_for_test(
+    stream: &mut impl Write,
+    request: &VmessRequestForTest,
+    payload: &[u8],
+) {
+    let response_key = first_16_sha256_for_test(&request.request_body_key);
+    let response_iv = first_16_sha256_for_test(&request.request_body_iv);
+    let key = vmess_chacha20_poly1305_key_for_test(&response_key);
+    let nonce = vmess_body_nonce_for_test(&response_iv, 0);
+    let encrypted_payload = vmess_chacha20_poly1305_seal_for_test(&key, &nonce, payload);
+    let masked_len = (encrypted_payload.len() as u16) ^ vmess_chunk_mask_for_test(&response_iv);
+    stream
+        .write_all(&masked_len.to_be_bytes())
+        .expect("write vmess masked chunk length");
+    stream
+        .write_all(&encrypted_payload)
+        .expect("write vmess encrypted chunk");
+}
+
+fn vmess_chacha20_poly1305_key_for_test(input: &[u8; 16]) -> [u8; 32] {
+    let mut key = [0; 32];
+    let mut hasher = Md5::new();
+    Md5Digest::update(&mut hasher, input);
+    let first = hasher.finalize();
+    key[..16].copy_from_slice(&first);
+
+    let mut hasher = Md5::new();
+    Md5Digest::update(&mut hasher, &key[..16]);
+    let second = hasher.finalize();
+    key[16..].copy_from_slice(&second);
+    key
+}
+
 fn vmess_chunk_mask_for_test(nonce: &[u8; 16]) -> u16 {
     let mut shake = Shake128::default();
     Update::update(&mut shake, nonce);
@@ -1187,6 +1289,40 @@ fn vmess_aes_gcm_seal_for_test(
     cipher
         .encrypt(AesGcmNonce::from_slice(nonce), Payload { msg: input, aad })
         .expect("seal vmess aes-gcm")
+}
+
+fn vmess_chacha20_poly1305_open_for_test(
+    key: &[u8; 32],
+    nonce: &[u8; 12],
+    input: &[u8],
+) -> Vec<u8> {
+    let cipher = ChaCha20Poly1305::new_from_slice(key).expect("chacha key");
+    cipher
+        .decrypt(
+            ChachaNonce::from_slice(nonce),
+            Payload {
+                msg: input,
+                aad: &[],
+            },
+        )
+        .expect("open vmess chacha20-poly1305")
+}
+
+fn vmess_chacha20_poly1305_seal_for_test(
+    key: &[u8; 32],
+    nonce: &[u8; 12],
+    input: &[u8],
+) -> Vec<u8> {
+    let cipher = ChaCha20Poly1305::new_from_slice(key).expect("chacha key");
+    cipher
+        .encrypt(
+            ChachaNonce::from_slice(nonce),
+            Payload {
+                msg: input,
+                aad: &[],
+            },
+        )
+        .expect("seal vmess chacha20-poly1305")
 }
 
 #[test]

@@ -8,6 +8,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use aes::cipher::{BlockEncrypt, KeyInit as AesKeyInit};
 use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::{Aes128Gcm, Nonce as AesGcmNonce};
+use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChachaNonce};
 use hmac::{Hmac, Mac};
 use md5::{Digest as Md5Digest, Md5};
 use rand::RngCore;
@@ -37,6 +38,7 @@ const VMESS_ATYP_IPV6: u8 = 0x03;
 const VMESS_OPTION_CHUNK_STREAM: u8 = 0x01;
 const VMESS_OPTION_CHUNK_MASKING: u8 = 0x04;
 const VMESS_SECURITY_AES_128_GCM: u8 = 0x03;
+const VMESS_SECURITY_CHACHA20_POLY1305: u8 = 0x04;
 const VMESS_SECURITY_NONE: u8 = 0x05;
 const VMESS_WRITE_CHUNK_SIZE: usize = 15_000;
 const VMESS_KDF_ROOT: &[u8] = b"VMess AEAD KDF";
@@ -2159,6 +2161,7 @@ fn read_vless_response_header_from_stream(stream: &mut impl Read) -> io::Result<
 pub enum VmessBodySecurity {
     None,
     Aes128Gcm,
+    Chacha20Poly1305,
 }
 
 fn vmess_security_from_profile_cipher(
@@ -2168,6 +2171,7 @@ fn vmess_security_from_profile_cipher(
     let cipher = cipher.unwrap_or("auto").trim().to_ascii_lowercase();
     match cipher.as_str() {
         "" | "auto" | "aes-128-gcm" => Ok(VmessBodySecurity::Aes128Gcm),
+        "chacha20-poly1305" => Ok(VmessBodySecurity::Chacha20Poly1305),
         "none" | "zero" => Ok(VmessBodySecurity::None),
         _ => Err(OutboundProfileError::UnsupportedVmessCipher {
             tag: tag.to_string(),
@@ -2213,9 +2217,11 @@ impl VmessTcpOutbound {
         read_vmess_response_header_from_stream(&mut stream, &request)?;
         match self.security {
             VmessBodySecurity::None => Ok(OutboundConnection::Tcp(stream)),
-            VmessBodySecurity::Aes128Gcm => Ok(OutboundConnection::Owned(Box::new(
-                VmessAes128GcmStream::new(stream, request),
-            ))),
+            _ => Ok(OutboundConnection::Owned(Box::new(VmessAeadStream::new(
+                stream,
+                request,
+                self.security,
+            )))),
         }
     }
 }
@@ -2320,9 +2326,11 @@ impl VmessWsOutbound {
         read_vmess_response_header_from_stream(&mut stream, &request)?;
         match self.security {
             VmessBodySecurity::None => Ok(OutboundConnection::WebSocket(stream)),
-            VmessBodySecurity::Aes128Gcm => Ok(OutboundConnection::Owned(Box::new(
-                VmessAes128GcmStream::new(stream, request),
-            ))),
+            _ => Ok(OutboundConnection::Owned(Box::new(VmessAeadStream::new(
+                stream,
+                request,
+                self.security,
+            )))),
         }
     }
 }
@@ -2447,7 +2455,9 @@ fn write_vmess_tcp_request_header(
 fn vmess_request_option(security: VmessBodySecurity) -> u8 {
     match security {
         VmessBodySecurity::None => 0x00,
-        VmessBodySecurity::Aes128Gcm => VMESS_OPTION_CHUNK_STREAM | VMESS_OPTION_CHUNK_MASKING,
+        VmessBodySecurity::Aes128Gcm | VmessBodySecurity::Chacha20Poly1305 => {
+            VMESS_OPTION_CHUNK_STREAM | VMESS_OPTION_CHUNK_MASKING
+        }
     }
 }
 
@@ -2455,6 +2465,7 @@ fn vmess_request_security(security: VmessBodySecurity) -> u8 {
     match security {
         VmessBodySecurity::None => VMESS_SECURITY_NONE,
         VmessBodySecurity::Aes128Gcm => VMESS_SECURITY_AES_128_GCM,
+        VmessBodySecurity::Chacha20Poly1305 => VMESS_SECURITY_CHACHA20_POLY1305,
     }
 }
 
@@ -2468,14 +2479,15 @@ where
 {
     match security {
         VmessBodySecurity::None => Ok(OutboundConnection::Owned(Box::new(stream))),
-        VmessBodySecurity::Aes128Gcm => Ok(OutboundConnection::Owned(Box::new(
-            VmessAes128GcmStream::new(stream, request),
-        ))),
+        _ => Ok(OutboundConnection::Owned(Box::new(VmessAeadStream::new(
+            stream, request, security,
+        )))),
     }
 }
 
-struct VmessAes128GcmStream<S> {
+struct VmessAeadStream<S> {
     inner: S,
+    security: VmessBodySecurity,
     read_key: [u8; 16],
     read_iv: [u8; 16],
     read_counter: u16,
@@ -2488,10 +2500,11 @@ struct VmessAes128GcmStream<S> {
     write_mask: Shake128Reader,
 }
 
-impl<S> VmessAes128GcmStream<S> {
-    fn new(inner: S, request: VmessClientRequest) -> Self {
+impl<S> VmessAeadStream<S> {
+    fn new(inner: S, request: VmessClientRequest, security: VmessBodySecurity) -> Self {
         Self {
             inner,
+            security,
             read_key: request.response_body_key,
             read_iv: request.response_body_iv,
             read_counter: 0,
@@ -2506,7 +2519,7 @@ impl<S> VmessAes128GcmStream<S> {
     }
 }
 
-impl<S: Read> Read for VmessAes128GcmStream<S> {
+impl<S: Read> Read for VmessAeadStream<S> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if buffer.is_empty() {
             return Ok(0);
@@ -2522,7 +2535,7 @@ impl<S: Read> Read for VmessAes128GcmStream<S> {
     }
 }
 
-impl<S: Read> VmessAes128GcmStream<S> {
+impl<S: Read> VmessAeadStream<S> {
     fn read_next_chunk(&mut self) -> io::Result<bool> {
         let mut length_bytes = [0; 2];
         if !read_exact_or_clean_eof(&mut self.inner, &mut length_bytes)? {
@@ -2534,13 +2547,14 @@ impl<S: Read> VmessAes128GcmStream<S> {
         self.inner.read_exact(&mut encrypted_payload)?;
         let nonce = vmess_body_nonce(&self.read_iv, self.read_counter);
         self.read_counter = self.read_counter.wrapping_add(1);
-        self.read_buffer = vmess_aes_gcm_open(&self.read_key, &nonce, &encrypted_payload, &[])?;
+        self.read_buffer =
+            vmess_body_open(self.security, &self.read_key, &nonce, &encrypted_payload)?;
         self.read_offset = 0;
         Ok(!self.read_buffer.is_empty())
     }
 }
 
-impl<S: Write> Write for VmessAes128GcmStream<S> {
+impl<S: Write> Write for VmessAeadStream<S> {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         if buffer.is_empty() {
             return Ok(0);
@@ -2548,7 +2562,7 @@ impl<S: Write> Write for VmessAes128GcmStream<S> {
         for chunk in buffer.chunks(VMESS_WRITE_CHUNK_SIZE) {
             let nonce = vmess_body_nonce(&self.write_iv, self.write_counter);
             self.write_counter = self.write_counter.wrapping_add(1);
-            let encrypted_payload = vmess_aes_gcm_seal(&self.write_key, &nonce, chunk, &[])?;
+            let encrypted_payload = vmess_body_seal(self.security, &self.write_key, &nonce, chunk)?;
             let encrypted_len = u16::try_from(encrypted_payload.len()).map_err(|_| {
                 io::Error::new(io::ErrorKind::InvalidInput, "vmess chunk is too large")
             })?;
@@ -2564,7 +2578,7 @@ impl<S: Write> Write for VmessAes128GcmStream<S> {
     }
 }
 
-impl<S: OwnedRelayStream> OwnedRelayStream for VmessAes128GcmStream<S> {
+impl<S: OwnedRelayStream> OwnedRelayStream for VmessAeadStream<S> {
     fn set_nonblocking_mode(&mut self, nonblocking: bool) -> io::Result<()> {
         self.inner.set_nonblocking_mode(nonblocking)
     }
@@ -2807,6 +2821,107 @@ fn vmess_aes_gcm_open(
     cipher
         .decrypt(AesGcmNonce::from_slice(nonce), Payload { msg: input, aad })
         .map_err(|_| io::Error::new(io::ErrorKind::PermissionDenied, "vmess aes-gcm open failed"))
+}
+
+fn vmess_body_seal(
+    security: VmessBodySecurity,
+    key: &[u8; 16],
+    nonce: &[u8; 12],
+    input: &[u8],
+) -> io::Result<Vec<u8>> {
+    match security {
+        VmessBodySecurity::Aes128Gcm => vmess_aes_gcm_seal(key, nonce, input, &[]),
+        VmessBodySecurity::Chacha20Poly1305 => {
+            let key = vmess_chacha20_poly1305_key(key);
+            vmess_chacha20_poly1305_seal(&key, nonce, input)
+        }
+        VmessBodySecurity::None => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "vmess none security does not use AEAD body chunks",
+        )),
+    }
+}
+
+fn vmess_body_open(
+    security: VmessBodySecurity,
+    key: &[u8; 16],
+    nonce: &[u8; 12],
+    input: &[u8],
+) -> io::Result<Vec<u8>> {
+    match security {
+        VmessBodySecurity::Aes128Gcm => vmess_aes_gcm_open(key, nonce, input, &[]),
+        VmessBodySecurity::Chacha20Poly1305 => {
+            let key = vmess_chacha20_poly1305_key(key);
+            vmess_chacha20_poly1305_open(&key, nonce, input)
+        }
+        VmessBodySecurity::None => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "vmess none security does not use AEAD body chunks",
+        )),
+    }
+}
+
+fn vmess_chacha20_poly1305_key(input: &[u8; 16]) -> [u8; 32] {
+    let mut output = [0; 32];
+    let mut hasher = Md5::new();
+    Md5Digest::update(&mut hasher, input);
+    let first = hasher.finalize();
+    output[..16].copy_from_slice(&first);
+
+    let mut hasher = Md5::new();
+    Md5Digest::update(&mut hasher, &output[..16]);
+    let second = hasher.finalize();
+    output[16..].copy_from_slice(&second);
+    output
+}
+
+fn vmess_chacha20_poly1305_seal(
+    key: &[u8; 32],
+    nonce: &[u8; 12],
+    input: &[u8],
+) -> io::Result<Vec<u8>> {
+    let cipher = ChaCha20Poly1305::new_from_slice(key).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid vmess chacha20-poly1305 key",
+        )
+    })?;
+    cipher
+        .encrypt(
+            ChachaNonce::from_slice(nonce),
+            Payload {
+                msg: input,
+                aad: &[],
+            },
+        )
+        .map_err(|_| io::Error::other("vmess chacha20-poly1305 seal failed"))
+}
+
+fn vmess_chacha20_poly1305_open(
+    key: &[u8; 32],
+    nonce: &[u8; 12],
+    input: &[u8],
+) -> io::Result<Vec<u8>> {
+    let cipher = ChaCha20Poly1305::new_from_slice(key).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid vmess chacha20-poly1305 key",
+        )
+    })?;
+    cipher
+        .decrypt(
+            ChachaNonce::from_slice(nonce),
+            Payload {
+                msg: input,
+                aad: &[],
+            },
+        )
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "vmess chacha20-poly1305 open failed",
+            )
+        })
 }
 
 fn first_16_sha256(input: &[u8; 16]) -> [u8; 16] {
