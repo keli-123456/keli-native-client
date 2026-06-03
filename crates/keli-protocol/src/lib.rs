@@ -23,6 +23,13 @@ const SHADOWSOCKS_ATYP_IPV4: u8 = 0x01;
 const SHADOWSOCKS_ATYP_DOMAIN: u8 = 0x03;
 const SHADOWSOCKS_ATYP_IPV6: u8 = 0x04;
 const TUIC_RUNTIME_MISSING: &str = "TUIC outbound runtime requires QUIC and is not implemented yet";
+const TUIC_VERSION: u8 = 0x05;
+const TUIC_COMMAND_AUTHENTICATE: u8 = 0x00;
+const TUIC_COMMAND_CONNECT: u8 = 0x01;
+const TUIC_COMMAND_HEARTBEAT: u8 = 0x04;
+const TUIC_ATYP_DOMAIN: u8 = 0x00;
+const TUIC_ATYP_IPV4: u8 = 0x01;
+const TUIC_ATYP_IPV6: u8 = 0x02;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyProtocol {
@@ -844,6 +851,31 @@ pub fn encode_hy2_tcp_request(
     Ok(request)
 }
 
+pub fn encode_tuic_authenticate_command(
+    uuid: &str,
+    token: &[u8; 32],
+) -> Result<Vec<u8>, ProtocolEncodingError> {
+    let uuid = parse_uuid_bytes(uuid)?;
+    let mut command = Vec::with_capacity(50);
+    command.push(TUIC_VERSION);
+    command.push(TUIC_COMMAND_AUTHENTICATE);
+    command.extend_from_slice(&uuid);
+    command.extend_from_slice(token);
+    Ok(command)
+}
+
+pub fn encode_tuic_connect_command(target: &Endpoint) -> Result<Vec<u8>, ProtocolEncodingError> {
+    let mut command = Vec::with_capacity(8 + target.host.len());
+    command.push(TUIC_VERSION);
+    command.push(TUIC_COMMAND_CONNECT);
+    encode_tuic_target(&mut command, target)?;
+    Ok(command)
+}
+
+pub fn encode_tuic_heartbeat_command() -> [u8; 2] {
+    [TUIC_VERSION, TUIC_COMMAND_HEARTBEAT]
+}
+
 pub fn decode_hy2_tcp_response(
     input: &[u8],
 ) -> Result<(Hy2TcpResponse, usize), ProtocolDecodingError> {
@@ -1004,6 +1036,33 @@ fn encode_shadowsocks_target(
     Ok(())
 }
 
+fn encode_tuic_target(
+    output: &mut Vec<u8>,
+    target: &Endpoint,
+) -> Result<(), ProtocolEncodingError> {
+    let host = target.host.trim().trim_matches(['[', ']']);
+    if let Ok(ip) = host.parse::<Ipv4Addr>() {
+        output.push(TUIC_ATYP_IPV4);
+        output.extend_from_slice(&ip.octets());
+        output.extend_from_slice(&target.port.to_be_bytes());
+        return Ok(());
+    }
+    if let Ok(ip) = host.parse::<Ipv6Addr>() {
+        output.push(TUIC_ATYP_IPV6);
+        output.extend_from_slice(&ip.octets());
+        output.extend_from_slice(&target.port.to_be_bytes());
+        return Ok(());
+    }
+    if host.is_empty() || host.len() > u8::MAX as usize {
+        return Err(ProtocolEncodingError::InvalidTargetHost);
+    }
+    output.push(TUIC_ATYP_DOMAIN);
+    output.push(host.len() as u8);
+    output.extend_from_slice(host.as_bytes());
+    output.extend_from_slice(&target.port.to_be_bytes());
+    Ok(())
+}
+
 fn hex_nibble(byte: u8) -> Result<u8, ProtocolEncodingError> {
     match byte {
         b'0'..=b'9' => Ok(byte - b'0'),
@@ -1123,6 +1182,58 @@ mod tests {
             profile.validate(),
             Err(ProtocolValidationError::InvalidHy2Transport)
         );
+    }
+
+    #[test]
+    fn encodes_tuic_authenticate_command() {
+        let token = [0x11; 32];
+        let command =
+            encode_tuic_authenticate_command("00112233-4455-6677-8899-aabbccddeeff", &token)
+                .expect("tuic authenticate command");
+
+        assert_eq!(command.len(), 50);
+        assert_eq!(command[0], 0x05);
+        assert_eq!(command[1], 0x00);
+        assert_eq!(
+            &command[2..18],
+            &[
+                0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd,
+                0xee, 0xff,
+            ]
+        );
+        assert_eq!(&command[18..], token);
+    }
+
+    #[test]
+    fn encodes_tuic_connect_command_for_domain_target() {
+        let command = encode_tuic_connect_command(&Endpoint::new("example.com", 443))
+            .expect("tuic connect command");
+
+        assert_eq!(
+            command,
+            [
+                0x05, 0x01, 0x00, 0x0b, b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.', b'c', b'o',
+                b'm', 0x01, 0xbb,
+            ]
+        );
+    }
+
+    #[test]
+    fn encodes_tuic_connect_command_for_ip_targets() {
+        let ipv4 = encode_tuic_connect_command(&Endpoint::new("127.0.0.1", 8080))
+            .expect("tuic ipv4 command");
+        assert_eq!(ipv4, [0x05, 0x01, 0x01, 127, 0, 0, 1, 0x1f, 0x90]);
+
+        let ipv6 =
+            encode_tuic_connect_command(&Endpoint::new("[::1]", 443)).expect("tuic ipv6 command");
+        assert_eq!(ipv6[0..3], [0x05, 0x01, 0x02]);
+        assert_eq!(&ipv6[3..19], &Ipv6Addr::LOCALHOST.octets());
+        assert_eq!(ipv6[19..21], [0x01, 0xbb]);
+    }
+
+    #[test]
+    fn encodes_tuic_heartbeat_command() {
+        assert_eq!(encode_tuic_heartbeat_command(), [0x05, 0x04]);
     }
 
     #[test]
