@@ -80,6 +80,29 @@ impl SessionState {
     pub fn fail(&mut self, error: ClientErrorKind) {
         self.transition(ConnectionPhase::Failed(error));
     }
+
+    pub fn prepare_connection_plan(
+        &mut self,
+        config_text: &str,
+        preferred_outbound: Option<&str>,
+        listen: impl Into<String>,
+    ) -> Result<ConnectionPlan, ClientErrorKind> {
+        match build_connection_plan(config_text, preferred_outbound, listen) {
+            Ok(plan) => {
+                self.events.push(ConnectionEvent {
+                    phase: self.phase.clone(),
+                    target: Some(plan.selected_outbound.clone()),
+                    note: Some("connection plan ready".to_string()),
+                    at: SystemTime::now(),
+                });
+                Ok(plan)
+            }
+            Err(error) => {
+                self.fail(error.clone());
+                Err(error)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -322,5 +345,58 @@ proxies:
                 .expect_err("unknown outbound"),
             ClientErrorKind::ConfigInvalid("outbound tag not found: MISSING".to_string())
         );
+    }
+
+    #[test]
+    fn session_prepare_connection_plan_records_selected_outbound() {
+        let config = r#"
+proxies:
+  - name: SS-READY
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+"#;
+        let mut session = SessionState::default();
+
+        let plan = session
+            .prepare_connection_plan(config, Some("SS-READY"), "127.0.0.1:7890")
+            .expect("prepare plan");
+
+        assert_eq!(plan.selected_outbound(), "SS-READY");
+        assert_eq!(session.phase(), &ConnectionPhase::Idle);
+        assert_eq!(
+            session.events().last().expect("event").target.as_deref(),
+            Some("SS-READY")
+        );
+        assert_eq!(
+            session.events().last().expect("event").note.as_deref(),
+            Some("connection plan ready")
+        );
+    }
+
+    #[test]
+    fn session_prepare_connection_plan_records_config_failure() {
+        let config = r#"
+proxies:
+  - name: SS-READY
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+"#;
+        let mut session = SessionState::default();
+
+        let error = session
+            .prepare_connection_plan(config, Some("MISSING"), "127.0.0.1:7890")
+            .expect_err("prepare should fail");
+
+        assert_eq!(
+            error,
+            ClientErrorKind::ConfigInvalid("outbound tag not found: MISSING".to_string())
+        );
+        assert_eq!(session.phase(), &ConnectionPhase::Failed(error));
     }
 }
