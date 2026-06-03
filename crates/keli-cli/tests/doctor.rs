@@ -8,4 +8,5 @@ fn doctor_report_lists_supported_outbounds() {
     assert!(output.contains(
         "supported_outbounds=direct,trojan-tcp,trojan-ws,vless-tcp,vless-ws,shadowsocks-tcp,anytls-tls-tcp,hy2-quic,tuic-quic"
     ));
+    assert!(output.contains("supported_udp_outbounds=direct,hy2-quic,tuic-quic"));
 }

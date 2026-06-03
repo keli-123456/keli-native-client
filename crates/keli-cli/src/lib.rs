@@ -24,6 +24,7 @@ const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 const UDP_RELAY_POLL_INTERVAL: Duration = Duration::from_millis(200);
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,trojan-tcp,trojan-ws,vless-tcp,vless-ws,shadowsocks-tcp,anytls-tls-tcp,hy2-quic,tuic-quic";
+const SUPPORTED_UDP_OUTBOUNDS: &str = "direct,hy2-quic,tuic-quic";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
@@ -233,6 +234,7 @@ pub fn write_doctor_report(mut writer: impl Write) -> io::Result<()> {
     writeln!(writer, "route_default={route_engine:?}")?;
     writeln!(writer, "dns_engine=system_resolver cache_ttl=60s")?;
     writeln!(writer, "supported_outbounds={SUPPORTED_OUTBOUNDS}")?;
+    writeln!(writer, "supported_udp_outbounds={SUPPORTED_UDP_OUTBOUNDS}")?;
     writeln!(
         writer,
         "sample_profile_valid={}",
