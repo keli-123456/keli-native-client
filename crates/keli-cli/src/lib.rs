@@ -1,16 +1,17 @@
 use std::fs;
 use std::io::{self, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::time::{Duration, Instant};
 
 use keli_client_core::ConnectionPhase;
 use keli_net_core::{
-    http_connect_bad_request_response, http_connect_success_response,
+    encode_socks5_udp_datagram, http_connect_bad_request_response, http_connect_success_response,
     http_proxy_bad_request_response, parse_http_connect_request, parse_http_proxy_request,
-    parse_socks5_handshake, parse_socks5_request, relay_owned_bidirectional_with_options,
-    socks5_no_auth_response, socks5_reply, ConnectionErrorKind, ConnectionReport,
-    DirectTcpConnector, LocalInbound, OutboundConnection, OutboundRegistry, OutboundTarget,
-    RelayOptions, RouteAction, RouteEngine, Socks5Command, Socks5ReplyCode,
+    parse_socks5_handshake, parse_socks5_request, parse_socks5_udp_datagram,
+    relay_owned_bidirectional_with_options, socks5_no_auth_response, socks5_reply,
+    ConnectionErrorKind, ConnectionReport, DirectTcpConnector, LocalInbound, OutboundConnection,
+    OutboundRegistry, OutboundTarget, RelayOptions, RouteAction, RouteEngine, Socks5Address,
+    Socks5Command, Socks5ReplyCode,
 };
 use keli_platform::PlatformCapabilities;
 use keli_protocol::{
@@ -281,9 +282,7 @@ pub fn handle_socks5_connection_with_routes(
     match request.command {
         Socks5Command::Connect => {}
         Socks5Command::UdpAssociate => {
-            println!("socks5 udp associate requested but UDP relay is not enabled yet");
-            stream.write_all(&socks5_reply(Socks5ReplyCode::NetworkUnreachable))?;
-            return Ok(());
+            return handle_socks5_udp_associate(stream, runtime);
         }
         Socks5Command::Bind => {
             stream.write_all(&socks5_reply(Socks5ReplyCode::CommandNotSupported))?;
@@ -331,6 +330,122 @@ pub fn handle_socks5_connection_with_routes(
     stream.write_all(&socks5_reply(Socks5ReplyCode::Succeeded))?;
     let client = stream.try_clone()?;
     relay_with_report(client, remote, &mut report, runtime.relay_options)
+}
+
+fn handle_socks5_udp_associate(
+    stream: &mut TcpStream,
+    runtime: &MixedProxyRuntime,
+) -> io::Result<()> {
+    let relay = UdpSocket::bind("127.0.0.1:0")?;
+    let timeout = runtime
+        .relay_options
+        .first_byte_timeout
+        .unwrap_or(DEFAULT_FIRST_BYTE_TIMEOUT);
+    relay.set_read_timeout(Some(timeout))?;
+    let outbound = UdpSocket::bind("0.0.0.0:0")?;
+    outbound.set_read_timeout(Some(timeout))?;
+
+    let bound_addr = relay.local_addr()?;
+    stream.write_all(&socks5_success_reply_for_bound_addr(bound_addr))?;
+
+    let mut request_buffer = [0; 65_535];
+    let (request_size, client_udp_addr) = relay.recv_from(&mut request_buffer)?;
+    let datagram =
+        parse_socks5_udp_datagram(&request_buffer[..request_size]).map_err(to_io_error)?;
+    let target = outbound_target_from_socks5_udp(&datagram.address, datagram.port);
+    let mut report = ConnectionReport::new("socks5-udp", target.clone(), RouteAction::Direct);
+
+    match runtime.routes.decide(&target.route_target()).action {
+        RouteAction::Direct => {}
+        RouteAction::Block => {
+            report.route_action = RouteAction::Block;
+            report.record_error(ConnectionErrorKind::RouteBlocked);
+            println!("{}", report.summary_line());
+            return Ok(());
+        }
+        RouteAction::Outbound(tag) => {
+            report.route_action = RouteAction::Outbound(tag);
+            report.record_error(ConnectionErrorKind::UnsupportedOutbound);
+            println!("{}", report.summary_line());
+            return Ok(());
+        }
+        RouteAction::HijackDns => {
+            report.route_action = RouteAction::HijackDns;
+            report.record_error(ConnectionErrorKind::UnsupportedOutbound);
+            println!("{}", report.summary_line());
+            return Ok(());
+        }
+    }
+
+    let remote_addr = resolve_udp_socket_addr(&target)?;
+    let started = Instant::now();
+    outbound.send_to(&datagram.payload, remote_addr)?;
+    report.upload_bytes = datagram.payload.len() as u64;
+
+    let mut response_buffer = [0; 65_535];
+    let (response_size, response_from) = outbound.recv_from(&mut response_buffer)?;
+    report.record_first_byte_duration(started.elapsed());
+    report.download_bytes = response_size as u64;
+
+    let response_address = socks5_address_from_ip(response_from.ip());
+    let response = encode_socks5_udp_datagram(
+        &response_address,
+        response_from.port(),
+        &response_buffer[..response_size],
+    )
+    .map_err(to_io_error)?;
+    relay.send_to(&response, client_udp_addr)?;
+    println!("{}", report.summary_line());
+    Ok(())
+}
+
+fn socks5_success_reply_for_bound_addr(bound_addr: SocketAddr) -> Vec<u8> {
+    let mut reply = Vec::with_capacity(22);
+    reply.extend_from_slice(&[0x05, 0x00, 0x00]);
+    match bound_addr.ip() {
+        IpAddr::V4(ip) => {
+            reply.push(0x01);
+            reply.extend_from_slice(&ip.octets());
+        }
+        IpAddr::V6(ip) => {
+            reply.push(0x04);
+            reply.extend_from_slice(&ip.octets());
+        }
+    }
+    reply.extend_from_slice(&bound_addr.port().to_be_bytes());
+    reply
+}
+
+fn outbound_target_from_socks5_udp(address: &Socks5Address, port: u16) -> OutboundTarget {
+    let host = match address {
+        Socks5Address::Ipv4(ip) => ip.to_string(),
+        Socks5Address::Domain(domain) => domain.clone(),
+        Socks5Address::Ipv6(ip) => ip.to_string(),
+    };
+    OutboundTarget::new(host, port)
+}
+
+fn resolve_udp_socket_addr(target: &OutboundTarget) -> io::Result<SocketAddr> {
+    if let Ok(ip) = target.host.parse::<IpAddr>() {
+        return Ok(SocketAddr::new(ip, target.port));
+    }
+
+    (target.host.as_str(), target.port)
+        .to_socket_addrs()?
+        .next()
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                format!("no address resolved for {}:{}", target.host, target.port),
+            )
+        })
+}
+
+fn socks5_address_from_ip(ip: IpAddr) -> Socks5Address {
+    match ip {
+        IpAddr::V4(ip) => Socks5Address::Ipv4(ip),
+        IpAddr::V6(ip) => Socks5Address::Ipv6(ip),
+    }
 }
 
 pub fn handle_mixed_connection(stream: &mut TcpStream) -> io::Result<()> {

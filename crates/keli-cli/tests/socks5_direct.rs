@@ -1,9 +1,10 @@
 use std::io::{Read, Write};
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream, UdpSocket};
 use std::thread;
 use std::time::Duration;
 
 use keli_cli::handle_socks5_connection;
+use keli_net_core::{encode_socks5_udp_datagram, parse_socks5_udp_datagram, Socks5Address};
 
 #[test]
 fn socks5_connect_relays_to_direct_tcp_target() {
@@ -56,7 +57,21 @@ fn socks5_connect_relays_to_direct_tcp_target() {
 }
 
 #[test]
-fn socks5_udp_associate_returns_network_unreachable_until_udp_relay_exists() {
+fn socks5_udp_associate_relays_direct_ipv4_datagram() {
+    let target = UdpSocket::bind("127.0.0.1:0").expect("bind udp target");
+    target
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("target timeout");
+    let target_port = target.local_addr().expect("target addr").port();
+    let target_thread = thread::spawn(move || {
+        let mut request = [0; 1500];
+        let (size, from) = target.recv_from(&mut request).expect("read udp target");
+        assert_eq!(&request[..size], b"ping");
+        target
+            .send_to(b"pong", from)
+            .expect("write udp target response");
+    });
+
     let inbound = TcpListener::bind("127.0.0.1:0").expect("bind inbound");
     let inbound_port = inbound.local_addr().expect("inbound addr").port();
     let inbound_thread = thread::spawn(move || {
@@ -78,7 +93,36 @@ fn socks5_udp_associate_returns_network_unreachable_until_udp_relay_exists() {
         .expect("write udp associate request");
     let mut reply = [0; 10];
     client.read_exact(&mut reply).expect("read udp reply");
-    assert_eq!(reply, [0x05, 0x03, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(&reply[..4], &[0x05, 0x00, 0x00, 0x01]);
+    assert_eq!(&reply[4..8], &[127, 0, 0, 1]);
+    let relay_port = u16::from_be_bytes([reply[8], reply[9]]);
+    assert_ne!(relay_port, 0);
+
+    let udp_client = UdpSocket::bind("127.0.0.1:0").expect("bind udp client");
+    udp_client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("udp client timeout");
+    let request = encode_socks5_udp_datagram(
+        &Socks5Address::Ipv4(Ipv4Addr::LOCALHOST),
+        target_port,
+        b"ping",
+    )
+    .expect("encode udp request");
+    udp_client
+        .send_to(&request, ("127.0.0.1", relay_port))
+        .expect("send udp request");
+
+    let mut response = [0; 1500];
+    let (size, _) = udp_client
+        .recv_from(&mut response)
+        .expect("read udp response");
+    let response = parse_socks5_udp_datagram(&response[..size]).expect("parse udp response");
+    assert_eq!(response.address, Socks5Address::Ipv4(Ipv4Addr::LOCALHOST));
+    assert_eq!(response.port, target_port);
+    assert_eq!(response.payload, b"pong");
+
+    client.shutdown(Shutdown::Both).ok();
 
     inbound_thread.join().expect("inbound thread");
+    target_thread.join().expect("target thread");
 }
