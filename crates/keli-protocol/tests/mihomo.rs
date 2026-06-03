@@ -147,6 +147,39 @@ proxies:
 }
 
 #[test]
+fn parses_anytls_tcp_tls_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: AnyTLS
+    type: anytls
+    server: anytls.example.com
+    port: 443
+    password: secret
+    sni: sni.example.com
+    skip-cert-verify: true
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "AnyTLS");
+    assert_eq!(profile.protocol, ProxyProtocol::AnyTls);
+    assert_eq!(profile.endpoint, Endpoint::new("anytls.example.com", 443));
+    assert_eq!(profile.transport, TransportKind::Tcp);
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("sni.example.com".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(profile.credential, "secret");
+    profile.validate().expect("valid profile");
+}
+
+#[test]
 fn reports_unsupported_proxy_without_dropping_supported_entries() {
     let yaml = r#"
 proxies:

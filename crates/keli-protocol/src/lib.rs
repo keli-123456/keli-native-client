@@ -29,6 +29,7 @@ pub enum ProxyProtocol {
     Vless,
     Hy2,
     Shadowsocks,
+    AnyTls,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,6 +123,11 @@ impl OutboundProfile {
             (ProxyProtocol::Shadowsocks, _, _) => {
                 Err(ProtocolValidationError::InvalidShadowsocksTransport)
             }
+            (ProxyProtocol::AnyTls, TransportKind::Tcp, SecurityKind::Tls { .. }) => Ok(()),
+            (ProxyProtocol::AnyTls, _, SecurityKind::None) => {
+                Err(ProtocolValidationError::MissingTls)
+            }
+            (ProxyProtocol::AnyTls, _, _) => Err(ProtocolValidationError::InvalidAnyTlsTransport),
         }
     }
 }
@@ -138,6 +144,7 @@ pub enum ProtocolValidationError {
     MissingShadowsocksCipher,
     InvalidShadowsocksCipher,
     InvalidShadowsocksTransport,
+    InvalidAnyTlsTransport,
 }
 
 impl fmt::Display for ProtocolValidationError {
@@ -157,6 +164,7 @@ impl fmt::Display for ProtocolValidationError {
             Self::InvalidShadowsocksTransport => {
                 write!(f, "Shadowsocks currently supports TCP without TLS")
             }
+            Self::InvalidAnyTlsTransport => write!(f, "AnyTLS requires TCP transport with TLS"),
         }
     }
 }
@@ -298,6 +306,7 @@ fn mihomo_proxy_to_profile(
         "trojan" => ProxyProtocol::Trojan,
         "vless" => ProxyProtocol::Vless,
         "ss" | "shadowsocks" => ProxyProtocol::Shadowsocks,
+        "anytls" | "any-tls" => ProxyProtocol::AnyTls,
         other => return Err(skip(name, format!("unsupported protocol: {other}"))),
     };
     let credential = match protocol {
@@ -308,6 +317,8 @@ fn mihomo_proxy_to_profile(
         }
         ProxyProtocol::Shadowsocks => non_empty(proxy.password)
             .ok_or_else(|| skip(name.clone(), "missing shadowsocks password"))?,
+        ProxyProtocol::AnyTls => non_empty(proxy.password)
+            .ok_or_else(|| skip(name.clone(), "missing anytls password"))?,
         ProxyProtocol::Hy2 => unreachable!("filtered above"),
     };
     let cipher = matches!(protocol, ProxyProtocol::Shadowsocks)
@@ -379,7 +390,10 @@ fn mihomo_security(
     let sni = non_empty(sni)
         .or_else(|| non_empty(servername))
         .or_else(|| Some(server.to_string()));
-    let tls_enabled = tls.unwrap_or(matches!(protocol, ProxyProtocol::Trojan));
+    let tls_enabled = tls.unwrap_or(matches!(
+        protocol,
+        ProxyProtocol::Trojan | ProxyProtocol::AnyTls
+    ));
     if tls_enabled {
         SecurityKind::Tls {
             sni,
@@ -458,6 +472,7 @@ fn share_link_to_profile(
     let protocol = match url.scheme() {
         "trojan" => ProxyProtocol::Trojan,
         "vless" => ProxyProtocol::Vless,
+        "anytls" | "any-tls" => ProxyProtocol::AnyTls,
         other => return Err(skip(tag, format!("unsupported protocol: {other}"))),
     };
     let credential = non_empty(Some(url.username().to_string()))
@@ -618,7 +633,10 @@ fn share_link_security(
     let tls_enabled = security
         .as_deref()
         .map(|value| matches!(value, "tls" | "true" | "1"))
-        .unwrap_or(matches!(protocol, ProxyProtocol::Trojan));
+        .unwrap_or(matches!(
+            protocol,
+            ProxyProtocol::Trojan | ProxyProtocol::AnyTls
+        ));
     if tls_enabled {
         SecurityKind::Tls {
             sni: query

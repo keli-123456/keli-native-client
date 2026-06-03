@@ -6,6 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use rand::RngCore;
+use sha2::{Digest, Sha256};
 use shadowsocks_crypto::kind::{CipherCategory, CipherKind};
 use shadowsocks_crypto::v1::{openssl_bytes_to_key, Cipher};
 
@@ -99,6 +100,7 @@ pub struct OutboundRegistry {
     vless_ws_tags: HashMap<String, VlessWsOutbound>,
     vless_tls_ws_tags: HashMap<String, VlessTlsWsOutbound>,
     shadowsocks_tcp_tags: HashMap<String, ShadowsocksTcpOutbound>,
+    anytls_tls_tcp_tags: HashMap<String, AnyTlsTlsTcpOutbound>,
 }
 
 impl OutboundRegistry {
@@ -220,6 +222,14 @@ impl OutboundRegistry {
                 );
                 Ok(())
             }
+            (ProxyProtocol::AnyTls, TransportKind::Tcp, SecurityKind::Tls { sni, skip_verify }) => {
+                let sni = sni.unwrap_or_else(|| endpoint.host.clone());
+                self.add_anytls_tls_tcp(
+                    tag,
+                    AnyTlsTlsTcpOutbound::new(endpoint, credential, sni, skip_verify),
+                );
+                Ok(())
+            }
             (protocol, transport, security) => Err(OutboundProfileError::UnsupportedTransport {
                 tag,
                 protocol,
@@ -273,6 +283,10 @@ impl OutboundRegistry {
         self.shadowsocks_tcp_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_anytls_tls_tcp(&mut self, tag: impl Into<String>, outbound: AnyTlsTlsTcpOutbound) {
+        self.anytls_tls_tcp_tags.insert(tag.into(), outbound);
+    }
+
     pub fn connect(
         &self,
         tag: &str,
@@ -298,6 +312,8 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vless_tls_ws_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.anytls_tls_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else {
             Err(io::Error::new(
@@ -857,6 +873,218 @@ fn read_exact_or_clean_eof(reader: &mut impl Read, buffer: &mut [u8]) -> io::Res
         }
     }
     Ok(true)
+}
+
+const ANYTLS_CMD_WASTE: u8 = 0;
+const ANYTLS_CMD_SYN: u8 = 1;
+const ANYTLS_CMD_PSH: u8 = 2;
+const ANYTLS_CMD_FIN: u8 = 3;
+const ANYTLS_CMD_SETTINGS: u8 = 4;
+const ANYTLS_CMD_ALERT: u8 = 5;
+const ANYTLS_CMD_UPDATE_PADDING_SCHEME: u8 = 6;
+const ANYTLS_CMD_SYNACK: u8 = 7;
+const ANYTLS_CMD_HEART_REQUEST: u8 = 8;
+const ANYTLS_CMD_HEART_RESPONSE: u8 = 9;
+const ANYTLS_CMD_SERVER_SETTINGS: u8 = 10;
+const ANYTLS_STREAM_ID: u32 = 1;
+const ANYTLS_AUTH_PADDING_LEN: usize = 30;
+const ANYTLS_DEFAULT_PADDING_MD5: &str = "75cff2ad89aadf5e257059ee571ebe11";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnyTlsTlsTcpOutbound {
+    pub server: Endpoint,
+    pub password: String,
+    pub sni: String,
+    pub skip_verify: bool,
+}
+
+impl AnyTlsTlsTcpOutbound {
+    pub fn new(
+        server: Endpoint,
+        password: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+    ) -> Self {
+        Self {
+            server,
+            password: password.into(),
+            sni: sni.into(),
+            skip_verify,
+        }
+    }
+
+    pub fn connect(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+    ) -> io::Result<OutboundConnection> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
+        write_anytls_auth(&mut stream, &self.password)?;
+        let mut anytls = AnyTlsTcpStream {
+            inner: stream,
+            read_buffer: Vec::new(),
+            read_offset: 0,
+            stream_closed: false,
+            fin_sent: false,
+        };
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let target_header =
+            encode_shadowsocks_tcp_request_header(&target).map_err(protocol_encoding_to_io)?;
+        anytls.write_startup_frames(&target_header)?;
+        Ok(OutboundConnection::Owned(Box::new(anytls)))
+    }
+}
+
+pub struct AnyTlsTcpStream {
+    inner: TlsTcpStream,
+    read_buffer: Vec<u8>,
+    read_offset: usize,
+    stream_closed: bool,
+    fin_sent: bool,
+}
+
+impl AnyTlsTcpStream {
+    fn write_startup_frames(&mut self, target_header: &[u8]) -> io::Result<()> {
+        let settings = format!(
+            "v=2\nclient=keli-native-client/{}\npadding-md5={ANYTLS_DEFAULT_PADDING_MD5}",
+            env!("CARGO_PKG_VERSION")
+        );
+        self.write_frame(ANYTLS_CMD_SETTINGS, 0, settings.as_bytes())?;
+        self.write_frame(ANYTLS_CMD_SYN, ANYTLS_STREAM_ID, &[])?;
+        self.write_frame(ANYTLS_CMD_PSH, ANYTLS_STREAM_ID, target_header)
+    }
+
+    fn write_frame(&mut self, cmd: u8, sid: u32, data: &[u8]) -> io::Result<()> {
+        if data.len() > u16::MAX as usize {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "AnyTLS frame payload is too large",
+            ));
+        }
+        let mut header = [0; 7];
+        header[0] = cmd;
+        header[1..5].copy_from_slice(&sid.to_be_bytes());
+        header[5..7].copy_from_slice(&(data.len() as u16).to_be_bytes());
+        self.inner.write_all(&header)?;
+        self.inner.write_all(data)
+    }
+
+    fn read_next_data_frame(&mut self) -> io::Result<bool> {
+        if self.stream_closed {
+            return Ok(false);
+        }
+        loop {
+            let Some((cmd, sid, data)) = self.read_frame()? else {
+                return Ok(false);
+            };
+            match cmd {
+                ANYTLS_CMD_PSH if sid == ANYTLS_STREAM_ID => {
+                    self.read_buffer = data;
+                    self.read_offset = 0;
+                    return Ok(true);
+                }
+                ANYTLS_CMD_FIN if sid == ANYTLS_STREAM_ID => {
+                    self.stream_closed = true;
+                    return Ok(false);
+                }
+                ANYTLS_CMD_ALERT => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        format!("AnyTLS alert: {}", String::from_utf8_lossy(&data)),
+                    ));
+                }
+                ANYTLS_CMD_HEART_REQUEST => {
+                    self.write_frame(ANYTLS_CMD_HEART_RESPONSE, sid, &[])?;
+                }
+                ANYTLS_CMD_WASTE
+                | ANYTLS_CMD_SYNACK
+                | ANYTLS_CMD_UPDATE_PADDING_SCHEME
+                | ANYTLS_CMD_SERVER_SETTINGS
+                | ANYTLS_CMD_HEART_RESPONSE => {}
+                _ => {}
+            }
+        }
+    }
+
+    fn read_frame(&mut self) -> io::Result<Option<(u8, u32, Vec<u8>)>> {
+        let mut header = [0; 7];
+        if !read_exact_or_clean_eof(&mut self.inner, &mut header)? {
+            return Ok(None);
+        }
+        let cmd = header[0];
+        let sid = u32::from_be_bytes([header[1], header[2], header[3], header[4]]);
+        let len = u16::from_be_bytes([header[5], header[6]]) as usize;
+        let mut data = vec![0; len];
+        read_exact_or_clean_eof(&mut self.inner, &mut data)?
+            .then_some(())
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::UnexpectedEof, "missing AnyTLS frame payload")
+            })?;
+        Ok(Some((cmd, sid, data)))
+    }
+}
+
+impl Read for AnyTlsTcpStream {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if self.read_offset >= self.read_buffer.len() && !self.read_next_data_frame()? {
+            return Ok(0);
+        }
+        let remaining = &self.read_buffer[self.read_offset..];
+        let amount = remaining.len().min(buffer.len());
+        buffer[..amount].copy_from_slice(&remaining[..amount]);
+        self.read_offset += amount;
+        if self.read_offset >= self.read_buffer.len() {
+            self.read_buffer.clear();
+            self.read_offset = 0;
+        }
+        Ok(amount)
+    }
+}
+
+impl Write for AnyTlsTcpStream {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        for chunk in buffer.chunks(u16::MAX as usize) {
+            self.write_frame(ANYTLS_CMD_PSH, ANYTLS_STREAM_ID, chunk)?;
+        }
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl OwnedRelayStream for AnyTlsTcpStream {
+    fn set_nonblocking_mode(&mut self, nonblocking: bool) -> io::Result<()> {
+        self.inner.set_nonblocking_mode(nonblocking)
+    }
+
+    fn shutdown_write(&mut self) -> io::Result<()> {
+        if !self.fin_sent {
+            self.write_frame(ANYTLS_CMD_FIN, ANYTLS_STREAM_ID, &[])?;
+            self.fin_sent = true;
+        }
+        Ok(())
+    }
+
+    fn shutdown_both(&mut self) -> io::Result<()> {
+        self.shutdown_write().ok();
+        self.inner.shutdown_both()
+    }
+}
+
+fn write_anytls_auth(stream: &mut impl Write, password: &str) -> io::Result<()> {
+    let digest = Sha256::digest(password.as_bytes());
+    stream.write_all(&digest)?;
+    stream.write_all(&(ANYTLS_AUTH_PADDING_LEN as u16).to_be_bytes())?;
+    let mut padding = vec![0; ANYTLS_AUTH_PADDING_LEN];
+    rand::thread_rng().fill_bytes(&mut padding);
+    stream.write_all(&padding)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

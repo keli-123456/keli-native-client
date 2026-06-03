@@ -79,3 +79,27 @@ fn parses_shadowsocks_share_link() {
     assert_eq!(profile.credential, "secret");
     assert_eq!(profile.cipher, Some("aes-256-gcm".to_string()));
 }
+
+#[test]
+fn parses_anytls_share_link() {
+    let links = "anytls://secret@anytls.example.com:443?sni=sni.example.com&allowInsecure=1#anytls";
+
+    let parsed = parse_share_outbound_profiles(links).expect("parse share links");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "anytls");
+    assert_eq!(profile.protocol, ProxyProtocol::AnyTls);
+    assert_eq!(profile.endpoint, Endpoint::new("anytls.example.com", 443));
+    assert_eq!(profile.transport, TransportKind::Tcp);
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("sni.example.com".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(profile.credential, "secret");
+    assert_eq!(profile.cipher, None);
+}

@@ -8,6 +8,7 @@ use keli_net_core::{OutboundRegistry, OutboundTarget};
 use keli_protocol::{Endpoint, OutboundProfile, ProxyProtocol, SecurityKind, TransportKind};
 use rcgen::generate_simple_self_signed;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use sha2::{Digest, Sha256};
 
 #[test]
 fn registry_from_trojan_tls_tcp_profile_relays_over_tls() {
@@ -120,6 +121,69 @@ fn registry_from_vless_tls_tcp_profile_relays_over_tls() {
     server.join().expect("server thread");
 }
 
+#[test]
+fn registry_from_anytls_profile_authenticates_and_relays_single_stream() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind anytls server");
+    let port = listener.local_addr().expect("server addr").port();
+    let server_config = tls_server_config();
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept anytls tcp");
+        let connection = rustls::ServerConnection::new(server_config).expect("server tls");
+        let mut stream = rustls::StreamOwned::new(connection, stream);
+
+        assert_anytls_auth(&mut stream, "secret");
+        let (cmd, sid, settings) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid), (4, 0));
+        let settings = String::from_utf8(settings).expect("settings utf8");
+        assert!(settings.contains("v=2"));
+        assert!(settings.contains("client=keli-native-client/"));
+        assert!(settings.contains("padding-md5="));
+
+        let (cmd, sid, data) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid, data.len()), (1, 1, 0));
+
+        let (cmd, sid, target) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid), (2, 1));
+        assert_eq!(&target, b"\x03\x0bexample.com\x01\xbb");
+
+        let (cmd, sid, payload) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid), (2, 1));
+        assert_eq!(&payload, b"ping");
+
+        write_anytls_frame(&mut stream, 10, 0, b"v=2");
+        write_anytls_frame(&mut stream, 7, 1, b"");
+        write_anytls_frame(&mut stream, 2, 1, b"pong");
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::AnyTls,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Tcp,
+        security: SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: true,
+        },
+        credential: "secret".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let mut stream = registry
+        .connect(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+        )
+        .expect("connect anytls");
+    stream.write_all(b"ping").expect("write payload");
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).expect("read response");
+
+    assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
 fn tls_server_config() -> Arc<rustls::ServerConfig> {
     let cert = generate_simple_self_signed(vec!["edge.example".to_string()]).expect("cert");
     let cert_der: CertificateDer<'static> = cert.cert.der().clone();
@@ -134,4 +198,41 @@ fn tls_server_config() -> Arc<rustls::ServerConfig> {
         .with_single_cert(vec![cert_der], key_der)
         .expect("server config"),
     )
+}
+
+fn assert_anytls_auth(stream: &mut impl Read, password: &str) {
+    let mut header = [0; 34];
+    stream.read_exact(&mut header).expect("read anytls auth");
+    let expected = Sha256::digest(password.as_bytes());
+    assert_eq!(&header[..32], expected.as_slice());
+    let padding_len = u16::from_be_bytes([header[32], header[33]]) as usize;
+    assert_eq!(padding_len, 30);
+    let mut padding = vec![0; padding_len];
+    stream
+        .read_exact(&mut padding)
+        .expect("read anytls auth padding");
+}
+
+fn read_anytls_frame(stream: &mut impl Read) -> (u8, u32, Vec<u8>) {
+    let mut header = [0; 7];
+    stream
+        .read_exact(&mut header)
+        .expect("read anytls frame header");
+    let cmd = header[0];
+    let sid = u32::from_be_bytes([header[1], header[2], header[3], header[4]]);
+    let len = u16::from_be_bytes([header[5], header[6]]) as usize;
+    let mut data = vec![0; len];
+    stream
+        .read_exact(&mut data)
+        .expect("read anytls frame data");
+    (cmd, sid, data)
+}
+
+fn write_anytls_frame(stream: &mut impl Write, cmd: u8, sid: u32, data: &[u8]) {
+    let mut header = [0; 7];
+    header[0] = cmd;
+    header[1..5].copy_from_slice(&sid.to_be_bytes());
+    header[5..7].copy_from_slice(&(data.len() as u16).to_be_bytes());
+    stream.write_all(&header).expect("write anytls header");
+    stream.write_all(data).expect("write anytls data");
 }
