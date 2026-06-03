@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::time::{Duration, Instant};
 
@@ -38,6 +38,14 @@ pub enum CliCommand {
         outbound_tag: Option<String>,
         first_byte_timeout: Duration,
         idle_timeout: Duration,
+    },
+    ProbeOutbound {
+        profile_config: String,
+        outbound_tag: Option<String>,
+        target: String,
+        payload: Option<String>,
+        expect: Option<String>,
+        first_byte_timeout: Duration,
     },
 }
 
@@ -80,6 +88,7 @@ pub fn parse_cli_command(
         None | Some("doctor") => Ok(CliCommand::Doctor),
         Some("version") => Ok(CliCommand::Version),
         Some("listen-mixed") => parse_listen_mixed(args),
+        Some("probe-outbound") => parse_probe_outbound(args),
         Some(other) => Err(format!("unknown command: {other}")),
     }
 }
@@ -119,6 +128,27 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             listen_mixed(&listen, once, &runtime)
                 .map_err(|error| format!("listen-mixed failed on {listen}: {error}"))
         }
+        CliCommand::ProbeOutbound {
+            profile_config,
+            outbound_tag,
+            target,
+            payload,
+            expect,
+            first_byte_timeout,
+        } => {
+            let config_text = fs::read_to_string(&profile_config)
+                .map_err(|error| format!("read profile config {profile_config}: {error}"))?;
+            let mut stdout = io::stdout();
+            probe_outbound_from_subscription_config_text(
+                &config_text,
+                outbound_tag,
+                &target,
+                payload.as_deref().unwrap_or("").as_bytes(),
+                expect.as_deref().map(str::as_bytes),
+                first_byte_timeout,
+                &mut stdout,
+            )
+        }
     }
 }
 
@@ -127,6 +157,10 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
         "       keli-cli listen-mixed [--listen 127.0.0.1:7890] [--once] [--profile-config subscription.yaml] [--outbound-tag proxy] [--first-byte-timeout-ms 30000] [--idle-timeout-ms 300000]"
+    )?;
+    writeln!(
+        writer,
+        "       keli-cli probe-outbound --profile-config subscription.yaml [--outbound-tag proxy] --target example.com:443 [--payload ping] [--expect pong] [--first-byte-timeout-ms 30000]"
     )
 }
 
@@ -192,6 +226,69 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
         outbound_tag,
         first_byte_timeout,
         idle_timeout,
+    })
+}
+
+fn parse_probe_outbound(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
+    let mut profile_config = None;
+    let mut outbound_tag = None;
+    let mut target = None;
+    let mut payload = None;
+    let mut expect = None;
+    let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
+    let mut args = args.peekable();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--profile-config" => {
+                profile_config = Some(
+                    args.next()
+                        .ok_or_else(|| "--profile-config requires a path".to_string())?,
+                );
+            }
+            "--outbound-tag" => {
+                outbound_tag = Some(
+                    args.next()
+                        .ok_or_else(|| "--outbound-tag requires a profile name".to_string())?,
+                );
+            }
+            "--target" => {
+                target = Some(
+                    args.next()
+                        .ok_or_else(|| "--target requires host:port".to_string())?,
+                );
+            }
+            "--payload" => {
+                payload = Some(
+                    args.next()
+                        .ok_or_else(|| "--payload requires a value".to_string())?,
+                );
+            }
+            "--expect" => {
+                expect = Some(
+                    args.next()
+                        .ok_or_else(|| "--expect requires a value".to_string())?,
+                );
+            }
+            "--first-byte-timeout-ms" => {
+                first_byte_timeout = parse_duration_ms(
+                    args.next()
+                        .ok_or_else(|| "--first-byte-timeout-ms requires a value".to_string())?,
+                    "--first-byte-timeout-ms",
+                )?;
+            }
+            other => return Err(format!("unknown probe-outbound option: {other}")),
+        }
+    }
+
+    Ok(CliCommand::ProbeOutbound {
+        profile_config: profile_config
+            .ok_or_else(|| "probe-outbound requires --profile-config".to_string())?,
+        outbound_tag,
+        target: target.ok_or_else(|| "probe-outbound requires --target".to_string())?,
+        payload,
+        expect,
+        first_byte_timeout,
     })
 }
 
@@ -814,6 +911,127 @@ pub fn mixed_runtime_from_subscription_config_text(
     let parsed = parse_subscription_outbound_profiles(config_text)
         .map_err(|error| format!("profile config parse failed: {error}"))?;
     mixed_runtime_from_parsed_profiles(parsed, block_domains, relay_options, outbound_tag)
+}
+
+pub fn probe_outbound_from_subscription_config_text(
+    config_text: &str,
+    outbound_tag: Option<String>,
+    target: &str,
+    payload: &[u8],
+    expect: Option<&[u8]>,
+    first_byte_timeout: Duration,
+    mut writer: impl Write,
+) -> Result<(), String> {
+    let relay_options = RelayOptions {
+        first_byte_timeout: Some(first_byte_timeout),
+        idle_timeout: Some(first_byte_timeout),
+    };
+    let runtime = mixed_runtime_from_subscription_config_text(
+        config_text,
+        Vec::new(),
+        relay_options,
+        outbound_tag,
+    )?;
+    let target = parse_probe_target(target)?;
+    let mut report = ConnectionReport::new("probe-outbound", target.clone(), RouteAction::Direct);
+    let mut remote = match connect_by_route(&target, &runtime) {
+        Ok(RouteConnect::Direct {
+            stream,
+            route_action,
+            connect_duration,
+        }) => {
+            report.route_action = route_action;
+            report.record_connect_duration(connect_duration);
+            stream
+        }
+        Ok(RouteConnect::Blocked { route_action }) => {
+            report.route_action = route_action;
+            report.record_error(ConnectionErrorKind::RouteBlocked);
+            writeln!(writer, "probe status=error {}", report.summary_line())
+                .map_err(|error| error.to_string())?;
+            return Err("probe route blocked".to_string());
+        }
+        Ok(RouteConnect::UnsupportedOutbound { tag, route_action }) => {
+            report.route_action = route_action;
+            report.record_error(ConnectionErrorKind::UnsupportedOutbound);
+            writeln!(writer, "probe status=error {}", report.summary_line())
+                .map_err(|error| error.to_string())?;
+            return Err(format!("outbound route is not implemented: {tag}"));
+        }
+        Err(error) => {
+            report.record_error(ConnectionErrorKind::from_io(&error));
+            writeln!(writer, "probe status=error {}", report.summary_line())
+                .map_err(|write_error| write_error.to_string())?;
+            return Err(format!("probe connect failed: {error}"));
+        }
+    };
+
+    if !payload.is_empty() {
+        remote
+            .write_all(payload)
+            .map_err(|error| probe_io_error(error, &mut report, &mut writer))?;
+        report.upload_bytes = payload.len() as u64;
+    }
+
+    if let Some(expected) = expect {
+        let started = Instant::now();
+        let mut received = vec![0; expected.len()];
+        remote
+            .read_exact(&mut received)
+            .map_err(|error| probe_io_error(error, &mut report, &mut writer))?;
+        report.record_first_byte_duration(started.elapsed());
+        report.download_bytes = received.len() as u64;
+        if received != expected {
+            report.record_error(ConnectionErrorKind::ProtocolError);
+            writeln!(writer, "probe status=error {}", report.summary_line())
+                .map_err(|error| error.to_string())?;
+            return Err(format!(
+                "probe response mismatch: expected {:?}, got {:?}",
+                String::from_utf8_lossy(expected),
+                String::from_utf8_lossy(&received)
+            ));
+        }
+    }
+
+    writeln!(writer, "probe status=ok {}", report.summary_line()).map_err(|error| error.to_string())
+}
+
+fn parse_probe_target(target: &str) -> Result<OutboundTarget, String> {
+    let target = target.trim();
+    if target.is_empty() {
+        return Err("probe target is empty".to_string());
+    }
+    if let Some(rest) = target.strip_prefix('[') {
+        let (host, rest) = rest
+            .split_once(']')
+            .ok_or_else(|| format!("invalid probe target: {target}"))?;
+        let port = rest
+            .strip_prefix(':')
+            .ok_or_else(|| format!("invalid probe target: {target}"))?
+            .parse::<u16>()
+            .map_err(|_| format!("invalid probe target port: {target}"))?;
+        return Ok(OutboundTarget::new(host, port));
+    }
+    let (host, port) = target
+        .rsplit_once(':')
+        .ok_or_else(|| format!("probe target requires host:port: {target}"))?;
+    if host.is_empty() {
+        return Err(format!("probe target host is empty: {target}"));
+    }
+    let port = port
+        .parse::<u16>()
+        .map_err(|_| format!("invalid probe target port: {target}"))?;
+    Ok(OutboundTarget::new(host, port))
+}
+
+fn probe_io_error(
+    error: io::Error,
+    report: &mut ConnectionReport,
+    writer: &mut impl Write,
+) -> String {
+    report.record_error(ConnectionErrorKind::from_io(&error));
+    let _ = writeln!(writer, "probe status=error {}", report.summary_line());
+    format!("probe relay failed: {error}")
 }
 
 fn mixed_runtime_from_parsed_profiles(

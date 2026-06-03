@@ -113,3 +113,35 @@ fn parses_listen_mixed_profile_config_and_outbound_tag() {
         }
     );
 }
+
+#[test]
+fn parses_probe_outbound_command() {
+    let command = parse_cli_command([
+        "probe-outbound",
+        "--profile-config",
+        "subscription.yaml",
+        "--outbound-tag",
+        "SS-READY",
+        "--target",
+        "example.com:443",
+        "--payload",
+        "ping",
+        "--expect",
+        "pong",
+        "--first-byte-timeout-ms",
+        "1500",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::ProbeOutbound {
+            profile_config: "subscription.yaml".to_string(),
+            outbound_tag: Some("SS-READY".to_string()),
+            target: "example.com:443".to_string(),
+            payload: Some("ping".to_string()),
+            expect: Some("pong".to_string()),
+            first_byte_timeout: Duration::from_millis(1500),
+        }
+    );
+}
