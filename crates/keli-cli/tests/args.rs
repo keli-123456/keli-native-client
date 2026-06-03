@@ -208,3 +208,23 @@ fn parses_probe_outbound_json_command() {
         }
     );
 }
+
+#[test]
+fn parses_profile_check_json_command() {
+    let command = parse_cli_command([
+        "profile-check",
+        "--profile-config",
+        "subscription.yaml",
+        "--format",
+        "json",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::ProfileCheck {
+            profile_config: "subscription.yaml".to_string(),
+            output: ProbeOutputFormat::Json,
+        }
+    );
+}

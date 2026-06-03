@@ -49,6 +49,10 @@ pub enum CliCommand {
         output: ProbeOutputFormat,
         first_byte_timeout: Duration,
     },
+    ProfileCheck {
+        profile_config: String,
+        output: ProbeOutputFormat,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,6 +101,7 @@ pub fn parse_cli_command(
         Some("version") => Ok(CliCommand::Version),
         Some("listen-mixed") => parse_listen_mixed(args),
         Some("probe-outbound") => parse_probe_outbound(args),
+        Some("profile-check") => parse_profile_check(args),
         Some(other) => Err(format!("unknown command: {other}")),
     }
 }
@@ -161,11 +166,27 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 &mut stdout,
             )
         }
+        CliCommand::ProfileCheck {
+            profile_config,
+            output,
+        } => {
+            let config_text = fs::read_to_string(&profile_config)
+                .map_err(|error| format!("read profile config {profile_config}: {error}"))?;
+            let mut stdout = io::stdout();
+            write_profile_check_report_from_subscription_config_text(
+                &config_text,
+                output,
+                &mut stdout,
+            )
+        }
     }
 }
 
 pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
-    writeln!(writer, "usage: keli-cli [doctor|version|listen-mixed]")?;
+    writeln!(
+        writer,
+        "usage: keli-cli [doctor|version|listen-mixed|probe-outbound|profile-check]"
+    )?;
     writeln!(
         writer,
         "       keli-cli listen-mixed [--listen 127.0.0.1:7890] [--once] [--profile-config subscription.yaml] [--outbound-tag proxy] [--first-byte-timeout-ms 30000] [--idle-timeout-ms 300000]"
@@ -173,6 +194,10 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
         "       keli-cli probe-outbound --profile-config subscription.yaml [--outbound-tag proxy] --target example.com:443 [--payload ping] [--expect pong] [--udp] [--format text|json] [--first-byte-timeout-ms 30000]"
+    )?;
+    writeln!(
+        writer,
+        "       keli-cli profile-check --profile-config subscription.yaml [--format text|json]"
     )
 }
 
@@ -321,6 +346,36 @@ fn parse_probe_output_format(value: String) -> Result<ProbeOutputFormat, String>
         "json" => Ok(ProbeOutputFormat::Json),
         other => Err(format!("unknown probe-outbound format: {other}")),
     }
+}
+
+fn parse_profile_check(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
+    let mut profile_config = None;
+    let mut output = ProbeOutputFormat::Text;
+    let mut args = args.peekable();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--profile-config" => {
+                profile_config = Some(
+                    args.next()
+                        .ok_or_else(|| "--profile-config requires a path".to_string())?,
+                );
+            }
+            "--format" => {
+                output = parse_probe_output_format(
+                    args.next()
+                        .ok_or_else(|| "--format requires text or json".to_string())?,
+                )?;
+            }
+            other => return Err(format!("unknown profile-check option: {other}")),
+        }
+    }
+
+    Ok(CliCommand::ProfileCheck {
+        profile_config: profile_config
+            .ok_or_else(|| "profile-check requires --profile-config".to_string())?,
+        output,
+    })
 }
 
 fn print_doctor() {
@@ -1194,6 +1249,115 @@ fn probe_route_fields(route_action: &RouteAction) -> (&'static str, Option<&str>
         RouteAction::Block => ("block", None),
         RouteAction::HijackDns => ("hijack_dns", None),
         RouteAction::Outbound(tag) => ("outbound", Some(tag.as_str())),
+    }
+}
+
+pub fn write_profile_check_report_from_subscription_config_text(
+    config_text: &str,
+    output: ProbeOutputFormat,
+    mut writer: impl Write,
+) -> Result<(), String> {
+    let parsed = parse_subscription_outbound_profiles(config_text)
+        .map_err(|error| format!("profile config parse failed: {error}"))?;
+    let registry_error = OutboundRegistry::from_profiles(parsed.profiles.clone())
+        .err()
+        .map(|error| error.to_string());
+    let default_outbound = parsed.profiles.first().map(|profile| profile.tag.as_str());
+    let status = if parsed.profiles.is_empty() || registry_error.is_some() {
+        "error"
+    } else {
+        "ok"
+    };
+
+    write_profile_check_report(
+        &mut writer,
+        status,
+        &parsed,
+        default_outbound,
+        registry_error.as_deref(),
+        output,
+    )?;
+
+    if let Some(error) = registry_error {
+        return Err(format!("profile registry check failed: {error}"));
+    }
+    if parsed.profiles.is_empty() {
+        return Err("profile config did not contain supported outbounds".to_string());
+    }
+    Ok(())
+}
+
+fn write_profile_check_report(
+    writer: &mut impl Write,
+    status: &str,
+    parsed: &keli_protocol::ParsedOutboundProfiles,
+    default_outbound: Option<&str>,
+    registry_error: Option<&str>,
+    output: ProbeOutputFormat,
+) -> Result<(), String> {
+    match output {
+        ProbeOutputFormat::Text => {
+            writeln!(
+                writer,
+                "profile status={status} supported={} skipped={} default_outbound={} registry_error={}",
+                parsed.profiles.len(),
+                parsed.skipped.len(),
+                default_outbound.unwrap_or("-"),
+                registry_error.unwrap_or("-")
+            )
+            .map_err(|error| error.to_string())?;
+            for skipped in &parsed.skipped {
+                writeln!(
+                    writer,
+                    "profile skipped name={} reason={}",
+                    skipped.name, skipped.reason
+                )
+                .map_err(|error| error.to_string())?;
+            }
+            Ok(())
+        }
+        ProbeOutputFormat::Json => {
+            let supported_tags: Vec<&str> = parsed
+                .profiles
+                .iter()
+                .map(|profile| profile.tag.as_str())
+                .collect();
+            let supported: Vec<_> = parsed
+                .profiles
+                .iter()
+                .map(|profile| {
+                    serde_json::json!({
+                        "tag": profile.tag.as_str(),
+                        "protocol": format!("{:?}", profile.protocol),
+                        "transport": format!("{:?}", profile.transport),
+                        "security": format!("{:?}", profile.security),
+                        "server": profile.endpoint.host.as_str(),
+                        "port": profile.endpoint.port,
+                    })
+                })
+                .collect();
+            let skipped: Vec<_> = parsed
+                .skipped
+                .iter()
+                .map(|skipped| {
+                    serde_json::json!({
+                        "name": skipped.name.as_str(),
+                        "reason": skipped.reason.as_str(),
+                    })
+                })
+                .collect();
+            let value = serde_json::json!({
+                "status": status,
+                "supported_count": parsed.profiles.len(),
+                "skipped_count": parsed.skipped.len(),
+                "default_outbound": default_outbound,
+                "registry_error": registry_error,
+                "supported_tags": supported_tags,
+                "supported": supported,
+                "skipped": skipped,
+            });
+            writeln!(writer, "{value}").map_err(|error| error.to_string())
+        }
     }
 }
 
