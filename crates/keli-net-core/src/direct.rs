@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpStream, UdpSocket};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -51,6 +51,12 @@ impl OutboundTarget {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UdpRelayResponse {
+    pub source: SocketAddr,
+    pub payload: Vec<u8>,
+}
+
 pub struct DirectTcpConnector;
 
 impl DirectTcpConnector {
@@ -75,6 +81,69 @@ impl DirectTcpConnector {
                 Ok(stream) => {
                     stream.set_nodelay(true)?;
                     return Ok(stream);
+                }
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                format!("no address resolved for {}:{}", target.host, target.port),
+            )
+        }))
+    }
+}
+
+pub struct DirectUdpConnector;
+
+impl DirectUdpConnector {
+    pub fn relay_datagram(
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        Self::relay_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_datagram_with_dns<R: DnsResolver>(
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
+        let addresses = dns
+            .resolve(&target.host, target.port)
+            .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error))?
+            .into_iter()
+            .map(|address| SocketAddr::new(address.ip, address.port));
+        let mut last_error = None;
+        for address in addresses {
+            let bind_addr = match address {
+                SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
+                SocketAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
+            };
+            let socket = match UdpSocket::bind(bind_addr) {
+                Ok(socket) => socket,
+                Err(error) => {
+                    last_error = Some(error);
+                    continue;
+                }
+            };
+            socket.set_read_timeout(Some(timeout))?;
+            if let Err(error) = socket.send_to(payload, address) {
+                last_error = Some(error);
+                continue;
+            }
+
+            let mut response = vec![0; 65_535];
+            match socket.recv_from(&mut response) {
+                Ok((size, source)) => {
+                    response.truncate(size);
+                    return Ok(UdpRelayResponse {
+                        source,
+                        payload: response,
+                    });
                 }
                 Err(error) => last_error = Some(error),
             }
@@ -355,6 +424,23 @@ impl OutboundRegistry {
             Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 format!("outbound tag is not registered: {tag}"),
+            ))
+        }
+    }
+
+    pub fn relay_udp_datagram(
+        &self,
+        tag: &str,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        if self.direct_tags.contains(tag) {
+            DirectUdpConnector::relay_datagram(target, payload, timeout)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("outbound tag does not support UDP relay yet: {tag}"),
             ))
         }
     }

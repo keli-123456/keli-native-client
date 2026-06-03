@@ -12,10 +12,11 @@ mod websocket;
 pub use direct::{
     relay_outbound_bidirectional_with_options, relay_owned_bidirectional_with_options,
     relay_tcp_bidirectional, relay_tcp_bidirectional_with_options, AnyTlsTlsTcpOutbound,
-    DirectTcpConnector, Hy2Outbound, OutboundConnection, OutboundProfileError, OutboundRegistry,
-    OutboundTarget, OwnedRelayStream, RelayError, RelayOptions, RelayStats, ShadowsocksTcpOutbound,
-    TlsTcpStream, TrojanTcpOutbound, TrojanTlsTcpOutbound, TrojanTlsWsOutbound, TrojanWsOutbound,
-    VlessTcpOutbound, VlessTlsTcpOutbound, VlessTlsWsOutbound, VlessWsOutbound,
+    DirectTcpConnector, DirectUdpConnector, Hy2Outbound, OutboundConnection, OutboundProfileError,
+    OutboundRegistry, OutboundTarget, OwnedRelayStream, RelayError, RelayOptions, RelayStats,
+    ShadowsocksTcpOutbound, TlsTcpStream, TrojanTcpOutbound, TrojanTlsTcpOutbound,
+    TrojanTlsWsOutbound, TrojanWsOutbound, UdpRelayResponse, VlessTcpOutbound, VlessTlsTcpOutbound,
+    VlessTlsWsOutbound, VlessWsOutbound,
 };
 pub use dns::{DnsCache, DnsEngine, DnsError, DnsResolver, ResolvedAddress, SystemDnsResolver};
 pub use http_connect::{

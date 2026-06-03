@@ -392,6 +392,7 @@ fn relay_socks5_udp_session(
                     outbound,
                     &request_buffer[..request_size],
                     client_udp_addr,
+                    first_byte_timeout,
                 )?;
                 last_activity = Instant::now();
             }
@@ -427,6 +428,7 @@ fn relay_socks5_udp_datagram(
     outbound: &UdpSocket,
     request: &[u8],
     client_udp_addr: SocketAddr,
+    response_timeout: Duration,
 ) -> io::Result<()> {
     let datagram = parse_socks5_udp_datagram(request).map_err(to_io_error)?;
     let target = outbound_target_from_socks5_udp(&datagram.address, datagram.port);
@@ -441,8 +443,25 @@ fn relay_socks5_udp_datagram(
             return Ok(());
         }
         RouteAction::Outbound(tag) => {
-            report.route_action = RouteAction::Outbound(tag);
-            report.record_error(ConnectionErrorKind::UnsupportedOutbound);
+            report.route_action = RouteAction::Outbound(tag.clone());
+            let started = Instant::now();
+            let response = match runtime.outbounds.relay_udp_datagram(
+                &tag,
+                &target,
+                &datagram.payload,
+                response_timeout,
+            ) {
+                Ok(response) => response,
+                Err(error) => {
+                    report.record_error(ConnectionErrorKind::from_io(&error));
+                    println!("{}", report.summary_line());
+                    return Ok(());
+                }
+            };
+            report.upload_bytes = datagram.payload.len() as u64;
+            report.record_first_byte_duration(started.elapsed());
+            report.download_bytes = response.payload.len() as u64;
+            send_socks5_udp_response(relay, client_udp_addr, response.source, &response.payload)?;
             println!("{}", report.summary_line());
             return Ok(());
         }
@@ -482,15 +501,26 @@ fn relay_socks5_udp_datagram(
     report.record_first_byte_duration(started.elapsed());
     report.download_bytes = response_size as u64;
 
-    let response_address = socks5_address_from_ip(response_from.ip());
-    let response = encode_socks5_udp_datagram(
-        &response_address,
-        response_from.port(),
+    send_socks5_udp_response(
+        relay,
+        client_udp_addr,
+        response_from,
         &response_buffer[..response_size],
-    )
-    .map_err(to_io_error)?;
-    relay.send_to(&response, client_udp_addr)?;
+    )?;
     println!("{}", report.summary_line());
+    Ok(())
+}
+
+fn send_socks5_udp_response(
+    relay: &UdpSocket,
+    client_udp_addr: SocketAddr,
+    response_from: SocketAddr,
+    payload: &[u8],
+) -> io::Result<()> {
+    let response_address = socks5_address_from_ip(response_from.ip());
+    let response = encode_socks5_udp_datagram(&response_address, response_from.port(), payload)
+        .map_err(to_io_error)?;
+    relay.send_to(&response, client_udp_addr)?;
     Ok(())
 }
 

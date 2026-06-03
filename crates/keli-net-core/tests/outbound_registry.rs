@@ -40,6 +40,40 @@ fn registered_direct_outbound_connects_to_target() {
 }
 
 #[test]
+fn registered_direct_udp_outbound_relays_datagram() {
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind udp target");
+    socket
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .expect("target timeout");
+    let port = socket.local_addr().expect("target addr").port();
+    let server = std::thread::spawn(move || {
+        let mut request = [0; 1500];
+        let (size, from) = socket.recv_from(&mut request).expect("read udp request");
+        assert_eq!(&request[..size], b"ping");
+        socket.send_to(b"pong", from).expect("write udp response");
+    });
+    let mut registry = OutboundRegistry::new();
+    registry.add_direct("proxy");
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("127.0.0.1", port),
+            b"ping",
+            Duration::from_secs(1),
+        )
+        .expect("registered direct UDP outbound should relay");
+
+    assert_eq!(
+        response.source.ip(),
+        "127.0.0.1".parse::<std::net::IpAddr>().expect("valid IP")
+    );
+    assert_eq!(response.source.port(), port);
+    assert_eq!(response.payload, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn missing_outbound_tag_is_unsupported() {
     let registry = OutboundRegistry::new();
 
