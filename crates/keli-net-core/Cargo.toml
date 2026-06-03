@@ -17,8 +17,8 @@ rustls.workspace = true
 sha1.workspace = true
 sha2.workspace = true
 shadowsocks-crypto.workspace = true
+tokio.workspace = true
 webpki-roots.workspace = true
 
 [dev-dependencies]
 rcgen.workspace = true
-tokio.workspace = true

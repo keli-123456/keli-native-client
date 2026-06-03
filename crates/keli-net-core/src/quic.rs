@@ -1,3 +1,4 @@
+use std::future::poll_fn;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -111,6 +112,69 @@ pub async fn hy2_authenticate_h3(
         .await
         .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))?;
     validate_hy2_auth_response(&response)
+}
+
+pub struct Hy2ClientSession {
+    endpoint: quinn::Endpoint,
+    connection: quinn::Connection,
+    _send_request: Hy2H3SendRequest,
+    h3_driver: tokio::task::JoinHandle<h3::error::ConnectionError>,
+}
+
+impl Hy2ClientSession {
+    pub async fn connect(
+        bind_addr: SocketAddr,
+        server_addr: SocketAddr,
+        server_name: &str,
+        skip_verify: bool,
+        auth: &str,
+        cc_rx: u64,
+        auth_padding: &str,
+    ) -> io::Result<Self> {
+        let endpoint = h3_quic_client_endpoint(bind_addr, skip_verify)?;
+        let connection = h3_quic_connect(&endpoint, server_addr, server_name).await?;
+        let (mut h3_connection, mut send_request) =
+            h3_client_from_quinn_connection(connection.clone())
+                .await
+                .map_err(|error| {
+                    io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}"))
+                })?;
+        let h3_driver =
+            tokio::spawn(async move { poll_fn(|cx| h3_connection.poll_close(cx)).await });
+        if let Err(error) = hy2_authenticate_h3(&mut send_request, auth, cc_rx, auth_padding).await
+        {
+            h3_driver.abort();
+            return Err(error);
+        }
+        Ok(Self {
+            endpoint,
+            connection,
+            _send_request: send_request,
+            h3_driver,
+        })
+    }
+
+    pub async fn open_tcp_stream(
+        &self,
+        target: &Endpoint,
+        padding: &[u8],
+    ) -> io::Result<Hy2QuicTcpStream> {
+        hy2_open_tcp_stream(&self.connection, target, padding).await
+    }
+
+    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.endpoint.local_addr()
+    }
+
+    pub fn h3_driver_finished(&self) -> bool {
+        self.h3_driver.is_finished()
+    }
+}
+
+impl Drop for Hy2ClientSession {
+    fn drop(&mut self) {
+        self.h3_driver.abort();
+    }
 }
 
 pub struct Hy2QuicTcpStream {

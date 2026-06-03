@@ -314,6 +314,166 @@ async fn hy2_authenticated_quic_connection_opens_tcp_stream_after_h3_auth() {
     server.await.expect("server task");
 }
 
+#[tokio::test]
+async fn hy2_client_session_reuses_authenticated_connection_for_tcp_streams() {
+    let server_endpoint = quinn::Endpoint::server(
+        hy2_h3_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local reusable hy2 server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let mut h3_connection: h3::server::Connection<h3_quinn::Connection, bytes::Bytes> =
+            h3::server::builder()
+                .build(h3_quinn::Connection::new(connection.clone()))
+                .await
+                .expect("server h3 connection");
+        let resolver = h3_connection
+            .accept()
+            .await
+            .expect("accept auth request")
+            .expect("auth request exists");
+        let (request, mut auth_stream) = resolver
+            .resolve_request()
+            .await
+            .expect("resolve auth request");
+        assert_eq!(request.uri().path(), "/auth");
+        assert_eq!(request.headers()["Hysteria-Auth"], "secret");
+        auth_stream
+            .send_response(http::Response::builder().status(233).body(()).unwrap())
+            .await
+            .expect("send auth OK");
+        auth_stream.finish().await.expect("finish auth OK");
+
+        for expected_payload in [b"one".as_slice(), b"two".as_slice()] {
+            let (mut send, mut recv) = connection.accept_bi().await.expect("accept HY2 TCP stream");
+            let mut request = [0; 19];
+            recv.read_exact(&mut request)
+                .await
+                .expect("read HY2 TCP request");
+            assert_eq!(
+                request,
+                [
+                    0x44, 0x01, 0x0f, b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.', b'c', b'o',
+                    b'm', b':', b'4', b'4', b'3', 0x00,
+                ]
+            );
+            send.write_all(&[0x00, 0x00, 0x00])
+                .await
+                .expect("write HY2 TCP OK response");
+            let mut payload = vec![0; expected_payload.len()];
+            recv.read_exact(&mut payload)
+                .await
+                .expect("read relayed payload");
+            assert_eq!(payload, expected_payload);
+            send.write_all(expected_payload)
+                .await
+                .expect("echo relayed payload");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    });
+
+    let session = keli_net_core::Hy2ClientSession::connect(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        server_addr,
+        "localhost",
+        true,
+        "secret",
+        0,
+        "pad",
+    )
+    .await
+    .expect("connect HY2 client session");
+    let target = keli_protocol::Endpoint::new("example.com", 443);
+
+    let mut first = session
+        .open_tcp_stream(&target, b"")
+        .await
+        .expect("open first HY2 TCP stream");
+    first.write_all(b"one").await.expect("write first stream");
+    let mut first_response = [0; 3];
+    first
+        .read_exact(&mut first_response)
+        .await
+        .expect("read first stream");
+
+    let mut second = session
+        .open_tcp_stream(&target, b"")
+        .await
+        .expect("open second HY2 TCP stream");
+    second.write_all(b"two").await.expect("write second stream");
+    let mut second_response = [0; 3];
+    second
+        .read_exact(&mut second_response)
+        .await
+        .expect("read second stream");
+
+    assert_eq!(&first_response, b"one");
+    assert_eq!(&second_response, b"two");
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn hy2_client_session_rejects_failed_h3_auth() {
+    let server_endpoint = quinn::Endpoint::server(
+        hy2_h3_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local rejecting hy2 server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let mut h3_connection: h3::server::Connection<h3_quinn::Connection, bytes::Bytes> =
+            h3::server::builder()
+                .build(h3_quinn::Connection::new(connection))
+                .await
+                .expect("server h3 connection");
+        let resolver = h3_connection
+            .accept()
+            .await
+            .expect("accept auth request")
+            .expect("auth request exists");
+        let (_request, mut auth_stream) = resolver
+            .resolve_request()
+            .await
+            .expect("resolve auth request");
+        auth_stream
+            .send_response(http::Response::builder().status(401).body(()).unwrap())
+            .await
+            .expect("send auth rejection");
+        auth_stream.finish().await.expect("finish auth rejection");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    });
+
+    let error = match keli_net_core::Hy2ClientSession::connect(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        server_addr,
+        "localhost",
+        true,
+        "bad-secret",
+        0,
+        "pad",
+    )
+    .await
+    {
+        Ok(_) => panic!("HY2 session must reject failed auth"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    assert!(error.to_string().contains("401"));
+    server.await.expect("server task");
+}
+
 fn hy2_h3_test_server_config() -> quinn::ServerConfig {
     let cert = generate_simple_self_signed(vec!["localhost".to_string()]).expect("cert");
     let cert_der: CertificateDer<'static> = cert.cert.der().clone();
