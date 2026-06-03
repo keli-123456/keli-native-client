@@ -12,6 +12,10 @@ use hmac::{Hmac, Mac};
 use md5::{Digest as Md5Digest, Md5};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
+use sha3::{
+    digest::{ExtendableOutput, Update, XofReader},
+    Shake128, Shake128Reader,
+};
 use shadowsocks_crypto::kind::{CipherCategory, CipherKind};
 use shadowsocks_crypto::v1::{openssl_bytes_to_key, Cipher};
 
@@ -30,7 +34,11 @@ const VMESS_COMMAND_TCP: u8 = 0x01;
 const VMESS_ATYP_IPV4: u8 = 0x01;
 const VMESS_ATYP_DOMAIN: u8 = 0x02;
 const VMESS_ATYP_IPV6: u8 = 0x03;
+const VMESS_OPTION_CHUNK_STREAM: u8 = 0x01;
+const VMESS_OPTION_CHUNK_MASKING: u8 = 0x04;
+const VMESS_SECURITY_AES_128_GCM: u8 = 0x03;
 const VMESS_SECURITY_NONE: u8 = 0x05;
+const VMESS_WRITE_CHUNK_SIZE: usize = 15_000;
 const VMESS_KDF_ROOT: &[u8] = b"VMess AEAD KDF";
 const VMESS_AUTH_ID_KEY: &[u8] = b"AES Auth ID Encryption";
 const VMESS_HEADER_LENGTH_KEY: &[u8] = b"VMess Header AEAD Key_Length";
@@ -272,20 +280,41 @@ impl OutboundRegistry {
                 Ok(())
             }
             (ProxyProtocol::Vmess, TransportKind::Tcp, SecurityKind::None) => {
-                self.add_vmess_tcp(tag, VmessTcpOutbound::new(endpoint, credential));
+                let vmess_security = vmess_security_from_profile_cipher(&tag, cipher.as_deref())?;
+                self.add_vmess_tcp(
+                    tag,
+                    VmessTcpOutbound::new_with_security(endpoint, credential, vmess_security),
+                );
                 Ok(())
             }
             (ProxyProtocol::Vmess, TransportKind::Tcp, SecurityKind::Tls { sni, skip_verify }) => {
                 let sni = sni.unwrap_or_else(|| endpoint.host.clone());
+                let vmess_security = vmess_security_from_profile_cipher(&tag, cipher.as_deref())?;
                 self.add_vmess_tls_tcp(
                     tag,
-                    VmessTlsTcpOutbound::new(endpoint, credential, sni, skip_verify),
+                    VmessTlsTcpOutbound::new_with_security(
+                        endpoint,
+                        credential,
+                        sni,
+                        skip_verify,
+                        vmess_security,
+                    ),
                 );
                 Ok(())
             }
             (ProxyProtocol::Vmess, TransportKind::WebSocket { path, host }, SecurityKind::None) => {
                 let host = host.unwrap_or_else(|| endpoint.host.clone());
-                self.add_vmess_ws(tag, VmessWsOutbound::new(endpoint, host, path, credential));
+                let vmess_security = vmess_security_from_profile_cipher(&tag, cipher.as_deref())?;
+                self.add_vmess_ws(
+                    tag,
+                    VmessWsOutbound::new_with_security(
+                        endpoint,
+                        host,
+                        path,
+                        credential,
+                        vmess_security,
+                    ),
+                );
                 Ok(())
             }
             (
@@ -295,9 +324,18 @@ impl OutboundRegistry {
             ) => {
                 let host = host.unwrap_or_else(|| endpoint.host.clone());
                 let sni = sni.unwrap_or_else(|| host.clone());
+                let vmess_security = vmess_security_from_profile_cipher(&tag, cipher.as_deref())?;
                 self.add_vmess_tls_ws(
                     tag,
-                    VmessTlsWsOutbound::new(endpoint, host, path, credential, sni, skip_verify),
+                    VmessTlsWsOutbound::new_with_security(
+                        endpoint,
+                        host,
+                        path,
+                        credential,
+                        sni,
+                        skip_verify,
+                        vmess_security,
+                    ),
                 );
                 Ok(())
             }
@@ -586,6 +624,10 @@ pub enum OutboundProfileError {
     MissingShadowsocksCipher {
         tag: String,
     },
+    UnsupportedVmessCipher {
+        tag: String,
+        cipher: String,
+    },
     UnsupportedTransport {
         tag: String,
         protocol: ProxyProtocol,
@@ -608,6 +650,9 @@ impl std::fmt::Display for OutboundProfileError {
             }
             Self::MissingShadowsocksCipher { tag } => {
                 write!(f, "outbound profile {tag} shadowsocks cipher is missing")
+            }
+            Self::UnsupportedVmessCipher { tag, cipher } => {
+                write!(f, "outbound profile {tag} vmess cipher is unsupported: {cipher}")
             }
             Self::UnsupportedTransport {
                 tag,
@@ -2110,17 +2155,48 @@ fn read_vless_response_header_from_stream(stream: &mut impl Read) -> io::Result<
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VmessBodySecurity {
+    None,
+    Aes128Gcm,
+}
+
+fn vmess_security_from_profile_cipher(
+    tag: &str,
+    cipher: Option<&str>,
+) -> Result<VmessBodySecurity, OutboundProfileError> {
+    let cipher = cipher.unwrap_or("auto").trim().to_ascii_lowercase();
+    match cipher.as_str() {
+        "" | "auto" | "aes-128-gcm" => Ok(VmessBodySecurity::Aes128Gcm),
+        "none" | "zero" => Ok(VmessBodySecurity::None),
+        _ => Err(OutboundProfileError::UnsupportedVmessCipher {
+            tag: tag.to_string(),
+            cipher,
+        }),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VmessTcpOutbound {
     pub server: Endpoint,
     pub uuid: String,
+    pub security: VmessBodySecurity,
 }
 
 impl VmessTcpOutbound {
     pub fn new(server: Endpoint, uuid: impl Into<String>) -> Self {
+        Self::new_with_security(server, uuid, VmessBodySecurity::None)
+    }
+
+    pub fn new_with_security(
+        server: Endpoint,
+        uuid: impl Into<String>,
+        security: VmessBodySecurity,
+    ) -> Self {
         Self {
             server,
             uuid: uuid.into(),
+            security,
         }
     }
 
@@ -2132,9 +2208,15 @@ impl VmessTcpOutbound {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
         let mut stream = DirectTcpConnector::connect(&server, timeout)?;
         let target = Endpoint::new(target.host.clone(), target.port);
-        let request = write_vmess_tcp_request_header(&mut stream, &self.uuid, &target)?;
+        let request =
+            write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
         read_vmess_response_header_from_stream(&mut stream, &request)?;
-        Ok(OutboundConnection::Tcp(stream))
+        match self.security {
+            VmessBodySecurity::None => Ok(OutboundConnection::Tcp(stream)),
+            VmessBodySecurity::Aes128Gcm => Ok(OutboundConnection::Owned(Box::new(
+                VmessAes128GcmStream::new(stream, request),
+            ))),
+        }
     }
 }
 
@@ -2144,6 +2226,7 @@ pub struct VmessTlsTcpOutbound {
     pub uuid: String,
     pub sni: String,
     pub skip_verify: bool,
+    pub security: VmessBodySecurity,
 }
 
 impl VmessTlsTcpOutbound {
@@ -2153,11 +2236,22 @@ impl VmessTlsTcpOutbound {
         sni: impl Into<String>,
         skip_verify: bool,
     ) -> Self {
+        Self::new_with_security(server, uuid, sni, skip_verify, VmessBodySecurity::None)
+    }
+
+    pub fn new_with_security(
+        server: Endpoint,
+        uuid: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+        security: VmessBodySecurity,
+    ) -> Self {
         Self {
             server,
             uuid: uuid.into(),
             sni: sni.into(),
             skip_verify,
+            security,
         }
     }
 
@@ -2170,9 +2264,10 @@ impl VmessTlsTcpOutbound {
         let stream = DirectTcpConnector::connect(&server, timeout)?;
         let mut stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
         let target = Endpoint::new(target.host.clone(), target.port);
-        let request = write_vmess_tcp_request_header(&mut stream, &self.uuid, &target)?;
+        let request =
+            write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
         read_vmess_response_header_from_stream(&mut stream, &request)?;
-        Ok(OutboundConnection::Owned(Box::new(stream)))
+        vmess_connection_from_stream(stream, request, self.security)
     }
 }
 
@@ -2182,6 +2277,7 @@ pub struct VmessWsOutbound {
     pub host: String,
     pub path: String,
     pub uuid: String,
+    pub security: VmessBodySecurity,
 }
 
 impl VmessWsOutbound {
@@ -2191,11 +2287,22 @@ impl VmessWsOutbound {
         path: impl Into<String>,
         uuid: impl Into<String>,
     ) -> Self {
+        Self::new_with_security(server, host, path, uuid, VmessBodySecurity::None)
+    }
+
+    pub fn new_with_security(
+        server: Endpoint,
+        host: impl Into<String>,
+        path: impl Into<String>,
+        uuid: impl Into<String>,
+        security: VmessBodySecurity,
+    ) -> Self {
         Self {
             server,
             host: host.into(),
             path: path.into(),
             uuid: uuid.into(),
+            security,
         }
     }
 
@@ -2208,9 +2315,15 @@ impl VmessWsOutbound {
         let stream = DirectTcpConnector::connect(&server, timeout)?;
         let mut stream = crate::WebSocketClientStream::connect(stream, &self.host, &self.path)?;
         let target = Endpoint::new(target.host.clone(), target.port);
-        let request = write_vmess_tcp_request_header(&mut stream, &self.uuid, &target)?;
+        let request =
+            write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
         read_vmess_response_header_from_stream(&mut stream, &request)?;
-        Ok(OutboundConnection::WebSocket(stream))
+        match self.security {
+            VmessBodySecurity::None => Ok(OutboundConnection::WebSocket(stream)),
+            VmessBodySecurity::Aes128Gcm => Ok(OutboundConnection::Owned(Box::new(
+                VmessAes128GcmStream::new(stream, request),
+            ))),
+        }
     }
 }
 
@@ -2222,6 +2335,7 @@ pub struct VmessTlsWsOutbound {
     pub uuid: String,
     pub sni: String,
     pub skip_verify: bool,
+    pub security: VmessBodySecurity,
 }
 
 impl VmessTlsWsOutbound {
@@ -2233,6 +2347,26 @@ impl VmessTlsWsOutbound {
         sni: impl Into<String>,
         skip_verify: bool,
     ) -> Self {
+        Self::new_with_security(
+            server,
+            host,
+            path,
+            uuid,
+            sni,
+            skip_verify,
+            VmessBodySecurity::None,
+        )
+    }
+
+    pub fn new_with_security(
+        server: Endpoint,
+        host: impl Into<String>,
+        path: impl Into<String>,
+        uuid: impl Into<String>,
+        sni: impl Into<String>,
+        skip_verify: bool,
+        security: VmessBodySecurity,
+    ) -> Self {
         Self {
             server,
             host: host.into(),
@@ -2240,6 +2374,7 @@ impl VmessTlsWsOutbound {
             uuid: uuid.into(),
             sni: sni.into(),
             skip_verify,
+            security,
         }
     }
 
@@ -2254,14 +2389,17 @@ impl VmessTlsWsOutbound {
         let mut stream =
             crate::OwnedWebSocketClientStream::connect(stream, &self.host, &self.path)?;
         let target = Endpoint::new(target.host.clone(), target.port);
-        let request = write_vmess_tcp_request_header(&mut stream, &self.uuid, &target)?;
+        let request =
+            write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
         read_vmess_response_header_from_stream(&mut stream, &request)?;
-        Ok(OutboundConnection::Owned(Box::new(stream)))
+        vmess_connection_from_stream(stream, request, self.security)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct VmessClientRequest {
+    request_body_key: [u8; 16],
+    request_body_iv: [u8; 16],
     response_body_key: [u8; 16],
     response_body_iv: [u8; 16],
     response_header: u8,
@@ -2271,6 +2409,7 @@ fn write_vmess_tcp_request_header(
     stream: &mut impl Write,
     uuid: &str,
     target: &Endpoint,
+    security: VmessBodySecurity,
 ) -> io::Result<VmessClientRequest> {
     let uuid = parse_vmess_uuid_bytes(uuid)?;
     let cmd_key = vmess_cmd_key(&uuid);
@@ -2282,8 +2421,8 @@ fn write_vmess_tcp_request_header(
     header.extend_from_slice(&request_body_iv);
     header.extend_from_slice(&request_body_key);
     header.push(response_header);
-    header.push(0x00);
-    header.push(VMESS_SECURITY_NONE);
+    header.push(vmess_request_option(security));
+    header.push(vmess_request_security(security));
     header.push(0x00);
     header.push(VMESS_COMMAND_TCP);
     write_vmess_target_header(&mut header, target)?;
@@ -2297,10 +2436,164 @@ fn write_vmess_tcp_request_header(
     )?)?;
 
     Ok(VmessClientRequest {
+        request_body_key,
+        request_body_iv,
         response_body_key: first_16_sha256(&request_body_key),
         response_body_iv: first_16_sha256(&request_body_iv),
         response_header,
     })
+}
+
+fn vmess_request_option(security: VmessBodySecurity) -> u8 {
+    match security {
+        VmessBodySecurity::None => 0x00,
+        VmessBodySecurity::Aes128Gcm => VMESS_OPTION_CHUNK_STREAM | VMESS_OPTION_CHUNK_MASKING,
+    }
+}
+
+fn vmess_request_security(security: VmessBodySecurity) -> u8 {
+    match security {
+        VmessBodySecurity::None => VMESS_SECURITY_NONE,
+        VmessBodySecurity::Aes128Gcm => VMESS_SECURITY_AES_128_GCM,
+    }
+}
+
+fn vmess_connection_from_stream<S>(
+    stream: S,
+    request: VmessClientRequest,
+    security: VmessBodySecurity,
+) -> io::Result<OutboundConnection>
+where
+    S: OwnedRelayStream + 'static,
+{
+    match security {
+        VmessBodySecurity::None => Ok(OutboundConnection::Owned(Box::new(stream))),
+        VmessBodySecurity::Aes128Gcm => Ok(OutboundConnection::Owned(Box::new(
+            VmessAes128GcmStream::new(stream, request),
+        ))),
+    }
+}
+
+struct VmessAes128GcmStream<S> {
+    inner: S,
+    read_key: [u8; 16],
+    read_iv: [u8; 16],
+    read_counter: u16,
+    read_mask: Shake128Reader,
+    read_buffer: Vec<u8>,
+    read_offset: usize,
+    write_key: [u8; 16],
+    write_iv: [u8; 16],
+    write_counter: u16,
+    write_mask: Shake128Reader,
+}
+
+impl<S> VmessAes128GcmStream<S> {
+    fn new(inner: S, request: VmessClientRequest) -> Self {
+        Self {
+            inner,
+            read_key: request.response_body_key,
+            read_iv: request.response_body_iv,
+            read_counter: 0,
+            read_mask: vmess_chunk_mask_reader(&request.response_body_iv),
+            read_buffer: Vec::new(),
+            read_offset: 0,
+            write_key: request.request_body_key,
+            write_iv: request.request_body_iv,
+            write_counter: 0,
+            write_mask: vmess_chunk_mask_reader(&request.request_body_iv),
+        }
+    }
+}
+
+impl<S: Read> Read for VmessAes128GcmStream<S> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if self.read_offset >= self.read_buffer.len() && !self.read_next_chunk()? {
+            return Ok(0);
+        }
+        let available = &self.read_buffer[self.read_offset..];
+        let size = available.len().min(buffer.len());
+        buffer[..size].copy_from_slice(&available[..size]);
+        self.read_offset += size;
+        Ok(size)
+    }
+}
+
+impl<S: Read> VmessAes128GcmStream<S> {
+    fn read_next_chunk(&mut self) -> io::Result<bool> {
+        let mut length_bytes = [0; 2];
+        if !read_exact_or_clean_eof(&mut self.inner, &mut length_bytes)? {
+            return Ok(false);
+        }
+        let encrypted_len =
+            u16::from_be_bytes(length_bytes) ^ vmess_next_chunk_mask(&mut self.read_mask);
+        let mut encrypted_payload = vec![0; usize::from(encrypted_len)];
+        self.inner.read_exact(&mut encrypted_payload)?;
+        let nonce = vmess_body_nonce(&self.read_iv, self.read_counter);
+        self.read_counter = self.read_counter.wrapping_add(1);
+        self.read_buffer = vmess_aes_gcm_open(&self.read_key, &nonce, &encrypted_payload, &[])?;
+        self.read_offset = 0;
+        Ok(!self.read_buffer.is_empty())
+    }
+}
+
+impl<S: Write> Write for VmessAes128GcmStream<S> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        for chunk in buffer.chunks(VMESS_WRITE_CHUNK_SIZE) {
+            let nonce = vmess_body_nonce(&self.write_iv, self.write_counter);
+            self.write_counter = self.write_counter.wrapping_add(1);
+            let encrypted_payload = vmess_aes_gcm_seal(&self.write_key, &nonce, chunk, &[])?;
+            let encrypted_len = u16::try_from(encrypted_payload.len()).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "vmess chunk is too large")
+            })?;
+            let masked_len = encrypted_len ^ vmess_next_chunk_mask(&mut self.write_mask);
+            self.inner.write_all(&masked_len.to_be_bytes())?;
+            self.inner.write_all(&encrypted_payload)?;
+        }
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl<S: OwnedRelayStream> OwnedRelayStream for VmessAes128GcmStream<S> {
+    fn set_nonblocking_mode(&mut self, nonblocking: bool) -> io::Result<()> {
+        self.inner.set_nonblocking_mode(nonblocking)
+    }
+
+    fn shutdown_write(&mut self) -> io::Result<()> {
+        self.inner.shutdown_write()
+    }
+
+    fn shutdown_both(&mut self) -> io::Result<()> {
+        self.inner.shutdown_both()
+    }
+}
+
+fn vmess_chunk_mask_reader(nonce: &[u8; 16]) -> Shake128Reader {
+    let mut shake = Shake128::default();
+    Update::update(&mut shake, nonce);
+    shake.finalize_xof()
+}
+
+fn vmess_next_chunk_mask(reader: &mut Shake128Reader) -> u16 {
+    let mut mask = [0; 2];
+    XofReader::read(reader, &mut mask);
+    u16::from_be_bytes(mask)
+}
+
+fn vmess_body_nonce(base: &[u8; 16], counter: u16) -> [u8; 12] {
+    let mut nonce: [u8; 12] = base[..12].try_into().expect("vmess body nonce");
+    nonce[..2].copy_from_slice(&counter.to_be_bytes());
+    nonce
 }
 
 fn write_vmess_target_header(output: &mut Vec<u8>, target: &Endpoint) -> io::Result<()> {
@@ -2632,6 +2925,20 @@ impl OwnedRelayStream for OutboundConnection {
             Self::WebSocket(stream) => stream.shutdown_both(),
             Self::Owned(stream) => stream.shutdown_both(),
         }
+    }
+}
+
+impl OwnedRelayStream for crate::WebSocketClientStream {
+    fn set_nonblocking_mode(&mut self, nonblocking: bool) -> io::Result<()> {
+        crate::WebSocketClientStream::set_nonblocking_mode(self, nonblocking)
+    }
+
+    fn shutdown_write(&mut self) -> io::Result<()> {
+        crate::WebSocketClientStream::shutdown_write(self)
+    }
+
+    fn shutdown_both(&mut self) -> io::Result<()> {
+        crate::WebSocketClientStream::shutdown_both(self)
     }
 }
 

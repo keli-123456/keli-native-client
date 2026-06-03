@@ -23,6 +23,7 @@ quinn.workspace = true
 rustls.workspace = true
 sha1.workspace = true
 sha2.workspace = true
+sha3.workspace = true
 shadowsocks-crypto.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
