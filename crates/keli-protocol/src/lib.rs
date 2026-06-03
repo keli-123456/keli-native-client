@@ -697,6 +697,33 @@ impl fmt::Display for ProtocolEncodingError {
 
 impl std::error::Error for ProtocolEncodingError {}
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProtocolDecodingError {
+    UnexpectedEof,
+    InvalidUtf8,
+    InvalidHy2Status(u8),
+}
+
+impl fmt::Display for ProtocolDecodingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnexpectedEof => write!(f, "protocol message is truncated"),
+            Self::InvalidUtf8 => write!(f, "protocol message contains invalid UTF-8"),
+            Self::InvalidHy2Status(status) => {
+                write!(f, "HY2 TCP response status is invalid: {status}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ProtocolDecodingError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hy2TcpResponse {
+    pub ok: bool,
+    pub message: String,
+}
+
 pub fn encode_vless_tcp_request_header(
     uuid: &str,
     target: &Endpoint,
@@ -753,6 +780,41 @@ pub fn encode_hy2_tcp_request(
     Ok(request)
 }
 
+pub fn decode_hy2_tcp_response(
+    input: &[u8],
+) -> Result<(Hy2TcpResponse, usize), ProtocolDecodingError> {
+    let Some((&status, rest)) = input.split_first() else {
+        return Err(ProtocolDecodingError::UnexpectedEof);
+    };
+    let ok = match status {
+        0x00 => true,
+        0x01 => false,
+        other => return Err(ProtocolDecodingError::InvalidHy2Status(other)),
+    };
+
+    let mut offset = input.len() - rest.len();
+    let (message_len, consumed) = decode_quic_varint(input, offset)?;
+    offset += consumed;
+    let message_len = message_len as usize;
+    let message_end = offset
+        .checked_add(message_len)
+        .filter(|end| *end <= input.len())
+        .ok_or(ProtocolDecodingError::UnexpectedEof)?;
+    let message = String::from_utf8(input[offset..message_end].to_vec())
+        .map_err(|_| ProtocolDecodingError::InvalidUtf8)?;
+    offset = message_end;
+
+    let (padding_len, consumed) = decode_quic_varint(input, offset)?;
+    offset += consumed;
+    let padding_len = padding_len as usize;
+    offset = offset
+        .checked_add(padding_len)
+        .filter(|end| *end <= input.len())
+        .ok_or(ProtocolDecodingError::UnexpectedEof)?;
+
+    Ok((Hy2TcpResponse { ok, message }, offset))
+}
+
 fn encode_quic_varint(output: &mut Vec<u8>, value: u64) {
     match value {
         0..=63 => output.push(value as u8),
@@ -762,6 +824,22 @@ fn encode_quic_varint(output: &mut Vec<u8>, value: u64) {
         }
         _ => output.extend_from_slice(&(0xc000_0000_0000_0000 | value).to_be_bytes()),
     }
+}
+
+fn decode_quic_varint(input: &[u8], offset: usize) -> Result<(u64, usize), ProtocolDecodingError> {
+    let Some(&first) = input.get(offset) else {
+        return Err(ProtocolDecodingError::UnexpectedEof);
+    };
+    let length = 1usize << (first >> 6);
+    let end = offset
+        .checked_add(length)
+        .filter(|end| *end <= input.len())
+        .ok_or(ProtocolDecodingError::UnexpectedEof)?;
+    let mut value = u64::from(first & 0x3f);
+    for byte in &input[offset + 1..end] {
+        value = (value << 8) | u64::from(*byte);
+    }
+    Ok((value, length))
 }
 
 fn looks_like_uuid(value: &str) -> bool {
@@ -1078,5 +1156,35 @@ mod tests {
             .expect_err("empty HY2 target should fail");
 
         assert_eq!(error, ProtocolEncodingError::InvalidTargetHost);
+    }
+
+    #[test]
+    fn decodes_hy2_tcp_ok_response_and_reports_consumed_bytes() {
+        let input = b"\x00\x05ready\x03padnext-bytes";
+
+        let (response, consumed) = decode_hy2_tcp_response(input).expect("hy2 tcp response");
+
+        assert!(response.ok);
+        assert_eq!(response.message, "ready");
+        assert_eq!(consumed, 11);
+    }
+
+    #[test]
+    fn decodes_hy2_tcp_error_response_message() {
+        let input = b"\x01\x0econnect failed\x00";
+
+        let (response, consumed) = decode_hy2_tcp_response(input).expect("hy2 tcp response");
+
+        assert!(!response.ok);
+        assert_eq!(response.message, "connect failed");
+        assert_eq!(consumed, input.len());
+    }
+
+    #[test]
+    fn rejects_truncated_hy2_tcp_response() {
+        let error =
+            decode_hy2_tcp_response(b"\x00\x05no").expect_err("truncated response should fail");
+
+        assert_eq!(error, ProtocolDecodingError::UnexpectedEof);
     }
 }
