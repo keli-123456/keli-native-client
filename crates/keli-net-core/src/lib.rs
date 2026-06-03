@@ -5,6 +5,7 @@ mod dns;
 mod http_connect;
 mod http_proxy;
 mod metrics;
+mod mieru;
 mod naive;
 mod quic;
 mod socks5;
@@ -28,6 +29,7 @@ pub use http_proxy::{
     http_proxy_bad_request_response, parse_http_proxy_request, HttpProxyError, HttpProxyRequest,
 };
 pub use metrics::{ConnectionErrorKind, ConnectionReport};
+pub use mieru::{MieruTcpOutbound, MieruTcpStream};
 pub use naive::{NaiveH2TcpOutbound, NaiveH2TcpStream};
 pub use quic::{
     h3_client_from_quinn_connection, h3_quic_client_config, h3_quic_client_endpoint,

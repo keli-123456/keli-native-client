@@ -6,7 +6,7 @@ fn doctor_report_lists_supported_outbounds() {
 
     assert!(output.contains("version="));
     assert!(output.contains(
-        "supported_outbounds=direct,trojan-tcp,trojan-ws,vless-tcp,vless-ws,vmess-tcp,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,hy2-quic,tuic-quic"
+        "supported_outbounds=direct,trojan-tcp,trojan-ws,vless-tcp,vless-ws,vmess-tcp,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,mieru-tcp,hy2-quic,tuic-quic"
     ));
     assert!(output.contains("supported_udp_outbounds=direct,shadowsocks-aead,hy2-quic,tuic-quic"));
 }

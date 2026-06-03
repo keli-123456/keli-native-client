@@ -1,10 +1,11 @@
 use std::io::{Read, Write};
 use std::str::FromStr;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use aes::cipher::{BlockDecrypt, KeyInit};
 use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::{Aes128Gcm, Nonce as AesGcmNonce};
+use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use hmac::{Hmac, Mac};
 use keli_net_core::{
     websocket_accept_for_key, OutboundProfileError, OutboundRegistry, OutboundTarget,
@@ -28,6 +29,17 @@ const VMESS_RESPONSE_HEADER_PAYLOAD_KEY: &[u8] = b"AEAD Resp Header Key";
 const VMESS_RESPONSE_HEADER_PAYLOAD_IV: &[u8] = b"AEAD Resp Header IV";
 const VMESS_CMD_KEY_SALT: &[u8] = b"c48619fe-8f02-49e0-b9e9-edf763e17e21";
 const VMESS_SECURITY_NONE: u8 = 0x05;
+const MIERU_NONCE_LEN: usize = 24;
+const MIERU_METADATA_LEN: usize = 32;
+const MIERU_TAG_LEN: usize = 16;
+const MIERU_ENCRYPTED_METADATA_LEN: usize = MIERU_METADATA_LEN + MIERU_TAG_LEN;
+const MIERU_KEY_WINDOW_SECS: i64 = 120;
+const MIERU_OPEN_SESSION_REQUEST: u8 = 2;
+const MIERU_OPEN_SESSION_RESPONSE: u8 = 3;
+const MIERU_DATA_CLIENT_TO_SERVER: u8 = 6;
+const MIERU_DATA_SERVER_TO_CLIENT: u8 = 7;
+const MIERU_STATUS_OK: u8 = 0;
+const MIERU_SOCKS_CONNECT_SUCCESS: [u8; 10] = [5, 0, 0, 1, 0, 0, 0, 0, 0, 0];
 
 #[test]
 fn registered_direct_outbound_connects_to_target() {
@@ -454,6 +466,55 @@ fn registry_from_vmess_tcp_profile_relays_over_vmess_tcp() {
 }
 
 #[test]
+fn registry_from_mieru_tcp_profile_relays_over_mieru_tcp() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind mieru server");
+    let port = listener.local_addr().expect("mieru addr").port();
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Mieru,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Tcp,
+        security: SecurityKind::None,
+        credential: "user:pass".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept mieru server");
+        let key = derive_mieru_key_for_test("user", "pass");
+        let mut read_nonce = None;
+        let open = read_mieru_segment_for_test(&mut stream, &key, &mut read_nonce);
+        assert_eq!(open.protocol_type, MIERU_OPEN_SESSION_REQUEST);
+        assert_eq!(open.payload, b"\x05\x01\x00\x03\x0bexample.com\x01\xbb");
+
+        let mut writer =
+            MieruTestWriter::new(stream.try_clone().expect("clone"), key, open.session_id);
+        writer.write_segment(MIERU_OPEN_SESSION_RESPONSE, b"");
+        writer.write_segment(MIERU_DATA_SERVER_TO_CLIENT, &MIERU_SOCKS_CONNECT_SUCCESS);
+
+        let data = read_mieru_segment_for_test(&mut stream, &key, &mut read_nonce);
+        assert_eq!(data.protocol_type, MIERU_DATA_CLIENT_TO_SERVER);
+        assert_eq!(data.payload, b"ping");
+        writer.write_segment(MIERU_DATA_SERVER_TO_CLIENT, b"pong");
+    });
+
+    let mut stream = registry
+        .connect(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+        )
+        .expect("registered mieru outbound should connect");
+    stream.write_all(b"ping").expect("write payload");
+    let mut response = [0; 4];
+    stream.read_exact(&mut response).expect("read payload");
+
+    assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn unsupported_transports_report_security_context() {
     let error = OutboundRegistry::from_profiles([OutboundProfile {
         tag: "proxy".to_string(),
@@ -482,6 +543,266 @@ fn unsupported_transports_report_security_context() {
             },
         }
     );
+}
+
+#[derive(Debug)]
+struct MieruTestSegment {
+    protocol_type: u8,
+    session_id: u32,
+    payload: Vec<u8>,
+}
+
+#[derive(Debug)]
+struct MieruTestWriter {
+    stream: std::net::TcpStream,
+    key: [u8; 32],
+    nonce: [u8; MIERU_NONCE_LEN],
+    session_id: u32,
+    sequence: u32,
+    sent_nonce: bool,
+}
+
+impl MieruTestWriter {
+    fn new(stream: std::net::TcpStream, key: [u8; 32], session_id: u32) -> Self {
+        let mut nonce = [7u8; MIERU_NONCE_LEN];
+        apply_mieru_nonce_user_hint_for_test(&mut nonce, "user");
+        Self {
+            stream,
+            key,
+            nonce,
+            session_id,
+            sequence: 0,
+            sent_nonce: false,
+        }
+    }
+
+    fn write_segment(&mut self, protocol_type: u8, payload: &[u8]) {
+        let metadata =
+            mieru_metadata_for_test(protocol_type, self.session_id, self.sequence, payload.len());
+        self.sequence = self.sequence.saturating_add(1);
+        let mut segment = Vec::new();
+        if !self.sent_nonce {
+            segment.extend_from_slice(&self.nonce);
+            self.sent_nonce = true;
+        }
+        segment.extend(mieru_xchacha_seal_for_test(
+            &self.key,
+            &self.nonce,
+            &metadata,
+        ));
+        increment_mieru_nonce_for_test(&mut self.nonce);
+        if !payload.is_empty() {
+            segment.extend(mieru_xchacha_seal_for_test(&self.key, &self.nonce, payload));
+            increment_mieru_nonce_for_test(&mut self.nonce);
+        }
+        self.stream
+            .write_all(&segment)
+            .expect("write mieru segment");
+    }
+}
+
+fn read_mieru_segment_for_test(
+    stream: &mut std::net::TcpStream,
+    key: &[u8; 32],
+    nonce: &mut Option<[u8; MIERU_NONCE_LEN]>,
+) -> MieruTestSegment {
+    let mut buffer = Vec::new();
+    loop {
+        if let Some(segment) = try_read_mieru_segment_for_test(&buffer, key, nonce) {
+            return segment;
+        }
+        let mut temp = [0; 4096];
+        let read = stream.read(&mut temp).expect("read mieru segment");
+        assert_ne!(read, 0, "mieru stream closed before segment");
+        buffer.extend_from_slice(&temp[..read]);
+    }
+}
+
+fn try_read_mieru_segment_for_test(
+    buffer: &[u8],
+    key: &[u8; 32],
+    nonce_state: &mut Option<[u8; MIERU_NONCE_LEN]>,
+) -> Option<MieruTestSegment> {
+    let has_nonce = nonce_state.is_none();
+    let metadata_offset = if has_nonce {
+        if buffer.len() < MIERU_NONCE_LEN {
+            return None;
+        }
+        let mut nonce = [0; MIERU_NONCE_LEN];
+        nonce.copy_from_slice(&buffer[..MIERU_NONCE_LEN]);
+        *nonce_state = Some(nonce);
+        MIERU_NONCE_LEN
+    } else {
+        0
+    };
+    if buffer.len() < metadata_offset + MIERU_ENCRYPTED_METADATA_LEN {
+        return None;
+    }
+    let nonce = nonce_state.as_mut().expect("nonce initialized");
+    let metadata = mieru_xchacha_open_for_test(
+        key,
+        nonce,
+        &buffer[metadata_offset..metadata_offset + MIERU_ENCRYPTED_METADATA_LEN],
+    );
+    let protocol_type = metadata[0];
+    let session_id = u32::from_be_bytes([metadata[6], metadata[7], metadata[8], metadata[9]]);
+    increment_mieru_nonce_for_test(nonce);
+    let payload_len = if matches!(
+        protocol_type,
+        MIERU_OPEN_SESSION_REQUEST | MIERU_OPEN_SESSION_RESPONSE
+    ) {
+        u16::from_be_bytes([metadata[15], metadata[16]]) as usize
+    } else {
+        u16::from_be_bytes([metadata[22], metadata[23]]) as usize
+    };
+    let encrypted_payload_len = if payload_len == 0 {
+        0
+    } else {
+        payload_len + MIERU_TAG_LEN
+    };
+    let payload_offset = metadata_offset + MIERU_ENCRYPTED_METADATA_LEN;
+    if buffer.len() < payload_offset + encrypted_payload_len {
+        return None;
+    }
+    let payload = if payload_len == 0 {
+        Vec::new()
+    } else {
+        let payload = mieru_xchacha_open_for_test(
+            key,
+            nonce,
+            &buffer[payload_offset..payload_offset + encrypted_payload_len],
+        );
+        increment_mieru_nonce_for_test(nonce);
+        payload
+    };
+    Some(MieruTestSegment {
+        protocol_type,
+        session_id,
+        payload,
+    })
+}
+
+fn mieru_metadata_for_test(
+    protocol_type: u8,
+    session_id: u32,
+    sequence: u32,
+    payload_len: usize,
+) -> [u8; MIERU_METADATA_LEN] {
+    let mut output = [0; MIERU_METADATA_LEN];
+    output[0] = protocol_type;
+    output[2..6].copy_from_slice(&((now_unix_secs_for_mieru_test() / 60) as u32).to_be_bytes());
+    output[6..10].copy_from_slice(&session_id.to_be_bytes());
+    output[10..14].copy_from_slice(&sequence.to_be_bytes());
+    if matches!(
+        protocol_type,
+        MIERU_OPEN_SESSION_REQUEST | MIERU_OPEN_SESSION_RESPONSE
+    ) {
+        output[14] = MIERU_STATUS_OK;
+        output[15..17].copy_from_slice(&(payload_len as u16).to_be_bytes());
+    } else {
+        output[18..20].copy_from_slice(&(64u16).to_be_bytes());
+        output[22..24].copy_from_slice(&(payload_len as u16).to_be_bytes());
+    }
+    output
+}
+
+fn derive_mieru_key_for_test(username: &str, password: &str) -> [u8; 32] {
+    let mut password_hasher = Sha256::new();
+    Sha2Digest::update(&mut password_hasher, password.as_bytes());
+    Sha2Digest::update(&mut password_hasher, [0]);
+    Sha2Digest::update(&mut password_hasher, username.as_bytes());
+    let hashed_password = password_hasher.finalize();
+
+    let mut time_hasher = Sha256::new();
+    Sha2Digest::update(
+        &mut time_hasher,
+        (rounded_unix_time_for_mieru_test(now_unix_secs_for_mieru_test()) as u64).to_be_bytes(),
+    );
+    let time_salt = time_hasher.finalize();
+
+    let mut key = [0; 32];
+    pbkdf2_hmac_sha256_for_mieru_test(&hashed_password, &time_salt, 64, &mut key);
+    key
+}
+
+fn pbkdf2_hmac_sha256_for_mieru_test(
+    password: &[u8],
+    salt: &[u8],
+    iterations: u32,
+    output: &mut [u8],
+) {
+    let mut block_index = 1u32;
+    let mut offset = 0usize;
+    while offset < output.len() {
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(password).expect("hmac key");
+        Mac::update(&mut mac, salt);
+        Mac::update(&mut mac, &block_index.to_be_bytes());
+        let mut u = mac.finalize().into_bytes().to_vec();
+        let mut block = u.clone();
+        for _ in 1..iterations {
+            let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(password).expect("hmac key");
+            Mac::update(&mut mac, &u);
+            u = mac.finalize().into_bytes().to_vec();
+            for (left, right) in block.iter_mut().zip(&u) {
+                *left ^= *right;
+            }
+        }
+        let take = (output.len() - offset).min(block.len());
+        output[offset..offset + take].copy_from_slice(&block[..take]);
+        offset += take;
+        block_index = block_index.saturating_add(1);
+    }
+}
+
+fn apply_mieru_nonce_user_hint_for_test(nonce: &mut [u8; MIERU_NONCE_LEN], username: &str) {
+    let mut hasher = Sha256::new();
+    Sha2Digest::update(&mut hasher, username.as_bytes());
+    Sha2Digest::update(&mut hasher, &nonce[..16]);
+    let digest = hasher.finalize();
+    nonce[20..24].copy_from_slice(&digest[..4]);
+}
+
+fn increment_mieru_nonce_for_test(nonce: &mut [u8; MIERU_NONCE_LEN]) {
+    for byte in nonce.iter_mut().rev() {
+        let (next, overflow) = byte.overflowing_add(1);
+        *byte = next;
+        if !overflow {
+            break;
+        }
+    }
+}
+
+fn mieru_xchacha_seal_for_test(
+    key: &[u8; 32],
+    nonce: &[u8; MIERU_NONCE_LEN],
+    plaintext: &[u8],
+) -> Vec<u8> {
+    XChaCha20Poly1305::new_from_slice(key)
+        .expect("xchacha key")
+        .encrypt(XNonce::from_slice(nonce), plaintext)
+        .expect("seal mieru segment")
+}
+
+fn mieru_xchacha_open_for_test(
+    key: &[u8; 32],
+    nonce: &[u8; MIERU_NONCE_LEN],
+    ciphertext: &[u8],
+) -> Vec<u8> {
+    XChaCha20Poly1305::new_from_slice(key)
+        .expect("xchacha key")
+        .decrypt(XNonce::from_slice(nonce), ciphertext)
+        .expect("open mieru segment")
+}
+
+fn rounded_unix_time_for_mieru_test(unix_secs: i64) -> i64 {
+    ((unix_secs + MIERU_KEY_WINDOW_SECS / 2) / MIERU_KEY_WINDOW_SECS) * MIERU_KEY_WINDOW_SECS
+}
+
+fn now_unix_secs_for_mieru_test() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
 }
 
 struct VmessRequestForTest {

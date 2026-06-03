@@ -195,6 +195,7 @@ pub struct OutboundRegistry {
     shadowsocks_tcp_tags: HashMap<String, ShadowsocksTcpOutbound>,
     anytls_tls_tcp_tags: HashMap<String, AnyTlsTlsTcpOutbound>,
     naive_h2_tcp_tags: HashMap<String, crate::NaiveH2TcpOutbound>,
+    mieru_tcp_tags: HashMap<String, crate::MieruTcpOutbound>,
     hy2_tags: HashMap<String, Hy2Outbound>,
     tuic_tags: HashMap<String, TuicOutbound>,
 }
@@ -338,6 +339,20 @@ impl OutboundRegistry {
                 );
                 Ok(())
             }
+            (ProxyProtocol::Mieru, TransportKind::Tcp, SecurityKind::None) => {
+                let (username, password) =
+                    credential
+                        .split_once(':')
+                        .ok_or_else(|| OutboundProfileError::Validation {
+                            tag: tag.clone(),
+                            source: ProtocolValidationError::InvalidMieruCredential,
+                        })?;
+                self.add_mieru_tcp(
+                    tag,
+                    crate::MieruTcpOutbound::new(endpoint, username, password),
+                );
+                Ok(())
+            }
             (ProxyProtocol::Hy2, TransportKind::Quic, SecurityKind::Tls { sni, skip_verify }) => {
                 let sni = sni.unwrap_or_else(|| endpoint.host.clone());
                 self.add_hy2(
@@ -429,6 +444,10 @@ impl OutboundRegistry {
         self.naive_h2_tcp_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_mieru_tcp(&mut self, tag: impl Into<String>, outbound: crate::MieruTcpOutbound) {
+        self.mieru_tcp_tags.insert(tag.into(), outbound);
+    }
+
     pub fn add_hy2(&mut self, tag: impl Into<String>, outbound: Hy2Outbound) {
         self.hy2_tags.insert(tag.into(), outbound);
     }
@@ -468,6 +487,8 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.anytls_tls_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.naive_h2_tcp_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.mieru_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.hy2_tags.get(tag) {
             outbound.connect(target, timeout)

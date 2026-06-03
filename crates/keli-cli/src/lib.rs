@@ -25,7 +25,7 @@ const DEFAULT_FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 const UDP_RELAY_POLL_INTERVAL: Duration = Duration::from_millis(200);
 const SUPPORTED_OUTBOUNDS: &str =
-    "direct,trojan-tcp,trojan-ws,vless-tcp,vless-ws,vmess-tcp,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,hy2-quic,tuic-quic";
+    "direct,trojan-tcp,trojan-ws,vless-tcp,vless-ws,vmess-tcp,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,mieru-tcp,hy2-quic,tuic-quic";
 const SUPPORTED_UDP_OUTBOUNDS: &str = "direct,shadowsocks-aead,hy2-quic,tuic-quic";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
