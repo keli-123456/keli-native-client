@@ -228,3 +228,38 @@ fn parses_profile_check_json_command() {
         }
     );
 }
+
+#[test]
+fn parses_smoke_mixed_json_command() {
+    let command = parse_cli_command([
+        "smoke-mixed",
+        "--profile-config",
+        "subscription.yaml",
+        "--outbound-tag",
+        "SS-READY",
+        "--target",
+        "example.com:443",
+        "--payload",
+        "ping",
+        "--expect",
+        "pong",
+        "--format",
+        "json",
+        "--first-byte-timeout-ms",
+        "1500",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::SmokeMixed {
+            profile_config: "subscription.yaml".to_string(),
+            outbound_tag: Some("SS-READY".to_string()),
+            target: "example.com:443".to_string(),
+            payload: Some("ping".to_string()),
+            expect: Some("pong".to_string()),
+            output: ProbeOutputFormat::Json,
+            first_byte_timeout: Duration::from_millis(1500),
+        }
+    );
+}

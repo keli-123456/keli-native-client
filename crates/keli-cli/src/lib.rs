@@ -1,9 +1,10 @@
 use std::fs;
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
+use std::thread;
 use std::time::{Duration, Instant};
 
-use keli_client_core::ConnectionPhase;
+use keli_client_core::{build_connection_plan, ConnectionPhase};
 use keli_net_core::{
     encode_socks5_udp_datagram, http_connect_bad_request_response, http_connect_success_response,
     http_proxy_bad_request_response, parse_http_connect_request, parse_http_proxy_request,
@@ -46,6 +47,15 @@ pub enum CliCommand {
         payload: Option<String>,
         expect: Option<String>,
         udp: bool,
+        output: ProbeOutputFormat,
+        first_byte_timeout: Duration,
+    },
+    SmokeMixed {
+        profile_config: String,
+        outbound_tag: Option<String>,
+        target: String,
+        payload: Option<String>,
+        expect: Option<String>,
         output: ProbeOutputFormat,
         first_byte_timeout: Duration,
     },
@@ -101,6 +111,7 @@ pub fn parse_cli_command(
         Some("version") => Ok(CliCommand::Version),
         Some("listen-mixed") => parse_listen_mixed(args),
         Some("probe-outbound") => parse_probe_outbound(args),
+        Some("smoke-mixed") => parse_smoke_mixed(args),
         Some("profile-check") => parse_profile_check(args),
         Some(other) => Err(format!("unknown command: {other}")),
     }
@@ -166,6 +177,29 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 &mut stdout,
             )
         }
+        CliCommand::SmokeMixed {
+            profile_config,
+            outbound_tag,
+            target,
+            payload,
+            expect,
+            output,
+            first_byte_timeout,
+        } => {
+            let config_text = fs::read_to_string(&profile_config)
+                .map_err(|error| format!("read profile config {profile_config}: {error}"))?;
+            let mut stdout = io::stdout();
+            write_smoke_mixed_socks5_report_from_subscription_config_text(
+                &config_text,
+                outbound_tag,
+                &target,
+                payload.as_deref().unwrap_or("").as_bytes(),
+                expect.as_deref().unwrap_or("").as_bytes(),
+                first_byte_timeout,
+                output,
+                &mut stdout,
+            )
+        }
         CliCommand::ProfileCheck {
             profile_config,
             output,
@@ -185,7 +219,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
 pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
-        "usage: keli-cli [doctor|version|listen-mixed|probe-outbound|profile-check]"
+        "usage: keli-cli [doctor|version|listen-mixed|probe-outbound|smoke-mixed|profile-check]"
     )?;
     writeln!(
         writer,
@@ -194,6 +228,10 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
         "       keli-cli probe-outbound --profile-config subscription.yaml [--outbound-tag proxy] --target example.com:443 [--payload ping] [--expect pong] [--udp] [--format text|json] [--first-byte-timeout-ms 30000]"
+    )?;
+    writeln!(
+        writer,
+        "       keli-cli smoke-mixed --profile-config subscription.yaml [--outbound-tag proxy] --target example.com:443 [--payload ping] [--expect pong] [--format text|json] [--first-byte-timeout-ms 30000]"
     )?;
     writeln!(
         writer,
@@ -335,6 +373,77 @@ fn parse_probe_outbound(args: impl Iterator<Item = String>) -> Result<CliCommand
         payload,
         expect,
         udp,
+        output,
+        first_byte_timeout,
+    })
+}
+
+fn parse_smoke_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
+    let mut profile_config = None;
+    let mut outbound_tag = None;
+    let mut target = None;
+    let mut payload = None;
+    let mut expect = None;
+    let mut output = ProbeOutputFormat::Text;
+    let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
+    let mut args = args.peekable();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--profile-config" => {
+                profile_config = Some(
+                    args.next()
+                        .ok_or_else(|| "--profile-config requires a path".to_string())?,
+                );
+            }
+            "--outbound-tag" => {
+                outbound_tag = Some(
+                    args.next()
+                        .ok_or_else(|| "--outbound-tag requires a profile name".to_string())?,
+                );
+            }
+            "--target" => {
+                target = Some(
+                    args.next()
+                        .ok_or_else(|| "--target requires host:port".to_string())?,
+                );
+            }
+            "--payload" => {
+                payload = Some(
+                    args.next()
+                        .ok_or_else(|| "--payload requires a value".to_string())?,
+                );
+            }
+            "--expect" => {
+                expect = Some(
+                    args.next()
+                        .ok_or_else(|| "--expect requires a value".to_string())?,
+                );
+            }
+            "--format" => {
+                output = parse_probe_output_format(
+                    args.next()
+                        .ok_or_else(|| "--format requires text or json".to_string())?,
+                )?;
+            }
+            "--first-byte-timeout-ms" => {
+                first_byte_timeout = parse_duration_ms(
+                    args.next()
+                        .ok_or_else(|| "--first-byte-timeout-ms requires a value".to_string())?,
+                    "--first-byte-timeout-ms",
+                )?;
+            }
+            other => return Err(format!("unknown smoke-mixed option: {other}")),
+        }
+    }
+
+    Ok(CliCommand::SmokeMixed {
+        profile_config: profile_config
+            .ok_or_else(|| "smoke-mixed requires --profile-config".to_string())?,
+        outbound_tag,
+        target: target.ok_or_else(|| "smoke-mixed requires --target".to_string())?,
+        payload,
+        expect,
         output,
         first_byte_timeout,
     })
@@ -1022,6 +1131,108 @@ pub fn probe_outbound_from_subscription_config_text(
     )
 }
 
+pub fn smoke_mixed_socks5_connect_from_subscription_config_text(
+    config_text: &str,
+    outbound_tag: Option<String>,
+    target: &str,
+    payload: &[u8],
+    expect: &[u8],
+    first_byte_timeout: Duration,
+) -> Result<ConnectionReport, String> {
+    let target = parse_probe_target(target)?;
+    let plan = build_connection_plan(config_text, outbound_tag.as_deref(), "127.0.0.1:0")
+        .map_err(|error| format!("connection plan failed: {error:?}"))?;
+    let selected_outbound = plan.selected_outbound().to_string();
+    let relay_options = RelayOptions {
+        first_byte_timeout: Some(first_byte_timeout),
+        idle_timeout: Some(first_byte_timeout),
+    };
+    let runtime = mixed_runtime_from_subscription_config_text(
+        config_text,
+        Vec::new(),
+        relay_options,
+        Some(selected_outbound.clone()),
+    )?;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|error| format!("bind smoke listener: {error}"))?;
+    let listen_addr = listener
+        .local_addr()
+        .map_err(|error| format!("read smoke listener addr: {error}"))?;
+    let server = thread::spawn(move || -> io::Result<()> {
+        let (mut stream, _) = listener.accept()?;
+        handle_mixed_connection_with_routes(&mut stream, &runtime)
+    });
+
+    let mut client = TcpStream::connect(listen_addr)
+        .map_err(|error| format!("connect smoke listener {listen_addr}: {error}"))?;
+    client
+        .set_read_timeout(Some(first_byte_timeout))
+        .map_err(|error| format!("set smoke read timeout: {error}"))?;
+    client
+        .set_write_timeout(Some(first_byte_timeout))
+        .map_err(|error| format!("set smoke write timeout: {error}"))?;
+
+    write_socks5_smoke_connect(&mut client, &target)?;
+    let started = Instant::now();
+    if !payload.is_empty() {
+        client
+            .write_all(payload)
+            .map_err(|error| format!("write smoke payload: {error}"))?;
+    }
+    if !expect.is_empty() {
+        let mut received = vec![0; expect.len()];
+        client
+            .read_exact(&mut received)
+            .map_err(|error| format!("read smoke response: {error}"))?;
+        if received != expect {
+            client.shutdown(Shutdown::Both).ok();
+            return Err(format!(
+                "smoke response mismatch: expected {:?}, got {:?}",
+                String::from_utf8_lossy(expect),
+                String::from_utf8_lossy(&received)
+            ));
+        }
+    }
+    client.shutdown(Shutdown::Both).ok();
+    server
+        .join()
+        .map_err(|_| "mixed smoke worker panicked".to_string())?
+        .map_err(|error| format!("mixed smoke relay failed: {error}"))?;
+
+    let mut report = ConnectionReport::new(
+        "mixed-socks5-smoke",
+        target,
+        RouteAction::Outbound(selected_outbound),
+    );
+    if !expect.is_empty() {
+        report.record_first_byte_duration(started.elapsed());
+    }
+    report.upload_bytes = payload.len() as u64;
+    report.download_bytes = expect.len() as u64;
+    Ok(report)
+}
+
+pub fn write_smoke_mixed_socks5_report_from_subscription_config_text(
+    config_text: &str,
+    outbound_tag: Option<String>,
+    target: &str,
+    payload: &[u8],
+    expect: &[u8],
+    first_byte_timeout: Duration,
+    output: ProbeOutputFormat,
+    mut writer: impl Write,
+) -> Result<(), String> {
+    let report = smoke_mixed_socks5_connect_from_subscription_config_text(
+        config_text,
+        outbound_tag,
+        target,
+        payload,
+        expect,
+        first_byte_timeout,
+    )?;
+    write_smoke_result(&mut writer, "ok", &report, output)
+}
+
 pub fn probe_outbound_from_subscription_config_text_with_format(
     config_text: &str,
     outbound_tag: Option<String>,
@@ -1112,6 +1323,55 @@ pub fn probe_outbound_from_subscription_config_text_with_format(
     }
 
     write_probe_result(&mut writer, "ok", &report, output)
+}
+
+fn write_socks5_smoke_connect(
+    client: &mut TcpStream,
+    target: &OutboundTarget,
+) -> Result<(), String> {
+    client
+        .write_all(&[0x05, 0x01, 0x00])
+        .map_err(|error| format!("write smoke socks5 hello: {error}"))?;
+    let mut hello = [0; 2];
+    client
+        .read_exact(&mut hello)
+        .map_err(|error| format!("read smoke socks5 hello response: {error}"))?;
+    if hello != [0x05, 0x00] {
+        return Err(format!("unexpected smoke socks5 hello response: {hello:?}"));
+    }
+
+    let mut request = vec![0x05, 0x01, 0x00];
+    match target.host.parse::<IpAddr>() {
+        Ok(IpAddr::V4(ip)) => {
+            request.push(0x01);
+            request.extend_from_slice(&ip.octets());
+        }
+        Ok(IpAddr::V6(ip)) => {
+            request.push(0x04);
+            request.extend_from_slice(&ip.octets());
+        }
+        Err(_) => {
+            let host = target.host.as_bytes();
+            if host.len() > u8::MAX as usize {
+                return Err(format!("smoke target host is too long: {}", target.host));
+            }
+            request.push(0x03);
+            request.push(host.len() as u8);
+            request.extend_from_slice(host);
+        }
+    }
+    request.extend_from_slice(&target.port.to_be_bytes());
+    client
+        .write_all(&request)
+        .map_err(|error| format!("write smoke socks5 connect: {error}"))?;
+    let mut response = [0; 10];
+    client
+        .read_exact(&mut response)
+        .map_err(|error| format!("read smoke socks5 connect response: {error}"))?;
+    if response[1] != 0x00 {
+        return Err(format!("smoke socks5 connect failed: {response:?}"));
+    }
+    Ok(())
 }
 
 fn parse_probe_target(target: &str) -> Result<OutboundTarget, String> {
@@ -1220,6 +1480,38 @@ fn write_probe_result(
     match output {
         ProbeOutputFormat::Text => {
             writeln!(writer, "probe status={status} {}", report.summary_line())
+                .map_err(|error| error.to_string())
+        }
+        ProbeOutputFormat::Json => {
+            let (route, outbound_tag) = probe_route_fields(&report.route_action);
+            let value = serde_json::json!({
+                "status": status,
+                "inbound": report.inbound.as_str(),
+                "target": format!("{}:{}", report.target.host, report.target.port),
+                "target_host": report.target.host.as_str(),
+                "target_port": report.target.port,
+                "route": route,
+                "outbound_tag": outbound_tag,
+                "connect_ms": report.connect_ms,
+                "first_byte_ms": report.first_byte_ms,
+                "upload_bytes": report.upload_bytes,
+                "download_bytes": report.download_bytes,
+                "error_kind": report.error_kind.map(ConnectionErrorKind::as_str),
+            });
+            writeln!(writer, "{value}").map_err(|error| error.to_string())
+        }
+    }
+}
+
+fn write_smoke_result(
+    writer: &mut impl Write,
+    status: &str,
+    report: &ConnectionReport,
+    output: ProbeOutputFormat,
+) -> Result<(), String> {
+    match output {
+        ProbeOutputFormat::Text => {
+            writeln!(writer, "smoke status={status} {}", report.summary_line())
                 .map_err(|error| error.to_string())
         }
         ProbeOutputFormat::Json => {
