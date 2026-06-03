@@ -141,7 +141,40 @@ fn parses_probe_outbound_command() {
             target: "example.com:443".to_string(),
             payload: Some("ping".to_string()),
             expect: Some("pong".to_string()),
+            udp: false,
             first_byte_timeout: Duration::from_millis(1500),
+        }
+    );
+}
+
+#[test]
+fn parses_probe_outbound_udp_command() {
+    let command = parse_cli_command([
+        "probe-outbound",
+        "--profile-config",
+        "subscription.yaml",
+        "--outbound-tag",
+        "SS-READY",
+        "--target",
+        "example.com:53",
+        "--payload",
+        "ping",
+        "--expect",
+        "pong",
+        "--udp",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::ProbeOutbound {
+            profile_config: "subscription.yaml".to_string(),
+            outbound_tag: Some("SS-READY".to_string()),
+            target: "example.com:53".to_string(),
+            payload: Some("ping".to_string()),
+            expect: Some("pong".to_string()),
+            udp: true,
+            first_byte_timeout: Duration::from_secs(30),
         }
     );
 }

@@ -1,5 +1,5 @@
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::str::FromStr;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -29,6 +29,7 @@ fn probe_outbound_reports_successful_payload_round_trip() {
         "example.com:443",
         b"ping",
         Some(b"pong"),
+        false,
         Duration::from_secs(2),
         &mut output,
     )
@@ -55,12 +56,51 @@ fn run_probe_outbound_command_uses_profile_config_path() {
         target: "example.com:443".to_string(),
         payload: Some("ping".to_string()),
         expect: Some("pong".to_string()),
+        udp: false,
         first_byte_timeout: Duration::from_secs(2),
     })
     .expect("run probe command");
 
     ss_thread.join().expect("ss thread");
     std::fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn probe_udp_outbound_reports_successful_payload_round_trip() {
+    let (ss_port, ss_thread) = spawn_shadowsocks_udp_echo_server();
+    let config = format!(
+        r#"proxies:
+  - name: SS-READY
+    type: ss
+    server: 127.0.0.1
+    port: {ss_port}
+    cipher: aes-256-gcm
+    password: secret
+"#
+    );
+    let mut output = Vec::new();
+
+    keli_cli::probe_outbound_from_subscription_config_text(
+        &config,
+        Some("SS-READY".to_string()),
+        "example.com:53",
+        b"ping",
+        Some(b"pong"),
+        true,
+        Duration::from_secs(2),
+        &mut output,
+    )
+    .expect("probe UDP outbound");
+
+    let output = String::from_utf8(output).expect("output utf8");
+    assert!(output.contains("probe status=ok"));
+    assert!(output.contains("inbound=probe-udp"));
+    assert!(output.contains("target=example.com:53"));
+    assert!(output.contains("route=Outbound(\"SS-READY\")"));
+    assert!(output.contains("upload_bytes=4"));
+    assert!(output.contains("download_bytes=4"));
+    assert!(output.contains("error_kind=none"));
+    ss_thread.join().expect("ss thread");
 }
 
 fn write_temp_profile_config(ss_port: u16) -> String {
@@ -112,6 +152,29 @@ fn spawn_shadowsocks_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
     (port, handle)
 }
 
+fn spawn_shadowsocks_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let socket = UdpSocket::bind("127.0.0.1:0").expect("bind ss udp server");
+    socket
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("ss udp timeout");
+    let port = socket.local_addr().expect("ss udp addr").port();
+    let handle = thread::spawn(move || {
+        let kind = CipherKind::from_str("aes-256-gcm").expect("cipher");
+        let key = shadowsocks_key(kind, "secret");
+        let mut request = [0; 1500];
+        let (size, from) = socket.recv_from(&mut request).expect("read ss udp request");
+        let plaintext = decrypt_ss_udp_packet(kind, &key, &request[..size]);
+        assert_eq!(plaintext, b"\x03\x0bexample.com\x005ping");
+
+        let salt = vec![9; kind.salt_len()];
+        let response = encrypt_ss_udp_packet(kind, &key, &salt, b"\x01\x7f\x00\x00\x01\x005pong");
+        socket
+            .send_to(&response, from)
+            .expect("write ss udp response");
+    });
+    (port, handle)
+}
+
 fn shadowsocks_key(kind: CipherKind, password: &str) -> Vec<u8> {
     let mut key = vec![0; kind.key_len()];
     openssl_bytes_to_key(password.as_bytes(), &mut key);
@@ -149,4 +212,26 @@ fn write_ss_chunk(stream: &mut TcpStream, cipher: &mut Cipher, payload: &[u8]) {
     stream
         .write_all(&encrypted_payload)
         .expect("write encrypted ss chunk payload");
+}
+
+fn decrypt_ss_udp_packet(kind: CipherKind, key: &[u8], packet: &[u8]) -> Vec<u8> {
+    let salt_len = kind.salt_len();
+    let tag_len = kind.tag_len();
+    let (salt, payload) = packet.split_at(salt_len);
+    let mut payload = payload.to_vec();
+    let mut cipher = Cipher::new(kind, key, salt);
+    assert!(cipher.decrypt_packet(&mut payload));
+    payload.truncate(payload.len() - tag_len);
+    payload
+}
+
+fn encrypt_ss_udp_packet(kind: CipherKind, key: &[u8], salt: &[u8], plaintext: &[u8]) -> Vec<u8> {
+    let tag_len = kind.tag_len();
+    let mut payload = vec![0; plaintext.len() + tag_len];
+    payload[..plaintext.len()].copy_from_slice(plaintext);
+    let mut cipher = Cipher::new(kind, key, salt);
+    cipher.encrypt_packet(&mut payload);
+    let mut packet = salt.to_vec();
+    packet.extend_from_slice(&payload);
+    packet
 }

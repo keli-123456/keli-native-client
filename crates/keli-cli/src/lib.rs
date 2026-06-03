@@ -9,9 +9,9 @@ use keli_net_core::{
     http_proxy_bad_request_response, parse_http_connect_request, parse_http_proxy_request,
     parse_socks5_handshake, parse_socks5_request, parse_socks5_udp_datagram,
     relay_owned_bidirectional_with_options, socks5_no_auth_response, socks5_reply,
-    ConnectionErrorKind, ConnectionReport, DirectTcpConnector, LocalInbound, OutboundConnection,
-    OutboundRegistry, OutboundTarget, RelayOptions, RouteAction, RouteEngine, Socks5Address,
-    Socks5Command, Socks5ReplyCode,
+    ConnectionErrorKind, ConnectionReport, DirectTcpConnector, DirectUdpConnector, LocalInbound,
+    OutboundConnection, OutboundRegistry, OutboundTarget, RelayOptions, RouteAction, RouteEngine,
+    Socks5Address, Socks5Command, Socks5ReplyCode,
 };
 use keli_platform::PlatformCapabilities;
 use keli_protocol::{
@@ -45,6 +45,7 @@ pub enum CliCommand {
         target: String,
         payload: Option<String>,
         expect: Option<String>,
+        udp: bool,
         first_byte_timeout: Duration,
     },
 }
@@ -134,6 +135,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             target,
             payload,
             expect,
+            udp,
             first_byte_timeout,
         } => {
             let config_text = fs::read_to_string(&profile_config)
@@ -145,6 +147,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 &target,
                 payload.as_deref().unwrap_or("").as_bytes(),
                 expect.as_deref().map(str::as_bytes),
+                udp,
                 first_byte_timeout,
                 &mut stdout,
             )
@@ -235,6 +238,7 @@ fn parse_probe_outbound(args: impl Iterator<Item = String>) -> Result<CliCommand
     let mut target = None;
     let mut payload = None;
     let mut expect = None;
+    let mut udp = false;
     let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut args = args.peekable();
 
@@ -270,6 +274,7 @@ fn parse_probe_outbound(args: impl Iterator<Item = String>) -> Result<CliCommand
                         .ok_or_else(|| "--expect requires a value".to_string())?,
                 );
             }
+            "--udp" => udp = true,
             "--first-byte-timeout-ms" => {
                 first_byte_timeout = parse_duration_ms(
                     args.next()
@@ -288,6 +293,7 @@ fn parse_probe_outbound(args: impl Iterator<Item = String>) -> Result<CliCommand
         target: target.ok_or_else(|| "probe-outbound requires --target".to_string())?,
         payload,
         expect,
+        udp,
         first_byte_timeout,
     })
 }
@@ -919,6 +925,7 @@ pub fn probe_outbound_from_subscription_config_text(
     target: &str,
     payload: &[u8],
     expect: Option<&[u8]>,
+    udp: bool,
     first_byte_timeout: Duration,
     mut writer: impl Write,
 ) -> Result<(), String> {
@@ -933,6 +940,16 @@ pub fn probe_outbound_from_subscription_config_text(
         outbound_tag,
     )?;
     let target = parse_probe_target(target)?;
+    if udp {
+        return probe_udp_outbound(
+            &runtime,
+            target,
+            payload,
+            expect,
+            first_byte_timeout,
+            writer,
+        );
+    }
     let mut report = ConnectionReport::new("probe-outbound", target.clone(), RouteAction::Direct);
     let mut remote = match connect_by_route(&target, &runtime) {
         Ok(RouteConnect::Direct {
@@ -1022,6 +1039,66 @@ fn parse_probe_target(target: &str) -> Result<OutboundTarget, String> {
         .parse::<u16>()
         .map_err(|_| format!("invalid probe target port: {target}"))?;
     Ok(OutboundTarget::new(host, port))
+}
+
+fn probe_udp_outbound(
+    runtime: &MixedProxyRuntime,
+    target: OutboundTarget,
+    payload: &[u8],
+    expect: Option<&[u8]>,
+    timeout: Duration,
+    mut writer: impl Write,
+) -> Result<(), String> {
+    let mut report = ConnectionReport::new("probe-udp", target.clone(), RouteAction::Direct);
+    let started = Instant::now();
+    let response = match runtime.routes.decide(&target.route_target()).action {
+        RouteAction::Direct => DirectUdpConnector::relay_datagram(&target, payload, timeout),
+        RouteAction::Block => {
+            report.route_action = RouteAction::Block;
+            report.record_error(ConnectionErrorKind::RouteBlocked);
+            writeln!(writer, "probe status=error {}", report.summary_line())
+                .map_err(|error| error.to_string())?;
+            return Err("probe route blocked".to_string());
+        }
+        RouteAction::Outbound(tag) => {
+            report.route_action = RouteAction::Outbound(tag.clone());
+            runtime
+                .outbounds
+                .relay_udp_datagram(&tag, &target, payload, timeout)
+        }
+        RouteAction::HijackDns => Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "hijack-dns route action is not valid for UDP probe",
+        )),
+    };
+
+    let response = match response {
+        Ok(response) => response,
+        Err(error) => {
+            report.record_error(ConnectionErrorKind::from_io(&error));
+            writeln!(writer, "probe status=error {}", report.summary_line())
+                .map_err(|write_error| write_error.to_string())?;
+            return Err(format!("probe UDP relay failed: {error}"));
+        }
+    };
+    report.record_first_byte_duration(started.elapsed());
+    report.upload_bytes = payload.len() as u64;
+    report.download_bytes = response.payload.len() as u64;
+
+    if let Some(expected) = expect {
+        if response.payload != expected {
+            report.record_error(ConnectionErrorKind::ProtocolError);
+            writeln!(writer, "probe status=error {}", report.summary_line())
+                .map_err(|error| error.to_string())?;
+            return Err(format!(
+                "probe UDP response mismatch: expected {:?}, got {:?}",
+                String::from_utf8_lossy(expected),
+                String::from_utf8_lossy(&response.payload)
+            ));
+        }
+    }
+
+    writeln!(writer, "probe status=ok {}", report.summary_line()).map_err(|error| error.to_string())
 }
 
 fn probe_io_error(
