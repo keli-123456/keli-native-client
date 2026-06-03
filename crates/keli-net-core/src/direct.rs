@@ -194,6 +194,7 @@ pub struct OutboundRegistry {
     vmess_tcp_tags: HashMap<String, VmessTcpOutbound>,
     shadowsocks_tcp_tags: HashMap<String, ShadowsocksTcpOutbound>,
     anytls_tls_tcp_tags: HashMap<String, AnyTlsTlsTcpOutbound>,
+    naive_h2_tcp_tags: HashMap<String, crate::NaiveH2TcpOutbound>,
     hy2_tags: HashMap<String, Hy2Outbound>,
     tuic_tags: HashMap<String, TuicOutbound>,
 }
@@ -329,6 +330,14 @@ impl OutboundRegistry {
                 );
                 Ok(())
             }
+            (ProxyProtocol::Naive, TransportKind::Tcp, SecurityKind::Tls { sni, skip_verify }) => {
+                let sni = sni.unwrap_or_else(|| endpoint.host.clone());
+                self.add_naive_h2_tcp(
+                    tag,
+                    crate::NaiveH2TcpOutbound::new(endpoint, credential, sni, skip_verify),
+                );
+                Ok(())
+            }
             (ProxyProtocol::Hy2, TransportKind::Quic, SecurityKind::Tls { sni, skip_verify }) => {
                 let sni = sni.unwrap_or_else(|| endpoint.host.clone());
                 self.add_hy2(
@@ -412,6 +421,14 @@ impl OutboundRegistry {
         self.anytls_tls_tcp_tags.insert(tag.into(), outbound);
     }
 
+    pub fn add_naive_h2_tcp(
+        &mut self,
+        tag: impl Into<String>,
+        outbound: crate::NaiveH2TcpOutbound,
+    ) {
+        self.naive_h2_tcp_tags.insert(tag.into(), outbound);
+    }
+
     pub fn add_hy2(&mut self, tag: impl Into<String>, outbound: Hy2Outbound) {
         self.hy2_tags.insert(tag.into(), outbound);
     }
@@ -449,6 +466,8 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.anytls_tls_tcp_tags.get(tag) {
+            outbound.connect(target, timeout)
+        } else if let Some(outbound) = self.naive_h2_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.hy2_tags.get(tag) {
             outbound.connect(target, timeout)
@@ -670,11 +689,18 @@ impl OwnedRelayStream for TlsTcpStream {
 }
 
 fn tls_client_config(skip_verify: bool) -> io::Result<Arc<rustls::ClientConfig>> {
+    tls_client_config_with_alpn(skip_verify, Vec::new())
+}
+
+pub(crate) fn tls_client_config_with_alpn(
+    skip_verify: bool,
+    alpn_protocols: Vec<Vec<u8>>,
+) -> io::Result<Arc<rustls::ClientConfig>> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let builder = rustls::ClientConfig::builder_with_provider(provider.clone())
         .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    let config = if skip_verify {
+    let mut config = if skip_verify {
         builder
             .dangerous()
             .with_custom_certificate_verifier(InsecureServerVerifier::new(provider))
@@ -684,6 +710,7 @@ fn tls_client_config(skip_verify: bool) -> io::Result<Arc<rustls::ClientConfig>>
             rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         builder.with_root_certificates(roots).with_no_client_auth()
     };
+    config.alpn_protocols = alpn_protocols;
     Ok(Arc::new(config))
 }
 

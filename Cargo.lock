@@ -83,6 +83,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "atomic-waker"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -366,6 +372,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
+name = "fnv"
+version = "1.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
+
+[[package]]
 name = "foldhash"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -527,6 +539,25 @@ checksum = "f0d8a4362ccb29cb0b265253fb0a2728f592895ee6854fd9bc13f2ffda266ff1"
 dependencies = [
  "opaque-debug",
  "polyval",
+]
+
+[[package]]
+name = "h2"
+version = "0.4.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "171fefbc92fe4a4de27e0698d6a5b392d6a0e333506bc49133760b3bcf948733"
+dependencies = [
+ "atomic-waker",
+ "bytes",
+ "fnv",
+ "futures-core",
+ "futures-sink",
+ "http",
+ "indexmap",
+ "slab",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -774,7 +805,7 @@ dependencies = [
 
 [[package]]
 name = "keli-cli"
-version = "0.1.59"
+version = "0.1.60"
 dependencies = [
  "bytes",
  "h3",
@@ -795,20 +826,21 @@ dependencies = [
 
 [[package]]
 name = "keli-client-core"
-version = "0.1.59"
+version = "0.1.60"
 dependencies = [
  "keli-protocol",
 ]
 
 [[package]]
 name = "keli-net-core"
-version = "0.1.59"
+version = "0.1.60"
 dependencies = [
  "aes",
  "aes-gcm",
  "base64",
  "bytes",
  "crc32fast",
+ "h2",
  "h3",
  "h3-quinn",
  "hmac 0.12.1",
@@ -823,16 +855,17 @@ dependencies = [
  "sha2",
  "shadowsocks-crypto",
  "tokio",
+ "tokio-rustls",
  "webpki-roots",
 ]
 
 [[package]]
 name = "keli-platform"
-version = "0.1.59"
+version = "0.1.60"
 
 [[package]]
 name = "keli-protocol"
-version = "0.1.59"
+version = "0.1.60"
 dependencies = [
  "base64",
  "serde",
@@ -1588,6 +1621,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "tokio-rustls"
+version = "0.26.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61"
+dependencies = [
+ "rustls",
+ "tokio",
 ]
 
 [[package]]

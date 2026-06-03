@@ -5,6 +5,7 @@ mod dns;
 mod http_connect;
 mod http_proxy;
 mod metrics;
+mod naive;
 mod quic;
 mod socks5;
 mod websocket;
@@ -27,6 +28,7 @@ pub use http_proxy::{
     http_proxy_bad_request_response, parse_http_proxy_request, HttpProxyError, HttpProxyRequest,
 };
 pub use metrics::{ConnectionErrorKind, ConnectionReport};
+pub use naive::{NaiveH2TcpOutbound, NaiveH2TcpStream};
 pub use quic::{
     h3_client_from_quinn_connection, h3_quic_client_config, h3_quic_client_endpoint,
     h3_quic_connect, h3_rustls_client_config, hy2_auth_http_request, hy2_authenticate_h3,
