@@ -434,6 +434,81 @@ fn socks5_udp_associate_relays_registered_shadowsocks_outbound_route() {
     ss_thread.join().expect("ss thread");
 }
 
+#[test]
+fn socks5_udp_associate_relays_registered_tuic_outbound_route() {
+    let (tuic_addr, tuic_thread) = spawn_tuic_udp_echo_server();
+    let inbound = TcpListener::bind("127.0.0.1:0").expect("bind inbound");
+    let inbound_port = inbound.local_addr().expect("inbound addr").port();
+    let outbounds = OutboundRegistry::from_profiles([keli_protocol::OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: keli_protocol::ProxyProtocol::Tuic,
+        endpoint: keli_protocol::Endpoint::new("127.0.0.1", tuic_addr.port()),
+        transport: keli_protocol::TransportKind::Quic,
+        security: keli_protocol::SecurityKind::Tls {
+            sni: Some("localhost".to_string()),
+            skip_verify: true,
+        },
+        credential: "00112233-4455-6677-8899-aabbccddeeff:secret".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("build TUIC outbound registry");
+    let runtime = MixedProxyRuntime::with_routes_and_outbounds(
+        RouteEngine::new(RouteAction::Outbound("proxy".to_string())),
+        outbounds,
+    );
+    let inbound_thread = thread::spawn(move || {
+        let (mut stream, _) = inbound.accept().expect("accept inbound");
+        handle_socks5_connection_with_routes(&mut stream, &runtime).expect("handle socks5");
+    });
+
+    let mut client = TcpStream::connect(("127.0.0.1", inbound_port)).expect("connect inbound");
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    client.write_all(&[0x05, 0x01, 0x00]).expect("write hello");
+    let mut hello = [0; 2];
+    client.read_exact(&mut hello).expect("read hello response");
+    assert_eq!(hello, [0x05, 0x00]);
+
+    client
+        .write_all(&[0x05, 0x03, 0x00, 0x01, 127, 0, 0, 1, 0x00, 0x00])
+        .expect("write udp associate request");
+    let mut reply = [0; 10];
+    client.read_exact(&mut reply).expect("read udp reply");
+    assert_eq!(&reply[..4], &[0x05, 0x00, 0x00, 0x01]);
+    let relay_port = u16::from_be_bytes([reply[8], reply[9]]);
+    assert_ne!(relay_port, 0);
+
+    let udp_client = UdpSocket::bind("127.0.0.1:0").expect("bind udp client");
+    udp_client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("udp client timeout");
+    let request = encode_socks5_udp_datagram(
+        &Socks5Address::Domain("example.com".to_string()),
+        53,
+        b"ping",
+    )
+    .expect("encode udp request");
+    udp_client
+        .send_to(&request, ("127.0.0.1", relay_port))
+        .expect("send udp request");
+
+    let mut response = [0; 1500];
+    let (size, _) = udp_client
+        .recv_from(&mut response)
+        .expect("read udp response");
+    let response = parse_socks5_udp_datagram(&response[..size]).expect("parse udp response");
+    assert_eq!(response.address, Socks5Address::Ipv4(Ipv4Addr::LOCALHOST));
+    assert_eq!(response.port, 53);
+    assert_eq!(response.payload, b"pong");
+
+    client.shutdown(Shutdown::Both).ok();
+
+    inbound_thread.join().expect("inbound thread");
+    tuic_thread.join().expect("tuic thread");
+}
+
 fn spawn_shadowsocks_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
     let socket = UdpSocket::bind("127.0.0.1:0").expect("bind ss udp server");
     socket
@@ -455,6 +530,61 @@ fn spawn_shadowsocks_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
             .expect("write ss udp response");
     });
     (port, handle)
+}
+
+fn spawn_tuic_udp_echo_server() -> (SocketAddr, thread::JoinHandle<()>) {
+    let (addr_tx, addr_rx) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build TUIC UDP test runtime");
+        runtime.block_on(async move {
+            let endpoint = quinn::Endpoint::server(
+                hy2_h3_test_server_config(),
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            )
+            .expect("bind TUIC UDP test server");
+            addr_tx
+                .send(endpoint.local_addr().expect("TUIC UDP test server addr"))
+                .expect("send TUIC UDP addr");
+            let incoming = endpoint.accept().await.expect("accept TUIC connection");
+            let connection = incoming.await.expect("TUIC QUIC connection");
+            let mut auth_recv = connection.accept_uni().await.expect("accept TUIC auth");
+            let auth = auth_recv
+                .read_to_end(64)
+                .await
+                .expect("read TUIC auth command");
+            let expected_auth = keli_net_core::tuic_authenticate_command(
+                &connection,
+                "00112233-4455-6677-8899-aabbccddeeff",
+                "secret",
+            )
+            .expect("expected TUIC auth");
+            assert_eq!(auth, expected_auth);
+
+            let packet = keli_net_core::tuic_read_packet_datagram(&connection)
+                .await
+                .expect("read TUIC UDP request");
+            assert_eq!(
+                packet.source,
+                keli_protocol::Endpoint::new("example.com", 53)
+            );
+            assert_eq!(packet.payload, b"ping");
+            keli_net_core::tuic_send_packet_datagram(
+                &connection,
+                packet.associate_id,
+                packet.packet_id,
+                packet.fragment_total,
+                packet.fragment_id,
+                &keli_protocol::Endpoint::new("127.0.0.1", 53),
+                b"pong",
+            )
+            .expect("send TUIC UDP response");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        });
+    });
+    (addr_rx.recv().expect("receive TUIC UDP addr"), handle)
 }
 
 fn spawn_hy2_udp_echo_server() -> (SocketAddr, thread::JoinHandle<()>) {
