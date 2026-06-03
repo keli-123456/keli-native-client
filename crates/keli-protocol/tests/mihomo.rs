@@ -97,6 +97,50 @@ proxies:
 }
 
 #[test]
+fn parses_vless_httpupgrade_tls_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: VLESS-HTTPUpgrade
+    type: vless
+    server: edge.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    tls: true
+    servername: sni.example.com
+    skip-cert-verify: true
+    network: httpupgrade
+    httpupgrade-opts:
+      path: /upgrade
+      host: host.example.com
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "VLESS-HTTPUpgrade");
+    assert_eq!(profile.protocol, ProxyProtocol::Vless);
+    assert_eq!(profile.endpoint, Endpoint::new("edge.example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::HttpUpgrade {
+            path: "/upgrade".to_string(),
+            host: Some("host.example.com".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("sni.example.com".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    profile.validate().expect("valid httpupgrade profile");
+}
+
+#[test]
 fn parses_vmess_tcp_proxy_from_mihomo_yaml() {
     let yaml = r#"
 proxies:

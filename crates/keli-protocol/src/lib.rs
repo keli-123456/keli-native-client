@@ -49,6 +49,7 @@ pub enum ProxyProtocol {
 pub enum TransportKind {
     Tcp,
     WebSocket { path: String, host: Option<String> },
+    HttpUpgrade { path: String, host: Option<String> },
     Quic,
 }
 
@@ -110,6 +111,14 @@ impl OutboundProfile {
             (ProxyProtocol::Trojan, TransportKind::WebSocket { .. }, SecurityKind::Tls { .. }) => {
                 Err(ProtocolValidationError::InvalidWebSocketPath)
             }
+            (
+                ProxyProtocol::Trojan,
+                TransportKind::HttpUpgrade { path, .. },
+                SecurityKind::None | SecurityKind::Tls { .. },
+            ) if path.starts_with('/') => Ok(()),
+            (ProxyProtocol::Trojan, TransportKind::HttpUpgrade { .. }, _) => {
+                Err(ProtocolValidationError::InvalidHttpUpgradePath)
+            }
             (ProxyProtocol::Trojan, _, SecurityKind::Tls { .. }) => Ok(()),
             (ProxyProtocol::Trojan, _, SecurityKind::None) => {
                 Err(ProtocolValidationError::MissingTls)
@@ -129,9 +138,24 @@ impl OutboundProfile {
                 TransportKind::WebSocket { .. },
                 SecurityKind::None | SecurityKind::Tls { .. },
             ) => Err(ProtocolValidationError::InvalidWebSocketPath),
+            (
+                ProxyProtocol::Vmess,
+                TransportKind::HttpUpgrade { path, .. },
+                SecurityKind::None | SecurityKind::Tls { .. },
+            ) if path.starts_with('/') => Ok(()),
+            (
+                ProxyProtocol::Vmess,
+                TransportKind::HttpUpgrade { .. },
+                SecurityKind::None | SecurityKind::Tls { .. },
+            ) => Err(ProtocolValidationError::InvalidHttpUpgradePath),
             (ProxyProtocol::Vmess, _, _) => Err(ProtocolValidationError::InvalidVmessTransport),
             (ProxyProtocol::Vless, _, _) if !looks_like_uuid(&self.credential) => {
                 Err(ProtocolValidationError::InvalidUuid)
+            }
+            (ProxyProtocol::Vless, TransportKind::HttpUpgrade { path, .. }, _)
+                if !path.starts_with('/') =>
+            {
+                Err(ProtocolValidationError::InvalidHttpUpgradePath)
             }
             (ProxyProtocol::Vless, _, _) => Ok(()),
             (ProxyProtocol::Naive, _, _) if !is_user_password_credential(&self.credential) => {
@@ -195,6 +219,7 @@ pub enum ProtocolValidationError {
     InvalidMieruCredential,
     InvalidMieruTransport,
     InvalidWebSocketPath,
+    InvalidHttpUpgradePath,
     InvalidHy2Transport,
     InvalidTuicCredential,
     InvalidTuicTransport,
@@ -228,6 +253,9 @@ impl fmt::Display for ProtocolValidationError {
                 write!(f, "Mieru currently supports TCP transport without TLS")
             }
             Self::InvalidWebSocketPath => write!(f, "WebSocket path must start with '/'"),
+            Self::InvalidHttpUpgradePath => {
+                write!(f, "HTTPUpgrade path must start with '/'")
+            }
             Self::InvalidHy2Transport => write!(f, "HY2 requires QUIC transport with TLS"),
             Self::InvalidTuicCredential => {
                 write!(f, "TUIC credential must be formatted as uuid:password")
@@ -357,12 +385,19 @@ struct MihomoProxy {
     network: Option<String>,
     transport: Option<String>,
     ws_opts: Option<MihomoWsOptions>,
+    httpupgrade_opts: Option<MihomoHttpUpgradeOptions>,
 }
 
 #[derive(Debug, Deserialize)]
 struct MihomoWsOptions {
     path: Option<String>,
     headers: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MihomoHttpUpgradeOptions {
+    path: Option<String>,
+    host: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -453,7 +488,14 @@ fn mihomo_proxy_to_profile(
     let port = profile_port(proxy.port, proxy.port_range.as_deref())
         .ok_or_else(|| skip(name.clone(), "missing port"))?;
     let network = proxy.network.as_deref().or(proxy.transport.as_deref());
-    let transport = mihomo_transport(&name, &server, &protocol, network, proxy.ws_opts)?;
+    let transport = mihomo_transport(
+        &name,
+        &server,
+        &protocol,
+        network,
+        proxy.ws_opts,
+        proxy.httpupgrade_opts,
+    )?;
     let security = mihomo_security(
         &protocol,
         &server,
@@ -485,6 +527,7 @@ fn mihomo_transport(
     protocol: &ProxyProtocol,
     network: Option<&str>,
     ws_opts: Option<MihomoWsOptions>,
+    httpupgrade_opts: Option<MihomoHttpUpgradeOptions>,
 ) -> Result<TransportKind, SkippedOutboundProfile> {
     if matches!(protocol, ProxyProtocol::Hy2 | ProxyProtocol::Tuic) {
         return match network
@@ -524,6 +567,16 @@ fn mihomo_transport(
                 .and_then(|headers| header_value_case_insensitive(&headers, "host"))
                 .or_else(|| Some(server.to_string()));
             Ok(TransportKind::WebSocket { path, host })
+        }
+        "httpupgrade" | "http-upgrade" => {
+            let path = httpupgrade_opts
+                .as_ref()
+                .and_then(|opts| non_empty(opts.path.clone()))
+                .unwrap_or_else(|| "/".to_string());
+            let host = httpupgrade_opts
+                .and_then(|opts| non_empty(opts.host))
+                .or_else(|| Some(server.to_string()));
+            Ok(TransportKind::HttpUpgrade { path, host })
         }
         other => Err(skip(
             name.to_string(),
@@ -753,6 +806,10 @@ fn vmess_json_share_link_to_profile(
             path: non_empty(config.path).unwrap_or_else(|| "/".to_string()),
             host: non_empty(config.host).or_else(|| Some(server.clone())),
         },
+        "httpupgrade" | "http-upgrade" => TransportKind::HttpUpgrade {
+            path: non_empty(config.path).unwrap_or_else(|| "/".to_string()),
+            host: non_empty(config.host).or_else(|| Some(server.clone())),
+        },
         other => {
             return Err(skip(
                 tag,
@@ -964,6 +1021,18 @@ fn share_link_transport(
     {
         "" | "tcp" => Ok(TransportKind::Tcp),
         "ws" | "websocket" => Ok(TransportKind::WebSocket {
+            path: query
+                .get("path")
+                .cloned()
+                .and_then(|path| non_empty(Some(path)))
+                .unwrap_or_else(|| "/".to_string()),
+            host: query
+                .get("host")
+                .cloned()
+                .and_then(|host| non_empty(Some(host)))
+                .or_else(|| Some(server.to_string())),
+        }),
+        "httpupgrade" | "http-upgrade" => Ok(TransportKind::HttpUpgrade {
             path: query
                 .get("path")
                 .cloned()

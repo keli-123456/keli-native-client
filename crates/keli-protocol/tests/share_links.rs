@@ -33,6 +33,36 @@ fn parses_vless_ws_tls_share_link() {
 }
 
 #[test]
+fn parses_vless_httpupgrade_tls_share_link() {
+    let links = "vless://00112233-4455-6677-8899-aabbccddeeff@example.com:443?security=tls&sni=edge.example&type=httpupgrade&host=host.example&path=%2Fupgrade#vless-httpupgrade";
+
+    let parsed = parse_share_outbound_profiles(links).expect("parse share links");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "vless-httpupgrade");
+    assert_eq!(profile.protocol, ProxyProtocol::Vless);
+    assert_eq!(profile.endpoint, Endpoint::new("example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::HttpUpgrade {
+            path: "/upgrade".to_string(),
+            host: Some("host.example".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: false,
+        }
+    );
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    profile.validate().expect("valid httpupgrade profile");
+}
+
+#[test]
 fn parses_vmess_tcp_share_link() {
     let links = "vmess://00112233-4455-6677-8899-aabbccddeeff@example.com:443?security=none&type=tcp&cipher=none#vmess-tcp";
 
