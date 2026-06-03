@@ -832,6 +832,84 @@ fn registry_from_vmess_tcp_profile_relays_udp_over_aes_gcm_chunks() {
 }
 
 #[test]
+fn registry_from_vmess_ws_profile_relays_udp_over_websocket_aes_gcm_chunks() {
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind vmess ws udp server");
+    let port = listener.local_addr().expect("vmess ws udp addr").port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept vmess ws udp server");
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /vmess HTTP/1.1\r\n"));
+        assert!(request.contains("Host: edge.example\r\n"));
+        let key = header_value(&request, "Sec-WebSocket-Key").expect("client key");
+        let accept = websocket_accept_for_key(&key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .expect("write ws response");
+
+        let request_header = read_masked_client_frame(&mut stream);
+        let mut cursor = std::io::Cursor::new(request_header);
+        let request = read_vmess_aead_request(&mut cursor, uuid);
+        assert_eq!(request.target_host, "127.0.0.1");
+        assert_eq!(request.target_port, 53);
+        assert_eq!(request.command, 0x02);
+        assert_eq!(
+            request.option,
+            VMESS_OPTION_CHUNK_STREAM | VMESS_OPTION_CHUNK_MASKING
+        );
+        assert_eq!(request.security, VMESS_SECURITY_AES_128_GCM);
+
+        let mut response_header = Vec::new();
+        write_vmess_aead_response_header(&mut response_header, &request);
+        write_server_binary_frame_for_vmess_test(&mut stream, &response_header);
+
+        let mut request_chunk = read_masked_client_frame(&mut stream);
+        if request_chunk.len() == 2 {
+            request_chunk.extend(read_masked_client_frame(&mut stream));
+        }
+        let mut cursor = std::io::Cursor::new(request_chunk);
+        let payload = read_vmess_aes128_gcm_chunk_for_test(&mut cursor, &request);
+        assert_eq!(&payload, b"ping");
+
+        let mut response_chunk = Vec::new();
+        write_vmess_aes128_gcm_response_chunk_for_test(&mut response_chunk, &request, b"pong");
+        write_server_binary_frame_for_vmess_test(&mut stream, &response_chunk);
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Vmess,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::WebSocket {
+            path: "/vmess".to_string(),
+            host: Some("edge.example".to_string()),
+        },
+        security: SecurityKind::None,
+        credential: uuid.to_string(),
+        cipher: Some("auto".to_string()),
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("127.0.0.1", 53),
+            b"ping",
+            Duration::from_secs(1),
+        )
+        .expect("registered VMess WS UDP outbound should relay");
+
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("response source")
+    );
+    assert_eq!(response.payload, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn registry_from_vmess_ws_profile_relays_over_websocket() {
     let uuid = "00112233-4455-6677-8899-aabbccddeeff";
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind vmess ws server");

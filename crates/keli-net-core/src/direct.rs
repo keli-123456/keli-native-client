@@ -1331,6 +1331,8 @@ impl OutboundRegistry {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vmess_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.vmess_ws_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.hy2_tags.get(tag) {
@@ -4188,6 +4190,18 @@ impl VmessWsOutbound {
                 self.security,
             )))),
         }
+    }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = crate::WebSocketClientStream::connect(stream, &self.host, &self.path)?;
+        send_vmess_udp_over_stream(stream, &self.uuid, self.security, target, payload, timeout)
     }
 }
 
