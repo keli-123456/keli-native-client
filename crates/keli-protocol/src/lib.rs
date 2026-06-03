@@ -50,6 +50,7 @@ pub enum TransportKind {
     Tcp,
     WebSocket { path: String, host: Option<String> },
     HttpUpgrade { path: String, host: Option<String> },
+    Grpc { service_name: Option<String> },
     Quic,
 }
 
@@ -119,6 +120,11 @@ impl OutboundProfile {
             (ProxyProtocol::Trojan, TransportKind::HttpUpgrade { .. }, _) => {
                 Err(ProtocolValidationError::InvalidHttpUpgradePath)
             }
+            (
+                ProxyProtocol::Trojan,
+                TransportKind::Grpc { .. },
+                SecurityKind::None | SecurityKind::Tls { .. },
+            ) => Ok(()),
             (ProxyProtocol::Trojan, _, SecurityKind::Tls { .. }) => Ok(()),
             (ProxyProtocol::Trojan, _, SecurityKind::None) => {
                 Err(ProtocolValidationError::MissingTls)
@@ -148,6 +154,11 @@ impl OutboundProfile {
                 TransportKind::HttpUpgrade { .. },
                 SecurityKind::None | SecurityKind::Tls { .. },
             ) => Err(ProtocolValidationError::InvalidHttpUpgradePath),
+            (
+                ProxyProtocol::Vmess,
+                TransportKind::Grpc { .. },
+                SecurityKind::None | SecurityKind::Tls { .. },
+            ) => Ok(()),
             (ProxyProtocol::Vmess, _, _) => Err(ProtocolValidationError::InvalidVmessTransport),
             (ProxyProtocol::Vless, _, _) if !looks_like_uuid(&self.credential) => {
                 Err(ProtocolValidationError::InvalidUuid)
@@ -157,6 +168,7 @@ impl OutboundProfile {
             {
                 Err(ProtocolValidationError::InvalidHttpUpgradePath)
             }
+            (ProxyProtocol::Vless, TransportKind::Grpc { .. }, _) => Ok(()),
             (ProxyProtocol::Vless, _, _) => Ok(()),
             (ProxyProtocol::Naive, _, _) if !is_user_password_credential(&self.credential) => {
                 Err(ProtocolValidationError::InvalidNaiveCredential)
@@ -386,6 +398,7 @@ struct MihomoProxy {
     transport: Option<String>,
     ws_opts: Option<MihomoWsOptions>,
     httpupgrade_opts: Option<MihomoHttpUpgradeOptions>,
+    grpc_opts: Option<MihomoGrpcOptions>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -401,6 +414,13 @@ struct MihomoHttpUpgradeOptions {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct MihomoGrpcOptions {
+    #[serde(alias = "serviceName", alias = "service_name")]
+    grpc_service_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct VmessJsonShare {
     ps: Option<String>,
     add: Option<String>,
@@ -409,6 +429,8 @@ struct VmessJsonShare {
     net: Option<String>,
     host: Option<String>,
     path: Option<String>,
+    #[serde(rename = "serviceName", alias = "service_name", alias = "service-name")]
+    service_name: Option<String>,
     tls: Option<String>,
     sni: Option<String>,
     servername: Option<String>,
@@ -495,6 +517,7 @@ fn mihomo_proxy_to_profile(
         network,
         proxy.ws_opts,
         proxy.httpupgrade_opts,
+        proxy.grpc_opts,
     )?;
     let security = mihomo_security(
         &protocol,
@@ -528,6 +551,7 @@ fn mihomo_transport(
     network: Option<&str>,
     ws_opts: Option<MihomoWsOptions>,
     httpupgrade_opts: Option<MihomoHttpUpgradeOptions>,
+    grpc_opts: Option<MihomoGrpcOptions>,
 ) -> Result<TransportKind, SkippedOutboundProfile> {
     if matches!(protocol, ProxyProtocol::Hy2 | ProxyProtocol::Tuic) {
         return match network
@@ -577,6 +601,10 @@ fn mihomo_transport(
                 .and_then(|opts| non_empty(opts.host))
                 .or_else(|| Some(server.to_string()));
             Ok(TransportKind::HttpUpgrade { path, host })
+        }
+        "grpc" => {
+            let service_name = grpc_opts.and_then(|opts| non_empty(opts.grpc_service_name));
+            Ok(TransportKind::Grpc { service_name })
         }
         other => Err(skip(
             name.to_string(),
@@ -809,6 +837,9 @@ fn vmess_json_share_link_to_profile(
         "httpupgrade" | "http-upgrade" => TransportKind::HttpUpgrade {
             path: non_empty(config.path).unwrap_or_else(|| "/".to_string()),
             host: non_empty(config.host).or_else(|| Some(server.clone())),
+        },
+        "grpc" => TransportKind::Grpc {
+            service_name: non_empty(config.service_name).or_else(|| non_empty(config.path)),
         },
         other => {
             return Err(skip(
@@ -1043,6 +1074,15 @@ fn share_link_transport(
                 .cloned()
                 .and_then(|host| non_empty(Some(host)))
                 .or_else(|| Some(server.to_string())),
+        }),
+        "grpc" => Ok(TransportKind::Grpc {
+            service_name: query
+                .get("serviceName")
+                .or_else(|| query.get("service_name"))
+                .or_else(|| query.get("service-name"))
+                .or_else(|| query.get("path"))
+                .cloned()
+                .and_then(|service_name| non_empty(Some(service_name))),
         }),
         other => Err(skip(
             tag.to_string(),

@@ -141,6 +141,133 @@ proxies:
 }
 
 #[test]
+fn parses_vless_grpc_tls_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: VLESS-gRPC
+    type: vless
+    server: edge.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    tls: true
+    servername: sni.example.com
+    skip-cert-verify: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: GunService
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "VLESS-gRPC");
+    assert_eq!(profile.protocol, ProxyProtocol::Vless);
+    assert_eq!(profile.endpoint, Endpoint::new("edge.example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::Grpc {
+            service_name: Some("GunService".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("sni.example.com".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    profile.validate().expect("valid grpc profile");
+}
+
+#[test]
+fn parses_trojan_grpc_tls_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: TROJAN-gRPC
+    type: trojan
+    server: trojan.example.com
+    port: 443
+    password: password
+    sni: sni.example.com
+    skip-cert-verify: true
+    network: grpc
+    grpc-opts:
+      grpc-service-name: GunService
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "TROJAN-gRPC");
+    assert_eq!(profile.protocol, ProxyProtocol::Trojan);
+    assert_eq!(profile.endpoint, Endpoint::new("trojan.example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::Grpc {
+            service_name: Some("GunService".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("sni.example.com".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(profile.credential, "password");
+    profile.validate().expect("valid trojan grpc profile");
+}
+
+#[test]
+fn parses_vmess_grpc_tls_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: VMess-gRPC
+    type: vmess
+    server: vmess.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    cipher: none
+    tls: true
+    servername: sni.example.com
+    skip-cert-verify: true
+    network: grpc
+    grpc-opts:
+      serviceName: GunService
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "VMess-gRPC");
+    assert_eq!(profile.protocol, ProxyProtocol::Vmess);
+    assert_eq!(profile.endpoint, Endpoint::new("vmess.example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::Grpc {
+            service_name: Some("GunService".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("sni.example.com".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    assert_eq!(profile.cipher, Some("none".to_string()));
+    profile.validate().expect("valid vmess grpc profile");
+}
+
+#[test]
 fn parses_vmess_tcp_proxy_from_mihomo_yaml() {
     let yaml = r#"
 proxies:
