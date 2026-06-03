@@ -3,6 +3,7 @@ use std::net::IpAddr;
 mod direct;
 mod dns;
 mod grpc;
+mod http2;
 mod http_connect;
 mod http_proxy;
 mod metrics;
@@ -17,16 +18,19 @@ pub use direct::{
     relay_tcp_bidirectional, relay_tcp_bidirectional_with_options, AnyTlsTlsTcpOutbound,
     DirectTcpConnector, DirectUdpConnector, Hy2Outbound, OutboundConnection, OutboundProfileError,
     OutboundRegistry, OutboundTarget, OwnedRelayStream, RelayError, RelayOptions, RelayStats,
-    ShadowsocksTcpOutbound, TlsTcpStream, TrojanGrpcOutbound, TrojanHttpUpgradeOutbound,
-    TrojanTcpOutbound, TrojanTlsGrpcOutbound, TrojanTlsHttpUpgradeOutbound, TrojanTlsTcpOutbound,
-    TrojanTlsWsOutbound, TrojanWsOutbound, UdpRelayResponse, VlessGrpcOutbound,
-    VlessHttpUpgradeOutbound, VlessTcpOutbound, VlessTlsGrpcOutbound, VlessTlsHttpUpgradeOutbound,
+    ShadowsocksTcpOutbound, TlsTcpStream, TrojanGrpcOutbound, TrojanH2Outbound,
+    TrojanHttpUpgradeOutbound, TrojanTcpOutbound, TrojanTlsGrpcOutbound, TrojanTlsH2Outbound,
+    TrojanTlsHttpUpgradeOutbound, TrojanTlsTcpOutbound, TrojanTlsWsOutbound, TrojanWsOutbound,
+    UdpRelayResponse, VlessGrpcOutbound, VlessH2Outbound, VlessHttpUpgradeOutbound,
+    VlessTcpOutbound, VlessTlsGrpcOutbound, VlessTlsH2Outbound, VlessTlsHttpUpgradeOutbound,
     VlessTlsTcpOutbound, VlessTlsWsOutbound, VlessWsOutbound, VmessBodySecurity, VmessGrpcOutbound,
-    VmessHttpUpgradeOutbound, VmessTcpOutbound, VmessTlsGrpcOutbound, VmessTlsHttpUpgradeOutbound,
-    VmessTlsTcpOutbound, VmessTlsWsOutbound, VmessWsOutbound,
+    VmessH2Outbound, VmessHttpUpgradeOutbound, VmessTcpOutbound, VmessTlsGrpcOutbound,
+    VmessTlsH2Outbound, VmessTlsHttpUpgradeOutbound, VmessTlsTcpOutbound, VmessTlsWsOutbound,
+    VmessWsOutbound,
 };
 pub use dns::{DnsCache, DnsEngine, DnsError, DnsResolver, ResolvedAddress, SystemDnsResolver};
 pub use grpc::GrpcTcpStream;
+pub use http2::Http2TcpStream;
 pub use http_connect::{
     http_connect_bad_request_response, http_connect_success_response, parse_http_connect_request,
     HttpConnectError, HttpConnectRequest,
