@@ -92,6 +92,36 @@ fn parses_vless_grpc_tls_share_link() {
 }
 
 #[test]
+fn parses_vless_h2_tls_share_link() {
+    let links = "vless://00112233-4455-6677-8899-aabbccddeeff@example.com:443?security=tls&sni=edge.example&type=h2&host=host.example&path=%2Fh2#vless-h2";
+
+    let parsed = parse_share_outbound_profiles(links).expect("parse share links");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "vless-h2");
+    assert_eq!(profile.protocol, ProxyProtocol::Vless);
+    assert_eq!(profile.endpoint, Endpoint::new("example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::Http2 {
+            path: "/h2".to_string(),
+            host: Some("host.example".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: false,
+        }
+    );
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    profile.validate().expect("valid h2 profile");
+}
+
+#[test]
 fn parses_trojan_grpc_tls_share_link() {
     let links = "trojan://password@example.com:443?security=tls&sni=edge.example&type=grpc&serviceName=GunService&allowInsecure=1#trojan-grpc";
 

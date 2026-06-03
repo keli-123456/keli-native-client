@@ -50,6 +50,7 @@ pub enum TransportKind {
     Tcp,
     WebSocket { path: String, host: Option<String> },
     HttpUpgrade { path: String, host: Option<String> },
+    Http2 { path: String, host: Option<String> },
     Grpc { service_name: Option<String> },
     Quic,
 }
@@ -122,6 +123,14 @@ impl OutboundProfile {
             }
             (
                 ProxyProtocol::Trojan,
+                TransportKind::Http2 { path, .. },
+                SecurityKind::None | SecurityKind::Tls { .. },
+            ) if path.starts_with('/') => Ok(()),
+            (ProxyProtocol::Trojan, TransportKind::Http2 { .. }, _) => {
+                Err(ProtocolValidationError::InvalidHttp2Path)
+            }
+            (
+                ProxyProtocol::Trojan,
                 TransportKind::Grpc { .. },
                 SecurityKind::None | SecurityKind::Tls { .. },
             ) => Ok(()),
@@ -156,6 +165,16 @@ impl OutboundProfile {
             ) => Err(ProtocolValidationError::InvalidHttpUpgradePath),
             (
                 ProxyProtocol::Vmess,
+                TransportKind::Http2 { path, .. },
+                SecurityKind::None | SecurityKind::Tls { .. },
+            ) if path.starts_with('/') => Ok(()),
+            (
+                ProxyProtocol::Vmess,
+                TransportKind::Http2 { .. },
+                SecurityKind::None | SecurityKind::Tls { .. },
+            ) => Err(ProtocolValidationError::InvalidHttp2Path),
+            (
+                ProxyProtocol::Vmess,
                 TransportKind::Grpc { .. },
                 SecurityKind::None | SecurityKind::Tls { .. },
             ) => Ok(()),
@@ -167,6 +186,11 @@ impl OutboundProfile {
                 if !path.starts_with('/') =>
             {
                 Err(ProtocolValidationError::InvalidHttpUpgradePath)
+            }
+            (ProxyProtocol::Vless, TransportKind::Http2 { path, .. }, _)
+                if !path.starts_with('/') =>
+            {
+                Err(ProtocolValidationError::InvalidHttp2Path)
             }
             (ProxyProtocol::Vless, TransportKind::Grpc { .. }, _) => Ok(()),
             (ProxyProtocol::Vless, _, _) => Ok(()),
@@ -232,6 +256,7 @@ pub enum ProtocolValidationError {
     InvalidMieruTransport,
     InvalidWebSocketPath,
     InvalidHttpUpgradePath,
+    InvalidHttp2Path,
     InvalidHy2Transport,
     InvalidTuicCredential,
     InvalidTuicTransport,
@@ -268,6 +293,7 @@ impl fmt::Display for ProtocolValidationError {
             Self::InvalidHttpUpgradePath => {
                 write!(f, "HTTPUpgrade path must start with '/'")
             }
+            Self::InvalidHttp2Path => write!(f, "HTTP/2 path must start with '/'"),
             Self::InvalidHy2Transport => write!(f, "HY2 requires QUIC transport with TLS"),
             Self::InvalidTuicCredential => {
                 write!(f, "TUIC credential must be formatted as uuid:password")
@@ -398,6 +424,7 @@ struct MihomoProxy {
     transport: Option<String>,
     ws_opts: Option<MihomoWsOptions>,
     httpupgrade_opts: Option<MihomoHttpUpgradeOptions>,
+    h2_opts: Option<MihomoH2Options>,
     grpc_opts: Option<MihomoGrpcOptions>,
 }
 
@@ -411,6 +438,28 @@ struct MihomoWsOptions {
 struct MihomoHttpUpgradeOptions {
     path: Option<String>,
     host: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MihomoH2Options {
+    path: Option<String>,
+    host: Option<StringList>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum StringList {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl StringList {
+    fn first_non_empty(self) -> Option<String> {
+        match self {
+            Self::One(value) => non_empty(Some(value)),
+            Self::Many(values) => values.into_iter().find_map(|value| non_empty(Some(value))),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -517,6 +566,7 @@ fn mihomo_proxy_to_profile(
         network,
         proxy.ws_opts,
         proxy.httpupgrade_opts,
+        proxy.h2_opts,
         proxy.grpc_opts,
     )?;
     let security = mihomo_security(
@@ -551,6 +601,7 @@ fn mihomo_transport(
     network: Option<&str>,
     ws_opts: Option<MihomoWsOptions>,
     httpupgrade_opts: Option<MihomoHttpUpgradeOptions>,
+    h2_opts: Option<MihomoH2Options>,
     grpc_opts: Option<MihomoGrpcOptions>,
 ) -> Result<TransportKind, SkippedOutboundProfile> {
     if matches!(protocol, ProxyProtocol::Hy2 | ProxyProtocol::Tuic) {
@@ -601,6 +652,17 @@ fn mihomo_transport(
                 .and_then(|opts| non_empty(opts.host))
                 .or_else(|| Some(server.to_string()));
             Ok(TransportKind::HttpUpgrade { path, host })
+        }
+        "h2" | "http" | "http2" => {
+            let path = h2_opts
+                .as_ref()
+                .and_then(|opts| non_empty(opts.path.clone()))
+                .unwrap_or_else(|| "/".to_string());
+            let host = h2_opts
+                .and_then(|opts| opts.host)
+                .and_then(StringList::first_non_empty)
+                .or_else(|| Some(server.to_string()));
+            Ok(TransportKind::Http2 { path, host })
         }
         "grpc" => {
             let service_name = grpc_opts.and_then(|opts| non_empty(opts.grpc_service_name));
@@ -838,6 +900,10 @@ fn vmess_json_share_link_to_profile(
             path: non_empty(config.path).unwrap_or_else(|| "/".to_string()),
             host: non_empty(config.host).or_else(|| Some(server.clone())),
         },
+        "h2" | "http" | "http2" => TransportKind::Http2 {
+            path: non_empty(config.path).unwrap_or_else(|| "/".to_string()),
+            host: non_empty(config.host).or_else(|| Some(server.clone())),
+        },
         "grpc" => TransportKind::Grpc {
             service_name: non_empty(config.service_name).or_else(|| non_empty(config.path)),
         },
@@ -1064,6 +1130,18 @@ fn share_link_transport(
                 .or_else(|| Some(server.to_string())),
         }),
         "httpupgrade" | "http-upgrade" => Ok(TransportKind::HttpUpgrade {
+            path: query
+                .get("path")
+                .cloned()
+                .and_then(|path| non_empty(Some(path)))
+                .unwrap_or_else(|| "/".to_string()),
+            host: query
+                .get("host")
+                .cloned()
+                .and_then(|host| non_empty(Some(host)))
+                .or_else(|| Some(server.to_string())),
+        }),
+        "h2" | "http" | "http2" => Ok(TransportKind::Http2 {
             path: query
                 .get("path")
                 .cloned()
