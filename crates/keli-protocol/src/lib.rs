@@ -736,6 +736,34 @@ pub fn encode_shadowsocks_tcp_request_header(
     Ok(header)
 }
 
+pub fn encode_hy2_tcp_request(
+    target: &Endpoint,
+    padding: &[u8],
+) -> Result<Vec<u8>, ProtocolEncodingError> {
+    if target.host.trim().is_empty() {
+        return Err(ProtocolEncodingError::InvalidTargetHost);
+    }
+    let address = format!("{}:{}", target.host, target.port);
+    let mut request = Vec::with_capacity(8 + address.len() + padding.len());
+    encode_quic_varint(&mut request, 0x401);
+    encode_quic_varint(&mut request, address.len() as u64);
+    request.extend_from_slice(address.as_bytes());
+    encode_quic_varint(&mut request, padding.len() as u64);
+    request.extend_from_slice(padding);
+    Ok(request)
+}
+
+fn encode_quic_varint(output: &mut Vec<u8>, value: u64) {
+    match value {
+        0..=63 => output.push(value as u8),
+        64..=16_383 => output.extend_from_slice(&(0x4000 | value as u16).to_be_bytes()),
+        16_384..=1_073_741_823 => {
+            output.extend_from_slice(&(0x8000_0000 | value as u32).to_be_bytes());
+        }
+        _ => output.extend_from_slice(&(0xc000_0000_0000_0000 | value).to_be_bytes()),
+    }
+}
+
 fn looks_like_uuid(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() != 36 {
@@ -1031,5 +1059,24 @@ mod tests {
             .expect("ss header");
 
         assert_eq!(&header, b"\x03\x0bexample.com\x01\xbb");
+    }
+
+    #[test]
+    fn encodes_hy2_tcp_request_for_domain_target() {
+        let request =
+            encode_hy2_tcp_request(&Endpoint::new("example.com", 443), b"pad").expect("hy2 tcp");
+
+        assert_eq!(
+            &request, b"\x44\x01\x0fexample.com:443\x03pad",
+            "HY2 TCPRequest is QUIC varint id 0x401, address, and padding"
+        );
+    }
+
+    #[test]
+    fn rejects_hy2_tcp_request_with_empty_target_host() {
+        let error = encode_hy2_tcp_request(&Endpoint::new("", 443), b"")
+            .expect_err("empty HY2 target should fail");
+
+        assert_eq!(error, ProtocolEncodingError::InvalidTargetHost);
     }
 }
