@@ -828,6 +828,88 @@ async fn hy2_blocking_tcp_stream_bridges_into_std_read_write() {
 }
 
 #[tokio::test]
+async fn hy2_udp_datagram_round_trips_udp_payload() {
+    let server_endpoint = quinn::Endpoint::server(
+        hy2_h3_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local HY2 UDP server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+
+        let request = tokio::time::timeout(
+            Duration::from_secs(2),
+            keli_net_core::hy2_read_udp_datagram(&connection),
+        )
+        .await
+        .expect("server waits for HY2 UDP message")
+        .expect("server reads HY2 UDP message");
+        assert_eq!(request.session_id, 0x01020304);
+        assert_eq!(request.packet_id, 0x0506);
+        assert_eq!(request.fragment_id, 0);
+        assert_eq!(request.fragment_count, 1);
+        assert_eq!(
+            request.address,
+            keli_protocol::Endpoint::new("example.com", 53)
+        );
+        assert_eq!(request.payload, b"ping");
+
+        keli_net_core::hy2_send_udp_datagram(
+            &connection,
+            request.session_id,
+            request.packet_id,
+            request.fragment_id,
+            request.fragment_count,
+            &keli_protocol::Endpoint::new("127.0.0.1", 53),
+            b"pong",
+        )
+        .expect("server sends HY2 UDP response");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    });
+
+    let client_endpoint = keli_net_core::h3_quic_client_endpoint(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        true,
+    )
+    .expect("build client endpoint");
+    let connection = keli_net_core::h3_quic_connect(&client_endpoint, server_addr, "localhost")
+        .await
+        .expect("connect local QUIC peer");
+
+    keli_net_core::hy2_send_udp_datagram(
+        &connection,
+        0x01020304,
+        0x0506,
+        0,
+        1,
+        &keli_protocol::Endpoint::new("example.com", 53),
+        b"ping",
+    )
+    .expect("client sends HY2 UDP message");
+    let response = tokio::time::timeout(
+        Duration::from_secs(2),
+        keli_net_core::hy2_read_udp_datagram(&connection),
+    )
+    .await
+    .expect("client waits for HY2 UDP response")
+    .expect("client reads HY2 UDP response");
+    assert_eq!(response.session_id, 0x01020304);
+    assert_eq!(response.packet_id, 0x0506);
+    assert_eq!(
+        response.address,
+        keli_protocol::Endpoint::new("127.0.0.1", 53)
+    );
+    assert_eq!(response.payload, b"pong");
+
+    server.await.expect("server task");
+}
+
+#[tokio::test]
 async fn registry_from_hy2_profile_relays_over_quic_tcp_stream() {
     let server_endpoint = quinn::Endpoint::server(
         hy2_h3_test_server_config(),
@@ -909,6 +991,99 @@ async fn registry_from_hy2_profile_relays_over_quic_tcp_stream() {
     });
 
     assert_eq!(client.await.expect("client task"), *b"pong");
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn registry_from_hy2_profile_relays_udp_over_quic_datagram() {
+    let server_endpoint = quinn::Endpoint::server(
+        hy2_h3_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local registry hy2 UDP server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let mut h3_connection: h3::server::Connection<h3_quinn::Connection, bytes::Bytes> =
+            h3::server::builder()
+                .build(h3_quinn::Connection::new(connection.clone()))
+                .await
+                .expect("server h3 connection");
+        let resolver = h3_connection
+            .accept()
+            .await
+            .expect("accept auth request")
+            .expect("auth request exists");
+        let (request, mut auth_stream) = resolver
+            .resolve_request()
+            .await
+            .expect("resolve auth request");
+        assert_eq!(request.headers()["Hysteria-Auth"], "secret");
+        auth_stream
+            .send_response(http::Response::builder().status(233).body(()).unwrap())
+            .await
+            .expect("send auth OK");
+        auth_stream.finish().await.expect("finish auth OK");
+
+        let message = keli_net_core::hy2_read_udp_datagram(&connection)
+            .await
+            .expect("read HY2 UDP request");
+        assert_eq!(message.fragment_id, 0);
+        assert_eq!(message.fragment_count, 1);
+        assert_eq!(
+            message.address,
+            keli_protocol::Endpoint::new("example.com", 53)
+        );
+        assert_eq!(message.payload, b"ping");
+        keli_net_core::hy2_send_udp_datagram(
+            &connection,
+            message.session_id,
+            message.packet_id,
+            message.fragment_id,
+            message.fragment_count,
+            &keli_protocol::Endpoint::new("127.0.0.1", 53),
+            b"pong",
+        )
+        .expect("send HY2 UDP response");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    });
+
+    let client = tokio::task::spawn_blocking(move || {
+        let registry =
+            keli_net_core::OutboundRegistry::from_profiles([keli_protocol::OutboundProfile {
+                tag: "hy2".to_string(),
+                protocol: keli_protocol::ProxyProtocol::Hy2,
+                endpoint: keli_protocol::Endpoint::new("127.0.0.1", server_addr.port()),
+                transport: keli_protocol::TransportKind::Quic,
+                security: keli_protocol::SecurityKind::Tls {
+                    sni: Some("localhost".to_string()),
+                    skip_verify: true,
+                },
+                credential: "secret".to_string(),
+                cipher: None,
+                flow: None,
+            }])
+            .expect("build HY2 registry");
+        registry
+            .relay_udp_datagram(
+                "hy2",
+                &keli_net_core::OutboundTarget::new("example.com", 53),
+                b"ping",
+                Duration::from_secs(2),
+            )
+            .expect("relay HY2 UDP datagram")
+    });
+
+    let response = client.await.expect("client task");
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("source addr")
+    );
+    assert_eq!(response.payload, b"pong");
     server.await.expect("server task");
 }
 

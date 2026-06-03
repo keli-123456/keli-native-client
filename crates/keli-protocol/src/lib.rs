@@ -775,6 +775,7 @@ pub enum ProtocolDecodingError {
     UnexpectedEof,
     InvalidUtf8,
     InvalidHy2Status(u8),
+    InvalidEndpoint,
     InvalidTuicVersion(u8),
     InvalidTuicCommand(u8),
     InvalidTuicAddressType(u8),
@@ -788,6 +789,7 @@ impl fmt::Display for ProtocolDecodingError {
             Self::InvalidHy2Status(status) => {
                 write!(f, "HY2 TCP response status is invalid: {status}")
             }
+            Self::InvalidEndpoint => write!(f, "proxy endpoint is invalid"),
             Self::InvalidTuicVersion(version) => {
                 write!(f, "TUIC command version is invalid: {version}")
             }
@@ -817,6 +819,16 @@ pub struct Hy2AuthRequest {
     pub auth: String,
     pub cc_rx: String,
     pub padding: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hy2UdpMessage {
+    pub session_id: u32,
+    pub packet_id: u16,
+    pub fragment_id: u8,
+    pub fragment_count: u8,
+    pub address: Endpoint,
+    pub payload: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -907,6 +919,29 @@ pub fn encode_hy2_tcp_request(
     Ok(request)
 }
 
+pub fn encode_hy2_udp_message(
+    session_id: u32,
+    packet_id: u16,
+    fragment_id: u8,
+    fragment_count: u8,
+    address: &Endpoint,
+    payload: &[u8],
+) -> Result<Vec<u8>, ProtocolEncodingError> {
+    if address.host.trim().is_empty() {
+        return Err(ProtocolEncodingError::InvalidTargetHost);
+    }
+    let address = format!("{}:{}", address.host.trim(), address.port);
+    let mut message = Vec::with_capacity(12 + address.len() + payload.len());
+    message.extend_from_slice(&session_id.to_be_bytes());
+    message.extend_from_slice(&packet_id.to_be_bytes());
+    message.push(fragment_id);
+    message.push(fragment_count);
+    encode_quic_varint(&mut message, address.len() as u64);
+    message.extend_from_slice(address.as_bytes());
+    message.extend_from_slice(payload);
+    Ok(message)
+}
+
 pub fn encode_tuic_authenticate_command(
     uuid: &str,
     token: &[u8; 32],
@@ -989,6 +1024,30 @@ pub fn decode_tuic_packet_command(
     })
 }
 
+pub fn decode_hy2_udp_message(input: &[u8]) -> Result<Hy2UdpMessage, ProtocolDecodingError> {
+    let mut offset = 0;
+    let session_id = read_u32(input, &mut offset)?;
+    let packet_id = read_u16(input, &mut offset)?;
+    let fragment_id = read_u8(input, &mut offset)?;
+    let fragment_count = read_u8(input, &mut offset)?;
+    let (address_len, consumed) = decode_quic_varint(input, offset)?;
+    offset += consumed;
+    let address_len = address_len as usize;
+    let address_bytes = read_bytes(input, &mut offset, address_len)?;
+    let address = String::from_utf8(address_bytes.to_vec())
+        .map_err(|_| ProtocolDecodingError::InvalidUtf8)?;
+    let address = parse_host_port_endpoint(&address)?;
+    let payload = input[offset..].to_vec();
+    Ok(Hy2UdpMessage {
+        session_id,
+        packet_id,
+        fragment_id,
+        fragment_count,
+        address,
+        payload,
+    })
+}
+
 pub fn decode_hy2_tcp_response(
     input: &[u8],
 ) -> Result<(Hy2TcpResponse, usize), ProtocolDecodingError> {
@@ -1064,6 +1123,11 @@ fn read_u16(input: &[u8], offset: &mut usize) -> Result<u16, ProtocolDecodingErr
     Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
 }
 
+fn read_u32(input: &[u8], offset: &mut usize) -> Result<u32, ProtocolDecodingError> {
+    let bytes = read_bytes(input, offset, 4)?;
+    Ok(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
 fn read_bytes<'a>(
     input: &'a [u8],
     offset: &mut usize,
@@ -1076,6 +1140,20 @@ fn read_bytes<'a>(
     let bytes = &input[*offset..end];
     *offset = end;
     Ok(bytes)
+}
+
+fn parse_host_port_endpoint(value: &str) -> Result<Endpoint, ProtocolDecodingError> {
+    let (host, port) = value
+        .rsplit_once(':')
+        .ok_or(ProtocolDecodingError::InvalidEndpoint)?;
+    let host = host.trim().trim_matches(['[', ']']);
+    if host.is_empty() {
+        return Err(ProtocolDecodingError::InvalidEndpoint);
+    }
+    let port = port
+        .parse::<u16>()
+        .map_err(|_| ProtocolDecodingError::InvalidEndpoint)?;
+    Ok(Endpoint::new(host, port))
 }
 
 fn looks_like_uuid(value: &str) -> bool {
@@ -1448,6 +1526,43 @@ mod tests {
         assert_eq!(packet.fragment_id, 0);
         assert_eq!(packet.source, Endpoint::new("127.0.0.1", 8080));
         assert_eq!(packet.payload, b"pong");
+    }
+
+    #[test]
+    fn encodes_hy2_udp_message_for_udp_payload() {
+        let message = encode_hy2_udp_message(
+            0x01020304,
+            0x0506,
+            0,
+            1,
+            &Endpoint::new("example.com", 53),
+            b"ping",
+        )
+        .expect("encode HY2 UDP message");
+
+        assert_eq!(
+            message,
+            [
+                0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x00, 0x01, 0x0e, b'e', b'x', b'a', b'm', b'p',
+                b'l', b'e', b'.', b'c', b'o', b'm', b':', b'5', b'3', b'p', b'i', b'n', b'g',
+            ]
+        );
+    }
+
+    #[test]
+    fn decodes_hy2_udp_message_for_udp_payload() {
+        let message = decode_hy2_udp_message(&[
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x00, 0x01, 0x0c, b'1', b'2', b'7', b'.', b'0',
+            b'.', b'0', b'.', b'1', b':', b'5', b'3', b'p', b'o', b'n', b'g',
+        ])
+        .expect("decode HY2 UDP message");
+
+        assert_eq!(message.session_id, 0x01020304);
+        assert_eq!(message.packet_id, 0x0506);
+        assert_eq!(message.fragment_id, 0);
+        assert_eq!(message.fragment_count, 1);
+        assert_eq!(message.address, Endpoint::new("127.0.0.1", 53));
+        assert_eq!(message.payload, b"pong");
     }
 
     #[test]

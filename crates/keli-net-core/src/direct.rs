@@ -437,6 +437,8 @@ impl OutboundRegistry {
     ) -> io::Result<UdpRelayResponse> {
         if self.direct_tags.contains(tag) {
             DirectUdpConnector::relay_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.hy2_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.tuic_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else {
@@ -1301,6 +1303,67 @@ impl Hy2Outbound {
         }))
     }
 
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let target = Endpoint::new(target.host.clone(), target.port);
+        let session_id = random_nonzero_u32();
+        let packet_id = random_nonzero_u16();
+        let mut last_error = None;
+        for server_addr in self.resolve_server_addrs()? {
+            let bind_addr = hy2_bind_addr_for(server_addr);
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .thread_name("keli-hy2-udp-runtime")
+                .build()
+                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+            let result = runtime.block_on(async {
+                tokio::time::timeout(timeout, async {
+                    let session = crate::Hy2ClientSession::connect(
+                        bind_addr,
+                        server_addr,
+                        &self.sni,
+                        self.skip_verify,
+                        &self.auth,
+                        0,
+                        "",
+                    )
+                    .await?;
+                    session
+                        .relay_udp_datagram(session_id, packet_id, &target, payload)
+                        .await
+                })
+                .await
+                .map_err(|_| {
+                    io::Error::new(io::ErrorKind::TimedOut, "HY2 UDP response timed out")
+                })?
+            });
+            match result {
+                Ok(message) => {
+                    let source = endpoint_to_socket_addr(&message.address)?;
+                    return Ok(UdpRelayResponse {
+                        source,
+                        payload: message.payload,
+                    });
+                }
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                format!(
+                    "no address resolved for {}:{}",
+                    self.server.host, self.server.port
+                ),
+            )
+        }))
+    }
+
     fn resolve_server_addrs(&self) -> io::Result<Vec<SocketAddr>> {
         let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
         dns.resolve(&self.server.host, self.server.port)
@@ -1332,6 +1395,15 @@ fn endpoint_to_socket_addr(endpoint: &Endpoint) -> io::Result<SocketAddr> {
 
 fn random_nonzero_u16() -> u16 {
     let value = (rand::thread_rng().next_u32() & 0xffff) as u16;
+    if value == 0 {
+        1
+    } else {
+        value
+    }
+}
+
+fn random_nonzero_u32() -> u32 {
+    let value = rand::thread_rng().next_u32();
     if value == 0 {
         1
     } else {

@@ -4,10 +4,10 @@ use std::net::SocketAddr;
 use std::sync::{mpsc, Arc, Mutex};
 
 use keli_protocol::{
-    build_hy2_auth_request, decode_hy2_tcp_response, decode_tuic_packet_command,
-    encode_hy2_tcp_request, encode_tuic_authenticate_command, encode_tuic_connect_command,
-    encode_tuic_packet_command, is_hy2_auth_success_status, Endpoint, ProtocolDecodingError,
-    TuicPacketCommand,
+    build_hy2_auth_request, decode_hy2_tcp_response, decode_hy2_udp_message,
+    decode_tuic_packet_command, encode_hy2_tcp_request, encode_hy2_udp_message,
+    encode_tuic_authenticate_command, encode_tuic_connect_command, encode_tuic_packet_command,
+    is_hy2_auth_success_status, Endpoint, Hy2UdpMessage, ProtocolDecodingError, TuicPacketCommand,
 };
 
 pub type Hy2H3Connection = h3::client::Connection<h3_quinn::Connection, bytes::Bytes>;
@@ -161,6 +161,38 @@ pub async fn tuic_read_packet_datagram(
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
+pub fn hy2_send_udp_datagram(
+    connection: &quinn::Connection,
+    session_id: u32,
+    packet_id: u16,
+    fragment_id: u8,
+    fragment_count: u8,
+    address: &Endpoint,
+    payload: &[u8],
+) -> io::Result<()> {
+    let message = encode_hy2_udp_message(
+        session_id,
+        packet_id,
+        fragment_id,
+        fragment_count,
+        address,
+        payload,
+    )
+    .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    connection
+        .send_datagram(bytes::Bytes::from(message))
+        .map_err(hy2_datagram_send_error_to_io)
+}
+
+pub async fn hy2_read_udp_datagram(connection: &quinn::Connection) -> io::Result<Hy2UdpMessage> {
+    let datagram = connection
+        .read_datagram()
+        .await
+        .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))?;
+    decode_hy2_udp_message(&datagram)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
 fn tuic_datagram_send_error_to_io(error: quinn::SendDatagramError) -> io::Error {
     match error {
         quinn::SendDatagramError::UnsupportedByPeer => io::Error::new(
@@ -173,6 +205,25 @@ fn tuic_datagram_send_error_to_io(error: quinn::SendDatagramError) -> io::Error 
         ),
         quinn::SendDatagramError::TooLarge => {
             io::Error::new(io::ErrorKind::InvalidInput, "TUIC datagram is too large")
+        }
+        quinn::SendDatagramError::ConnectionLost(error) => {
+            io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}"))
+        }
+    }
+}
+
+fn hy2_datagram_send_error_to_io(error: quinn::SendDatagramError) -> io::Error {
+    match error {
+        quinn::SendDatagramError::UnsupportedByPeer => io::Error::new(
+            io::ErrorKind::Unsupported,
+            "HY2 QUIC datagrams are not supported by peer",
+        ),
+        quinn::SendDatagramError::Disabled => io::Error::new(
+            io::ErrorKind::Unsupported,
+            "HY2 QUIC datagrams are disabled locally",
+        ),
+        quinn::SendDatagramError::TooLarge => {
+            io::Error::new(io::ErrorKind::InvalidInput, "HY2 datagram is too large")
         }
         quinn::SendDatagramError::ConnectionLost(error) => {
             io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}"))
@@ -271,6 +322,25 @@ impl Hy2ClientSession {
         padding: &[u8],
     ) -> io::Result<Hy2QuicTcpStream> {
         hy2_open_tcp_stream(&self.connection, target, padding).await
+    }
+
+    pub async fn relay_udp_datagram(
+        &self,
+        session_id: u32,
+        packet_id: u16,
+        target: &Endpoint,
+        payload: &[u8],
+    ) -> io::Result<Hy2UdpMessage> {
+        hy2_send_udp_datagram(
+            &self.connection,
+            session_id,
+            packet_id,
+            0,
+            1,
+            target,
+            payload,
+        )?;
+        hy2_read_udp_datagram(&self.connection).await
     }
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
