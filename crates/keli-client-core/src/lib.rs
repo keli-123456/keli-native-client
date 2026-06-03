@@ -163,6 +163,41 @@ pub fn preflight_subscription_config(
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionPlan {
+    selected_outbound: String,
+    listen: String,
+    preflight: SubscriptionPreflightReport,
+}
+
+impl ConnectionPlan {
+    pub fn selected_outbound(&self) -> &str {
+        &self.selected_outbound
+    }
+
+    pub fn listen(&self) -> &str {
+        &self.listen
+    }
+
+    pub fn preflight(&self) -> &SubscriptionPreflightReport {
+        &self.preflight
+    }
+}
+
+pub fn build_connection_plan(
+    config_text: &str,
+    preferred_outbound: Option<&str>,
+    listen: impl Into<String>,
+) -> Result<ConnectionPlan, ClientErrorKind> {
+    let preflight = preflight_subscription_config(config_text)?;
+    let selected_outbound = preflight.select_outbound(preferred_outbound)?;
+    Ok(ConnectionPlan {
+        selected_outbound,
+        listen: listen.into(),
+        preflight,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,6 +281,45 @@ proxies:
             report
                 .select_outbound(Some("MISSING"))
                 .expect_err("missing"),
+            ClientErrorKind::ConfigInvalid("outbound tag not found: MISSING".to_string())
+        );
+    }
+
+    #[test]
+    fn connection_plan_selects_outbound_and_preserves_local_listen() {
+        let config = r#"
+proxies:
+  - name: SS-READY
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+"#;
+
+        let plan = build_connection_plan(config, Some("SS-READY"), "127.0.0.1:7890")
+            .expect("connection plan");
+
+        assert_eq!(plan.selected_outbound(), "SS-READY");
+        assert_eq!(plan.listen(), "127.0.0.1:7890");
+        assert_eq!(plan.preflight().supported_count(), 1);
+    }
+
+    #[test]
+    fn connection_plan_rejects_unknown_selected_outbound_before_starting_core() {
+        let config = r#"
+proxies:
+  - name: SS-READY
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+"#;
+
+        assert_eq!(
+            build_connection_plan(config, Some("MISSING"), "127.0.0.1:7890")
+                .expect_err("unknown outbound"),
             ClientErrorKind::ConfigInvalid("outbound tag not found: MISSING".to_string())
         );
     }
