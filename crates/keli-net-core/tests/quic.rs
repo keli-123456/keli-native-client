@@ -64,6 +64,89 @@ async fn h3_quic_client_endpoint_binds_to_requested_local_addr() {
     );
 }
 
+#[tokio::test]
+async fn tuic_export_token_matches_on_both_quic_peers() {
+    let server_endpoint = quinn::Endpoint::server(
+        hy2_h3_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local TUIC token server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        incoming.await.expect("server QUIC connection")
+    });
+
+    let client_endpoint = keli_net_core::h3_quic_client_endpoint(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        true,
+    )
+    .expect("build client endpoint");
+    let client_connection =
+        keli_net_core::h3_quic_connect(&client_endpoint, server_addr, "localhost")
+            .await
+            .expect("connect local QUIC peer");
+    let server_connection = server.await.expect("server task");
+
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let password = "secret";
+    let client_token =
+        keli_net_core::tuic_export_token(&client_connection, uuid, password).expect("client token");
+    let server_token =
+        keli_net_core::tuic_export_token(&server_connection, uuid, password).expect("server token");
+
+    assert_eq!(client_token, server_token);
+    assert_ne!(client_token, [0; 32]);
+
+    let auth_command = keli_net_core::tuic_authenticate_command(&client_connection, uuid, password)
+        .expect("tuic auth command");
+    assert_eq!(&auth_command[18..], client_token);
+}
+
+#[tokio::test]
+async fn tuic_authenticate_sends_valid_unidirectional_command() {
+    let server_endpoint = quinn::Endpoint::server(
+        hy2_h3_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local TUIC auth server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let mut recv = connection.accept_uni().await.expect("accept TUIC auth");
+        let command = recv.read_to_end(64).await.expect("read TUIC auth command");
+        (connection, command)
+    });
+
+    let client_endpoint = keli_net_core::h3_quic_client_endpoint(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        true,
+    )
+    .expect("build client endpoint");
+    let client_connection =
+        keli_net_core::h3_quic_connect(&client_endpoint, server_addr, "localhost")
+            .await
+            .expect("connect local QUIC peer");
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let password = "secret";
+
+    keli_net_core::tuic_authenticate(&client_connection, uuid, password)
+        .await
+        .expect("send TUIC auth");
+
+    let (server_connection, command) = server.await.expect("server task");
+    let expected = keli_net_core::tuic_authenticate_command(&server_connection, uuid, password)
+        .expect("expected TUIC auth command");
+    assert_eq!(command, expected);
+}
+
 #[test]
 fn hy2_auth_response_requires_official_233_status() {
     keli_net_core::validate_hy2_auth_response(

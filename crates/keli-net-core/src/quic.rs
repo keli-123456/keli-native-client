@@ -5,7 +5,7 @@ use std::sync::{mpsc, Arc, Mutex};
 
 use keli_protocol::{
     build_hy2_auth_request, decode_hy2_tcp_response, encode_hy2_tcp_request,
-    is_hy2_auth_success_status, Endpoint, ProtocolDecodingError,
+    encode_tuic_authenticate_command, is_hy2_auth_success_status, Endpoint, ProtocolDecodingError,
 };
 
 pub type Hy2H3Connection = h3::client::Connection<h3_quinn::Connection, bytes::Bytes>;
@@ -67,6 +67,62 @@ pub async fn h3_quic_connect(
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
         .await
         .map_err(|error| io::Error::new(io::ErrorKind::TimedOut, error))
+}
+
+pub fn tuic_export_token(
+    connection: &quinn::Connection,
+    uuid: &str,
+    password: &str,
+) -> io::Result<[u8; 32]> {
+    if password.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "TUIC password is empty",
+        ));
+    }
+    let zero_token = [0; 32];
+    let auth = encode_tuic_authenticate_command(uuid, &zero_token)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let uuid_label = &auth[2..18];
+    let mut token = [0; 32];
+    connection
+        .export_keying_material(&mut token, uuid_label, password.as_bytes())
+        .map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("TUIC keying material export failed: {error:?}"),
+            )
+        })?;
+    Ok(token)
+}
+
+pub fn tuic_authenticate_command(
+    connection: &quinn::Connection,
+    uuid: &str,
+    password: &str,
+) -> io::Result<Vec<u8>> {
+    let token = tuic_export_token(connection, uuid, password)?;
+    encode_tuic_authenticate_command(uuid, &token)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+}
+
+pub async fn tuic_authenticate(
+    connection: &quinn::Connection,
+    uuid: &str,
+    password: &str,
+) -> io::Result<()> {
+    let command = tuic_authenticate_command(connection, uuid, password)?;
+    let mut stream = connection
+        .open_uni()
+        .await
+        .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))?;
+    stream
+        .write_all(&command)
+        .await
+        .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))?;
+    stream
+        .finish()
+        .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, format!("{error:?}")))
 }
 
 pub fn hy2_auth_http_request(
