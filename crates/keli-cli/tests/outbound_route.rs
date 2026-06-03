@@ -143,6 +143,85 @@ fn http_connect_relays_through_registered_trojan_ws_route() {
 }
 
 #[test]
+fn mixed_socks5_connect_relays_through_registered_trojan_ws_route() {
+    let trojan_ws = TcpListener::bind("127.0.0.1:0").expect("bind trojan ws");
+    let trojan_ws_port = trojan_ws.local_addr().expect("trojan ws addr").port();
+    let trojan_ws_thread = thread::spawn(move || {
+        let (mut stream, _) = trojan_ws.accept().expect("accept trojan ws");
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /answer HTTP/1.1\r\n"));
+        assert!(request.contains("Host: edge.example\r\n"));
+        let key = header_value(&request, "Sec-WebSocket-Key").expect("client key");
+        let accept = websocket_accept_for_key(&key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .expect("write ws response");
+
+        let trojan_header = read_masked_client_frame(&mut stream);
+        assert_eq!(
+            &trojan_header[..],
+            b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x01\x03\x0bexample.com\x01\xbb\r\n"
+        );
+        let payload = read_masked_client_frame(&mut stream);
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"\x82\x04pong").expect("write pong frame");
+    });
+
+    let inbound = TcpListener::bind("127.0.0.1:0").expect("bind inbound");
+    let inbound_port = inbound.local_addr().expect("inbound addr").port();
+    let mut outbounds = OutboundRegistry::new();
+    outbounds.add_trojan_ws(
+        "proxy",
+        TrojanWsOutbound::new(
+            Endpoint::new("127.0.0.1", trojan_ws_port),
+            "edge.example",
+            "/answer",
+            "password",
+        ),
+    );
+    let runtime = MixedProxyRuntime::with_routes_and_outbounds(
+        RouteEngine::new(RouteAction::Outbound("proxy".to_string())),
+        outbounds,
+    );
+    let inbound_thread = thread::spawn(move || {
+        let (mut stream, _) = inbound.accept().expect("accept inbound");
+        handle_mixed_connection_with_routes(&mut stream, &runtime)
+            .expect("handle trojan ws socks5 route");
+    });
+
+    let mut client = TcpStream::connect(("127.0.0.1", inbound_port)).expect("connect inbound");
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    client.write_all(&[0x05, 0x01, 0x00]).expect("write hello");
+    let mut hello = [0; 2];
+    client.read_exact(&mut hello).expect("read hello response");
+    assert_eq!(hello, [0x05, 0x00]);
+    client
+        .write_all(&[
+            0x05, 0x01, 0x00, 0x03, 0x0b, b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.', b'c',
+            b'o', b'm', 0x01, 0xbb,
+        ])
+        .expect("write socks5 connect");
+    let mut connect_response = [0; 10];
+    client
+        .read_exact(&mut connect_response)
+        .expect("read connect response");
+    assert_eq!(connect_response, [0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+
+    client.write_all(b"ping").expect("write ping");
+    let mut response = [0; 4];
+    client.read_exact(&mut response).expect("read pong");
+    assert_eq!(&response, b"pong");
+    client.shutdown(Shutdown::Both).ok();
+
+    inbound_thread.join().expect("inbound thread");
+    trojan_ws_thread.join().expect("trojan ws thread");
+}
+
+#[test]
 fn http_connect_relays_through_registered_vless_ws_route() {
     let vless_ws = TcpListener::bind("127.0.0.1:0").expect("bind vless ws");
     let vless_ws_port = vless_ws.local_addr().expect("vless ws addr").port();
@@ -215,6 +294,93 @@ fn http_connect_relays_through_registered_vless_ws_route() {
         connect_response,
         b"HTTP/1.1 200 Connection Established\r\n\r\n"
     );
+
+    client.write_all(b"ping").expect("write ping");
+    let mut response = [0; 4];
+    client.read_exact(&mut response).expect("read pong");
+    assert_eq!(&response, b"pong");
+    client.shutdown(Shutdown::Both).ok();
+
+    inbound_thread.join().expect("inbound thread");
+    vless_ws_thread.join().expect("vless ws thread");
+}
+
+#[test]
+fn mixed_socks5_connect_relays_through_registered_vless_ws_route() {
+    let vless_ws = TcpListener::bind("127.0.0.1:0").expect("bind vless ws");
+    let vless_ws_port = vless_ws.local_addr().expect("vless ws addr").port();
+    let vless_ws_thread = thread::spawn(move || {
+        let (mut stream, _) = vless_ws.accept().expect("accept vless ws");
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /vless HTTP/1.1\r\n"));
+        assert!(request.contains("Host: edge.example\r\n"));
+        let key = header_value(&request, "Sec-WebSocket-Key").expect("client key");
+        let accept = websocket_accept_for_key(&key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .expect("write ws response");
+
+        let vless_header = read_masked_client_frame(&mut stream);
+        assert_eq!(
+            &vless_header[..],
+            &[
+                0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
+                0xdd, 0xee, 0xff, 0x00, 0x01, 0x01, 0xbb, 0x02, 0x0b, b'e', b'x', b'a', b'm', b'p',
+                b'l', b'e', b'.', b'c', b'o', b'm',
+            ]
+        );
+        stream
+            .write_all(b"\x82\x02\x00\x00")
+            .expect("write vless response header");
+        let payload = read_masked_client_frame(&mut stream);
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"\x82\x04pong").expect("write pong frame");
+    });
+
+    let inbound = TcpListener::bind("127.0.0.1:0").expect("bind inbound");
+    let inbound_port = inbound.local_addr().expect("inbound addr").port();
+    let mut outbounds = OutboundRegistry::new();
+    outbounds.add_vless_ws(
+        "proxy",
+        VlessWsOutbound::new(
+            Endpoint::new("127.0.0.1", vless_ws_port),
+            "edge.example",
+            "/vless",
+            "00112233-4455-6677-8899-aabbccddeeff",
+            None,
+        ),
+    );
+    let runtime = MixedProxyRuntime::with_routes_and_outbounds(
+        RouteEngine::new(RouteAction::Outbound("proxy".to_string())),
+        outbounds,
+    );
+    let inbound_thread = thread::spawn(move || {
+        let (mut stream, _) = inbound.accept().expect("accept inbound");
+        handle_mixed_connection_with_routes(&mut stream, &runtime)
+            .expect("handle vless ws socks5 route");
+    });
+
+    let mut client = TcpStream::connect(("127.0.0.1", inbound_port)).expect("connect inbound");
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    client.write_all(&[0x05, 0x01, 0x00]).expect("write hello");
+    let mut hello = [0; 2];
+    client.read_exact(&mut hello).expect("read hello response");
+    assert_eq!(hello, [0x05, 0x00]);
+    client
+        .write_all(&[
+            0x05, 0x01, 0x00, 0x03, 0x0b, b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.', b'c',
+            b'o', b'm', 0x01, 0xbb,
+        ])
+        .expect("write socks5 connect");
+    let mut connect_response = [0; 10];
+    client
+        .read_exact(&mut connect_response)
+        .expect("read connect response");
+    assert_eq!(connect_response, [0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
 
     client.write_all(b"ping").expect("write ping");
     let mut response = [0; 4];
