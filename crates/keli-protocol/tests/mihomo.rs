@@ -180,14 +180,16 @@ proxies:
 }
 
 #[test]
-fn reports_unsupported_proxy_without_dropping_supported_entries() {
+fn parses_hy2_proxy_and_skips_tuic_without_dropping_supported_entries() {
     let yaml = r#"
 proxies:
-  - name: hy2-not-yet
+  - name: hy2-ready
     type: hy2
     server: hy2.example.com
     port: 443
     password: secret
+    sni: sni.example.com
+    skip-cert-verify: true
   - name: tuic-not-yet
     type: tuic
     server: tuic.example.com
@@ -202,11 +204,23 @@ proxies:
 
     let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
 
-    assert_eq!(parsed.profiles.len(), 1);
-    assert_eq!(parsed.profiles[0].tag, "tcp-vless");
-    assert_eq!(parsed.skipped.len(), 2);
-    assert_eq!(parsed.skipped[0].name, "hy2-not-yet");
-    assert!(parsed.skipped[0].reason.contains("HY2 outbound runtime"));
-    assert_eq!(parsed.skipped[1].name, "tuic-not-yet");
-    assert!(parsed.skipped[1].reason.contains("TUIC outbound runtime"));
+    assert_eq!(parsed.profiles.len(), 2);
+    let hy2 = &parsed.profiles[0];
+    assert_eq!(hy2.tag, "hy2-ready");
+    assert_eq!(hy2.protocol, ProxyProtocol::Hy2);
+    assert_eq!(hy2.endpoint, Endpoint::new("hy2.example.com", 443));
+    assert_eq!(hy2.transport, TransportKind::Quic);
+    assert_eq!(
+        hy2.security,
+        SecurityKind::Tls {
+            sni: Some("sni.example.com".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(hy2.credential, "secret");
+    hy2.validate().expect("valid hy2 profile");
+    assert_eq!(parsed.profiles[1].tag, "tcp-vless");
+    assert_eq!(parsed.skipped.len(), 1);
+    assert_eq!(parsed.skipped[0].name, "tuic-not-yet");
+    assert!(parsed.skipped[0].reason.contains("TUIC outbound runtime"));
 }

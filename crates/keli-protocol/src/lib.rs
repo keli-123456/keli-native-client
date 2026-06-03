@@ -22,8 +22,6 @@ const TROJAN_ATYP_IPV6: u8 = 0x04;
 const SHADOWSOCKS_ATYP_IPV4: u8 = 0x01;
 const SHADOWSOCKS_ATYP_DOMAIN: u8 = 0x03;
 const SHADOWSOCKS_ATYP_IPV6: u8 = 0x04;
-const HY2_RUNTIME_MISSING: &str =
-    "HY2 outbound runtime requires QUIC/H3 and is not implemented yet";
 const TUIC_RUNTIME_MISSING: &str = "TUIC outbound runtime requires QUIC and is not implemented yet";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -306,15 +304,13 @@ fn mihomo_proxy_to_profile(
     };
 
     let protocol_name = protocol_name.to_ascii_lowercase();
-    if matches!(protocol_name.as_str(), "hy2" | "hysteria2") {
-        return Err(skip(name, HY2_RUNTIME_MISSING));
-    }
     if protocol_name == "tuic" {
         return Err(skip(name, TUIC_RUNTIME_MISSING));
     }
     let protocol = match protocol_name.as_str() {
         "trojan" => ProxyProtocol::Trojan,
         "vless" => ProxyProtocol::Vless,
+        "hy2" | "hysteria2" => ProxyProtocol::Hy2,
         "ss" | "shadowsocks" => ProxyProtocol::Shadowsocks,
         "anytls" | "any-tls" => ProxyProtocol::AnyTls,
         other => return Err(skip(name, format!("unsupported protocol: {other}"))),
@@ -329,7 +325,8 @@ fn mihomo_proxy_to_profile(
             .ok_or_else(|| skip(name.clone(), "missing shadowsocks password"))?,
         ProxyProtocol::AnyTls => non_empty(proxy.password)
             .ok_or_else(|| skip(name.clone(), "missing anytls password"))?,
-        ProxyProtocol::Hy2 => unreachable!("filtered above"),
+        ProxyProtocol::Hy2 => non_empty(proxy.password)
+            .ok_or_else(|| skip(name.clone(), "missing hy2 auth password"))?,
     };
     let cipher = matches!(protocol, ProxyProtocol::Shadowsocks)
         .then(|| non_empty(proxy.cipher))
@@ -337,7 +334,13 @@ fn mihomo_proxy_to_profile(
     let flow = matches!(protocol, ProxyProtocol::Vless)
         .then(|| non_empty(proxy.flow))
         .flatten();
-    let transport = mihomo_transport(&name, &server, proxy.network.as_deref(), proxy.ws_opts)?;
+    let transport = mihomo_transport(
+        &name,
+        &server,
+        &protocol,
+        proxy.network.as_deref(),
+        proxy.ws_opts,
+    )?;
     let security = mihomo_security(
         &protocol,
         &server,
@@ -366,9 +369,23 @@ fn mihomo_proxy_to_profile(
 fn mihomo_transport(
     name: &str,
     server: &str,
+    protocol: &ProxyProtocol,
     network: Option<&str>,
     ws_opts: Option<MihomoWsOptions>,
 ) -> Result<TransportKind, SkippedOutboundProfile> {
+    if matches!(protocol, ProxyProtocol::Hy2) {
+        return match network
+            .map(|value| value.to_ascii_lowercase())
+            .as_deref()
+            .unwrap_or("")
+        {
+            "" | "quic" | "hy2" | "hysteria2" => Ok(TransportKind::Quic),
+            other => Err(skip(
+                name.to_string(),
+                format!("unsupported HY2 transport: {other}"),
+            )),
+        };
+    }
     match network.unwrap_or("tcp").to_ascii_lowercase().as_str() {
         "" | "tcp" => Ok(TransportKind::Tcp),
         "ws" | "websocket" => {
@@ -402,7 +419,7 @@ fn mihomo_security(
         .or_else(|| Some(server.to_string()));
     let tls_enabled = tls.unwrap_or(matches!(
         protocol,
-        ProxyProtocol::Trojan | ProxyProtocol::AnyTls
+        ProxyProtocol::Trojan | ProxyProtocol::Hy2 | ProxyProtocol::AnyTls
     ));
     if tls_enabled {
         SecurityKind::Tls {
@@ -475,9 +492,6 @@ fn share_link_to_profile(
     let query: HashMap<String, String> = url.query_pairs().into_owned().collect();
     let tag = non_empty(url.fragment().map(ToString::to_string))
         .unwrap_or_else(|| format!("proxy-{}", index + 1));
-    if matches!(url.scheme(), "hy2" | "hysteria2") {
-        return Err(skip(tag, HY2_RUNTIME_MISSING));
-    }
     if url.scheme() == "tuic" {
         return Err(skip(tag, TUIC_RUNTIME_MISSING));
     }
@@ -488,12 +502,13 @@ fn share_link_to_profile(
     let protocol = match url.scheme() {
         "trojan" => ProxyProtocol::Trojan,
         "vless" => ProxyProtocol::Vless,
+        "hy2" | "hysteria2" => ProxyProtocol::Hy2,
         "anytls" | "any-tls" => ProxyProtocol::AnyTls,
         other => return Err(skip(tag, format!("unsupported protocol: {other}"))),
     };
     let credential = non_empty(Some(url.username().to_string()))
         .ok_or_else(|| skip(tag.clone(), "missing credential"))?;
-    let transport = share_link_transport(&tag, &server, &query)?;
+    let transport = share_link_transport(&tag, &server, &protocol, &query)?;
     let security = share_link_security(&protocol, &server, &query);
     let flow = matches!(protocol, ProxyProtocol::Vless)
         .then(|| {
@@ -608,8 +623,24 @@ fn split_host_port(value: &str, default_port: u16) -> Option<(String, u16)> {
 fn share_link_transport(
     tag: &str,
     server: &str,
+    protocol: &ProxyProtocol,
     query: &HashMap<String, String>,
 ) -> Result<TransportKind, SkippedOutboundProfile> {
+    if matches!(protocol, ProxyProtocol::Hy2) {
+        return match query
+            .get("type")
+            .or_else(|| query.get("network"))
+            .map(|value| value.to_ascii_lowercase())
+            .as_deref()
+            .unwrap_or("")
+        {
+            "" | "quic" | "hy2" | "hysteria2" => Ok(TransportKind::Quic),
+            other => Err(skip(
+                tag.to_string(),
+                format!("unsupported HY2 transport: {other}"),
+            )),
+        };
+    }
     match query
         .get("type")
         .or_else(|| query.get("network"))
@@ -651,7 +682,7 @@ fn share_link_security(
         .map(|value| matches!(value, "tls" | "true" | "1"))
         .unwrap_or(matches!(
             protocol,
-            ProxyProtocol::Trojan | ProxyProtocol::AnyTls
+            ProxyProtocol::Trojan | ProxyProtocol::Hy2 | ProxyProtocol::AnyTls
         ));
     if tls_enabled {
         SecurityKind::Tls {
@@ -662,7 +693,8 @@ fn share_link_security(
                 .and_then(|sni| non_empty(Some(sni)))
                 .or_else(|| Some(server.to_string())),
             skip_verify: truthy_query(query, "allowInsecure")
-                || truthy_query(query, "skip-cert-verify"),
+                || truthy_query(query, "skip-cert-verify")
+                || truthy_query(query, "insecure"),
         }
     } else {
         SecurityKind::None
