@@ -89,6 +89,9 @@ engine, outbound registry, relay timeout, and DNS policy for UDP packets.
 the mixed listener, so the CLI entrypoint is wired into TUN UDP execution.
 That TUN runtime now runs in a background loop while the mixed listener serves
 and is stopped and joined when the listener exits.
+The background runtime wrapper can also return a managed TUN packet-loop report
+with summary counters, and it stops owned TUN devices if packet I/O fails to
+open before the listener starts.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 

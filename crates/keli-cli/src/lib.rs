@@ -65,7 +65,7 @@ const SUPPORTED_PROTOCOL_CAPABILITIES: &str =
 const ROUTE_RULE_CAPABILITIES: &str =
     "domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
-    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,relay-plan";
+    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,relay-plan";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
@@ -511,13 +511,59 @@ where
     C::PacketIo: Send + 'static,
     F: FnOnce() -> Result<T, String>,
 {
+    run_with_optional_tun_runtime_background_report(
+        controller,
+        config,
+        runtime,
+        dns_ttl_seconds,
+        max_packets,
+        run,
+    )
+    .map(|(output, _)| output)
+}
+
+pub fn run_with_optional_tun_runtime_background_report<C, F, T>(
+    controller: &C,
+    config: Option<TunDeviceConfig>,
+    runtime: &MixedProxyRuntime,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+    run: F,
+) -> Result<(T, Option<ManagedTunPacketLoopReport>), String>
+where
+    C: TunPacketIoController + ?Sized,
+    C::PacketIo: Send + 'static,
+    F: FnOnce() -> Result<T, String>,
+{
     let guard = config
         .map(|config| apply_tun_device_for_config(controller, config))
         .transpose()?;
+    let tun_metadata = guard.as_ref().map(|guard| {
+        (
+            guard.config().clone(),
+            guard.snapshot().clone(),
+            guard.owns_device(),
+        )
+    });
     let tun_thread = if let Some(guard) = guard.as_ref() {
-        let io = controller
-            .open_packet_io(guard.config())
-            .map_err(|error| format!("open TUN packet I/O: {error}"))?;
+        let io = match controller.open_packet_io(guard.config()) {
+            Ok(io) => io,
+            Err(error) => {
+                let open_error = format!("open TUN packet I/O: {error}");
+                let stop_result = if guard.owns_device() {
+                    controller
+                        .stop()
+                        .map(|_| ())
+                        .map_err(|error| format!("stop TUN device: {error}"))
+                } else {
+                    Ok(())
+                };
+                return match stop_result {
+                    Ok(()) => Err(open_error),
+                    Err(stop_error) => Err(format!("{open_error}; {stop_error}")),
+                };
+            }
+        };
         let config = guard.config().clone();
         let runtime = runtime.clone();
         let stop = Arc::new(AtomicBool::new(false));
@@ -538,31 +584,62 @@ where
     };
 
     let run_result = run();
-    let tun_result = tun_thread
+    let tun_summary_result = tun_thread
         .map(|(stop, thread)| {
             stop.store(true, Ordering::SeqCst);
             thread
                 .join()
                 .map_err(|_| "TUN packet loop thread panicked".to_string())
-                .and_then(|result| result.map(|_| ()))
+                .and_then(|result| result.map(Some))
         })
-        .unwrap_or(Ok(()));
+        .unwrap_or(Ok(None));
     let stop_result = guard
-        .map(|guard| guard.stop().map(|_| ()))
-        .unwrap_or(Ok(()));
+        .map(|guard| guard.stop().map(Some))
+        .unwrap_or(Ok(None));
 
-    match (run_result, tun_result, stop_result) {
-        (Ok(output), Ok(()), Ok(())) => Ok(output),
-        (Err(run_error), Ok(()), Ok(())) => Err(run_error),
-        (Ok(_), Err(tun_error), Ok(())) => Err(tun_error),
-        (Ok(_), Ok(()), Err(stop_error)) => Err(stop_error),
-        (Err(run_error), Err(tun_error), Ok(())) => Err(format!("{run_error}; {tun_error}")),
-        (Err(run_error), Ok(()), Err(stop_error)) => Err(format!("{run_error}; {stop_error}")),
-        (Ok(_), Err(tun_error), Err(stop_error)) => Err(format!("{tun_error}; {stop_error}")),
-        (Err(run_error), Err(tun_error), Err(stop_error)) => {
-            Err(format!("{run_error}; {tun_error}; {stop_error}"))
+    let mut errors = Vec::new();
+    let output = match run_result {
+        Ok(output) => Some(output),
+        Err(error) => {
+            errors.push(error);
+            None
         }
+    };
+    let tun_summary = match tun_summary_result {
+        Ok(summary) => summary,
+        Err(error) => {
+            errors.push(error);
+            None
+        }
+    };
+    let stop_snapshot = match stop_result {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            errors.push(error);
+            None
+        }
+    };
+
+    if !errors.is_empty() {
+        return Err(errors.join("; "));
     }
+
+    let report = match (tun_metadata, tun_summary, stop_snapshot) {
+        (Some((config, start_snapshot, owns_device)), Some(summary), Some(stop_snapshot)) => {
+            Some(ManagedTunPacketLoopReport {
+                config,
+                start_snapshot,
+                stop_snapshot,
+                owns_device,
+                summary,
+            })
+        }
+        _ => None,
+    };
+    let Some(output) = output else {
+        return Err("managed TUN runtime finished without run output".to_string());
+    };
+    Ok((output, report))
 }
 
 fn run_managed_tun_packet_loop_inner<C, R>(

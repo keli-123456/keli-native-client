@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use std::io::Write;
 use std::net::UdpSocket;
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -10,8 +11,9 @@ use std::time::Duration;
 use keli_cli::{
     apply_tun_device_for_config, listen_mixed_with_optional_tun_controller,
     run_managed_tun_packet_loop, run_managed_tun_packet_loop_with_runtime,
-    run_with_optional_tun_device, write_tun_preflight_report_with_controller, MixedProxyRuntime,
-    PlatformTunPacketDevice, ProbeOutputFormat,
+    run_with_optional_tun_device, run_with_optional_tun_runtime_background,
+    run_with_optional_tun_runtime_background_report, write_tun_preflight_report_with_controller,
+    MixedProxyRuntime, PlatformTunPacketDevice, ProbeOutputFormat,
 };
 use keli_net_core::{
     parse_tun_udp_payload, DnsCache, DnsEngine, OutboundRegistry, RelayOptions, RouteAction,
@@ -452,6 +454,127 @@ fn managed_tun_packet_loop_with_runtime_relays_tagged_udp_via_registry() {
     assert_eq!(response.flow.destination_port, Some(54321));
     assert_eq!(response.payload, b"pong");
     udp_server.join().expect("UDP echo server");
+}
+
+#[test]
+fn optional_background_tun_runtime_returns_summary_report() {
+    let config = TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500)
+        .expect("valid TUN config")
+        .with_dns_hijack(true);
+    let stopped_snapshot = TunDeviceSnapshot {
+        supported: true,
+        lifecycle_available: true,
+        packet_io_available: true,
+        running: false,
+        interface_name: None,
+        address_cidr: None,
+        mtu: None,
+        dns_hijack: None,
+    };
+    let reads = Arc::new(Mutex::new(VecDeque::new()));
+    let writes = Arc::new(Mutex::new(Vec::new()));
+    let controller = FakeTunDeviceController::new(stopped_snapshot.clone())
+        .with_start_result(TunDeviceSnapshot::running(&config))
+        .with_stop_result(stopped_snapshot)
+        .with_packet_io(FakeTunPacketIo {
+            reads: VecDeque::new(),
+            shared_reads: Some(Arc::clone(&reads)),
+            writes: Vec::new(),
+            shared_writes: Some(Arc::clone(&writes)),
+        });
+    let (udp_port, udp_server) = spawn_udp_echo_server(b"ping", b"pong");
+    let mut outbounds = OutboundRegistry::new();
+    outbounds.add_direct("edge");
+    let runtime = MixedProxyRuntime {
+        routes: RouteEngine::new(RouteAction::Outbound("edge".to_string())),
+        relay_options: RelayOptions {
+            first_byte_timeout: Some(Duration::from_secs(1)),
+            idle_timeout: Some(Duration::from_secs(1)),
+        },
+        outbounds,
+        dns_options: Default::default(),
+    };
+
+    let (output, report) = run_with_optional_tun_runtime_background_report(
+        &controller,
+        Some(config.clone()),
+        &runtime,
+        30,
+        usize::MAX,
+        || {
+            reads.lock().expect("TUN reads lock").push_back(ipv4_packet(
+                17,
+                "10.7.0.2",
+                "127.0.0.1",
+                &udp_datagram(54321, udp_port, b"ping"),
+            ));
+            wait_for_tun_writes(&writes, 1);
+            Ok("mixed listener stopped")
+        },
+    )
+    .expect("run background TUN runtime with report");
+
+    assert_eq!(output, "mixed listener stopped");
+    assert_eq!(controller.starts.borrow().as_slice(), &[config.clone()]);
+    assert_eq!(controller.opens.borrow().as_slice(), &[config.clone()]);
+    assert_eq!(*controller.stops.borrow(), 1);
+    let report = report.expect("TUN report");
+    assert!(report.owns_device);
+    assert_eq!(report.config, config);
+    assert!(report.start_snapshot.running);
+    assert!(!report.stop_snapshot.running);
+    assert_eq!(report.summary.processed_packets(), 1);
+    assert_eq!(report.summary.udp_relay_responses_written, 1);
+    let writes = writes.lock().expect("TUN writes lock");
+    let response = parse_tun_udp_payload(&writes[0]).expect("parse TUN UDP response");
+    assert_eq!(response.flow.source_port, Some(udp_port));
+    assert_eq!(response.flow.destination_port, Some(54321));
+    assert_eq!(response.payload, b"pong");
+    udp_server.join().expect("UDP echo server");
+}
+
+#[test]
+fn optional_background_tun_runtime_stops_owned_device_after_packet_io_open_failure() {
+    let config = TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500)
+        .expect("valid TUN config")
+        .with_dns_hijack(true);
+    let stopped_snapshot = TunDeviceSnapshot {
+        supported: true,
+        lifecycle_available: true,
+        packet_io_available: true,
+        running: false,
+        interface_name: None,
+        address_cidr: None,
+        mtu: None,
+        dns_hijack: None,
+    };
+    let controller = FakeTunDeviceController::new(stopped_snapshot.clone())
+        .with_start_result(TunDeviceSnapshot::running(&config))
+        .with_stop_result(stopped_snapshot)
+        .with_packet_io_error(TunDeviceError::Io("open failed".to_string()));
+    let runtime = MixedProxyRuntime::default();
+    let ran = Arc::new(AtomicBool::new(false));
+    let closure_ran = Arc::clone(&ran);
+
+    let error = run_with_optional_tun_runtime_background(
+        &controller,
+        Some(config.clone()),
+        &runtime,
+        30,
+        1,
+        || {
+            closure_ran.store(true, Ordering::SeqCst);
+            Ok(())
+        },
+    )
+    .expect_err("packet I/O open should fail");
+
+    assert!(error.contains("open TUN packet I/O"));
+    assert!(error.contains("open failed"));
+    assert_eq!(controller.starts.borrow().as_slice(), &[config.clone()]);
+    assert_eq!(controller.opens.borrow().as_slice(), &[config]);
+    assert_eq!(*controller.stops.borrow(), 1);
+    assert!(!ran.load(Ordering::SeqCst));
 }
 
 #[test]
