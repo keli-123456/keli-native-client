@@ -103,8 +103,8 @@ The first implementation target is deliberately small:
    The managed mixed runtime exposes these DNS policies through CLI/runtime
    options, reports the defaults in doctor output, and applies them to direct
    TCP/UDP routes, registered direct outbounds, and SOCKS5/HTTP proxy-server
-   resolution. Core TCP outbounds for Trojan, VLESS, and Shadowsocks also use
-   the injected DNS policy for server resolution.
+   resolution. Core TCP outbounds for Trojan, VLESS, Shadowsocks, and VMess
+   plain/TLS TCP also use the injected DNS policy for server resolution.
 4. Keli panel integration: subscription fetch/update, user state, node
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,

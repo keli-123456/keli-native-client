@@ -1321,9 +1321,9 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vless_quic_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vmess_tcp_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vmess_tls_tcp_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vmess_ws_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vmess_tls_ws_tags.get(tag) {
@@ -1388,9 +1388,9 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.socks5_tcp_tags.get(tag) {
             outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vmess_tcp_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vmess_tls_tcp_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vmess_ws_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vmess_tls_ws_tags.get(tag) {
@@ -4728,8 +4728,18 @@ impl VmessTcpOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let mut stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let request =
             write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
@@ -4750,8 +4760,19 @@ impl VmessTcpOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         send_vmess_udp_over_stream(stream, &self.uuid, self.security, target, payload, timeout)
     }
 }
@@ -4796,8 +4817,18 @@ impl VmessTlsTcpOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let mut stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let request =
@@ -4812,8 +4843,19 @@ impl VmessTlsTcpOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
         send_vmess_udp_over_stream(stream, &self.uuid, self.security, target, payload, timeout)
     }

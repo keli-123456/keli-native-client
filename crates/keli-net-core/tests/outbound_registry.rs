@@ -12,7 +12,8 @@ use keli_net_core::{
     encode_socks5_udp_datagram, parse_socks5_udp_datagram, websocket_accept_for_key,
     DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsLocalResolutionPolicy, HttpConnectOutbound,
     OutboundRegistry, OutboundTarget, ShadowsocksTcpOutbound, Socks5Address, Socks5TcpOutbound,
-    SystemDnsResolver, TrojanTcpOutbound, VlessTcpOutbound,
+    SystemDnsResolver, TrojanTcpOutbound, VlessTcpOutbound, VmessBodySecurity, VmessTcpOutbound,
+    VmessTlsTcpOutbound,
 };
 use keli_protocol::{Endpoint, OutboundProfile, ProxyProtocol, SecurityKind, TransportKind};
 use md5::{Digest as Md5Digest, Md5};
@@ -318,6 +319,111 @@ fn vless_tcp_udp_outbound_uses_injected_dns_policy_for_server() {
             &mut dns,
         )
         .expect_err("IPv6-only DNS policy should reject IPv4 VLESS UDP server");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
+    assert!(error.to_string().contains("Ipv6Only"));
+}
+
+#[test]
+fn vmess_tcp_outbound_uses_injected_dns_policy_for_server() {
+    let mut registry = OutboundRegistry::new();
+    registry.add_vmess_tcp(
+        "proxy",
+        VmessTcpOutbound::new(Endpoint::new("127.0.0.1", 443), TEST_UUID),
+    );
+    let mut dns = ipv6_only_dns();
+
+    let error = registry
+        .connect_with_dns(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+            &mut dns,
+        )
+        .expect_err("IPv6-only DNS policy should reject IPv4 VMess server");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
+    assert!(error.to_string().contains("Ipv6Only"));
+}
+
+#[test]
+fn vmess_tcp_udp_outbound_uses_injected_dns_policy_for_server() {
+    let mut registry = OutboundRegistry::new();
+    registry.add_vmess_tcp(
+        "proxy",
+        VmessTcpOutbound::new_with_security(
+            Endpoint::new("127.0.0.1", 443),
+            TEST_UUID,
+            VmessBodySecurity::Aes128Gcm,
+        ),
+    );
+    let mut dns = ipv6_only_dns();
+
+    let error = registry
+        .relay_udp_datagram_with_dns(
+            "proxy",
+            &OutboundTarget::new("example.com", 53),
+            b"ping",
+            Duration::from_secs(1),
+            &mut dns,
+        )
+        .expect_err("IPv6-only DNS policy should reject IPv4 VMess UDP server");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
+    assert!(error.to_string().contains("Ipv6Only"));
+}
+
+#[test]
+fn vmess_tls_tcp_outbound_uses_injected_dns_policy_for_server() {
+    let mut registry = OutboundRegistry::new();
+    registry.add_vmess_tls_tcp(
+        "proxy",
+        VmessTlsTcpOutbound::new(
+            Endpoint::new("127.0.0.1", 443),
+            TEST_UUID,
+            "edge.example",
+            true,
+        ),
+    );
+    let mut dns = ipv6_only_dns();
+
+    let error = registry
+        .connect_with_dns(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+            &mut dns,
+        )
+        .expect_err("IPv6-only DNS policy should reject IPv4 VMess TLS server");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
+    assert!(error.to_string().contains("Ipv6Only"));
+}
+
+#[test]
+fn vmess_tls_tcp_udp_outbound_uses_injected_dns_policy_for_server() {
+    let mut registry = OutboundRegistry::new();
+    registry.add_vmess_tls_tcp(
+        "proxy",
+        VmessTlsTcpOutbound::new_with_security(
+            Endpoint::new("127.0.0.1", 443),
+            TEST_UUID,
+            "edge.example",
+            true,
+            VmessBodySecurity::Aes128Gcm,
+        ),
+    );
+    let mut dns = ipv6_only_dns();
+
+    let error = registry
+        .relay_udp_datagram_with_dns(
+            "proxy",
+            &OutboundTarget::new("example.com", 53),
+            b"ping",
+            Duration::from_secs(1),
+            &mut dns,
+        )
+        .expect_err("IPv6-only DNS policy should reject IPv4 VMess TLS UDP server");
 
     assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
     assert!(error.to_string().contains("Ipv6Only"));
