@@ -8,14 +8,16 @@ use keli_net_core::{
     build_tun_tcp_payload_response_packet, build_tun_tcp_reset_response_packet,
     build_tun_tcp_response_packet, build_tun_tcp_syn_ack_response_packet, decide_tun_packet_route,
     parse_tun_packet_flow, parse_tun_tcp_segment, parse_tun_udp_payload, plan_tun_dns_hijack,
-    plan_tun_packet_relay, process_tun_packet, relay_tun_direct_udp_packet, relay_tun_udp_packet,
-    run_tun_packet_loop, run_tun_packet_loop_summary, run_tun_packet_loop_with_udp_relay_summary,
-    DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver,
-    OutboundRegistry, OutboundTarget, RegistryTunUdpRelay, RouteAction, RouteDestination,
-    RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketDevice,
-    TunPacketError, TunPacketLoopEvent, TunPacketLoopSummary, TunPacketProcessAction,
-    TunPacketRelayAction, TunPacketRelayPlan, TunTcpFlags, TunTcpSessionKey, TunTcpSessionPhase,
-    TunTcpSessionTable, TunTransportProtocol, TunUdpRelay, TunUdpRelayError, UdpRelayResponse,
+    plan_tun_packet_relay, process_tun_packet, process_tun_tcp_session_segment,
+    relay_tun_direct_udp_packet, relay_tun_udp_packet, run_tun_packet_loop,
+    run_tun_packet_loop_summary, run_tun_packet_loop_with_udp_relay_summary, DnsCache, DnsEngine,
+    DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, OutboundRegistry,
+    OutboundTarget, RegistryTunUdpRelay, RouteAction, RouteDestination, RouteEngine, RouteIpCidr,
+    RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketDevice, TunPacketError,
+    TunPacketLoopEvent, TunPacketLoopSummary, TunPacketProcessAction, TunPacketRelayAction,
+    TunPacketRelayPlan, TunTcpFlags, TunTcpSessionKey, TunTcpSessionPhase, TunTcpSessionRecord,
+    TunTcpSessionRelay, TunTcpSessionStep, TunTcpSessionTable, TunTransportProtocol, TunUdpRelay,
+    TunUdpRelayError, UdpRelayResponse,
 };
 
 #[test]
@@ -731,6 +733,110 @@ fn builds_tun_tcp_payload_response_packet_with_swapped_flow() {
     assert_eq!(response.flags.bits(), 0x0018);
     assert_eq!(response.window_size, 0x2000);
     assert_eq!(response.payload, b"HTTP/1.1");
+}
+
+#[test]
+fn processes_tun_tcp_session_steps_with_relay_callbacks_and_response_packets() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    let data_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+    );
+    let data = parse_tun_tcp_segment(&data_packet).expect("parse TCP data segment");
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::with_server_payloads(vec![b"HTTP/1.1".to_vec()]);
+
+    let syn_step = process_tun_tcp_session_segment(&mut sessions, &syn, &mut relay, 1000, 0x2000)
+        .expect("process SYN step");
+    let TunTcpSessionStep::SynAck { response } = syn_step else {
+        panic!("expected SYN-ACK step");
+    };
+    assert_eq!(response.session.phase, TunTcpSessionPhase::SynReceived);
+    let syn_ack = parse_tun_tcp_segment(&response.packet).expect("parse SYN-ACK packet");
+    assert_eq!(syn_ack.sequence_number, 1000);
+    assert_eq!(syn_ack.acknowledgment_number, 11);
+    assert!(relay.established_sessions.is_empty());
+
+    let ack_step = process_tun_tcp_session_segment(&mut sessions, &ack, &mut relay, 1000, 0x2000)
+        .expect("process ACK step");
+    let TunTcpSessionStep::Established { session } = ack_step else {
+        panic!("expected established step");
+    };
+    assert_eq!(session.phase, TunTcpSessionPhase::Established);
+    assert_eq!(relay.established_sessions.len(), 1);
+    assert_eq!(
+        relay.established_sessions[0].server_next_sequence_number,
+        1001
+    );
+
+    let data_step = process_tun_tcp_session_segment(&mut sessions, &data, &mut relay, 1000, 0x2000)
+        .expect("process data step");
+    assert_eq!(data_step.response_packets().len(), 2);
+    let TunTcpSessionStep::ClientPayload {
+        frame,
+        server_response,
+    } = data_step
+    else {
+        panic!("expected client payload step");
+    };
+    assert_eq!(frame.payload, b"GET /");
+    assert_eq!(relay.client_payloads, vec![b"GET /".to_vec()]);
+    let server_response = server_response.expect("server response packet");
+    assert_eq!(server_response.payload, b"HTTP/1.1");
+    let server_packet =
+        parse_tun_tcp_segment(&server_response.packet).expect("parse server response packet");
+    assert_eq!(server_packet.sequence_number, 1001);
+    assert_eq!(server_packet.acknowledgment_number, 16);
+    assert_eq!(server_packet.payload, b"HTTP/1.1");
+    assert!(server_packet.flags.psh());
+    assert!(server_packet.flags.ack());
+}
+
+#[test]
+fn closes_tun_tcp_session_step_and_notifies_relay() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::default();
+    process_tun_tcp_session_segment(&mut sessions, &syn, &mut relay, 1000, 0x2000)
+        .expect("process SYN step");
+    let rst_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0014, 0x4000, &[], b""),
+    );
+    let rst = parse_tun_tcp_segment(&rst_packet).expect("parse RST segment");
+
+    let close_step = process_tun_tcp_session_segment(&mut sessions, &rst, &mut relay, 1000, 0x2000)
+        .expect("process close step");
+
+    let TunTcpSessionStep::Closed { session } = close_step else {
+        panic!("expected closed step");
+    };
+    assert_eq!(session.phase, TunTcpSessionPhase::SynReceived);
+    assert!(sessions.is_empty());
+    assert_eq!(relay.closed_sessions.len(), 1);
 }
 
 #[test]
@@ -2043,6 +2149,50 @@ impl TunPacketDevice for FakeTunPacketDevice {
 
     fn write_packet(&mut self, packet: &[u8]) -> Result<(), String> {
         self.writes.push(packet.to_vec());
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct FakeTunTcpSessionRelay {
+    established_sessions: Vec<TunTcpSessionRecord>,
+    client_payloads: Vec<Vec<u8>>,
+    server_payloads: std::collections::VecDeque<Vec<u8>>,
+    closed_sessions: Vec<TunTcpSessionRecord>,
+}
+
+impl FakeTunTcpSessionRelay {
+    fn with_server_payloads(payloads: Vec<Vec<u8>>) -> Self {
+        Self {
+            server_payloads: payloads.into(),
+            ..Self::default()
+        }
+    }
+}
+
+impl TunTcpSessionRelay for FakeTunTcpSessionRelay {
+    fn establish_session(&mut self, session: &TunTcpSessionRecord) -> Result<(), String> {
+        self.established_sessions.push(session.clone());
+        Ok(())
+    }
+
+    fn write_client_payload(
+        &mut self,
+        frame: &keli_net_core::TunTcpClientPayloadFrame,
+    ) -> Result<(), String> {
+        self.client_payloads.push(frame.payload.clone());
+        Ok(())
+    }
+
+    fn read_server_payload(
+        &mut self,
+        _session: &TunTcpSessionRecord,
+    ) -> Result<Option<Vec<u8>>, String> {
+        Ok(self.server_payloads.pop_front())
+    }
+
+    fn close_session(&mut self, session: &TunTcpSessionRecord) -> Result<(), String> {
+        self.closed_sessions.push(session.clone());
         Ok(())
     }
 }

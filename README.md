@@ -124,6 +124,10 @@ stream relay.
 The same session boundary can packetize server-side payload bytes with PSH+ACK,
 advance the server-side sequence cursor, and return swapped IPv4/IPv6 TCP
 packets that the eventual stream runner can write back to TUN.
+A packet-level TCP session step runner now wires those pieces together for one
+segment at a time: SYN creates a SYN-ACK, ACK establishes the relay callback,
+client payload is written to the relay, queued server payload is packetized
+back to TUN, and FIN/RST closes the relay callback.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 

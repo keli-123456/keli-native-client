@@ -156,6 +156,24 @@ pub struct TunTcpSynAckResponse {
     pub packet: Vec<u8>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TunTcpSessionStep {
+    Noop,
+    SynAck {
+        response: TunTcpSynAckResponse,
+    },
+    Established {
+        session: TunTcpSessionRecord,
+    },
+    ClientPayload {
+        frame: TunTcpClientPayloadFrame,
+        server_response: Option<TunTcpServerPayloadFrame>,
+    },
+    Closed {
+        session: TunTcpSessionRecord,
+    },
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct TunTcpSessionTable {
     sessions: HashMap<TunTcpSessionKey, TunTcpSessionRecord>,
@@ -243,6 +261,12 @@ pub enum TunUdpRelayError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TunTcpSessionError {
+    Packet(TunPacketError),
+    Relay(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TunPacketLoopError {
     Read(String),
     Write(String),
@@ -262,6 +286,27 @@ impl Error for TunPacketLoopError {}
 pub trait TunPacketDevice {
     fn read_packet(&mut self) -> Result<Option<Vec<u8>>, String>;
     fn write_packet(&mut self, packet: &[u8]) -> Result<(), String>;
+}
+
+pub trait TunTcpSessionRelay {
+    fn establish_session(&mut self, _session: &TunTcpSessionRecord) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn write_client_payload(&mut self, _frame: &TunTcpClientPayloadFrame) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn read_server_payload(
+        &mut self,
+        _session: &TunTcpSessionRecord,
+    ) -> Result<Option<Vec<u8>>, String> {
+        Ok(None)
+    }
+
+    fn close_session(&mut self, _session: &TunTcpSessionRecord) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub trait TunUdpRelay {
@@ -347,6 +392,42 @@ impl fmt::Display for TunUdpRelayError {
 }
 
 impl Error for TunUdpRelayError {}
+
+impl fmt::Display for TunTcpSessionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Packet(error) => write!(f, "failed to process TUN TCP session packet: {error}"),
+            Self::Relay(error) => write!(f, "TUN TCP session relay failed: {error}"),
+        }
+    }
+}
+
+impl Error for TunTcpSessionError {}
+
+impl From<TunPacketError> for TunTcpSessionError {
+    fn from(error: TunPacketError) -> Self {
+        Self::Packet(error)
+    }
+}
+
+impl TunTcpSessionStep {
+    pub fn response_packets(&self) -> Vec<&[u8]> {
+        match self {
+            Self::SynAck { response } => vec![response.packet.as_slice()],
+            Self::ClientPayload {
+                frame,
+                server_response,
+            } => {
+                let mut packets = vec![frame.ack_packet.as_slice()];
+                if let Some(server_response) = server_response {
+                    packets.push(server_response.packet.as_slice());
+                }
+                packets
+            }
+            _ => Vec::new(),
+        }
+    }
+}
 
 impl TunPacketLoopSummary {
     pub fn from_events(events: &[TunPacketLoopEvent]) -> Self {
@@ -952,6 +1033,65 @@ pub fn parse_tun_tcp_segment(packet: &[u8]) -> Result<TunTcpSegment<'_>, TunPack
         window_size: u16::from_be_bytes([parts.transport_payload[14], parts.transport_payload[15]]),
         payload: &parts.transport_payload[header_len..],
     })
+}
+
+pub fn process_tun_tcp_session_segment<R: TunTcpSessionRelay>(
+    sessions: &mut TunTcpSessionTable,
+    segment: &TunTcpSegment<'_>,
+    relay: &mut R,
+    server_initial_sequence_number: u32,
+    window_size: u16,
+) -> Result<TunTcpSessionStep, TunTcpSessionError> {
+    if segment.flags.rst() || segment.flags.fin() {
+        if let Some(session) = sessions.remove_on_close(segment)? {
+            relay
+                .close_session(&session)
+                .map_err(TunTcpSessionError::Relay)?;
+            return Ok(TunTcpSessionStep::Closed { session });
+        }
+        return Ok(TunTcpSessionStep::Noop);
+    }
+
+    if is_initial_tcp_syn_segment(segment) {
+        let response =
+            sessions.start_from_syn(segment, server_initial_sequence_number, window_size)?;
+        return Ok(TunTcpSessionStep::SynAck { response });
+    }
+
+    let established = if segment.flags.ack() && !segment.flags.syn() {
+        let established = sessions.apply_ack(segment)?;
+        if let Some(session) = &established {
+            relay
+                .establish_session(session)
+                .map_err(TunTcpSessionError::Relay)?;
+        }
+        established
+    } else {
+        None
+    };
+
+    if let Some(frame) = sessions.accept_client_payload(segment)? {
+        relay
+            .write_client_payload(&frame)
+            .map_err(TunTcpSessionError::Relay)?;
+        let server_response = match relay
+            .read_server_payload(&frame.session)
+            .map_err(TunTcpSessionError::Relay)?
+        {
+            Some(payload) => sessions.send_server_payload(&frame.session.flow, &payload)?,
+            None => None,
+        };
+        return Ok(TunTcpSessionStep::ClientPayload {
+            frame,
+            server_response,
+        });
+    }
+
+    if let Some(session) = established {
+        return Ok(TunTcpSessionStep::Established { session });
+    }
+
+    Ok(TunTcpSessionStep::Noop)
 }
 
 pub fn parse_tun_udp_payload(packet: &[u8]) -> Result<TunUdpPayload<'_>, TunPacketError> {
