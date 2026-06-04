@@ -1349,6 +1349,8 @@ impl OutboundRegistry {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vmess_tls_h2_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.vmess_quic_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.hy2_tags.get(tag) {
@@ -4839,6 +4841,22 @@ impl VmessQuicOutbound {
             write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
         read_vmess_response_header_from_stream(&mut stream, &request)?;
         vmess_connection_from_stream(stream, request, self.security)
+    }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let stream = connect_legacy_quic_stream(
+            &self.server,
+            &self.sni,
+            self.skip_verify,
+            &self.transport,
+            timeout,
+        )?;
+        send_vmess_udp_over_stream(stream, &self.uuid, self.security, target, payload, timeout)
     }
 }
 

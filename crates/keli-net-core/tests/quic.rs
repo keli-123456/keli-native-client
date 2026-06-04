@@ -1140,6 +1140,73 @@ async fn registry_from_vmess_quic_profile_relays_over_legacy_quic_stream() {
 }
 
 #[tokio::test]
+async fn registry_from_vmess_quic_profile_relays_udp_over_legacy_quic_stream() {
+    let server_endpoint = quinn::Endpoint::server(
+        legacy_quic_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local vmess quic udp server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let (mut send, mut recv) = connection
+            .accept_bi()
+            .await
+            .expect("accept VMess QUIC UDP stream");
+        let request = read_vmess_aead_request_async(&mut recv, VMESS_UUID).await;
+        assert_eq!(request.target_host, "localhost");
+        assert_eq!(request.target_port, 53);
+        assert_eq!(request.command, 0x02);
+        assert_eq!(request.security, 0x03);
+        write_vmess_aead_response_header_async(&mut send, &request).await;
+        let payload = read_vmess_aes128_gcm_chunk_async(&mut recv, &request).await;
+        assert_eq!(payload, b"ping");
+        write_vmess_aes128_gcm_response_chunk_async(&mut send, &request, b"pong").await;
+        send.finish()
+            .expect("finish VMess QUIC UDP response stream");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    });
+    let client = tokio::task::spawn_blocking(move || {
+        let registry =
+            keli_net_core::OutboundRegistry::from_profiles([keli_protocol::OutboundProfile {
+                tag: "vmess-quic".to_string(),
+                protocol: keli_protocol::ProxyProtocol::Vmess,
+                endpoint: keli_protocol::Endpoint::new("127.0.0.1", server_addr.port()),
+                transport: keli_protocol::TransportKind::Quic {
+                    security: None,
+                    key: None,
+                    header_type: None,
+                },
+                security: keli_protocol::SecurityKind::Tls {
+                    sni: Some("localhost".to_string()),
+                    skip_verify: true,
+                },
+                credential: VMESS_UUID.to_string(),
+                cipher: Some("aes-128-gcm".to_string()),
+                flow: None,
+            }])
+            .expect("build VMess QUIC registry");
+        registry
+            .relay_udp_datagram(
+                "vmess-quic",
+                &keli_net_core::OutboundTarget::new("localhost", 53),
+                b"ping",
+                Duration::from_secs(2),
+            )
+            .expect("relay VMess QUIC UDP datagram")
+    });
+
+    let response = client.await.expect("client task");
+    assert_eq!(response.source.port(), 53);
+    assert_eq!(response.payload, b"pong");
+    server.await.expect("server task");
+}
+
+#[tokio::test]
 async fn registry_from_naive_quic_profile_relays_over_h3_connect() {
     let server_endpoint = quinn::Endpoint::server(
         hy2_h3_test_server_config(),
