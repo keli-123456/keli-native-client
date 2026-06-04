@@ -311,7 +311,11 @@ pub struct ManagedSubscriptionHealthSummary {
     pub unknown_count: usize,
     pub checked_count: usize,
     pub last_checked_at: Option<SystemTime>,
+    pub selected_state: Option<ManagedNodeHealthState>,
+    pub recommended_state: Option<ManagedNodeHealthState>,
     pub recommended_is_selected: bool,
+    pub switch_recommended: bool,
+    pub fully_checked: bool,
 }
 
 impl ManagedSubscriptionHealthSummary {
@@ -339,6 +343,15 @@ impl ManagedSubscriptionHealthSummary {
                 );
             }
         }
+        let selected_state = node_health
+            .iter()
+            .find(|health| health.tag == selected_outbound)
+            .map(|health| health.state.clone());
+        let recommended_state = node_health
+            .iter()
+            .find(|health| health.tag == recommended_outbound)
+            .map(|health| health.state.clone());
+        let recommended_is_selected = selected_outbound == recommended_outbound;
 
         Self {
             healthy_count,
@@ -346,7 +359,11 @@ impl ManagedSubscriptionHealthSummary {
             unknown_count,
             checked_count,
             last_checked_at,
-            recommended_is_selected: selected_outbound == recommended_outbound,
+            selected_state,
+            recommended_state,
+            recommended_is_selected,
+            switch_recommended: !recommended_is_selected,
+            fully_checked: checked_count == node_health.len(),
         }
     }
 }
