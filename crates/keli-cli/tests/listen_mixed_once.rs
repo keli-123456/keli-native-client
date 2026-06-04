@@ -539,6 +539,39 @@ fn listen_mixed_once_uses_profile_config_for_vmess_quic_http_connect() {
 }
 
 #[test]
+fn listen_mixed_once_uses_profile_config_for_trojan_quic_socks5_udp_associate() {
+    let (trojan_port, trojan_thread) = spawn_trojan_quic_udp_echo_server();
+    let profile_path = write_temp_trojan_quic_profile_config(trojan_port);
+
+    run_profile_socks5_udp_associate_round_trip(&profile_path, "TROJAN-QUIC-READY");
+
+    trojan_thread.join().expect("trojan quic udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_vless_quic_socks5_udp_associate() {
+    let (vless_port, vless_thread) = spawn_vless_quic_udp_echo_server();
+    let profile_path = write_temp_vless_quic_profile_config(vless_port);
+
+    run_profile_socks5_udp_associate_round_trip(&profile_path, "VLESS-QUIC-READY");
+
+    vless_thread.join().expect("vless quic udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_vmess_quic_socks5_udp_associate() {
+    let (vmess_port, vmess_thread) = spawn_vmess_quic_udp_echo_server();
+    let profile_path = write_temp_vmess_quic_profile_config(vmess_port);
+
+    run_profile_socks5_udp_associate_round_trip(&profile_path, "VMESS-QUIC-READY");
+
+    vmess_thread.join().expect("vmess quic udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
 fn listen_mixed_once_uses_profile_config_for_hy2_http_connect() {
     let (hy2_addr, hy2_thread) = spawn_hy2_echo_server();
     let profile_path = write_temp_hy2_profile_config(hy2_addr.port());
@@ -2614,6 +2647,77 @@ fn spawn_vmess_quic_echo_server() -> (u16, thread::JoinHandle<()>) {
         assert_eq!(&payload, b"ping");
         write_vmess_aes128_gcm_response_chunk_async(&mut send, &request, b"pong").await;
         send.finish().expect("finish vmess quic stream");
+    })
+}
+
+fn spawn_trojan_quic_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    spawn_legacy_quic_server(|mut send, mut recv| async move {
+        let expected = keli_protocol::encode_trojan_udp_request_header(
+            "password",
+            &Endpoint::new("127.0.0.1", 53),
+        )
+        .expect("expected trojan quic udp request");
+        let mut request = vec![0; expected.len()];
+        recv.read_exact(&mut request)
+            .await
+            .expect("read trojan quic udp associate request");
+        assert_eq!(request, expected);
+        let mut request_payload = [0; 15];
+        recv.read_exact(&mut request_payload)
+            .await
+            .expect("read trojan quic udp packet");
+        assert_eq!(
+            &request_payload,
+            b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\nping"
+        );
+        send.write_all(b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\npong")
+            .await
+            .expect("write trojan quic udp response packet");
+        send.finish().expect("finish trojan quic udp stream");
+    })
+}
+
+fn spawn_vless_quic_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    spawn_legacy_quic_server(|mut send, mut recv| async move {
+        let expected = keli_protocol::encode_vless_udp_request_header(
+            "00112233-4455-6677-8899-aabbccddeeff",
+            &Endpoint::new("127.0.0.1", 53),
+        )
+        .expect("expected vless quic udp request");
+        let mut request = vec![0; expected.len()];
+        recv.read_exact(&mut request)
+            .await
+            .expect("read vless quic udp request");
+        assert_eq!(request, expected);
+        send.write_all(&[0x00, 0x00])
+            .await
+            .expect("write vless quic udp response header");
+        let mut request_payload = [0; 6];
+        recv.read_exact(&mut request_payload)
+            .await
+            .expect("read vless quic udp payload");
+        assert_eq!(&request_payload, b"\x00\x04ping");
+        send.write_all(b"\x00\x04pong")
+            .await
+            .expect("write vless quic udp response payload");
+        send.finish().expect("finish vless quic udp stream");
+    })
+}
+
+fn spawn_vmess_quic_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    spawn_legacy_quic_server(|mut send, mut recv| async move {
+        let request =
+            read_vmess_aead_request_async(&mut recv, "00112233-4455-6677-8899-aabbccddeeff").await;
+        assert_eq!(request.target_host, "127.0.0.1");
+        assert_eq!(request.target_port, 53);
+        assert_eq!(request.command, 0x02);
+        assert_eq!(request.security, VMESS_SECURITY_AES_128_GCM);
+
+        write_vmess_aead_response_header_async(&mut send, &request).await;
+        let payload = read_vmess_aes128_gcm_chunk_async(&mut recv, &request).await;
+        assert_eq!(&payload, b"ping");
+        write_vmess_aes128_gcm_response_chunk_async(&mut send, &request, b"pong").await;
+        send.finish().expect("finish vmess quic udp stream");
     })
 }
 
