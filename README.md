@@ -15,6 +15,25 @@ before any full desktop UI is built.
 - Platform capability boundaries for Windows-first development.
 - CLI doctor command for smoke verification.
 
+## Core End State
+
+The native core is intended to become Keli's own controllable client network
+engine, able to serve as the default runtime instead of relying on sing-box or
+Xray. Completion means the core can take over local traffic, run the supported
+protocol matrix, make DNS and routing decisions, manage platform proxy/TUN
+state, integrate Keli panel state, and produce support-grade diagnostics during
+long-running client sessions.
+
+The work advances through these gates:
+
+1. CLI-verified protocol, inbound, outbound, route, and diagnostics core.
+2. Windows-first platform takeover for system proxy, mixed inbound, runtime
+   lifecycle, and config reload.
+3. TUN, DNS hijack, leak prevention, and route-rule parity for real client use.
+4. Subscription, node health, panel state, and support diagnostics integration.
+5. Interop, soak, packaging, and UI-facing APIs that make the core safe as the
+   default Keli client runtime.
+
 ## Protocol Matrix
 
 The client protocol set is aligned with `keli-core-rs/src/protocol.rs`.

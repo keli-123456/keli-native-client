@@ -220,9 +220,248 @@ pub fn build_connection_plan(
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeConfig {
+    config_text: String,
+    preferred_outbound: Option<String>,
+    listen: String,
+}
+
+impl RuntimeConfig {
+    pub fn new(
+        config_text: impl Into<String>,
+        preferred_outbound: Option<impl Into<String>>,
+        listen: impl Into<String>,
+    ) -> Self {
+        Self {
+            config_text: config_text.into(),
+            preferred_outbound: preferred_outbound.map(Into::into),
+            listen: listen.into(),
+        }
+    }
+
+    pub fn config_text(&self) -> &str {
+        &self.config_text
+    }
+
+    pub fn preferred_outbound(&self) -> Option<&str> {
+        self.preferred_outbound.as_deref()
+    }
+
+    pub fn listen(&self) -> &str {
+        &self.listen
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuntimeStatus {
+    Stopped,
+    Starting,
+    Running {
+        generation: u64,
+        selected_outbound: String,
+        listen: String,
+    },
+    Reloading {
+        generation: u64,
+    },
+    Stopping {
+        generation: u64,
+    },
+    Failed(ClientErrorKind),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeEvent {
+    pub status: RuntimeStatus,
+    pub note: Option<String>,
+    pub at: SystemTime,
+}
+
+impl RuntimeEvent {
+    pub fn new(status: RuntimeStatus, note: Option<impl Into<String>>) -> Self {
+        Self {
+            status,
+            note: note.map(Into::into),
+            at: SystemTime::now(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ClientRuntime {
+    status: RuntimeStatus,
+    active_plan: Option<ConnectionPlan>,
+    active_config: Option<RuntimeConfig>,
+    generation: u64,
+    events: Vec<RuntimeEvent>,
+}
+
+impl Default for ClientRuntime {
+    fn default() -> Self {
+        Self {
+            status: RuntimeStatus::Stopped,
+            active_plan: None,
+            active_config: None,
+            generation: 0,
+            events: vec![RuntimeEvent::new(
+                RuntimeStatus::Stopped,
+                Some("runtime initialized"),
+            )],
+        }
+    }
+}
+
+impl ClientRuntime {
+    pub fn status(&self) -> &RuntimeStatus {
+        &self.status
+    }
+
+    pub fn active_plan(&self) -> Option<&ConnectionPlan> {
+        self.active_plan.as_ref()
+    }
+
+    pub fn active_config(&self) -> Option<&RuntimeConfig> {
+        self.active_config.as_ref()
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub fn events(&self) -> &[RuntimeEvent] {
+        &self.events
+    }
+
+    pub fn start(&mut self, config: RuntimeConfig) -> Result<&ConnectionPlan, ClientErrorKind> {
+        self.record(RuntimeStatus::Starting, Some("runtime starting"));
+        let plan = match build_connection_plan(
+            config.config_text(),
+            config.preferred_outbound(),
+            config.listen(),
+        ) {
+            Ok(plan) => plan,
+            Err(error) => {
+                self.fail(error.clone());
+                return Err(error);
+            }
+        };
+
+        self.generation += 1;
+        self.status = RuntimeStatus::Running {
+            generation: self.generation,
+            selected_outbound: plan.selected_outbound().to_string(),
+            listen: plan.listen().to_string(),
+        };
+        self.active_plan = Some(plan);
+        self.active_config = Some(config);
+        self.events.push(RuntimeEvent::new(
+            self.status.clone(),
+            Some("runtime running"),
+        ));
+        Ok(self.active_plan.as_ref().expect("runtime plan is set"))
+    }
+
+    pub fn reload(&mut self, config: RuntimeConfig) -> Result<&ConnectionPlan, ClientErrorKind> {
+        let previous_status = self.status.clone();
+        let previous_plan = self.active_plan.clone();
+        let previous_config = self.active_config.clone();
+        self.record(
+            RuntimeStatus::Reloading {
+                generation: self.generation,
+            },
+            Some("runtime reloading"),
+        );
+
+        match build_connection_plan(
+            config.config_text(),
+            config.preferred_outbound(),
+            config.listen(),
+        ) {
+            Ok(plan) => {
+                self.generation += 1;
+                self.status = RuntimeStatus::Running {
+                    generation: self.generation,
+                    selected_outbound: plan.selected_outbound().to_string(),
+                    listen: plan.listen().to_string(),
+                };
+                self.active_plan = Some(plan);
+                self.active_config = Some(config);
+                self.events.push(RuntimeEvent::new(
+                    self.status.clone(),
+                    Some("runtime reload applied"),
+                ));
+                Ok(self.active_plan.as_ref().expect("runtime plan is set"))
+            }
+            Err(error) => {
+                self.status = previous_status;
+                self.active_plan = previous_plan;
+                self.active_config = previous_config;
+                self.events.push(RuntimeEvent::new(
+                    RuntimeStatus::Failed(error.clone()),
+                    Some("runtime reload rejected"),
+                ));
+                Err(error)
+            }
+        }
+    }
+
+    pub fn stop(&mut self) {
+        if matches!(self.status, RuntimeStatus::Stopped) {
+            return;
+        }
+        self.record(
+            RuntimeStatus::Stopping {
+                generation: self.generation,
+            },
+            Some("runtime stopping"),
+        );
+        self.active_plan = None;
+        self.active_config = None;
+        self.status = RuntimeStatus::Stopped;
+        self.events.push(RuntimeEvent::new(
+            RuntimeStatus::Stopped,
+            Some("runtime stopped"),
+        ));
+    }
+
+    pub fn record_failure(&mut self, error: ClientErrorKind) {
+        self.fail(error);
+    }
+
+    fn fail(&mut self, error: ClientErrorKind) {
+        self.active_plan = None;
+        self.active_config = None;
+        self.status = RuntimeStatus::Failed(error.clone());
+        self.events.push(RuntimeEvent::new(
+            RuntimeStatus::Failed(error),
+            Some("runtime failed"),
+        ));
+    }
+
+    fn record(&mut self, status: RuntimeStatus, note: Option<&str>) {
+        self.status = status.clone();
+        self.events.push(RuntimeEvent::new(status, note));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ss_config(tag: &str) -> String {
+        format!(
+            r#"
+proxies:
+  - name: {tag}
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+"#
+        )
+    }
 
     #[test]
     fn session_tracks_successful_relay_path() {
@@ -413,5 +652,140 @@ proxies:
             ClientErrorKind::OutboundNotFound("MISSING".to_string())
         );
         assert_eq!(session.phase(), &ConnectionPhase::Failed(error));
+    }
+
+    #[test]
+    fn runtime_start_builds_plan_and_enters_running_state() {
+        let mut runtime = ClientRuntime::default();
+
+        let plan = runtime
+            .start(RuntimeConfig::new(
+                ss_config("SS-READY"),
+                Some("SS-READY"),
+                "127.0.0.1:7890",
+            ))
+            .expect("runtime start");
+
+        assert_eq!(plan.selected_outbound(), "SS-READY");
+        assert_eq!(
+            runtime.status(),
+            &RuntimeStatus::Running {
+                generation: 1,
+                selected_outbound: "SS-READY".to_string(),
+                listen: "127.0.0.1:7890".to_string(),
+            }
+        );
+        assert_eq!(runtime.generation(), 1);
+    }
+
+    #[test]
+    fn runtime_start_failure_records_typed_error() {
+        let mut runtime = ClientRuntime::default();
+
+        let error = runtime
+            .start(RuntimeConfig::new(
+                ss_config("SS-READY"),
+                Some("MISSING"),
+                "127.0.0.1:7890",
+            ))
+            .expect_err("runtime should reject unknown outbound");
+
+        assert_eq!(
+            error,
+            ClientErrorKind::OutboundNotFound("MISSING".to_string())
+        );
+        assert_eq!(runtime.status(), &RuntimeStatus::Failed(error));
+        assert!(runtime.active_plan().is_none());
+    }
+
+    #[test]
+    fn runtime_reload_applies_new_valid_plan() {
+        let mut runtime = ClientRuntime::default();
+        runtime
+            .start(RuntimeConfig::new(
+                ss_config("SS-A"),
+                Some("SS-A"),
+                "127.0.0.1:7890",
+            ))
+            .expect("runtime start");
+
+        let plan = runtime
+            .reload(RuntimeConfig::new(
+                ss_config("SS-B"),
+                Some("SS-B"),
+                "127.0.0.1:7891",
+            ))
+            .expect("runtime reload");
+
+        assert_eq!(plan.selected_outbound(), "SS-B");
+        assert_eq!(runtime.generation(), 2);
+        assert_eq!(
+            runtime.status(),
+            &RuntimeStatus::Running {
+                generation: 2,
+                selected_outbound: "SS-B".to_string(),
+                listen: "127.0.0.1:7891".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn runtime_reload_rejects_invalid_config_without_dropping_active_plan() {
+        let mut runtime = ClientRuntime::default();
+        runtime
+            .start(RuntimeConfig::new(
+                ss_config("SS-A"),
+                Some("SS-A"),
+                "127.0.0.1:7890",
+            ))
+            .expect("runtime start");
+
+        let error = runtime
+            .reload(RuntimeConfig::new(
+                ss_config("SS-B"),
+                Some("MISSING"),
+                "127.0.0.1:7891",
+            ))
+            .expect_err("runtime reload should reject unknown outbound");
+
+        assert_eq!(
+            error,
+            ClientErrorKind::OutboundNotFound("MISSING".to_string())
+        );
+        assert_eq!(runtime.generation(), 1);
+        assert_eq!(
+            runtime.active_plan().map(ConnectionPlan::selected_outbound),
+            Some("SS-A")
+        );
+        assert_eq!(
+            runtime.status(),
+            &RuntimeStatus::Running {
+                generation: 1,
+                selected_outbound: "SS-A".to_string(),
+                listen: "127.0.0.1:7890".to_string(),
+            }
+        );
+        assert!(runtime
+            .events()
+            .iter()
+            .any(|event| matches!(event.status, RuntimeStatus::Failed(_))));
+    }
+
+    #[test]
+    fn runtime_stop_clears_active_plan() {
+        let mut runtime = ClientRuntime::default();
+        runtime
+            .start(RuntimeConfig::new(
+                ss_config("SS-READY"),
+                Some("SS-READY"),
+                "127.0.0.1:7890",
+            ))
+            .expect("runtime start");
+
+        runtime.stop();
+
+        assert_eq!(runtime.status(), &RuntimeStatus::Stopped);
+        assert!(runtime.active_plan().is_none());
+        assert!(runtime.active_config().is_none());
     }
 }

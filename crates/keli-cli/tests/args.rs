@@ -15,6 +15,8 @@ fn parses_listen_mixed_once_command() {
             block_domains: Vec::new(),
             profile_config: None,
             outbound_tag: None,
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
         }
@@ -33,6 +35,8 @@ fn defaults_listen_mixed_to_local_port_7890() {
             block_domains: Vec::new(),
             profile_config: None,
             outbound_tag: None,
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
         }
@@ -58,6 +62,8 @@ fn parses_listen_mixed_block_domain_rules() {
             block_domains: vec!["example.com".to_string(), "internal.test".to_string()],
             profile_config: None,
             outbound_tag: None,
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
         }
@@ -83,6 +89,8 @@ fn parses_listen_mixed_relay_timeouts() {
             block_domains: Vec::new(),
             profile_config: None,
             outbound_tag: None,
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_millis(1500),
             idle_timeout: Duration::from_millis(90000),
         }
@@ -108,6 +116,36 @@ fn parses_listen_mixed_profile_config_and_outbound_tag() {
             block_domains: Vec::new(),
             profile_config: Some("subscription.yaml".to_string()),
             outbound_tag: Some("美国-TROJAN-54".to_string()),
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
+            first_byte_timeout: Duration::from_secs(30),
+            idle_timeout: Duration::from_secs(300),
+        }
+    );
+}
+
+#[test]
+fn parses_listen_mixed_system_proxy_options() {
+    let command = parse_cli_command([
+        "listen-mixed",
+        "--system-proxy",
+        "--system-proxy-bypass",
+        "localhost",
+        "--system-proxy-bypass",
+        "<local>",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::ListenMixed {
+            listen: "127.0.0.1:7890".to_string(),
+            once: false,
+            block_domains: Vec::new(),
+            profile_config: None,
+            outbound_tag: None,
+            system_proxy: true,
+            system_proxy_bypass: vec!["localhost".to_string(), "<local>".to_string()],
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
         }

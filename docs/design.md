@@ -5,6 +5,12 @@
 Build a new Rust-first Keli client and native proxy core that can eventually run
 without sing-box as the default proxy runtime.
 
+The finished core is Keli's native network engine: it owns local traffic entry,
+protocol relay, route and DNS decisions, platform proxy/TUN takeover, panel
+state, diagnostics, and long-running runtime lifecycle. External cores may
+remain useful as compatibility fallbacks, but the Keli client should not depend
+on them for its default path.
+
 ## Scope
 
 The first milestone builds the project skeleton and core module boundaries. It
@@ -80,3 +86,18 @@ The first implementation target is deliberately small:
 - No attempt to clone the complete Xray or sing-box configuration surface.
 - No local generation of all panel protocol combinations before core behavior is
   testable.
+
+## Completion Gates
+
+1. Core relay and CLI validation: protocol profiles, subscription parsing,
+   mixed inbound, route decisions, probe/smoke/doctor, and deterministic local
+   tests.
+2. Windows runtime takeover: system proxy apply/restore, managed mixed inbound,
+   start/stop/restart, config hot reload, cancellation, and clear runtime
+   status events.
+3. Client DNS and TUN: TUN device lifecycle, DNS hijack, leak prevention,
+   IPv4/IPv6 policy, route rules, and failure recovery.
+4. Keli panel integration: subscription fetch/update, user state, node
+   selection, node health, risk-control state, and support-friendly errors.
+5. Production readiness: real interop matrix, long soak tests, resource limits,
+   crash recovery, UI-facing APIs, packaging hooks, and support bundle export.

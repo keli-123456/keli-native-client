@@ -65,6 +65,8 @@ fn listen_mixed_once_uses_profile_config_for_socks5_connect() {
             block_domains: Vec::new(),
             profile_config: Some(run_profile_path),
             outbound_tag: Some("SS-READY".to_string()),
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
         })
@@ -117,6 +119,8 @@ fn listen_mixed_once_uses_profile_config_for_http_connect() {
             block_domains: Vec::new(),
             profile_config: Some(run_profile_path),
             outbound_tag: Some("SS-READY".to_string()),
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
         })
@@ -163,6 +167,8 @@ fn listen_mixed_once_uses_profile_config_for_anytls_http_connect() {
             block_domains: Vec::new(),
             profile_config: Some(run_profile_path),
             outbound_tag: Some("ANYTLS-READY".to_string()),
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
         })
@@ -220,6 +226,8 @@ fn listen_mixed_once_uses_profile_config_for_naive_http_connect() {
             block_domains: Vec::new(),
             profile_config: Some(run_profile_path),
             outbound_tag: Some("NAIVE-READY".to_string()),
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(3),
             idle_timeout: Duration::from_secs(3),
         })
@@ -692,6 +700,8 @@ fn listen_mixed_once_uses_profile_config_for_socks5_udp_associate() {
             block_domains: Vec::new(),
             profile_config: Some(run_profile_path),
             outbound_tag: Some("SS-READY".to_string()),
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
         })
@@ -759,6 +769,8 @@ fn listen_mixed_once_uses_profile_config_for_mieru_socks5_udp_associate() {
             block_domains: Vec::new(),
             profile_config: Some(run_profile_path),
             outbound_tag: Some("MIERU-READY".to_string()),
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
         })
@@ -826,6 +838,8 @@ fn listen_mixed_once_uses_profile_config_for_vmess_socks5_udp_associate() {
             block_domains: Vec::new(),
             profile_config: Some(run_profile_path),
             outbound_tag: Some("VMESS-READY".to_string()),
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
         })
@@ -975,6 +989,8 @@ fn run_profile_http_connect_round_trip(profile_path: &str, outbound_tag: &str) {
             block_domains: Vec::new(),
             profile_config: Some(run_profile_path),
             outbound_tag: Some(run_outbound_tag),
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
         })
@@ -1029,6 +1045,8 @@ fn run_profile_socks5_udp_associate_round_trip_to(
             block_domains: Vec::new(),
             profile_config: Some(run_profile_path),
             outbound_tag: Some(run_outbound_tag),
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
         })

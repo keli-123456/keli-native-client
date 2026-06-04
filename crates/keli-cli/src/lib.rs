@@ -1,10 +1,20 @@
 use std::fs;
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
+use std::net::{
+    IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs,
+    UdpSocket,
+};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use keli_client_core::{build_connection_plan, ConnectionPhase};
+use keli_client_core::{
+    build_connection_plan, ClientErrorKind, ClientRuntime, ConnectionPhase, RuntimeConfig,
+    RuntimeStatus,
+};
 use keli_net_core::{
     encode_socks5_udp_datagram, http_connect_bad_request_response, http_connect_success_response,
     http_proxy_bad_request_response, parse_http_connect_request, parse_http_proxy_request,
@@ -14,7 +24,10 @@ use keli_net_core::{
     OutboundConnection, OutboundRegistry, OutboundTarget, RelayOptions, RouteAction, RouteEngine,
     Socks5Address, Socks5Command, Socks5ReplyCode,
 };
-use keli_platform::PlatformCapabilities;
+use keli_platform::{
+    NativeSystemProxyController, PlatformCapabilities, SystemProxyConfig, SystemProxyController,
+    SystemProxySnapshot, SystemProxyStatus,
+};
 use keli_protocol::{
     detect_subscription_input_format, parse_mihomo_outbound_profiles,
     parse_subscription_outbound_profiles, Endpoint, OutboundProfile, ParsedOutboundProfiles,
@@ -24,6 +37,7 @@ use keli_protocol::{
 const DEFAULT_FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 const UDP_RELAY_POLL_INTERVAL: Duration = Duration::from_millis(200);
+const MANAGED_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
 const SUPPORTED_UDP_OUTBOUNDS: &str =
@@ -41,6 +55,8 @@ pub enum CliCommand {
         block_domains: Vec<String>,
         profile_config: Option<String>,
         outbound_tag: Option<String>,
+        system_proxy: bool,
+        system_proxy_bypass: Vec<String>,
         first_byte_timeout: Duration,
         idle_timeout: Duration,
     },
@@ -122,6 +138,242 @@ impl Default for MixedProxyRuntime {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedMixedOptions {
+    pub listen: String,
+    pub block_domains: Vec<String>,
+    pub outbound_tag: Option<String>,
+    pub relay_options: RelayOptions,
+    pub system_proxy: bool,
+    pub system_proxy_bypass: Vec<String>,
+}
+
+impl Default for ManagedMixedOptions {
+    fn default() -> Self {
+        Self {
+            listen: "127.0.0.1:7890".to_string(),
+            block_domains: Vec::new(),
+            outbound_tag: None,
+            relay_options: default_relay_options(),
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ManagedSystemProxyGuard<'a, C: SystemProxyController + ?Sized> {
+    controller: &'a C,
+    snapshot: Option<SystemProxySnapshot>,
+    config: SystemProxyConfig,
+}
+
+impl<'a, C: SystemProxyController + ?Sized> ManagedSystemProxyGuard<'a, C> {
+    pub fn config(&self) -> &SystemProxyConfig {
+        &self.config
+    }
+
+    pub fn restore(mut self) -> Result<(), String> {
+        let Some(snapshot) = self.snapshot.take() else {
+            return Ok(());
+        };
+        self.controller
+            .restore(&snapshot)
+            .map_err(|error| format!("restore system proxy: {error}"))
+    }
+}
+
+#[derive(Debug)]
+pub struct ManagedMixedSession<'a, C: SystemProxyController + ?Sized> {
+    state: ClientRuntime,
+    listener: Option<TcpListener>,
+    listen_addr: SocketAddr,
+    runtime: MixedProxyRuntime,
+    system_proxy_guard: Option<ManagedSystemProxyGuard<'a, C>>,
+}
+
+#[derive(Debug)]
+pub struct ManagedMixedHandle<'a, C: SystemProxyController + ?Sized> {
+    state: ClientRuntime,
+    listen_addr: SocketAddr,
+    selected_outbound: Option<String>,
+    stop: Arc<AtomicBool>,
+    thread: Option<thread::JoinHandle<io::Result<()>>>,
+    system_proxy_guard: Option<ManagedSystemProxyGuard<'a, C>>,
+}
+
+impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
+    pub fn status(&self) -> &RuntimeStatus {
+        self.state.status()
+    }
+
+    pub fn listen_addr(&self) -> SocketAddr {
+        self.listen_addr
+    }
+
+    pub fn selected_outbound(&self) -> Option<&str> {
+        self.selected_outbound.as_deref()
+    }
+
+    pub fn stop(mut self) -> Result<ClientRuntime, String> {
+        self.stop.store(true, Ordering::SeqCst);
+        let serve_result = self
+            .thread
+            .take()
+            .map(|thread| {
+                thread
+                    .join()
+                    .map_err(|_| "managed mixed listener thread panicked".to_string())
+                    .and_then(|result| {
+                        result.map_err(|error| format!("managed mixed listener failed: {error}"))
+                    })
+            })
+            .unwrap_or(Ok(()));
+        let restore_result = self
+            .system_proxy_guard
+            .take()
+            .map(ManagedSystemProxyGuard::restore)
+            .unwrap_or(Ok(()));
+        self.state.stop();
+
+        match (serve_result, restore_result) {
+            (Ok(()), Ok(())) => Ok(self.state),
+            (Err(serve_error), Ok(())) => Err(serve_error),
+            (Ok(()), Err(restore_error)) => Err(restore_error),
+            (Err(serve_error), Err(restore_error)) => {
+                Err(format!("{serve_error}; {restore_error}"))
+            }
+        }
+    }
+}
+
+impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
+    pub fn start_from_subscription_config_text(
+        config_text: &str,
+        options: ManagedMixedOptions,
+        controller: &'a C,
+    ) -> Result<Self, String> {
+        let listener = TcpListener::bind(&options.listen)
+            .map_err(|error| format!("listen-mixed bind failed on {}: {error}", options.listen))?;
+        let listen_addr = listener
+            .local_addr()
+            .map_err(|error| format!("read mixed listener address: {error}"))?;
+        let listen = listen_addr.to_string();
+        let mut state = ClientRuntime::default();
+        let selected_outbound = match state.start(RuntimeConfig::new(
+            config_text,
+            options.outbound_tag.clone(),
+            listen,
+        )) {
+            Ok(plan) => plan.selected_outbound().to_string(),
+            Err(error) => return Err(format!("runtime start failed: {error:?}")),
+        };
+        let runtime = match mixed_runtime_from_subscription_config_text(
+            config_text,
+            options.block_domains,
+            options.relay_options,
+            Some(selected_outbound),
+        ) {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                state.record_failure(ClientErrorKind::ConfigInvalid(error.clone()));
+                return Err(error);
+            }
+        };
+        let system_proxy_guard = if options.system_proxy {
+            match apply_system_proxy_for_listener(
+                controller,
+                &listener,
+                options.system_proxy_bypass,
+            ) {
+                Ok(guard) => Some(guard),
+                Err(error) => {
+                    state.record_failure(ClientErrorKind::SystemProxyLoop);
+                    return Err(error);
+                }
+            }
+        } else {
+            None
+        };
+
+        println!("mixed inbound listening on {listen_addr}");
+        Ok(Self {
+            state,
+            listener: Some(listener),
+            listen_addr,
+            runtime,
+            system_proxy_guard,
+        })
+    }
+
+    pub fn status(&self) -> &RuntimeStatus {
+        self.state.status()
+    }
+
+    pub fn listen_addr(&self) -> SocketAddr {
+        self.listen_addr
+    }
+
+    pub fn selected_outbound(&self) -> Option<&str> {
+        match self.state.status() {
+            RuntimeStatus::Running {
+                selected_outbound, ..
+            } => Some(selected_outbound.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn serve(mut self, once: bool) -> Result<ClientRuntime, String> {
+        let listener = self
+            .listener
+            .take()
+            .expect("managed mixed listener is present");
+        let serve_result = serve_mixed_listener(listener, once, &self.runtime);
+        let stop_result = self.stop();
+
+        match (serve_result, stop_result) {
+            (Ok(()), Ok(state)) => Ok(state),
+            (Err(serve_error), Ok(_)) => Err(format!("listen-mixed failed: {serve_error}")),
+            (Ok(()), Err(restore_error)) => Err(restore_error),
+            (Err(serve_error), Err(restore_error)) => Err(format!(
+                "listen-mixed failed: {serve_error}; {restore_error}"
+            )),
+        }
+    }
+
+    pub fn spawn_background(mut self) -> Result<ManagedMixedHandle<'a, C>, String> {
+        let listener = self
+            .listener
+            .take()
+            .expect("managed mixed listener is present");
+        let selected_outbound = self.selected_outbound().map(str::to_string);
+        let runtime = self.runtime;
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread_stop = Arc::clone(&stop);
+        let thread =
+            thread::spawn(move || serve_mixed_listener_until(listener, runtime, thread_stop));
+
+        Ok(ManagedMixedHandle {
+            state: self.state,
+            listen_addr: self.listen_addr,
+            selected_outbound,
+            stop,
+            thread: Some(thread),
+            system_proxy_guard: self.system_proxy_guard,
+        })
+    }
+
+    pub fn stop(mut self) -> Result<ClientRuntime, String> {
+        let restore_result = self
+            .system_proxy_guard
+            .take()
+            .map(ManagedSystemProxyGuard::restore)
+            .unwrap_or(Ok(()));
+        self.state.stop();
+        restore_result.map(|_| self.state)
+    }
+}
+
 pub fn parse_cli_command(
     args: impl IntoIterator<Item = impl Into<String>>,
 ) -> Result<CliCommand, String> {
@@ -153,6 +405,8 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             block_domains,
             profile_config,
             outbound_tag,
+            system_proxy,
+            system_proxy_bypass,
             first_byte_timeout,
             idle_timeout,
         } => {
@@ -160,17 +414,39 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 first_byte_timeout: Some(first_byte_timeout),
                 idle_timeout: Some(idle_timeout),
             };
-            let runtime = match profile_config {
-                Some(path) => mixed_runtime_from_mihomo_config_path(
-                    &path,
-                    block_domains,
-                    relay_options,
-                    outbound_tag,
-                )?,
-                None => mixed_runtime_from_cli(block_domains, relay_options),
-            };
-            listen_mixed(&listen, once, &runtime)
-                .map_err(|error| format!("listen-mixed failed on {listen}: {error}"))
+            let controller = NativeSystemProxyController::new();
+
+            if let Some(path) = profile_config {
+                let config_text = fs::read_to_string(&path)
+                    .map_err(|error| format!("read profile config {path}: {error}"))?;
+                let session = ManagedMixedSession::start_from_subscription_config_text(
+                    &config_text,
+                    ManagedMixedOptions {
+                        listen,
+                        block_domains,
+                        outbound_tag,
+                        relay_options,
+                        system_proxy,
+                        system_proxy_bypass,
+                    },
+                    &controller,
+                )?;
+                return session.serve(once).map(|_| ());
+            }
+
+            let runtime = mixed_runtime_from_cli(block_domains, relay_options);
+            if system_proxy {
+                listen_mixed_with_system_proxy_controller(
+                    &listen,
+                    once,
+                    &runtime,
+                    &controller,
+                    system_proxy_bypass,
+                )
+            } else {
+                listen_mixed(&listen, once, &runtime)
+                    .map_err(|error| format!("listen-mixed failed on {listen}: {error}"))
+            }
         }
         CliCommand::ProbeOutbound {
             profile_config,
@@ -249,6 +525,10 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
+        "       keli-cli listen-mixed --system-proxy [--system-proxy-bypass localhost] [--system-proxy-bypass <local>]"
+    )?;
+    writeln!(
+        writer,
         "       keli-cli probe-outbound --profile-config subscription.yaml [--outbound-tag proxy] --target example.com:443 [--payload ping] [--expect pong] [--udp] [--format text|json] [--first-byte-timeout-ms 30000]"
     )?;
     writeln!(
@@ -267,6 +547,8 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
     let mut block_domains = Vec::new();
     let mut profile_config = None;
     let mut outbound_tag = None;
+    let mut system_proxy = false;
+    let mut system_proxy_bypass = Vec::new();
     let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut idle_timeout = DEFAULT_IDLE_TIMEOUT;
     let mut args = args.peekable();
@@ -311,6 +593,13 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
                         .ok_or_else(|| "--outbound-tag requires a profile name".to_string())?,
                 );
             }
+            "--system-proxy" => system_proxy = true,
+            "--system-proxy-bypass" => {
+                system_proxy_bypass.push(
+                    args.next()
+                        .ok_or_else(|| "--system-proxy-bypass requires a value".to_string())?,
+                );
+            }
             other => return Err(format!("unknown listen-mixed option: {other}")),
         }
     }
@@ -321,6 +610,8 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
         block_domains,
         profile_config,
         outbound_tag,
+        system_proxy,
+        system_proxy_bypass,
         first_byte_timeout,
         idle_timeout,
     })
@@ -532,6 +823,7 @@ fn print_doctor() {
 
 pub fn write_doctor_report(mut writer: impl Write) -> io::Result<()> {
     let capabilities = PlatformCapabilities::detect();
+    let system_proxy_status = SystemProxyStatus::detect();
     let inbound = LocalInbound::Mixed {
         listen: "127.0.0.1".to_string(),
         port: 7890,
@@ -558,6 +850,20 @@ pub fn write_doctor_report(mut writer: impl Write) -> io::Result<()> {
     writeln!(writer, "version={}", env!("CARGO_PKG_VERSION"))?;
     writeln!(writer, "platform={:?}", capabilities.platform)?;
     writeln!(writer, "system_proxy={}", capabilities.system_proxy)?;
+    writeln!(
+        writer,
+        "system_proxy_state={} server={} error={}",
+        system_proxy_status
+            .enabled
+            .map(|enabled| if enabled { "enabled" } else { "disabled" })
+            .unwrap_or(if system_proxy_status.supported {
+                "unknown"
+            } else {
+                "unsupported"
+            }),
+        system_proxy_status.server.as_deref().unwrap_or("-"),
+        system_proxy_status.error.as_deref().unwrap_or("-")
+    )?;
     writeln!(writer, "tun={}", capabilities.tun)?;
     writeln!(writer, "secure_storage={}", capabilities.secure_storage)?;
     writeln!(writer, "inbound={inbound:?}")?;
@@ -580,8 +886,16 @@ pub fn write_doctor_report(mut writer: impl Write) -> io::Result<()> {
 
 fn listen_mixed(listen: &str, once: bool, runtime: &MixedProxyRuntime) -> io::Result<()> {
     let listener = TcpListener::bind(listen)?;
-    println!("mixed inbound listening on {listen}");
+    println!("mixed inbound listening on {}", listener.local_addr()?);
 
+    serve_mixed_listener(listener, once, runtime)
+}
+
+fn serve_mixed_listener(
+    listener: TcpListener,
+    once: bool,
+    runtime: &MixedProxyRuntime,
+) -> io::Result<()> {
     for stream in listener.incoming() {
         let mut stream = stream?;
         if let Err(error) = handle_mixed_connection_with_routes(&mut stream, runtime) {
@@ -593,6 +907,89 @@ fn listen_mixed(listen: &str, once: bool, runtime: &MixedProxyRuntime) -> io::Re
     }
 
     Ok(())
+}
+
+fn serve_mixed_listener_until(
+    listener: TcpListener,
+    runtime: MixedProxyRuntime,
+    stop: Arc<AtomicBool>,
+) -> io::Result<()> {
+    listener.set_nonblocking(true)?;
+    while !stop.load(Ordering::SeqCst) {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                if let Err(error) = handle_mixed_connection_with_routes(&mut stream, &runtime) {
+                    eprintln!("mixed inbound failed: {error}");
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                thread::sleep(MANAGED_ACCEPT_POLL_INTERVAL);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+pub fn listen_mixed_with_system_proxy_controller<C: SystemProxyController + ?Sized>(
+    listen: &str,
+    once: bool,
+    runtime: &MixedProxyRuntime,
+    controller: &C,
+    bypass: Vec<String>,
+) -> Result<(), String> {
+    let listener = TcpListener::bind(listen)
+        .map_err(|error| format!("listen-mixed bind failed on {listen}: {error}"))?;
+    let listen_addr = listener
+        .local_addr()
+        .map_err(|error| format!("read mixed listener address: {error}"))?;
+    println!("mixed inbound listening on {listen_addr}");
+    let guard = apply_system_proxy_for_listener(controller, &listener, bypass)?;
+    let serve_result = serve_mixed_listener(listener, once, runtime);
+    let restore_result = guard.restore();
+
+    match (serve_result, restore_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(serve_error), Ok(())) => Err(format!("listen-mixed failed: {serve_error}")),
+        (Ok(()), Err(restore_error)) => Err(restore_error),
+        (Err(serve_error), Err(restore_error)) => Err(format!(
+            "listen-mixed failed: {serve_error}; {restore_error}"
+        )),
+    }
+}
+
+pub fn apply_system_proxy_for_listener<'a, C: SystemProxyController + ?Sized>(
+    controller: &'a C,
+    listener: &TcpListener,
+    bypass: Vec<String>,
+) -> Result<ManagedSystemProxyGuard<'a, C>, String> {
+    let local_addr = listener
+        .local_addr()
+        .map_err(|error| format!("read mixed listener address: {error}"))?;
+    let server = system_proxy_server_for_listener(local_addr);
+    let config = SystemProxyConfig::new(server)
+        .map_err(|error| format!("build system proxy config: {error}"))?
+        .with_bypass(bypass);
+    let snapshot = controller
+        .apply(&config)
+        .map_err(|error| format!("apply system proxy: {error}"))?;
+    Ok(ManagedSystemProxyGuard {
+        controller,
+        snapshot: Some(snapshot),
+        config,
+    })
+}
+
+fn system_proxy_server_for_listener(addr: SocketAddr) -> String {
+    match addr.ip() {
+        IpAddr::V4(ip) if ip.is_unspecified() => {
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), addr.port()).to_string()
+        }
+        IpAddr::V6(ip) if ip.is_unspecified() => {
+            SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), addr.port()).to_string()
+        }
+        _ => addr.to_string(),
+    }
 }
 
 pub fn handle_socks5_connection(stream: &mut TcpStream) -> io::Result<()> {
@@ -1975,22 +2372,6 @@ fn mixed_runtime_from_parsed_profiles(
         relay_options,
         outbounds,
     })
-}
-
-fn mixed_runtime_from_mihomo_config_path(
-    path: &str,
-    block_domains: Vec<String>,
-    relay_options: RelayOptions,
-    outbound_tag: Option<String>,
-) -> Result<MixedProxyRuntime, String> {
-    let config_text =
-        fs::read_to_string(path).map_err(|error| format!("read profile config {path}: {error}"))?;
-    mixed_runtime_from_subscription_config_text(
-        &config_text,
-        block_domains,
-        relay_options,
-        outbound_tag,
-    )
 }
 
 fn mixed_runtime_from_cli(
