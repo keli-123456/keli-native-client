@@ -22,14 +22,15 @@ use keli_net_core::{
     http_connect_bad_request_response, http_connect_success_response,
     http_proxy_bad_request_response, parse_dns_query, parse_http_connect_request,
     parse_http_proxy_request, parse_socks5_handshake, parse_socks5_request,
-    parse_socks5_udp_datagram, relay_owned_bidirectional_with_options, run_tun_packet_loop_summary,
+    parse_socks5_udp_datagram, process_tun_device_packet_with_udp_relay,
+    relay_owned_bidirectional_with_options, run_tun_packet_loop_summary,
     run_tun_packet_loop_with_udp_relay_summary, socks5_no_auth_response, socks5_reply,
     ConnectionErrorKind, ConnectionReport, DirectTcpConnector, DirectUdpConnector,
     DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy,
     DnsQuestionType, DnsResolver, LocalInbound, OutboundConnection, OutboundRegistry,
     OutboundTarget, RegistryTunUdpRelay, RelayOptions, RouteAction, RouteEngine, RouteIpCidr,
     RouteMatcher, RouteRule, Socks5Address, Socks5Command, Socks5ReplyCode, SystemDnsResolver,
-    TunPacketDevice, TunPacketLoopSummary, TunUdpRelay,
+    TunPacketDevice, TunPacketLoopEvent, TunPacketLoopSummary, TunUdpRelay,
 };
 use keli_platform::{
     NativeSystemProxyController, NativeTunDeviceController, PlatformCapabilities,
@@ -52,6 +53,7 @@ const BLOCK_CIDR_RULE_PREFIX: &str = "cidr:";
 const BLOCK_PORT_RULE_PREFIX: &str = "port:";
 const UDP_RELAY_POLL_INTERVAL: Duration = Duration::from_millis(200);
 const MANAGED_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(25);
+const MANAGED_TUN_IDLE_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const DEFAULT_TUN_DNS_TTL_SECONDS: u32 = 30;
 const DEFAULT_TUN_PACKET_LOOP_MAX_PACKETS: usize = usize::MAX;
 const SUPPORTED_OUTBOUNDS: &str =
@@ -63,7 +65,7 @@ const SUPPORTED_PROTOCOL_CAPABILITIES: &str =
 const ROUTE_RULE_CAPABILITIES: &str =
     "domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
-    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,relay-plan";
+    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,relay-plan";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
@@ -496,6 +498,73 @@ where
     }
 }
 
+pub fn run_with_optional_tun_runtime_background<C, F, T>(
+    controller: &C,
+    config: Option<TunDeviceConfig>,
+    runtime: &MixedProxyRuntime,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+    run: F,
+) -> Result<T, String>
+where
+    C: TunPacketIoController + ?Sized,
+    C::PacketIo: Send + 'static,
+    F: FnOnce() -> Result<T, String>,
+{
+    let guard = config
+        .map(|config| apply_tun_device_for_config(controller, config))
+        .transpose()?;
+    let tun_thread = if let Some(guard) = guard.as_ref() {
+        let io = controller
+            .open_packet_io(guard.config())
+            .map_err(|error| format!("open TUN packet I/O: {error}"))?;
+        let config = guard.config().clone();
+        let runtime = runtime.clone();
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread_stop = Arc::clone(&stop);
+        let thread = thread::spawn(move || {
+            run_managed_tun_packet_loop_io_until_stop(
+                io,
+                config,
+                runtime,
+                dns_ttl_seconds,
+                max_packets,
+                thread_stop,
+            )
+        });
+        Some((stop, thread))
+    } else {
+        None
+    };
+
+    let run_result = run();
+    let tun_result = tun_thread
+        .map(|(stop, thread)| {
+            stop.store(true, Ordering::SeqCst);
+            thread
+                .join()
+                .map_err(|_| "TUN packet loop thread panicked".to_string())
+                .and_then(|result| result.map(|_| ()))
+        })
+        .unwrap_or(Ok(()));
+    let stop_result = guard
+        .map(|guard| guard.stop().map(|_| ()))
+        .unwrap_or(Ok(()));
+
+    match (run_result, tun_result, stop_result) {
+        (Ok(output), Ok(()), Ok(())) => Ok(output),
+        (Err(run_error), Ok(()), Ok(())) => Err(run_error),
+        (Ok(_), Err(tun_error), Ok(())) => Err(tun_error),
+        (Ok(_), Ok(()), Err(stop_error)) => Err(stop_error),
+        (Err(run_error), Err(tun_error), Ok(())) => Err(format!("{run_error}; {tun_error}")),
+        (Err(run_error), Ok(()), Err(stop_error)) => Err(format!("{run_error}; {stop_error}")),
+        (Ok(_), Err(tun_error), Err(stop_error)) => Err(format!("{tun_error}; {stop_error}")),
+        (Err(run_error), Err(tun_error), Err(stop_error)) => {
+            Err(format!("{run_error}; {tun_error}; {stop_error}"))
+        }
+    }
+}
+
 fn run_managed_tun_packet_loop_inner<C, R>(
     controller: &C,
     config: &TunDeviceConfig,
@@ -521,6 +590,48 @@ where
         max_packets,
     )
     .map_err(|error| format!("run TUN packet loop: {error}"))
+}
+
+fn run_managed_tun_packet_loop_io_until_stop<I>(
+    io: I,
+    config: TunDeviceConfig,
+    runtime: MixedProxyRuntime,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+    stop: Arc<AtomicBool>,
+) -> Result<TunPacketLoopSummary, String>
+where
+    I: TunPacketIo,
+{
+    let mut device = PlatformTunPacketDevice::new(io);
+    let mut dns = runtime.dns_options.engine();
+    let mut relay_dns = runtime.dns_options.engine();
+    let timeout = runtime
+        .relay_options
+        .first_byte_timeout
+        .unwrap_or(DEFAULT_FIRST_BYTE_TIMEOUT);
+    let mut udp_relay = RegistryTunUdpRelay::new(&runtime.outbounds, &mut relay_dns, timeout);
+    let mut summary = TunPacketLoopSummary::default();
+    for _ in 0..max_packets {
+        if stop.load(Ordering::SeqCst) {
+            break;
+        }
+        let event = process_tun_device_packet_with_udp_relay(
+            &mut device,
+            &runtime.routes,
+            config.dns_hijack,
+            &mut dns,
+            dns_ttl_seconds,
+            &mut udp_relay,
+        )
+        .map_err(|error| format!("run TUN packet loop: {error}"))?;
+        let should_pause = event == TunPacketLoopEvent::NoPacket;
+        summary.record_event(&event);
+        if should_pause {
+            thread::sleep(MANAGED_TUN_IDLE_POLL_INTERVAL);
+        }
+    }
+    Ok(summary)
 }
 
 fn run_managed_tun_packet_loop_inner_with_runtime<C>(
@@ -1615,13 +1726,14 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
     ) -> Result<ClientRuntime, String>
     where
         T: TunPacketIoController + ?Sized,
+        T::PacketIo: Send + 'static,
     {
         let listener = self
             .listener
             .take()
             .expect("managed mixed listener is present");
         let runtime = self.runtime.clone();
-        let serve_result = run_with_optional_tun_runtime(
+        let serve_result = run_with_optional_tun_runtime_background(
             tun_controller,
             tun_device,
             &runtime,
@@ -2974,8 +3086,9 @@ pub fn listen_mixed_with_optional_tun_controller<C, T>(
 where
     C: SystemProxyController + ?Sized,
     T: TunPacketIoController + ?Sized,
+    T::PacketIo: Send + 'static,
 {
-    run_with_optional_tun_runtime(
+    run_with_optional_tun_runtime_background(
         tun_controller,
         tun_device,
         runtime,

@@ -339,6 +339,7 @@ fn managed_tun_packet_loop_runs_platform_io_and_stops_owned_device() {
         .with_stop_result(stopped_snapshot)
         .with_packet_io(FakeTunPacketIo {
             reads: VecDeque::from(vec![vec![0]]),
+            shared_reads: None,
             writes: Vec::new(),
             shared_writes: None,
         });
@@ -419,6 +420,7 @@ fn managed_tun_packet_loop_with_runtime_relays_tagged_udp_via_registry() {
                 "127.0.0.1",
                 &udp_datagram(54321, udp_port, b"ping"),
             )]),
+            shared_reads: None,
             writes: Vec::new(),
             shared_writes: Some(Arc::clone(&writes)),
         });
@@ -453,7 +455,7 @@ fn managed_tun_packet_loop_with_runtime_relays_tagged_udp_via_registry() {
 }
 
 #[test]
-fn listen_mixed_with_optional_tun_controller_runs_runtime_tun_loop_before_listener() {
+fn listen_mixed_with_optional_tun_controller_runs_tun_loop_while_listener_serves() {
     let config = TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500)
         .expect("valid TUN config")
         .with_dns_hijack(true);
@@ -468,17 +470,14 @@ fn listen_mixed_with_optional_tun_controller_runs_runtime_tun_loop_before_listen
         dns_hijack: None,
     };
     let (udp_port, udp_server) = spawn_udp_echo_server(b"ping", b"pong");
+    let reads = Arc::new(Mutex::new(VecDeque::new()));
     let writes = Arc::new(Mutex::new(Vec::new()));
     let controller = FakeTunDeviceController::new(stopped_snapshot.clone())
         .with_start_result(TunDeviceSnapshot::running(&config))
         .with_stop_result(stopped_snapshot)
         .with_packet_io(FakeTunPacketIo {
-            reads: VecDeque::from(vec![ipv4_packet(
-                17,
-                "10.7.0.2",
-                "127.0.0.1",
-                &udp_datagram(54321, udp_port, b"ping"),
-            )]),
+            reads: VecDeque::new(),
+            shared_reads: Some(Arc::clone(&reads)),
             writes: Vec::new(),
             shared_writes: Some(Arc::clone(&writes)),
         });
@@ -511,6 +510,13 @@ fn listen_mixed_with_optional_tun_controller_runs_runtime_tun_loop_before_listen
     });
 
     let mut client = connect_with_retry(&listen);
+    reads.lock().expect("TUN reads lock").push_back(ipv4_packet(
+        17,
+        "10.7.0.2",
+        "127.0.0.1",
+        &udp_datagram(54321, udp_port, b"ping"),
+    ));
+    wait_for_tun_writes(&writes, 1);
     client.write_all(&[0]).expect("write unsupported byte");
 
     listener_thread.join().expect("listener thread");
@@ -527,6 +533,7 @@ fn listen_mixed_with_optional_tun_controller_runs_runtime_tun_loop_before_listen
 fn platform_tun_packet_device_adapts_packet_io_to_net_core_device() {
     let fake_io = FakeTunPacketIo {
         reads: VecDeque::from(vec![vec![1, 2, 3]]),
+        shared_reads: None,
         writes: Vec::new(),
         shared_writes: None,
     };
@@ -580,6 +587,19 @@ fn connect_with_retry(addr: &str) -> TcpStream {
     }
 }
 
+fn wait_for_tun_writes(writes: &Arc<Mutex<Vec<Vec<u8>>>>, expected_len: usize) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        if writes.lock().expect("TUN writes lock").len() >= expected_len {
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            panic!("timed out waiting for TUN writes");
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
 fn ipv4_packet(protocol: u8, source: &str, destination: &str, payload: &[u8]) -> Vec<u8> {
     let source: [u8; 4] = source
         .parse::<std::net::Ipv4Addr>()
@@ -615,13 +635,20 @@ fn udp_datagram(source_port: u16, destination_port: u16, payload: &[u8]) -> Vec<
 #[derive(Debug, Default)]
 struct FakeTunPacketIo {
     reads: VecDeque<Vec<u8>>,
+    shared_reads: Option<Arc<Mutex<VecDeque<Vec<u8>>>>>,
     writes: Vec<Vec<u8>>,
     shared_writes: Option<Arc<Mutex<Vec<Vec<u8>>>>>,
 }
 
 impl TunPacketIo for FakeTunPacketIo {
     fn read_packet(&mut self) -> Result<Option<Vec<u8>>, TunDeviceError> {
-        Ok(self.reads.pop_front())
+        if let Some(packet) = self.reads.pop_front() {
+            return Ok(Some(packet));
+        }
+        if let Some(shared_reads) = &self.shared_reads {
+            return Ok(shared_reads.lock().expect("TUN reads lock").pop_front());
+        }
+        Ok(None)
     }
 
     fn write_packet(&mut self, packet: &[u8]) -> Result<(), TunDeviceError> {
