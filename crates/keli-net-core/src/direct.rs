@@ -23,7 +23,8 @@ use shadowsocks_crypto::v1::{openssl_bytes_to_key, Cipher};
 
 use crate::{
     encode_socks5_udp_datagram, parse_socks5_udp_datagram, ConnectionErrorKind, DnsCache,
-    DnsEngine, DnsResolver, RouteTarget, Socks5Address, Socks5Request, SystemDnsResolver,
+    DnsEngine, DnsResolver, RouteDestination, RouteTarget, Socks5Address, Socks5Request,
+    SystemDnsResolver,
 };
 use keli_protocol::{
     encode_shadowsocks_tcp_request_header, encode_trojan_tcp_request_header,
@@ -88,6 +89,10 @@ impl OutboundTarget {
             Ok(ip) => RouteTarget::Ip(ip),
             Err(_) => RouteTarget::Domain(self.host.clone()),
         }
+    }
+
+    pub fn route_destination(&self) -> RouteDestination {
+        RouteDestination::new(self.route_target(), self.port)
     }
 }
 

@@ -2745,7 +2745,11 @@ fn relay_socks5_udp_datagram(
     let target = outbound_target_from_socks5_udp(&datagram.address, datagram.port);
     let mut report = ConnectionReport::new("socks5-udp", target.clone(), RouteAction::Direct);
 
-    match runtime.routes.decide(&target.route_target()).action {
+    match runtime
+        .routes
+        .decide_destination(&target.route_destination())
+        .action
+    {
         RouteAction::Direct => {}
         RouteAction::Block => {
             report.route_action = RouteAction::Block;
@@ -3113,7 +3117,9 @@ fn connect_by_route(
     target: &OutboundTarget,
     runtime: &MixedProxyRuntime,
 ) -> io::Result<RouteConnect> {
-    let decision = runtime.routes.decide(&target.route_target());
+    let decision = runtime
+        .routes
+        .decide_destination(&target.route_destination());
     match decision.action {
         RouteAction::Direct => {
             let started = Instant::now();
@@ -3638,7 +3644,11 @@ fn probe_udp_outbound(
 ) -> Result<(), String> {
     let mut report = ConnectionReport::new("probe-udp", target.clone(), RouteAction::Direct);
     let started = Instant::now();
-    let response = match runtime.routes.decide(&target.route_target()).action {
+    let response = match runtime
+        .routes
+        .decide_destination(&target.route_destination())
+        .action
+    {
         RouteAction::Direct => {
             let mut dns = runtime.dns_options.engine();
             DirectUdpConnector::relay_datagram_with_dns(&target, payload, timeout, &mut dns)

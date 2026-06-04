@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 use keli_net_core::{
     relay_owned_bidirectional_with_options, relay_tcp_bidirectional,
     relay_tcp_bidirectional_with_options, ConnectionErrorKind, DirectTcpConnector, DnsCache,
-    DnsEngine, DnsError, DnsResolver, OutboundTarget, OwnedRelayStream, RelayOptions, RouteTarget,
-    Socks5Address, Socks5Request,
+    DnsEngine, DnsError, DnsResolver, OutboundTarget, OwnedRelayStream, RelayOptions,
+    RouteDestination, RouteTarget, Socks5Address, Socks5Request,
 };
 
 #[test]
@@ -43,6 +43,16 @@ fn maps_outbound_target_to_ip_route_target() {
     assert_eq!(
         target.route_target(),
         RouteTarget::Ip("127.0.0.1".parse().expect("valid IP"))
+    );
+}
+
+#[test]
+fn maps_outbound_target_to_route_destination_with_port() {
+    let target = OutboundTarget::new("example.com", 443);
+
+    assert_eq!(
+        target.route_destination(),
+        RouteDestination::new(RouteTarget::Domain("example.com".to_string()), 443)
     );
 }
 

@@ -1,4 +1,5 @@
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::{error::Error, fmt};
 
 mod direct;
 mod dns;
@@ -80,6 +81,83 @@ pub enum RouteTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteDestination {
+    pub target: RouteTarget,
+    pub port: u16,
+}
+
+impl RouteDestination {
+    pub fn new(target: RouteTarget, port: u16) -> Self {
+        Self { target, port }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteIpCidr {
+    network: IpAddr,
+    prefix_len: u8,
+}
+
+impl RouteIpCidr {
+    pub fn new(network: IpAddr, prefix_len: u8) -> Result<Self, RouteCidrError> {
+        let max_prefix_len = match network {
+            IpAddr::V4(_) => 32,
+            IpAddr::V6(_) => 128,
+        };
+        if prefix_len > max_prefix_len {
+            return Err(RouteCidrError::InvalidPrefixLength {
+                network,
+                prefix_len,
+            });
+        }
+        Ok(Self {
+            network: mask_ip(network, prefix_len),
+            prefix_len,
+        })
+    }
+
+    pub fn network(&self) -> IpAddr {
+        self.network
+    }
+
+    pub fn prefix_len(&self) -> u8 {
+        self.prefix_len
+    }
+
+    pub fn matches(&self, ip: IpAddr) -> bool {
+        match (self.network, ip) {
+            (IpAddr::V4(network), IpAddr::V4(ip)) => {
+                let mask = ipv4_prefix_mask(self.prefix_len);
+                u32::from(network) == (u32::from(ip) & mask)
+            }
+            (IpAddr::V6(network), IpAddr::V6(ip)) => {
+                let mask = ipv6_prefix_mask(self.prefix_len);
+                u128::from(network) == (u128::from(ip) & mask)
+            }
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RouteCidrError {
+    InvalidPrefixLength { network: IpAddr, prefix_len: u8 },
+}
+
+impl fmt::Display for RouteCidrError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidPrefixLength {
+                network,
+                prefix_len,
+            } => write!(f, "invalid CIDR prefix length {prefix_len} for {network}"),
+        }
+    }
+}
+
+impl Error for RouteCidrError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouteAction {
     Direct,
     Block,
@@ -90,16 +168,23 @@ pub enum RouteAction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouteMatcher {
     DomainExact(String),
+    DomainKeyword(String),
     DomainSuffix(String),
     IpExact(IpAddr),
+    IpCidr(RouteIpCidr),
+    PortExact(u16),
+    PortRange { start: u16, end: u16 },
 }
 
 impl RouteMatcher {
-    fn matches(&self, target: &RouteTarget) -> bool {
-        match (self, target) {
+    fn matches(&self, destination: &RouteDestination) -> bool {
+        match (self, &destination.target) {
             (Self::DomainExact(expected), RouteTarget::Domain(actual)) => {
                 expected.eq_ignore_ascii_case(actual)
             }
+            (Self::DomainKeyword(expected), RouteTarget::Domain(actual)) => actual
+                .to_ascii_lowercase()
+                .contains(&expected.to_ascii_lowercase()),
             (Self::DomainSuffix(expected), RouteTarget::Domain(actual)) => {
                 let expected = expected.trim_start_matches('.');
                 actual.eq_ignore_ascii_case(expected)
@@ -108,6 +193,11 @@ impl RouteMatcher {
                         .ends_with(&format!(".{}", expected.to_ascii_lowercase()))
             }
             (Self::IpExact(expected), RouteTarget::Ip(actual)) => expected == actual,
+            (Self::IpCidr(cidr), RouteTarget::Ip(actual)) => cidr.matches(*actual),
+            (Self::PortExact(expected), _) => destination.port == *expected,
+            (Self::PortRange { start, end }, _) => {
+                *start <= destination.port && destination.port <= *end
+            }
             _ => false,
         }
     }
@@ -145,8 +235,12 @@ impl RouteEngine {
     }
 
     pub fn decide(&self, target: &RouteTarget) -> RouteDecision {
+        self.decide_destination(&RouteDestination::new(target.clone(), 0))
+    }
+
+    pub fn decide_destination(&self, destination: &RouteDestination) -> RouteDecision {
         for rule in &self.rules {
-            if rule.matcher.matches(target) {
+            if rule.matcher.matches(destination) {
                 return RouteDecision {
                     action: rule.action.clone(),
                     matched_rule: Some(rule.name.clone()),
@@ -157,6 +251,31 @@ impl RouteEngine {
             action: self.default_action.clone(),
             matched_rule: None,
         }
+    }
+}
+
+fn mask_ip(ip: IpAddr, prefix_len: u8) -> IpAddr {
+    match ip {
+        IpAddr::V4(ip) => IpAddr::V4(Ipv4Addr::from(u32::from(ip) & ipv4_prefix_mask(prefix_len))),
+        IpAddr::V6(ip) => IpAddr::V6(Ipv6Addr::from(
+            u128::from(ip) & ipv6_prefix_mask(prefix_len),
+        )),
+    }
+}
+
+fn ipv4_prefix_mask(prefix_len: u8) -> u32 {
+    if prefix_len == 0 {
+        0
+    } else {
+        u32::MAX << (32 - prefix_len)
+    }
+}
+
+fn ipv6_prefix_mask(prefix_len: u8) -> u128 {
+    if prefix_len == 0 {
+        0
+    } else {
+        u128::MAX << (128 - prefix_len)
     }
 }
 
@@ -192,6 +311,68 @@ mod tests {
 
         assert_eq!(decision.action, RouteAction::Direct);
         assert_eq!(decision.matched_rule, Some("direct-lan".to_string()));
+    }
+
+    #[test]
+    fn keyword_domain_rule_matches_case_insensitive() {
+        let mut engine = RouteEngine::new(RouteAction::Outbound("proxy".to_string()));
+        engine.add_rule(RouteRule {
+            name: "direct-video".to_string(),
+            matcher: RouteMatcher::DomainKeyword("Video".to_string()),
+            action: RouteAction::Direct,
+        });
+
+        let decision = engine.decide(&RouteTarget::Domain("cdn.video.example".to_string()));
+
+        assert_eq!(decision.action, RouteAction::Direct);
+        assert_eq!(decision.matched_rule, Some("direct-video".to_string()));
+    }
+
+    #[test]
+    fn cidr_rule_matches_ip_subnet() {
+        let mut engine = RouteEngine::new(RouteAction::Outbound("proxy".to_string()));
+        let cidr =
+            RouteIpCidr::new("192.168.1.42".parse().expect("valid IP"), 24).expect("valid CIDR");
+        engine.add_rule(RouteRule {
+            name: "direct-lan-cidr".to_string(),
+            matcher: RouteMatcher::IpCidr(cidr.clone()),
+            action: RouteAction::Direct,
+        });
+
+        assert_eq!(
+            cidr.network(),
+            "192.168.1.0".parse::<IpAddr>().expect("valid IP")
+        );
+        let decision = engine.decide(&RouteTarget::Ip("192.168.1.99".parse().expect("valid IP")));
+
+        assert_eq!(decision.action, RouteAction::Direct);
+        assert_eq!(decision.matched_rule, Some("direct-lan-cidr".to_string()));
+    }
+
+    #[test]
+    fn port_rule_matches_route_destination() {
+        let mut engine = RouteEngine::new(RouteAction::Outbound("proxy".to_string()));
+        engine.add_rule(RouteRule {
+            name: "block-smtp".to_string(),
+            matcher: RouteMatcher::PortRange { start: 25, end: 25 },
+            action: RouteAction::Block,
+        });
+
+        let decision = engine.decide_destination(&RouteDestination::new(
+            RouteTarget::Domain("mail.example".to_string()),
+            25,
+        ));
+
+        assert_eq!(decision.action, RouteAction::Block);
+        assert_eq!(decision.matched_rule, Some("block-smtp".to_string()));
+    }
+
+    #[test]
+    fn invalid_cidr_prefix_is_rejected() {
+        let error = RouteIpCidr::new("127.0.0.1".parse().expect("valid IP"), 33)
+            .expect_err("invalid IPv4 prefix should fail");
+
+        assert!(error.to_string().contains("invalid CIDR prefix length"));
     }
 
     #[test]

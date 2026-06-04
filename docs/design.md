@@ -127,6 +127,9 @@ The first implementation target is deliberately small:
    DNS hijack now has a local SOCKS5 UDP path for A/AAAA wire queries, using the
    existing DNS engine and policy controls to return synthetic DNS responses
    instead of relaying hijacked DNS traffic to the original resolver.
+   Route decisions now support destination-level matching for domain keywords,
+   IP CIDR ranges, and exact/ranged ports, and the mixed TCP, SOCKS5 UDP, and
+   UDP probe paths use the same destination-aware route engine.
 4. Keli panel integration: subscription fetch/update, user state, node
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,

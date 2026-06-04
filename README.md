@@ -43,6 +43,8 @@ snapshots that include recent runtime events, last error, and managed system
 proxy details for support diagnostics. Subscription status is also exposed with
 supported nodes, skipped nodes, default outbound, selected outbound, and node
 health records for latency, TCP/UDP availability, and failure reasons.
+The route engine now also has destination-aware keyword, CIDR, and port
+matching, and the mixed TCP/UDP paths use that richer decision surface.
 
 ## Protocol Matrix
 
