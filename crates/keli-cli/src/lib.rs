@@ -29,7 +29,7 @@ use keli_net_core::{
 };
 use keli_platform::{
     NativeSystemProxyController, PlatformCapabilities, SystemProxyConfig, SystemProxyController,
-    SystemProxySnapshot, SystemProxyStatus,
+    SystemProxySnapshot, SystemProxyStatus, TunDeviceStatus,
 };
 use keli_protocol::{
     detect_subscription_input_format, parse_mihomo_outbound_profiles,
@@ -1757,6 +1757,7 @@ struct DoctorReport {
     system_proxy_server: Option<String>,
     system_proxy_error: Option<String>,
     tun: bool,
+    tun_device: TunDeviceStatus,
     secure_storage: bool,
     inbound_debug: String,
     inbound_kind: &'static str,
@@ -1799,6 +1800,7 @@ pub fn write_doctor_report_with_format(
 fn collect_doctor_report() -> DoctorReport {
     let capabilities = PlatformCapabilities::detect();
     let system_proxy_status = SystemProxyStatus::detect();
+    let tun_device = TunDeviceStatus::detect();
     let default_dns_options = MixedDnsOptions::default();
     let inbound = LocalInbound::Mixed {
         listen: "127.0.0.1".to_string(),
@@ -1838,6 +1840,7 @@ fn collect_doctor_report() -> DoctorReport {
         system_proxy_server: system_proxy_status.server,
         system_proxy_error: system_proxy_status.error,
         tun: capabilities.tun,
+        tun_device,
         secure_storage: capabilities.secure_storage,
         inbound_debug: format!("{inbound:?}"),
         inbound_kind: "mixed",
@@ -1871,6 +1874,34 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
         report.system_proxy_error.as_deref().unwrap_or("-")
     )?;
     writeln!(writer, "tun={}", report.tun)?;
+    writeln!(
+        writer,
+        "tun_device_supported={} lifecycle_available={} state={} interface={} address={} mtu={} dns_hijack={} error={}",
+        report.tun_device.supported,
+        report.tun_device.lifecycle_available,
+        if report.tun_device.running {
+            "running"
+        } else if report.tun_device.supported {
+            "stopped"
+        } else {
+            "unsupported"
+        },
+        report.tun_device.interface_name.as_deref().unwrap_or("-"),
+        report.tun_device.address_cidr.as_deref().unwrap_or("-"),
+        report
+            .tun_device
+            .mtu
+            .map(|mtu| mtu.to_string())
+            .as_deref()
+            .unwrap_or("-"),
+        report
+            .tun_device
+            .dns_hijack
+            .map(|dns_hijack| dns_hijack.to_string())
+            .as_deref()
+            .unwrap_or("-"),
+        report.tun_device.error.as_deref().unwrap_or("-")
+    )?;
     writeln!(writer, "secure_storage={}", report.secure_storage)?;
     writeln!(writer, "inbound={}", report.inbound_debug)?;
     writeln!(writer, "route_default={}", report.route_default_debug)?;
@@ -1942,6 +1973,16 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
             "error": report.system_proxy_error.as_deref(),
         },
         "tun": report.tun,
+        "tun_device": {
+            "supported": report.tun_device.supported,
+            "lifecycle_available": report.tun_device.lifecycle_available,
+            "running": report.tun_device.running,
+            "interface_name": report.tun_device.interface_name.as_deref(),
+            "address_cidr": report.tun_device.address_cidr.as_deref(),
+            "mtu": report.tun_device.mtu,
+            "dns_hijack": report.tun_device.dns_hijack,
+            "error": report.tun_device.error.as_deref(),
+        },
         "secure_storage": report.secure_storage,
         "inbound": {
             "kind": report.inbound_kind,

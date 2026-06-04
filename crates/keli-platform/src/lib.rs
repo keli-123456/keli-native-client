@@ -1,4 +1,5 @@
 use std::fmt;
+use std::net::IpAddr;
 use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,6 +159,211 @@ pub trait SystemProxyController {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunDeviceConfig {
+    pub interface_name: String,
+    pub address_cidr: String,
+    pub mtu: u16,
+    pub dns_hijack: bool,
+}
+
+impl TunDeviceConfig {
+    pub fn new(
+        interface_name: impl Into<String>,
+        address_cidr: impl Into<String>,
+        mtu: u16,
+    ) -> Result<Self, TunDeviceError> {
+        let config = Self {
+            interface_name: interface_name.into(),
+            address_cidr: address_cidr.into(),
+            mtu,
+            dns_hijack: false,
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    pub fn with_dns_hijack(mut self, dns_hijack: bool) -> Self {
+        self.dns_hijack = dns_hijack;
+        self
+    }
+
+    pub fn validate(&self) -> Result<(), TunDeviceError> {
+        validate_tun_interface_name(&self.interface_name)?;
+        validate_tun_address_cidr(&self.address_cidr)?;
+        validate_tun_mtu(self.mtu)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunDeviceSnapshot {
+    pub supported: bool,
+    pub lifecycle_available: bool,
+    pub running: bool,
+    pub interface_name: Option<String>,
+    pub address_cidr: Option<String>,
+    pub mtu: Option<u16>,
+    pub dns_hijack: Option<bool>,
+}
+
+impl TunDeviceSnapshot {
+    fn unsupported() -> Self {
+        Self {
+            supported: false,
+            lifecycle_available: false,
+            running: false,
+            interface_name: None,
+            address_cidr: None,
+            mtu: None,
+            dns_hijack: None,
+        }
+    }
+
+    fn stopped_supported_without_backend() -> Self {
+        Self {
+            supported: true,
+            lifecycle_available: false,
+            running: false,
+            interface_name: None,
+            address_cidr: None,
+            mtu: None,
+            dns_hijack: None,
+        }
+    }
+
+    pub fn running(config: &TunDeviceConfig) -> Self {
+        Self {
+            supported: true,
+            lifecycle_available: true,
+            running: true,
+            interface_name: Some(config.interface_name.clone()),
+            address_cidr: Some(config.address_cidr.clone()),
+            mtu: Some(config.mtu),
+            dns_hijack: Some(config.dns_hijack),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunDeviceStatus {
+    pub supported: bool,
+    pub lifecycle_available: bool,
+    pub running: bool,
+    pub interface_name: Option<String>,
+    pub address_cidr: Option<String>,
+    pub mtu: Option<u16>,
+    pub dns_hijack: Option<bool>,
+    pub error: Option<String>,
+}
+
+impl TunDeviceStatus {
+    pub fn detect() -> Self {
+        let controller = NativeTunDeviceController::new();
+        match controller.snapshot() {
+            Ok(snapshot) => Self::from_snapshot(snapshot, None),
+            Err(TunDeviceError::UnsupportedPlatform(_)) => {
+                Self::from_snapshot(TunDeviceSnapshot::unsupported(), None)
+            }
+            Err(error) => Self::from_snapshot(TunDeviceSnapshot::unsupported(), Some(error)),
+        }
+    }
+
+    fn from_snapshot(snapshot: TunDeviceSnapshot, error: Option<TunDeviceError>) -> Self {
+        Self {
+            supported: snapshot.supported,
+            lifecycle_available: snapshot.lifecycle_available,
+            running: snapshot.running,
+            interface_name: snapshot.interface_name,
+            address_cidr: snapshot.address_cidr,
+            mtu: snapshot.mtu,
+            dns_hijack: snapshot.dns_hijack,
+            error: error.map(|error| error.to_string()),
+        }
+    }
+}
+
+pub trait TunDeviceController {
+    fn snapshot(&self) -> Result<TunDeviceSnapshot, TunDeviceError>;
+    fn start(&self, config: &TunDeviceConfig) -> Result<TunDeviceSnapshot, TunDeviceError>;
+    fn stop(&self) -> Result<TunDeviceSnapshot, TunDeviceError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeTunDeviceController {
+    platform: PlatformKind,
+}
+
+impl NativeTunDeviceController {
+    pub fn new() -> Self {
+        Self {
+            platform: PlatformKind::current(),
+        }
+    }
+
+    pub fn for_platform(platform: PlatformKind) -> Self {
+        Self { platform }
+    }
+}
+
+impl Default for NativeTunDeviceController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TunDeviceController for NativeTunDeviceController {
+    fn snapshot(&self) -> Result<TunDeviceSnapshot, TunDeviceError> {
+        match self.platform {
+            PlatformKind::Windows | PlatformKind::Android => {
+                Ok(TunDeviceSnapshot::stopped_supported_without_backend())
+            }
+            ref platform => Err(TunDeviceError::UnsupportedPlatform(platform.clone())),
+        }
+    }
+
+    fn start(&self, config: &TunDeviceConfig) -> Result<TunDeviceSnapshot, TunDeviceError> {
+        config.validate()?;
+        match self.platform {
+            PlatformKind::Windows | PlatformKind::Android => {
+                Err(TunDeviceError::LifecycleUnavailable(self.platform.clone()))
+            }
+            ref platform => Err(TunDeviceError::UnsupportedPlatform(platform.clone())),
+        }
+    }
+
+    fn stop(&self) -> Result<TunDeviceSnapshot, TunDeviceError> {
+        self.snapshot()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TunDeviceError {
+    UnsupportedPlatform(PlatformKind),
+    LifecycleUnavailable(PlatformKind),
+    InvalidInterfaceName(String),
+    InvalidAddressCidr(String),
+    InvalidMtu(u16),
+    Io(String),
+}
+
+impl fmt::Display for TunDeviceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedPlatform(platform) => write!(f, "TUN is unsupported on {platform:?}"),
+            Self::LifecycleUnavailable(platform) => {
+                write!(f, "TUN lifecycle backend is unavailable on {platform:?}")
+            }
+            Self::InvalidInterfaceName(name) => write!(f, "invalid TUN interface name: {name}"),
+            Self::InvalidAddressCidr(address) => write!(f, "invalid TUN address CIDR: {address}"),
+            Self::InvalidMtu(mtu) => write!(f, "invalid TUN MTU: {mtu}"),
+            Self::Io(error) => write!(f, "TUN command failed: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for TunDeviceError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeSystemProxyController {
     platform: PlatformKind,
 }
@@ -270,6 +476,47 @@ fn validate_proxy_server(server: &str) -> Result<(), SystemProxyError> {
         })
     {
         return Err(SystemProxyError::InvalidProxyServer(server.to_string()));
+    }
+    Ok(())
+}
+
+fn validate_tun_interface_name(name: &str) -> Result<(), TunDeviceError> {
+    let trimmed = name.trim();
+    if trimmed.is_empty()
+        || trimmed.len() > 64
+        || trimmed.contains(char::is_whitespace)
+        || trimmed.contains('/')
+        || trimmed.contains('\\')
+        || trimmed.contains(':')
+    {
+        return Err(TunDeviceError::InvalidInterfaceName(name.to_string()));
+    }
+    Ok(())
+}
+
+fn validate_tun_address_cidr(address_cidr: &str) -> Result<(), TunDeviceError> {
+    let Some((address, prefix)) = address_cidr.split_once('/') else {
+        return Err(TunDeviceError::InvalidAddressCidr(address_cidr.to_string()));
+    };
+    let address = address
+        .parse::<IpAddr>()
+        .map_err(|_| TunDeviceError::InvalidAddressCidr(address_cidr.to_string()))?;
+    let prefix = prefix
+        .parse::<u8>()
+        .map_err(|_| TunDeviceError::InvalidAddressCidr(address_cidr.to_string()))?;
+    let max_prefix = match address {
+        IpAddr::V4(_) => 32,
+        IpAddr::V6(_) => 128,
+    };
+    if prefix > max_prefix {
+        return Err(TunDeviceError::InvalidAddressCidr(address_cidr.to_string()));
+    }
+    Ok(())
+}
+
+fn validate_tun_mtu(mtu: u16) -> Result<(), TunDeviceError> {
+    if !(1280..=9000).contains(&mtu) {
+        return Err(TunDeviceError::InvalidMtu(mtu));
     }
     Ok(())
 }
@@ -486,5 +733,79 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
             controller.snapshot().expect_err("unsupported platform"),
             SystemProxyError::UnsupportedPlatform(PlatformKind::Linux)
         );
+    }
+
+    #[test]
+    fn tun_device_config_validates_name_cidr_and_mtu() {
+        let config = TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500)
+            .expect("valid TUN device config")
+            .with_dns_hijack(true);
+
+        assert_eq!(config.interface_name, "keli-tun0");
+        assert_eq!(config.address_cidr, "10.7.0.1/24");
+        assert_eq!(config.mtu, 1500);
+        assert!(config.dns_hijack);
+        assert_eq!(
+            TunDeviceConfig::new("bad tun", "10.7.0.1/24", 1500).expect_err("spaces are invalid"),
+            TunDeviceError::InvalidInterfaceName("bad tun".to_string())
+        );
+        assert_eq!(
+            TunDeviceConfig::new("keli-tun0", "10.7.0.1", 1500).expect_err("missing CIDR prefix"),
+            TunDeviceError::InvalidAddressCidr("10.7.0.1".to_string())
+        );
+        assert_eq!(
+            TunDeviceConfig::new("keli-tun0", "10.7.0.1/33", 1500)
+                .expect_err("invalid IPv4 prefix"),
+            TunDeviceError::InvalidAddressCidr("10.7.0.1/33".to_string())
+        );
+        assert_eq!(
+            TunDeviceConfig::new("keli-tun0", "fd00::1/129", 1500)
+                .expect_err("invalid IPv6 prefix"),
+            TunDeviceError::InvalidAddressCidr("fd00::1/129".to_string())
+        );
+        assert_eq!(
+            TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 576).expect_err("MTU too small"),
+            TunDeviceError::InvalidMtu(576)
+        );
+    }
+
+    #[test]
+    fn native_tun_controller_reports_lifecycle_boundary() {
+        let windows = NativeTunDeviceController::for_platform(PlatformKind::Windows);
+        let snapshot = windows.snapshot().expect("windows TUN status");
+
+        assert!(snapshot.supported);
+        assert!(!snapshot.lifecycle_available);
+        assert!(!snapshot.running);
+        assert_eq!(
+            windows
+                .start(
+                    &TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500).expect("valid config")
+                )
+                .expect_err("native backend is not wired yet"),
+            TunDeviceError::LifecycleUnavailable(PlatformKind::Windows)
+        );
+
+        let linux = NativeTunDeviceController::for_platform(PlatformKind::Linux);
+        assert_eq!(
+            linux.snapshot().expect_err("linux TUN unsupported"),
+            TunDeviceError::UnsupportedPlatform(PlatformKind::Linux)
+        );
+    }
+
+    #[test]
+    fn tun_device_snapshot_reports_running_config() {
+        let config = TunDeviceConfig::new("keli-tun0", "fd00::1/64", 1400)
+            .expect("valid IPv6 TUN config")
+            .with_dns_hijack(true);
+        let snapshot = TunDeviceSnapshot::running(&config);
+
+        assert!(snapshot.supported);
+        assert!(snapshot.lifecycle_available);
+        assert!(snapshot.running);
+        assert_eq!(snapshot.interface_name.as_deref(), Some("keli-tun0"));
+        assert_eq!(snapshot.address_cidr.as_deref(), Some("fd00::1/64"));
+        assert_eq!(snapshot.mtu, Some(1400));
+        assert_eq!(snapshot.dns_hijack, Some(true));
     }
 }

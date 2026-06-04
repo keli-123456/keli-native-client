@@ -107,6 +107,10 @@ The first implementation target is deliberately small:
    Shadowsocks, and Trojan/VLESS/VMess WebSocket, HTTPUpgrade, gRPC, H2, legacy
    QUIC, AnyTLS, Naive, Mieru, HY2, and TUIC transports also use the injected
    DNS policy for server resolution.
+   The platform layer now exposes a typed TUN device lifecycle boundary with
+   config validation, support/lifecycle/running state, and doctor diagnostics so
+   UI flows can distinguish platform support from an installed native TUN
+   backend.
 4. Keli panel integration: subscription fetch/update, user state, node
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,
