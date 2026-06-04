@@ -182,6 +182,99 @@ fn parses_trojan_grpc_tls_share_link() {
 }
 
 #[test]
+fn parses_trojan_httpupgrade_tls_share_link() {
+    let links = "trojan://password@example.com:443?security=tls&sni=edge.example&type=httpupgrade&host=host.example&path=%2Fupgrade&allowInsecure=1#trojan-httpupgrade";
+
+    let parsed = parse_share_outbound_profiles(links).expect("parse share links");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "trojan-httpupgrade");
+    assert_eq!(profile.protocol, ProxyProtocol::Trojan);
+    assert_eq!(profile.endpoint, Endpoint::new("example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::HttpUpgrade {
+            path: "/upgrade".to_string(),
+            host: Some("host.example".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(profile.credential, "password");
+    profile
+        .validate()
+        .expect("valid trojan httpupgrade profile");
+}
+
+#[test]
+fn parses_trojan_h2_tls_share_link() {
+    let links = "trojan://password@example.com:443?security=tls&sni=edge.example&type=h2&host=host.example&path=%2Fh2#trojan-h2";
+
+    let parsed = parse_share_outbound_profiles(links).expect("parse share links");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "trojan-h2");
+    assert_eq!(profile.protocol, ProxyProtocol::Trojan);
+    assert_eq!(profile.endpoint, Endpoint::new("example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::Http2 {
+            path: "/h2".to_string(),
+            host: Some("host.example".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: false,
+        }
+    );
+    assert_eq!(profile.credential, "password");
+    profile.validate().expect("valid trojan h2 profile");
+}
+
+#[test]
+fn parses_trojan_quic_tls_share_link() {
+    let links = "trojan://password@example.com:443?security=tls&sni=edge.example&type=quic&quicSecurity=chacha20-poly1305&key=secret&headerType=srtp#trojan-quic";
+
+    let parsed = parse_share_outbound_profiles(links).expect("parse share links");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "trojan-quic");
+    assert_eq!(profile.protocol, ProxyProtocol::Trojan);
+    assert_eq!(profile.endpoint, Endpoint::new("example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::Quic {
+            security: Some("chacha20-poly1305".to_string()),
+            key: Some("secret".to_string()),
+            header_type: Some("srtp".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: false,
+        }
+    );
+    assert_eq!(profile.credential, "password");
+    profile.validate().expect("valid trojan quic profile");
+}
+
+#[test]
 fn parses_vmess_grpc_tls_share_link() {
     let links = "vmess://00112233-4455-6677-8899-aabbccddeeff@example.com:443?security=tls&sni=edge.example&type=grpc&serviceName=GunService&cipher=none#vmess-grpc";
 
@@ -209,6 +302,100 @@ fn parses_vmess_grpc_tls_share_link() {
     assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
     assert_eq!(profile.cipher, Some("none".to_string()));
     profile.validate().expect("valid vmess grpc profile");
+}
+
+#[test]
+fn parses_vmess_httpupgrade_tls_share_link() {
+    let links = "vmess://00112233-4455-6677-8899-aabbccddeeff@example.com:443?security=tls&sni=edge.example&type=httpupgrade&host=host.example&path=%2Fupgrade&cipher=auto#vmess-httpupgrade";
+
+    let parsed = parse_share_outbound_profiles(links).expect("parse share links");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "vmess-httpupgrade");
+    assert_eq!(profile.protocol, ProxyProtocol::Vmess);
+    assert_eq!(profile.endpoint, Endpoint::new("example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::HttpUpgrade {
+            path: "/upgrade".to_string(),
+            host: Some("host.example".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: false,
+        }
+    );
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    assert_eq!(profile.cipher, Some("auto".to_string()));
+    profile.validate().expect("valid vmess httpupgrade profile");
+}
+
+#[test]
+fn parses_vmess_h2_tls_share_link() {
+    let links = "vmess://00112233-4455-6677-8899-aabbccddeeff@example.com:443?security=tls&sni=edge.example&type=h2&host=host.example&path=%2Fh2&cipher=none#vmess-h2";
+
+    let parsed = parse_share_outbound_profiles(links).expect("parse share links");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "vmess-h2");
+    assert_eq!(profile.protocol, ProxyProtocol::Vmess);
+    assert_eq!(profile.endpoint, Endpoint::new("example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::Http2 {
+            path: "/h2".to_string(),
+            host: Some("host.example".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: false,
+        }
+    );
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    assert_eq!(profile.cipher, Some("none".to_string()));
+    profile.validate().expect("valid vmess h2 profile");
+}
+
+#[test]
+fn parses_vmess_quic_tls_share_link() {
+    let links = "vmess://00112233-4455-6677-8899-aabbccddeeff@example.com:443?security=tls&sni=edge.example&type=quic&quicSecurity=aes-128-gcm&key=secret&headerType=none&cipher=auto#vmess-quic";
+
+    let parsed = parse_share_outbound_profiles(links).expect("parse share links");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "vmess-quic");
+    assert_eq!(profile.protocol, ProxyProtocol::Vmess);
+    assert_eq!(profile.endpoint, Endpoint::new("example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::Quic {
+            security: Some("aes-128-gcm".to_string()),
+            key: Some("secret".to_string()),
+            header_type: Some("none".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: false,
+        }
+    );
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    assert_eq!(profile.cipher, Some("auto".to_string()));
+    profile.validate().expect("valid vmess quic profile");
 }
 
 #[test]
