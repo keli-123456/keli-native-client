@@ -83,6 +83,8 @@ Tagged outbound UDP TUN relay uses the same response-packet path while
 preserving the selected outbound tag for registered proxy UDP execution.
 Registry-backed TUN UDP relay can execute direct and tagged outbound UDP
 datagrams through the shared outbound registry and DNS policy path.
+Managed TUN packet loops can now run against a mixed runtime, using its route
+engine, outbound registry, relay timeout, and DNS policy for UDP packets.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 

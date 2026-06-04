@@ -1,13 +1,19 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::net::UdpSocket;
+use std::rc::Rc;
+use std::thread;
 use std::time::Duration;
 
 use keli_cli::{
-    apply_tun_device_for_config, run_managed_tun_packet_loop, run_with_optional_tun_device,
-    write_tun_preflight_report_with_controller, PlatformTunPacketDevice, ProbeOutputFormat,
+    apply_tun_device_for_config, run_managed_tun_packet_loop,
+    run_managed_tun_packet_loop_with_runtime, run_with_optional_tun_device,
+    write_tun_preflight_report_with_controller, MixedProxyRuntime, PlatformTunPacketDevice,
+    ProbeOutputFormat,
 };
 use keli_net_core::{
-    DnsCache, DnsEngine, RouteAction, RouteEngine, SystemDnsResolver, TunPacketDevice,
+    parse_tun_udp_payload, DnsCache, DnsEngine, OutboundRegistry, RelayOptions, RouteAction,
+    RouteEngine, SystemDnsResolver, TunPacketDevice,
 };
 use keli_platform::{
     TunDeviceConfig, TunDeviceController, TunDeviceError, TunDeviceSnapshot, TunPacketIo,
@@ -332,6 +338,7 @@ fn managed_tun_packet_loop_runs_platform_io_and_stops_owned_device() {
         .with_packet_io(FakeTunPacketIo {
             reads: VecDeque::from(vec![vec![0]]),
             writes: Vec::new(),
+            shared_writes: None,
         });
     let routes = RouteEngine::new(RouteAction::Direct);
     let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
@@ -384,10 +391,71 @@ fn managed_tun_packet_loop_stops_owned_device_after_packet_io_open_failure() {
 }
 
 #[test]
+fn managed_tun_packet_loop_with_runtime_relays_tagged_udp_via_registry() {
+    let config = TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500)
+        .expect("valid TUN config")
+        .with_dns_hijack(true);
+    let stopped_snapshot = TunDeviceSnapshot {
+        supported: true,
+        lifecycle_available: true,
+        packet_io_available: true,
+        running: false,
+        interface_name: None,
+        address_cidr: None,
+        mtu: None,
+        dns_hijack: None,
+    };
+    let (udp_port, udp_server) = spawn_udp_echo_server(b"ping", b"pong");
+    let writes = Rc::new(RefCell::new(Vec::new()));
+    let controller = FakeTunDeviceController::new(stopped_snapshot.clone())
+        .with_start_result(TunDeviceSnapshot::running(&config))
+        .with_stop_result(stopped_snapshot)
+        .with_packet_io(FakeTunPacketIo {
+            reads: VecDeque::from(vec![ipv4_packet(
+                17,
+                "10.7.0.2",
+                "127.0.0.1",
+                &udp_datagram(54321, udp_port, b"ping"),
+            )]),
+            writes: Vec::new(),
+            shared_writes: Some(Rc::clone(&writes)),
+        });
+    let mut outbounds = OutboundRegistry::new();
+    outbounds.add_direct("edge");
+    let runtime = MixedProxyRuntime {
+        routes: RouteEngine::new(RouteAction::Outbound("edge".to_string())),
+        relay_options: RelayOptions {
+            first_byte_timeout: Some(Duration::from_secs(1)),
+            idle_timeout: Some(Duration::from_secs(1)),
+        },
+        outbounds,
+        dns_options: Default::default(),
+    };
+
+    let report =
+        run_managed_tun_packet_loop_with_runtime(&controller, config.clone(), &runtime, 30, 1)
+            .expect("run managed TUN packet loop with runtime relay");
+
+    assert_eq!(controller.starts.borrow().as_slice(), &[config.clone()]);
+    assert_eq!(controller.opens.borrow().as_slice(), &[config]);
+    assert_eq!(*controller.stops.borrow(), 1);
+    assert_eq!(report.summary.processed_packets(), 1);
+    assert_eq!(report.summary.udp_relay_responses_written, 1);
+    let writes = writes.borrow();
+    assert_eq!(writes.len(), 1);
+    let response = parse_tun_udp_payload(&writes[0]).expect("parse TUN UDP response");
+    assert_eq!(response.flow.source_port, Some(udp_port));
+    assert_eq!(response.flow.destination_port, Some(54321));
+    assert_eq!(response.payload, b"pong");
+    udp_server.join().expect("UDP echo server");
+}
+
+#[test]
 fn platform_tun_packet_device_adapts_packet_io_to_net_core_device() {
     let fake_io = FakeTunPacketIo {
         reads: VecDeque::from(vec![vec![1, 2, 3]]),
         writes: Vec::new(),
+        shared_writes: None,
     };
     let mut device = PlatformTunPacketDevice::new(fake_io);
 
@@ -402,10 +470,61 @@ fn platform_tun_packet_device_adapts_packet_io_to_net_core_device() {
     assert_eq!(fake_io.writes, vec![vec![4, 5, 6]]);
 }
 
+fn spawn_udp_echo_server(
+    expected_request: &'static [u8],
+    response: &'static [u8],
+) -> (u16, thread::JoinHandle<()>) {
+    let socket = UdpSocket::bind("127.0.0.1:0").expect("bind UDP echo server");
+    socket
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .expect("set UDP echo server timeout");
+    let port = socket.local_addr().expect("UDP echo server address").port();
+    let server = thread::spawn(move || {
+        let mut request = [0; 1500];
+        let (size, peer) = socket.recv_from(&mut request).expect("read UDP request");
+        assert_eq!(&request[..size], expected_request);
+        socket.send_to(response, peer).expect("write UDP response");
+    });
+    (port, server)
+}
+
+fn ipv4_packet(protocol: u8, source: &str, destination: &str, payload: &[u8]) -> Vec<u8> {
+    let source: [u8; 4] = source
+        .parse::<std::net::Ipv4Addr>()
+        .expect("valid source IPv4")
+        .octets();
+    let destination: [u8; 4] = destination
+        .parse::<std::net::Ipv4Addr>()
+        .expect("valid destination IPv4")
+        .octets();
+    let total_length = 20 + payload.len();
+    let mut packet = vec![0; total_length];
+    packet[0] = 0x45;
+    packet[2..4].copy_from_slice(&(total_length as u16).to_be_bytes());
+    packet[8] = 64;
+    packet[9] = protocol;
+    packet[12..16].copy_from_slice(&source);
+    packet[16..20].copy_from_slice(&destination);
+    packet[20..].copy_from_slice(payload);
+    packet
+}
+
+fn udp_datagram(source_port: u16, destination_port: u16, payload: &[u8]) -> Vec<u8> {
+    let length = 8 + payload.len();
+    let mut datagram = Vec::with_capacity(length);
+    datagram.extend_from_slice(&source_port.to_be_bytes());
+    datagram.extend_from_slice(&destination_port.to_be_bytes());
+    datagram.extend_from_slice(&(length as u16).to_be_bytes());
+    datagram.extend_from_slice(&0u16.to_be_bytes());
+    datagram.extend_from_slice(payload);
+    datagram
+}
+
 #[derive(Debug, Default)]
 struct FakeTunPacketIo {
     reads: VecDeque<Vec<u8>>,
     writes: Vec<Vec<u8>>,
+    shared_writes: Option<Rc<RefCell<Vec<Vec<u8>>>>>,
 }
 
 impl TunPacketIo for FakeTunPacketIo {
@@ -415,6 +534,9 @@ impl TunPacketIo for FakeTunPacketIo {
 
     fn write_packet(&mut self, packet: &[u8]) -> Result<(), TunDeviceError> {
         self.writes.push(packet.to_vec());
+        if let Some(shared_writes) = &self.shared_writes {
+            shared_writes.borrow_mut().push(packet.to_vec());
+        }
         Ok(())
     }
 }
