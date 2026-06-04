@@ -72,6 +72,67 @@ fn registry_from_trojan_tls_tcp_profile_relays_over_tls() {
 }
 
 #[test]
+fn registry_from_trojan_tls_tcp_profile_relays_udp_over_tls() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind trojan tls udp server");
+    let port = listener.local_addr().expect("server addr").port();
+    let server_config = tls_server_config();
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept trojan tls udp");
+        let connection = rustls::ServerConnection::new(server_config).expect("server tls");
+        let mut stream = rustls::StreamOwned::new(connection, stream);
+        let mut request_header = [0; 68];
+        stream
+            .read_exact(&mut request_header)
+            .expect("read trojan udp associate header");
+        assert_eq!(
+            &request_header[..],
+            b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x03\x01\x7f\x00\x00\x01\x005\r\n"
+        );
+        let mut request_payload = [0; 15];
+        stream
+            .read_exact(&mut request_payload)
+            .expect("read trojan udp packet");
+        assert_eq!(
+            &request_payload,
+            b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\nping"
+        );
+        stream
+            .write_all(b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\npong")
+            .expect("write trojan udp response packet");
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Trojan,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Tcp,
+        security: SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: true,
+        },
+        credential: "password".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("127.0.0.1", 53),
+            b"ping",
+            Duration::from_secs(1),
+        )
+        .expect("registered Trojan TLS TCP UDP outbound should relay");
+
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("response source")
+    );
+    assert_eq!(response.payload, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn registry_from_vless_tls_tcp_profile_relays_over_tls() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind vless tls tcp server");
     let port = listener.local_addr().expect("server addr").port();

@@ -465,6 +465,55 @@ fn registered_trojan_tcp_outbound_writes_header_and_relays_stream() {
 }
 
 #[test]
+fn registry_from_trojan_profile_relays_udp_over_tcp() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind trojan udp server");
+    let port = listener.local_addr().expect("trojan udp addr").port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept trojan udp server");
+        let mut request_header = [0; 68];
+        stream
+            .read_exact(&mut request_header)
+            .expect("read trojan udp associate header");
+        assert_eq!(
+            &request_header[..],
+            b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x03\x01\x7f\x00\x00\x01\x005\r\n"
+        );
+        let mut request_payload = [0; 15];
+        stream
+            .read_exact(&mut request_payload)
+            .expect("read trojan udp packet");
+        assert_eq!(
+            &request_payload,
+            b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\nping"
+        );
+        stream
+            .write_all(b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\npong")
+            .expect("write trojan udp response packet");
+    });
+    let mut registry = OutboundRegistry::new();
+    registry.add_trojan_tcp(
+        "proxy",
+        TrojanTcpOutbound::new(Endpoint::new("127.0.0.1", port), "password"),
+    );
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("127.0.0.1", 53),
+            b"ping",
+            Duration::from_secs(1),
+        )
+        .expect("registered Trojan TCP UDP outbound should relay");
+
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("response source")
+    );
+    assert_eq!(response.payload, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn registry_from_trojan_httpupgrade_profile_relays_after_upgrade() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind trojan hu server");
     let port = listener.local_addr().expect("trojan hu addr").port();

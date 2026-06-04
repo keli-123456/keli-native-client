@@ -27,8 +27,9 @@ use crate::{
 };
 use keli_protocol::{
     encode_shadowsocks_tcp_request_header, encode_trojan_tcp_request_header,
-    encode_vless_tcp_request_header, encode_vless_udp_request_header, Endpoint, OutboundProfile,
-    ProtocolEncodingError, ProtocolValidationError, ProxyProtocol, SecurityKind, TransportKind,
+    encode_trojan_udp_packet, encode_trojan_udp_request_header, encode_vless_tcp_request_header,
+    encode_vless_udp_request_header, Endpoint, OutboundProfile, ProtocolEncodingError,
+    ProtocolValidationError, ProxyProtocol, SecurityKind, TransportKind,
 };
 
 const VMESS_VERSION: u8 = 0x01;
@@ -37,6 +38,9 @@ const VMESS_COMMAND_UDP: u8 = 0x02;
 const VMESS_ATYP_IPV4: u8 = 0x01;
 const VMESS_ATYP_DOMAIN: u8 = 0x02;
 const VMESS_ATYP_IPV6: u8 = 0x03;
+const TROJAN_ATYP_IPV4: u8 = 0x01;
+const TROJAN_ATYP_DOMAIN: u8 = 0x03;
+const TROJAN_ATYP_IPV6: u8 = 0x04;
 const VMESS_OPTION_CHUNK_STREAM: u8 = 0x01;
 const VMESS_OPTION_CHUNK_MASKING: u8 = 0x04;
 const VMESS_SECURITY_AES_128_GCM: u8 = 0x03;
@@ -1372,6 +1376,10 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vless_tls_h2_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vless_quic_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.trojan_tcp_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.trojan_tls_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
@@ -3704,6 +3712,17 @@ impl TrojanTcpOutbound {
         stream.write_all(&header)?;
         Ok(OutboundConnection::Tcp(stream))
     }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        send_trojan_udp_over_stream(stream, &self.password, target, payload, timeout)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3742,6 +3761,18 @@ impl TrojanTlsTcpOutbound {
             .map_err(protocol_encoding_to_io)?;
         stream.write_all(&header)?;
         Ok(OutboundConnection::Owned(Box::new(stream)))
+    }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
+        send_trojan_udp_over_stream(stream, &self.password, target, payload, timeout)
     }
 }
 
@@ -5255,6 +5286,113 @@ fn send_vmess_udp_over_stream<S: Read + Write>(
         source: outbound_target_socket_addr(target, timeout)?,
         payload: response,
     })
+}
+
+fn send_trojan_udp_over_stream<S: Read + Write>(
+    mut stream: S,
+    password: &str,
+    target: &OutboundTarget,
+    payload: &[u8],
+    timeout: Duration,
+) -> io::Result<UdpRelayResponse> {
+    let target_endpoint = Endpoint::new(target.host.clone(), target.port);
+    let header = encode_trojan_udp_request_header(password, &target_endpoint)
+        .map_err(protocol_encoding_to_io)?;
+    let packet =
+        encode_trojan_udp_packet(&target_endpoint, payload).map_err(protocol_encoding_to_io)?;
+    stream.write_all(&header)?;
+    stream.write_all(&packet)?;
+    stream.flush()?;
+    read_trojan_udp_packet(&mut stream, timeout)
+}
+
+fn read_trojan_udp_packet(
+    stream: &mut impl Read,
+    timeout: Duration,
+) -> io::Result<UdpRelayResponse> {
+    let source = read_trojan_packet_target(stream)?;
+    let mut len = [0; 2];
+    stream.read_exact(&mut len)?;
+    read_trojan_crlf(stream)?;
+    let mut payload = vec![0; usize::from(u16::from_be_bytes(len))];
+    stream.read_exact(&mut payload)?;
+    Ok(UdpRelayResponse {
+        source: trojan_endpoint_socket_addr(&source, timeout)?,
+        payload,
+    })
+}
+
+fn read_trojan_packet_target(stream: &mut impl Read) -> io::Result<Endpoint> {
+    let mut atyp = [0; 1];
+    stream.read_exact(&mut atyp)?;
+    let host = match atyp[0] {
+        TROJAN_ATYP_IPV4 => {
+            let mut ip = [0; 4];
+            stream.read_exact(&mut ip)?;
+            Ipv4Addr::from(ip).to_string()
+        }
+        TROJAN_ATYP_DOMAIN => {
+            let mut len = [0; 1];
+            stream.read_exact(&mut len)?;
+            let mut host = vec![0; usize::from(len[0])];
+            stream.read_exact(&mut host)?;
+            String::from_utf8(host).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Trojan UDP domain is invalid UTF-8",
+                )
+            })?
+        }
+        TROJAN_ATYP_IPV6 => {
+            let mut ip = [0; 16];
+            stream.read_exact(&mut ip)?;
+            Ipv6Addr::from(ip).to_string()
+        }
+        value => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Trojan UDP address type is unsupported: {value}"),
+            ));
+        }
+    };
+    let mut port = [0; 2];
+    stream.read_exact(&mut port)?;
+    Ok(Endpoint::new(host, u16::from_be_bytes(port)))
+}
+
+fn read_trojan_crlf(stream: &mut impl Read) -> io::Result<()> {
+    let mut crlf = [0; 2];
+    stream.read_exact(&mut crlf)?;
+    if crlf == *b"\r\n" {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Trojan UDP packet is missing CRLF",
+        ))
+    }
+}
+
+fn trojan_endpoint_socket_addr(endpoint: &Endpoint, timeout: Duration) -> io::Result<SocketAddr> {
+    let host = endpoint.host.trim().trim_matches(['[', ']']);
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return Ok(SocketAddr::new(ip, endpoint.port));
+    }
+    let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(timeout));
+    dns.resolve(host, endpoint.port)
+        .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error))?
+        .into_iter()
+        .next()
+        .map(|address| SocketAddr::new(address.ip, address.port))
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AddrNotAvailable,
+                format!(
+                    "no address resolved for Trojan UDP source {}:{}",
+                    endpoint.host, endpoint.port
+                ),
+            )
+        })
 }
 
 fn vmess_request_option(security: VmessBodySecurity) -> u8 {

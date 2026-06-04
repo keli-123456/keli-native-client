@@ -17,6 +17,7 @@ const VLESS_ATYP_IPV4: u8 = 0x01;
 const VLESS_ATYP_DOMAIN: u8 = 0x02;
 const VLESS_ATYP_IPV6: u8 = 0x03;
 const TROJAN_COMMAND_CONNECT: u8 = 0x01;
+const TROJAN_COMMAND_UDP_ASSOCIATE: u8 = 0x03;
 const TROJAN_ATYP_IPV4: u8 = 0x01;
 const TROJAN_ATYP_DOMAIN: u8 = 0x03;
 const TROJAN_ATYP_IPV6: u8 = 0x04;
@@ -1521,6 +1522,36 @@ pub fn encode_trojan_tcp_request_header(
     Ok(header)
 }
 
+pub fn encode_trojan_udp_request_header(
+    password: &str,
+    target: &Endpoint,
+) -> Result<Vec<u8>, ProtocolEncodingError> {
+    if password.is_empty() {
+        return Err(ProtocolEncodingError::InvalidPassword);
+    }
+    let mut header = Vec::with_capacity(80 + target.host.len());
+    encode_trojan_password_hash(&mut header, password);
+    header.extend_from_slice(b"\r\n");
+    header.push(TROJAN_COMMAND_UDP_ASSOCIATE);
+    encode_trojan_target(&mut header, target)?;
+    header.extend_from_slice(b"\r\n");
+    Ok(header)
+}
+
+pub fn encode_trojan_udp_packet(
+    target: &Endpoint,
+    payload: &[u8],
+) -> Result<Vec<u8>, ProtocolEncodingError> {
+    let payload_len =
+        u16::try_from(payload.len()).map_err(|_| ProtocolEncodingError::PacketTooLong)?;
+    let mut packet = Vec::with_capacity(8 + target.host.len() + payload.len());
+    encode_trojan_target(&mut packet, target)?;
+    packet.extend_from_slice(&payload_len.to_be_bytes());
+    packet.extend_from_slice(b"\r\n");
+    packet.extend_from_slice(payload);
+    Ok(packet)
+}
+
 pub fn encode_shadowsocks_tcp_request_header(
     target: &Endpoint,
 ) -> Result<Vec<u8>, ProtocolEncodingError> {
@@ -2267,6 +2298,37 @@ mod tests {
             &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
         );
         assert_eq!(&header[76..], b"\x01\xbb\r\n");
+    }
+
+    #[test]
+    fn encodes_trojan_udp_associate_request_header_for_domain_target() {
+        let header =
+            encode_trojan_udp_request_header("password", &Endpoint::new("example.com", 53))
+                .expect("trojan udp header");
+
+        assert_eq!(
+            &header[..56],
+            b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01"
+        );
+        assert_eq!(&header[56..], b"\r\n\x03\x03\x0bexample.com\x005\r\n");
+    }
+
+    #[test]
+    fn encodes_trojan_udp_packet_for_ipv4_target() {
+        let packet = encode_trojan_udp_packet(&Endpoint::new("1.2.3.4", 53), b"ping")
+            .expect("trojan udp packet");
+
+        assert_eq!(&packet, b"\x01\x01\x02\x03\x04\x005\x00\x04\r\nping");
+    }
+
+    #[test]
+    fn rejects_trojan_udp_packet_payloads_larger_than_u16() {
+        let payload = vec![0u8; usize::from(u16::MAX) + 1];
+
+        assert_eq!(
+            encode_trojan_udp_packet(&Endpoint::new("1.2.3.4", 53), &payload),
+            Err(ProtocolEncodingError::PacketTooLong)
+        );
     }
 
     #[test]
