@@ -56,6 +56,10 @@ const SUPPORTED_UDP_OUTBOUNDS: &str =
     "direct,socks5-udp,trojan-tcp-udp,trojan-tls-tcp-udp,trojan-ws-udp,trojan-tls-ws-udp,trojan-httpupgrade-udp,trojan-tls-httpupgrade-udp,trojan-grpc-udp,trojan-tls-grpc-udp,trojan-h2-udp,trojan-tls-h2-udp,trojan-quic-udp,vless-tcp-udp,vless-tls-tcp-udp,vless-ws-udp,vless-tls-ws-udp,vless-httpupgrade-udp,vless-tls-httpupgrade-udp,vless-grpc-udp,vless-tls-grpc-udp,vless-h2-udp,vless-tls-h2-udp,vless-quic-udp,vmess-tcp-aead-udp,vmess-tls-tcp-aead-udp,vmess-ws-aead-udp,vmess-tls-ws-aead-udp,vmess-httpupgrade-aead-udp,vmess-tls-httpupgrade-aead-udp,vmess-grpc-aead-udp,vmess-tls-grpc-aead-udp,vmess-h2-aead-udp,vmess-tls-h2-aead-udp,vmess-quic-aead-udp,shadowsocks-aead,anytls-tls-tcp-uot-udp,mieru-tcp-udp,hy2-quic,tuic-quic";
 const SUPPORTED_PROTOCOL_CAPABILITIES: &str =
     "trojan=tcp,udp;vless=tcp,udp;vmess=tcp,udp;shadowsocks=tcp,udp;anytls=tcp,udp;naive=tcp;mieru=tcp,udp;hy2=tcp,udp;tuic=tcp,udp;socks=tcp,udp;http=tcp";
+const ROUTE_RULE_CAPABILITIES: &str =
+    "domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range";
+const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
+    "ipv4,ipv6,tcp,udp,icmp,route-decision,dns-hijack,relay-plan";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
@@ -2087,6 +2091,7 @@ struct DoctorReport {
     inbound_listen: &'static str,
     inbound_port: u16,
     route_default_debug: String,
+    route_rule_capabilities: Vec<&'static str>,
     dns_resolver: &'static str,
     dns_cache_ttl_seconds: u64,
     dns_leak_prevention_policy_available: bool,
@@ -2096,6 +2101,7 @@ struct DoctorReport {
     supported_outbounds: Vec<&'static str>,
     supported_udp_outbounds: Vec<&'static str>,
     protocol_capabilities: &'static str,
+    tun_packet_pipeline_capabilities: Vec<&'static str>,
     sample_profile_valid: bool,
     initial_phase: String,
 }
@@ -2170,6 +2176,7 @@ fn collect_doctor_report() -> DoctorReport {
         inbound_listen: "127.0.0.1",
         inbound_port: 7890,
         route_default_debug: format!("{route_engine:?}"),
+        route_rule_capabilities: ROUTE_RULE_CAPABILITIES.split(',').collect(),
         dns_resolver: "system_resolver",
         dns_cache_ttl_seconds: 60,
         dns_leak_prevention_policy_available: true,
@@ -2179,6 +2186,7 @@ fn collect_doctor_report() -> DoctorReport {
         supported_outbounds: SUPPORTED_OUTBOUNDS.split(',').collect(),
         supported_udp_outbounds: SUPPORTED_UDP_OUTBOUNDS.split(',').collect(),
         protocol_capabilities: SUPPORTED_PROTOCOL_CAPABILITIES,
+        tun_packet_pipeline_capabilities: TUN_PACKET_PIPELINE_CAPABILITIES.split(',').collect(),
         sample_profile_valid: profile.validate().is_ok(),
         initial_phase: format!("{:?}", ConnectionPhase::Idle),
     }
@@ -2224,6 +2232,11 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     writeln!(writer, "route_default={}", report.route_default_debug)?;
     writeln!(
         writer,
+        "route_rule_capabilities={}",
+        report.route_rule_capabilities.join(",")
+    )?;
+    writeln!(
+        writer,
         "dns_engine={} cache_ttl={}s",
         report.dns_resolver, report.dns_cache_ttl_seconds
     )?;
@@ -2261,6 +2274,11 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
         writer,
         "protocol_capabilities={}",
         report.protocol_capabilities
+    )?;
+    writeln!(
+        writer,
+        "tun_packet_pipeline_capabilities={}",
+        report.tun_packet_pipeline_capabilities.join(",")
     )?;
     writeln!(
         writer,
@@ -2307,6 +2325,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
             "port": report.inbound_port,
         },
         "route_default": &report.route_default_debug,
+        "route_rule_capabilities": &report.route_rule_capabilities,
         "dns_engine": {
             "resolver": report.dns_resolver,
             "cache_ttl_seconds": report.dns_cache_ttl_seconds,
@@ -2318,6 +2337,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         "supported_outbounds": &report.supported_outbounds,
         "supported_udp_outbounds": &report.supported_udp_outbounds,
         "protocol_capabilities": report.protocol_capabilities,
+        "tun_packet_pipeline_capabilities": &report.tun_packet_pipeline_capabilities,
         "sample_profile_valid": report.sample_profile_valid,
         "initial_phase": &report.initial_phase,
     })

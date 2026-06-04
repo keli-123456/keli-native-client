@@ -53,6 +53,8 @@ Those parsed packets can also be evaluated through the shared route engine,
 including optional UDP/53 DNS hijack decisions for future TUN read loops.
 The resulting TUN decisions map to relay plans for drop, DNS hijack, direct
 TCP/UDP, tagged outbound TCP/UDP, and unsupported transports.
+Doctor and support-bundle output report the route-rule and TUN packet pipeline
+capability sets for support and UI integration.
 
 ## Protocol Matrix
 

@@ -39,6 +39,11 @@ proxies:
     assert_eq!(report["schema_version"], 1);
     assert_eq!(report["doctor"]["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(report["doctor"]["platform"], "Windows");
+    assert_eq!(report["doctor"]["route_rule_capabilities"][3], "ip-cidr");
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][7],
+        "relay-plan"
+    );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");
     assert_eq!(report["tun_preflight"]["ready"], false);
     assert_eq!(

@@ -142,6 +142,9 @@ The first implementation target is deliberately small:
    Those decisions now map to relay plans for drop, DNS hijack, direct TCP/UDP,
    tagged outbound TCP/UDP, or unsupported transports, giving the future TUN
    read loop an executable control surface instead of only parsed metadata.
+   Doctor and support-bundle output report the route-rule and TUN packet
+   pipeline capability sets so UI and support tooling can see this data-plane
+   readiness without inspecting code.
 4. Keli panel integration: subscription fetch/update, user state, node
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,
