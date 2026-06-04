@@ -4,10 +4,11 @@ use std::time::Duration;
 use keli_net_core::{
     build_dns_error_response, build_dns_response, build_tun_dns_hijack_response,
     build_tun_dns_response_packet, decide_tun_packet_route, parse_tun_packet_flow,
-    parse_tun_udp_payload, plan_tun_dns_hijack, plan_tun_packet_relay, DnsCache, DnsEngine,
-    DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, OutboundTarget, RouteAction,
-    RouteDestination, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion,
-    TunPacketError, TunPacketRelayAction, TunTransportProtocol,
+    parse_tun_udp_payload, plan_tun_dns_hijack, plan_tun_packet_relay, process_tun_packet,
+    DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver,
+    OutboundTarget, RouteAction, RouteDestination, RouteEngine, RouteIpCidr, RouteMatcher,
+    RouteRule, RouteTarget, TunIpVersion, TunPacketError, TunPacketProcessAction,
+    TunPacketRelayAction, TunPacketRelayPlan, TunTransportProtocol,
 };
 
 #[test]
@@ -213,6 +214,93 @@ fn tun_dns_hijack_response_returns_nxdomain_when_local_resolution_is_blocked() {
 
     assert_eq!(response.rcode, 3);
     assert_eq!(dns_rcode(udp.payload), 3);
+}
+
+#[test]
+fn process_tun_packet_writes_dns_hijack_response_packet() {
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "8.8.8.8",
+        &udp_datagram(54321, 53, &dns_query(0x1234, "example.com", 1)),
+    );
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+
+    let action = process_tun_packet(&packet, &routes, true, &mut dns, 30)
+        .expect("process DNS hijack packet");
+
+    let TunPacketProcessAction::WritePacket { response } = action else {
+        panic!("expected DNS response write action");
+    };
+    assert_eq!(response.rcode, 0);
+    assert!(parse_tun_udp_payload(&response.packet)
+        .expect("parse response packet")
+        .payload
+        .windows(4)
+        .any(|window| window == [203, 0, 113, 7]));
+}
+
+#[test]
+fn process_tun_packet_returns_relay_plan_for_direct_udp() {
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "1.1.1.1",
+        &udp_datagram(54321, 443, b"keli"),
+    );
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+
+    let action = process_tun_packet(&packet, &routes, true, &mut dns, 30)
+        .expect("process direct UDP packet");
+
+    assert_eq!(
+        action,
+        TunPacketProcessAction::Relay(TunPacketRelayPlan {
+            route: decide_tun_packet_route(&packet, &routes, true).expect("route packet"),
+            relay_action: TunPacketRelayAction::DirectUdp {
+                target: OutboundTarget::new("1.1.1.1", 443)
+            }
+        })
+    );
+}
+
+#[test]
+fn process_tun_packet_returns_drop_plan_for_blocked_route() {
+    let mut routes = RouteEngine::new(RouteAction::Direct);
+    routes.add_rule(RouteRule {
+        name: "block-lan".to_string(),
+        matcher: RouteMatcher::IpCidr(
+            RouteIpCidr::new("10.0.0.0".parse().expect("valid IP"), 8).expect("valid CIDR"),
+        ),
+        action: RouteAction::Block,
+    });
+    let packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "10.1.2.3",
+        &udp_datagram(54321, 443, b"keli"),
+    );
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+
+    let action =
+        process_tun_packet(&packet, &routes, true, &mut dns, 30).expect("process blocked packet");
+
+    let TunPacketProcessAction::Relay(plan) = action else {
+        panic!("expected relay plan action");
+    };
+    assert_eq!(plan.relay_action, TunPacketRelayAction::Drop);
+    assert_eq!(plan.route.matched_rule, Some("block-lan".to_string()));
 }
 
 #[test]

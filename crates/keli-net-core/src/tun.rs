@@ -101,6 +101,12 @@ pub struct TunDnsHijackResponse {
     pub rcode: u8,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TunPacketProcessAction {
+    WritePacket { response: TunDnsHijackResponse },
+    Relay(TunPacketRelayPlan),
+}
+
 impl TunPacketFlow {
     pub fn route_destination(&self) -> RouteDestination {
         RouteDestination::new(
@@ -367,6 +373,22 @@ pub fn build_tun_dns_hijack_response<R: DnsResolver>(
         packet,
         rcode,
     })
+}
+
+pub fn process_tun_packet<R: DnsResolver>(
+    packet: &[u8],
+    routes: &RouteEngine,
+    dns_hijack_enabled: bool,
+    dns: &mut DnsEngine<R>,
+    dns_ttl_seconds: u32,
+) -> Result<TunPacketProcessAction, TunPacketError> {
+    let relay_plan = plan_tun_packet_relay(packet, routes, dns_hijack_enabled)?;
+    if relay_plan.relay_action == TunPacketRelayAction::HijackDns {
+        return Ok(TunPacketProcessAction::WritePacket {
+            response: build_tun_dns_hijack_response(packet, dns, dns_ttl_seconds)?,
+        });
+    }
+    Ok(TunPacketProcessAction::Relay(relay_plan))
 }
 
 pub fn build_tun_udp_response_packet(
