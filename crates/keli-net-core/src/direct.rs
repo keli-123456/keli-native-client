@@ -1228,8 +1228,19 @@ impl OutboundRegistry {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(tag, target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        tag: &str,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         if self.direct_tags.contains(tag) {
-            DirectTcpConnector::connect(target, timeout).map(OutboundConnection::Tcp)
+            DirectTcpConnector::connect_with_dns(target, timeout, dns).map(OutboundConnection::Tcp)
         } else if let Some(outbound) = self.socks5_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.http_connect_tags.get(tag) {
@@ -1329,8 +1340,20 @@ impl OutboundRegistry {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(tag, target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        tag: &str,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         if self.direct_tags.contains(tag) {
-            DirectUdpConnector::relay_datagram(target, payload, timeout)
+            DirectUdpConnector::relay_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.socks5_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vmess_tcp_tags.get(tag) {

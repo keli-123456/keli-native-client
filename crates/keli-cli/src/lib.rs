@@ -2610,10 +2610,13 @@ fn connect_by_route(
         }),
         RouteAction::Outbound(tag) => {
             let started = Instant::now();
-            match runtime
-                .outbounds
-                .connect(&tag, target, Duration::from_secs(10))
-            {
+            let mut dns = runtime.dns_options.engine();
+            match runtime.outbounds.connect_with_dns(
+                &tag,
+                target,
+                Duration::from_secs(10),
+                &mut dns,
+            ) {
                 Ok(stream) => Ok(RouteConnect::Direct {
                     stream,
                     route_action: RouteAction::Outbound(tag),
@@ -3127,9 +3130,10 @@ fn probe_udp_outbound(
         }
         RouteAction::Outbound(tag) => {
             report.route_action = RouteAction::Outbound(tag.clone());
+            let mut dns = runtime.dns_options.engine();
             runtime
                 .outbounds
-                .relay_udp_datagram(&tag, &target, payload, timeout)
+                .relay_udp_datagram_with_dns(&tag, &target, payload, timeout, &mut dns)
         }
         RouteAction::HijackDns => Err(io::Error::new(
             io::ErrorKind::Unsupported,

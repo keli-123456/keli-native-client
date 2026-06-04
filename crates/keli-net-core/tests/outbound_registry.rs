@@ -10,7 +10,8 @@ use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChachaNonce, XChaCha20Poly1305
 use hmac::{Hmac, Mac};
 use keli_net_core::{
     encode_socks5_udp_datagram, parse_socks5_udp_datagram, websocket_accept_for_key,
-    OutboundRegistry, OutboundTarget, ShadowsocksTcpOutbound, Socks5Address, TrojanTcpOutbound,
+    DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsLocalResolutionPolicy, OutboundRegistry,
+    OutboundTarget, ShadowsocksTcpOutbound, Socks5Address, SystemDnsResolver, TrojanTcpOutbound,
     VlessTcpOutbound,
 };
 use keli_protocol::{Endpoint, OutboundProfile, ProxyProtocol, SecurityKind, TransportKind};
@@ -83,6 +84,30 @@ fn registered_direct_outbound_connects_to_target() {
 }
 
 #[test]
+fn registered_direct_outbound_uses_injected_dns_policy() {
+    let mut registry = OutboundRegistry::new();
+    registry.add_direct("proxy");
+    let mut dns = DnsEngine::with_policies(
+        SystemDnsResolver,
+        DnsCache::new(Duration::from_secs(60)),
+        DnsLocalResolutionPolicy::AllowSystem,
+        DnsAddressFamilyPolicy::Ipv6Only,
+    );
+
+    let error = registry
+        .connect_with_dns(
+            "proxy",
+            &OutboundTarget::new("127.0.0.1", 443),
+            Duration::from_secs(1),
+            &mut dns,
+        )
+        .expect_err("IPv6-only DNS policy should reject IPv4 literals");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
+    assert!(error.to_string().contains("Ipv6Only"));
+}
+
+#[test]
 fn registered_direct_udp_outbound_relays_datagram() {
     let socket = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind udp target");
     socket
@@ -114,6 +139,31 @@ fn registered_direct_udp_outbound_relays_datagram() {
     assert_eq!(response.source.port(), port);
     assert_eq!(response.payload, b"pong");
     server.join().expect("server thread");
+}
+
+#[test]
+fn registered_direct_udp_outbound_uses_injected_dns_policy() {
+    let mut registry = OutboundRegistry::new();
+    registry.add_direct("proxy");
+    let mut dns = DnsEngine::with_policies(
+        SystemDnsResolver,
+        DnsCache::new(Duration::from_secs(60)),
+        DnsLocalResolutionPolicy::AllowSystem,
+        DnsAddressFamilyPolicy::Ipv6Only,
+    );
+
+    let error = registry
+        .relay_udp_datagram_with_dns(
+            "proxy",
+            &OutboundTarget::new("127.0.0.1", 53),
+            b"ping",
+            Duration::from_secs(1),
+            &mut dns,
+        )
+        .expect_err("IPv6-only DNS policy should reject IPv4 UDP literals");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
+    assert!(error.to_string().contains("Ipv6Only"));
 }
 
 #[test]
