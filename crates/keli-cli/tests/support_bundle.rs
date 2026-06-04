@@ -142,10 +142,14 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][34],
-        "tcp-relay-plan-summary"
+        "tcp-server-payload-packet"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][35],
+        "tcp-relay-plan-summary"
+    );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][36],
         "relay-plan"
     );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");

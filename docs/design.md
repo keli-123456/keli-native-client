@@ -214,6 +214,9 @@ The first implementation target is deliberately small:
    the tracked client sequence number, and build ACK packets back to the TUN
    peer, creating the packet-level handoff point that a future TCP outbound
    stream relay can consume.
+   The same session boundary can packetize server-side payload bytes with
+   PSH+ACK, advance the tracked server sequence number, and return swapped
+   IPv4/IPv6 TCP packets for the future TUN write-back side.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

@@ -121,6 +121,9 @@ Established TUN TCP sessions can now accept in-order client payload segments,
 advance the client-side sequence cursor, and build empty ACK packets back to
 the TUN peer, creating the packet-level handoff point for a future TCP outbound
 stream relay.
+The same session boundary can packetize server-side payload bytes with PSH+ACK,
+advance the server-side sequence cursor, and return swapped IPv4/IPv6 TCP
+packets that the eventual stream runner can write back to TUN.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 
