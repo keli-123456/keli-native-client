@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use keli_net_core::{
-    DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy, DnsResolver,
+    build_dns_error_response, build_dns_response, parse_dns_query, DnsAddressFamilyPolicy,
+    DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver,
 };
 
 #[test]
@@ -220,6 +221,63 @@ fn prevent_public_leak_respects_ipv6_only_localhost_policy() {
     assert_eq!(result[0].ip, IpAddr::V6(Ipv6Addr::LOCALHOST));
     assert_eq!(result[0].port, 8080);
     assert_eq!(resolver.calls(), 0);
+}
+
+#[test]
+fn parses_dns_a_query_and_builds_ipv4_response() {
+    let query = dns_query(0x1234, "example.com", 1);
+
+    let question = parse_dns_query(&query).expect("parse DNS query");
+
+    assert_eq!(question.id, 0x1234);
+    assert_eq!(question.name, "example.com");
+    assert_eq!(question.question_type, DnsQuestionType::A);
+
+    let response = build_dns_response(
+        &question,
+        &[
+            IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)),
+            IpAddr::V6(Ipv6Addr::LOCALHOST),
+        ],
+        60,
+    );
+
+    assert_eq!(&response[0..2], &0x1234u16.to_be_bytes());
+    assert_eq!(u16::from_be_bytes([response[6], response[7]]), 1);
+    assert!(response.windows(4).any(|window| window == [203, 0, 113, 7]));
+    assert!(!response
+        .windows(16)
+        .any(|window| window == Ipv6Addr::LOCALHOST.octets()));
+}
+
+#[test]
+fn builds_dns_error_response_with_requested_rcode() {
+    let query = dns_query(0x9876, "example.com", 28);
+    let question = parse_dns_query(&query).expect("parse DNS query");
+
+    let response = build_dns_error_response(&question, 3);
+
+    assert_eq!(&response[0..2], &0x9876u16.to_be_bytes());
+    assert_eq!(u16::from_be_bytes([response[2], response[3]]) & 0x000f, 3);
+    assert_eq!(u16::from_be_bytes([response[6], response[7]]), 0);
+}
+
+fn dns_query(id: u16, name: &str, qtype: u16) -> Vec<u8> {
+    let mut query = Vec::new();
+    query.extend_from_slice(&id.to_be_bytes());
+    query.extend_from_slice(&0x0100u16.to_be_bytes());
+    query.extend_from_slice(&1u16.to_be_bytes());
+    query.extend_from_slice(&0u16.to_be_bytes());
+    query.extend_from_slice(&0u16.to_be_bytes());
+    query.extend_from_slice(&0u16.to_be_bytes());
+    for label in name.split('.') {
+        query.push(label.len() as u8);
+        query.extend_from_slice(label.as_bytes());
+    }
+    query.push(0);
+    query.extend_from_slice(&qtype.to_be_bytes());
+    query.extend_from_slice(&1u16.to_be_bytes());
+    query
 }
 
 #[derive(Clone)]

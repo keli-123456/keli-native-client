@@ -18,14 +18,16 @@ use keli_client_core::{
     SubscriptionNodeCapability,
 };
 use keli_net_core::{
-    encode_socks5_udp_datagram, http_connect_bad_request_response, http_connect_success_response,
-    http_proxy_bad_request_response, parse_http_connect_request, parse_http_proxy_request,
-    parse_socks5_handshake, parse_socks5_request, parse_socks5_udp_datagram,
-    relay_owned_bidirectional_with_options, socks5_no_auth_response, socks5_reply,
-    ConnectionErrorKind, ConnectionReport, DirectTcpConnector, DirectUdpConnector,
-    DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsLocalResolutionPolicy, LocalInbound,
-    OutboundConnection, OutboundRegistry, OutboundTarget, RelayOptions, RouteAction, RouteEngine,
-    Socks5Address, Socks5Command, Socks5ReplyCode, SystemDnsResolver,
+    build_dns_error_response, build_dns_response, encode_socks5_udp_datagram,
+    http_connect_bad_request_response, http_connect_success_response,
+    http_proxy_bad_request_response, parse_dns_query, parse_http_connect_request,
+    parse_http_proxy_request, parse_socks5_handshake, parse_socks5_request,
+    parse_socks5_udp_datagram, relay_owned_bidirectional_with_options, socks5_no_auth_response,
+    socks5_reply, ConnectionErrorKind, ConnectionReport, DirectTcpConnector, DirectUdpConnector,
+    DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy,
+    DnsQuestionType, LocalInbound, OutboundConnection, OutboundRegistry, OutboundTarget,
+    RelayOptions, RouteAction, RouteEngine, Socks5Address, Socks5Command, Socks5ReplyCode,
+    SystemDnsResolver,
 };
 use keli_platform::{
     NativeSystemProxyController, NativeTunDeviceController, PlatformCapabilities,
@@ -2776,7 +2778,28 @@ fn relay_socks5_udp_datagram(
         }
         RouteAction::HijackDns => {
             report.route_action = RouteAction::HijackDns;
-            report.record_error(ConnectionErrorKind::UnsupportedOutbound);
+            let started = Instant::now();
+            let mut dns = runtime.dns_options.engine();
+            let response = match build_hijacked_dns_response(&datagram.payload, &mut dns) {
+                Ok(response) => response,
+                Err(error) => {
+                    report.record_error_detail(
+                        ConnectionErrorKind::from_io(&error),
+                        error.to_string(),
+                    );
+                    println!("{}", report.summary_line());
+                    return Ok(());
+                }
+            };
+            report.upload_bytes = datagram.payload.len() as u64;
+            report.record_first_byte_duration(started.elapsed());
+            report.download_bytes = response.len() as u64;
+            send_socks5_udp_response(
+                relay,
+                client_udp_addr,
+                socks5_udp_response_source_for_target(&target),
+                &response,
+            )?;
             println!("{}", report.summary_line());
             return Ok(());
         }
@@ -2818,6 +2841,37 @@ fn relay_socks5_udp_datagram(
     )?;
     println!("{}", report.summary_line());
     Ok(())
+}
+
+fn build_hijacked_dns_response(
+    payload: &[u8],
+    dns: &mut DnsEngine<SystemDnsResolver>,
+) -> io::Result<Vec<u8>> {
+    let question = parse_dns_query(payload)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    if matches!(question.question_type, DnsQuestionType::Unsupported(_)) {
+        return Ok(build_dns_error_response(&question, 4));
+    }
+    match dns.resolve(&question.name, 0) {
+        Ok(addresses) => {
+            let ips = addresses
+                .into_iter()
+                .map(|address| address.ip)
+                .collect::<Vec<_>>();
+            Ok(build_dns_response(&question, &ips, 60))
+        }
+        Err(DnsError::LocalResolutionBlocked { .. })
+        | Err(DnsError::AddressFamilyFiltered { .. })
+        | Err(DnsError::NoRecords(_)) => Ok(build_dns_error_response(&question, 3)),
+        Err(error) => Err(io::Error::new(io::ErrorKind::NotFound, error)),
+    }
+}
+
+fn socks5_udp_response_source_for_target(target: &OutboundTarget) -> SocketAddr {
+    target.host.parse::<IpAddr>().map_or_else(
+        |_| SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), target.port),
+        |ip| SocketAddr::new(ip, target.port),
+    )
 }
 
 fn send_socks5_udp_response(

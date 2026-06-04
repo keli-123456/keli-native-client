@@ -5,10 +5,13 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
-use keli_cli::{handle_socks5_connection, handle_socks5_connection_with_routes, MixedProxyRuntime};
+use keli_cli::{
+    handle_socks5_connection, handle_socks5_connection_with_routes, MixedDnsOptions,
+    MixedProxyRuntime,
+};
 use keli_net_core::{
-    encode_socks5_udp_datagram, parse_socks5_udp_datagram, OutboundRegistry, RouteAction,
-    RouteEngine, Socks5Address,
+    encode_socks5_udp_datagram, parse_socks5_udp_datagram, DnsLocalResolutionPolicy,
+    OutboundRegistry, RouteAction, RouteEngine, Socks5Address,
 };
 use rcgen::generate_simple_self_signed;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
@@ -210,6 +213,95 @@ fn socks5_udp_associate_relays_multiple_direct_ipv4_datagrams() {
 
     inbound_thread.join().expect("inbound thread");
     target_thread.join().expect("target thread");
+}
+
+#[test]
+fn socks5_udp_associate_hijacks_dns_a_query() {
+    let inbound = TcpListener::bind("127.0.0.1:0").expect("bind inbound");
+    let inbound_port = inbound.local_addr().expect("inbound addr").port();
+    let inbound_thread = thread::spawn(move || {
+        let (mut stream, _) = inbound.accept().expect("accept inbound");
+        let mut runtime = MixedProxyRuntime::with_routes(RouteEngine::new(RouteAction::HijackDns));
+        runtime.dns_options = MixedDnsOptions {
+            local_resolution_policy: DnsLocalResolutionPolicy::PreventPublicLeak,
+            ..MixedDnsOptions::default()
+        };
+        handle_socks5_connection_with_routes(&mut stream, &runtime).expect("handle socks5");
+    });
+
+    let mut client = TcpStream::connect(("127.0.0.1", inbound_port)).expect("connect inbound");
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    client.write_all(&[0x05, 0x01, 0x00]).expect("write hello");
+    let mut hello = [0; 2];
+    client.read_exact(&mut hello).expect("read hello response");
+    assert_eq!(hello, [0x05, 0x00]);
+
+    client
+        .write_all(&[0x05, 0x03, 0x00, 0x01, 127, 0, 0, 1, 0x00, 0x00])
+        .expect("write udp associate request");
+    let mut reply = [0; 10];
+    client.read_exact(&mut reply).expect("read udp reply");
+    assert_eq!(&reply[..4], &[0x05, 0x00, 0x00, 0x01]);
+    let relay_port = u16::from_be_bytes([reply[8], reply[9]]);
+    assert_ne!(relay_port, 0);
+
+    let udp_client = UdpSocket::bind("127.0.0.1:0").expect("bind udp client");
+    udp_client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("udp client timeout");
+    let request = encode_socks5_udp_datagram(
+        &Socks5Address::Ipv4(Ipv4Addr::new(8, 8, 8, 8)),
+        53,
+        &dns_query(0x4b1d, "localhost", 1),
+    )
+    .expect("encode DNS UDP request");
+    udp_client
+        .send_to(&request, ("127.0.0.1", relay_port))
+        .expect("send DNS UDP request");
+
+    let mut response = [0; 1500];
+    let (size, _) = udp_client
+        .recv_from(&mut response)
+        .expect("read DNS UDP response");
+    let response = parse_socks5_udp_datagram(&response[..size]).expect("parse DNS UDP response");
+    assert_eq!(
+        response.address,
+        Socks5Address::Ipv4(Ipv4Addr::new(8, 8, 8, 8))
+    );
+    assert_eq!(response.port, 53);
+    assert_eq!(&response.payload[0..2], &0x4b1du16.to_be_bytes());
+    assert_ne!(response.payload[2] & 0x80, 0);
+    assert_eq!(
+        u16::from_be_bytes([response.payload[6], response.payload[7]]),
+        1
+    );
+    assert!(response
+        .payload
+        .windows(4)
+        .any(|window| window == [127, 0, 0, 1]));
+
+    client.shutdown(Shutdown::Both).ok();
+    inbound_thread.join().expect("inbound thread");
+}
+
+fn dns_query(id: u16, name: &str, qtype: u16) -> Vec<u8> {
+    let mut query = Vec::new();
+    query.extend_from_slice(&id.to_be_bytes());
+    query.extend_from_slice(&0x0100u16.to_be_bytes());
+    query.extend_from_slice(&1u16.to_be_bytes());
+    query.extend_from_slice(&0u16.to_be_bytes());
+    query.extend_from_slice(&0u16.to_be_bytes());
+    query.extend_from_slice(&0u16.to_be_bytes());
+    for label in name.split('.') {
+        query.push(label.len() as u8);
+        query.extend_from_slice(label.as_bytes());
+    }
+    query.push(0);
+    query.extend_from_slice(&qtype.to_be_bytes());
+    query.extend_from_slice(&1u16.to_be_bytes());
+    query
 }
 
 #[test]
