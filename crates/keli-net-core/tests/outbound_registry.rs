@@ -12,8 +12,11 @@ use keli_net_core::{
     encode_socks5_udp_datagram, parse_socks5_udp_datagram, websocket_accept_for_key,
     DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsLocalResolutionPolicy, HttpConnectOutbound,
     OutboundRegistry, OutboundTarget, ShadowsocksTcpOutbound, Socks5Address, Socks5TcpOutbound,
-    SystemDnsResolver, TrojanTcpOutbound, VlessTcpOutbound, VmessBodySecurity, VmessTcpOutbound,
-    VmessTlsTcpOutbound,
+    SystemDnsResolver, TrojanHttpUpgradeOutbound, TrojanTcpOutbound, TrojanTlsHttpUpgradeOutbound,
+    TrojanTlsWsOutbound, TrojanWsOutbound, VlessHttpUpgradeOutbound, VlessTcpOutbound,
+    VlessTlsHttpUpgradeOutbound, VlessTlsWsOutbound, VlessWsOutbound, VmessBodySecurity,
+    VmessHttpUpgradeOutbound, VmessTcpOutbound, VmessTlsHttpUpgradeOutbound, VmessTlsTcpOutbound,
+    VmessTlsWsOutbound, VmessWsOutbound,
 };
 use keli_protocol::{Endpoint, OutboundProfile, ProxyProtocol, SecurityKind, TransportKind};
 use md5::{Digest as Md5Digest, Md5};
@@ -63,6 +66,49 @@ fn ipv6_only_dns() -> DnsEngine<SystemDnsResolver> {
         DnsLocalResolutionPolicy::AllowSystem,
         DnsAddressFamilyPolicy::Ipv6Only,
     )
+}
+
+fn assert_registered_tcp_uses_injected_dns_policy(registry: OutboundRegistry, case: &str) {
+    let mut dns = ipv6_only_dns();
+
+    let error = registry
+        .connect_with_dns(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+            &mut dns,
+        )
+        .expect_err(case);
+
+    assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable, "{case}");
+    assert!(error.to_string().contains("Ipv6Only"), "{case}: {error}");
+}
+
+fn assert_registered_udp_uses_injected_dns_policy(registry: OutboundRegistry, case: &str) {
+    let mut dns = ipv6_only_dns();
+
+    let error = registry
+        .relay_udp_datagram_with_dns(
+            "proxy",
+            &OutboundTarget::new("example.com", 53),
+            b"ping",
+            Duration::from_secs(1),
+            &mut dns,
+        )
+        .expect_err(case);
+
+    assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable, "{case}");
+    assert!(error.to_string().contains("Ipv6Only"), "{case}: {error}");
+}
+
+fn registry_with(add: impl FnOnce(&mut OutboundRegistry)) -> OutboundRegistry {
+    let mut registry = OutboundRegistry::new();
+    add(&mut registry);
+    registry
+}
+
+fn loopback_proxy_endpoint() -> Endpoint {
+    Endpoint::new("127.0.0.1", 443)
 }
 
 #[test]
@@ -427,6 +473,375 @@ fn vmess_tls_tcp_udp_outbound_uses_injected_dns_policy_for_server() {
 
     assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
     assert!(error.to_string().contains("Ipv6Only"));
+}
+
+#[test]
+fn websocket_and_httpupgrade_tcp_outbounds_use_injected_dns_policy_for_server() {
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_ws(
+                "proxy",
+                TrojanWsOutbound::new(loopback_proxy_endpoint(), "edge.example", "/ws", "password"),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan WS server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_tls_ws(
+                "proxy",
+                TrojanTlsWsOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/ws",
+                    "password",
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan TLS WS server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_httpupgrade(
+                "proxy",
+                TrojanHttpUpgradeOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/upgrade",
+                    "password",
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan HTTPUpgrade server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_tls_httpupgrade(
+                "proxy",
+                TrojanTlsHttpUpgradeOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/upgrade",
+                    "password",
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan TLS HTTPUpgrade server",
+    );
+
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_ws(
+                "proxy",
+                VlessWsOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/ws",
+                    TEST_UUID,
+                    None,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS WS server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_tls_ws(
+                "proxy",
+                VlessTlsWsOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/ws",
+                    TEST_UUID,
+                    None,
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS TLS WS server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_httpupgrade(
+                "proxy",
+                VlessHttpUpgradeOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/upgrade",
+                    TEST_UUID,
+                    None,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS HTTPUpgrade server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_tls_httpupgrade(
+                "proxy",
+                VlessTlsHttpUpgradeOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/upgrade",
+                    TEST_UUID,
+                    None,
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS TLS HTTPUpgrade server",
+    );
+
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_ws(
+                "proxy",
+                VmessWsOutbound::new(loopback_proxy_endpoint(), "edge.example", "/ws", TEST_UUID),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess WS server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_tls_ws(
+                "proxy",
+                VmessTlsWsOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/ws",
+                    TEST_UUID,
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess TLS WS server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_httpupgrade(
+                "proxy",
+                VmessHttpUpgradeOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/upgrade",
+                    TEST_UUID,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess HTTPUpgrade server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_tls_httpupgrade(
+                "proxy",
+                VmessTlsHttpUpgradeOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/upgrade",
+                    TEST_UUID,
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess TLS HTTPUpgrade server",
+    );
+}
+
+#[test]
+fn websocket_and_httpupgrade_udp_outbounds_use_injected_dns_policy_for_server() {
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_ws(
+                "proxy",
+                TrojanWsOutbound::new(loopback_proxy_endpoint(), "edge.example", "/ws", "password"),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan WS UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_tls_ws(
+                "proxy",
+                TrojanTlsWsOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/ws",
+                    "password",
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan TLS WS UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_httpupgrade(
+                "proxy",
+                TrojanHttpUpgradeOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/upgrade",
+                    "password",
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan HTTPUpgrade UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_tls_httpupgrade(
+                "proxy",
+                TrojanTlsHttpUpgradeOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/upgrade",
+                    "password",
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan TLS HTTPUpgrade UDP server",
+    );
+
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_ws(
+                "proxy",
+                VlessWsOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/ws",
+                    TEST_UUID,
+                    None,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS WS UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_tls_ws(
+                "proxy",
+                VlessTlsWsOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/ws",
+                    TEST_UUID,
+                    None,
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS TLS WS UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_httpupgrade(
+                "proxy",
+                VlessHttpUpgradeOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/upgrade",
+                    TEST_UUID,
+                    None,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS HTTPUpgrade UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_tls_httpupgrade(
+                "proxy",
+                VlessTlsHttpUpgradeOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/upgrade",
+                    TEST_UUID,
+                    None,
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS TLS HTTPUpgrade UDP server",
+    );
+
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_ws(
+                "proxy",
+                VmessWsOutbound::new_with_security(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/ws",
+                    TEST_UUID,
+                    VmessBodySecurity::Aes128Gcm,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess WS UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_tls_ws(
+                "proxy",
+                VmessTlsWsOutbound::new_with_security(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/ws",
+                    TEST_UUID,
+                    "edge.example",
+                    true,
+                    VmessBodySecurity::Aes128Gcm,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess TLS WS UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_httpupgrade(
+                "proxy",
+                VmessHttpUpgradeOutbound::new_with_security(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/upgrade",
+                    TEST_UUID,
+                    VmessBodySecurity::Aes128Gcm,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess HTTPUpgrade UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_tls_httpupgrade(
+                "proxy",
+                VmessTlsHttpUpgradeOutbound::new_with_security(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/upgrade",
+                    TEST_UUID,
+                    "edge.example",
+                    true,
+                    VmessBodySecurity::Aes128Gcm,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess TLS HTTPUpgrade UDP server",
+    );
 }
 
 #[test]
