@@ -85,6 +85,82 @@ fn registry_from_vless_tls_ws_profile_relays_over_tls_websocket() {
 }
 
 #[test]
+fn registry_from_vless_tls_ws_profile_relays_udp_over_tls_websocket() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vless tls ws udp server");
+    let port = listener.local_addr().expect("vless tls ws udp addr").port();
+    let server_config = tls_server_config();
+    let server = thread::spawn(move || {
+        let (tcp, _) = listener.accept().expect("accept vless tls ws udp");
+        let connection = rustls::ServerConnection::new(server_config).expect("server tls");
+        let mut stream = rustls::StreamOwned::new(connection, tcp);
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /vless HTTP/1.1\r\n"));
+        assert!(request.contains("Host: edge.example\r\n"));
+        let key = header_value(&request, "Sec-WebSocket-Key").expect("client key");
+        let accept = websocket_accept_for_key(&key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .expect("write ws response");
+
+        let request_header = read_masked_client_frame(&mut stream);
+        assert_eq!(
+            &request_header[..],
+            &[
+                0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
+                0xdd, 0xee, 0xff, 0x00, 0x02, 0x00, 0x35, 0x01, 0x7f, 0x00, 0x00, 0x01,
+            ]
+        );
+        stream
+            .write_all(b"\x82\x02\x00\x00")
+            .expect("write vless response header");
+
+        let mut request_payload = read_masked_client_frame(&mut stream);
+        if request_payload.len() == 2 {
+            request_payload.extend(read_masked_client_frame(&mut stream));
+        }
+        assert_eq!(&request_payload, b"\x00\x04ping");
+        stream
+            .write_all(b"\x82\x06\x00\x04pong")
+            .expect("write vless udp response payload");
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Vless,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::WebSocket {
+            path: "/vless".to_string(),
+            host: Some("edge.example".to_string()),
+        },
+        security: SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: true,
+        },
+        credential: "00112233-4455-6677-8899-aabbccddeeff".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("127.0.0.1", 53),
+            b"ping",
+            Duration::from_secs(1),
+        )
+        .expect("registered VLESS TLS WS UDP outbound should relay");
+
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("response source")
+    );
+    assert_eq!(response.payload, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn registry_from_trojan_tls_ws_profile_relays_over_tls_websocket() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind trojan tls ws server");
     let port = listener.local_addr().expect("trojan tls ws addr").port();

@@ -1355,6 +1355,10 @@ impl OutboundRegistry {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vless_tls_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.vless_ws_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.vless_tls_ws_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.hy2_tags.get(tag) {
@@ -1759,6 +1763,25 @@ impl VlessWsOutbound {
         read_vless_response_header_from_stream(&mut stream)?;
         Ok(OutboundConnection::WebSocket(stream))
     }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = crate::WebSocketClientStream::connect(stream, &self.host, &self.path)?;
+        send_vless_udp_over_stream(
+            stream,
+            &self.uuid,
+            self.flow.as_deref(),
+            target,
+            payload,
+            timeout,
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1809,6 +1832,26 @@ impl VlessTlsWsOutbound {
         stream.write_all(&header)?;
         read_vless_response_header_from_stream(&mut stream)?;
         Ok(OutboundConnection::Owned(Box::new(stream)))
+    }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
+        let stream = crate::OwnedWebSocketClientStream::connect(stream, &self.host, &self.path)?;
+        send_vless_udp_over_stream(
+            stream,
+            &self.uuid,
+            self.flow.as_deref(),
+            target,
+            payload,
+            timeout,
+        )
     }
 }
 
