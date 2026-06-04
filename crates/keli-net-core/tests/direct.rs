@@ -1,4 +1,5 @@
-use std::io::{Read, Write};
+use std::collections::VecDeque;
+use std::io::{self, Read, Write};
 use std::net::{IpAddr, Shutdown, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -163,6 +164,34 @@ fn relay_copies_bytes_with_non_clone_remote_stream() {
 
     let stats = relay.join().expect("relay thread").expect("relay result");
     assert_eq!(stats.client_to_remote_bytes, 4);
+    assert_eq!(stats.remote_to_client_bytes, 4);
+    assert!(stats.remote_first_byte_after.is_some());
+}
+
+#[test]
+fn owned_relay_treats_missing_tls_close_notify_as_remote_eof() {
+    let (mut inbound_client, inbound_core) = tcp_pair();
+    let relay = thread::spawn(move || {
+        relay_owned_bidirectional_with_options(
+            inbound_core,
+            MissingCloseNotifyStream::new(b"pong"),
+            RelayOptions {
+                first_byte_timeout: Some(Duration::from_secs(1)),
+                idle_timeout: Some(Duration::from_secs(1)),
+            },
+        )
+    });
+
+    inbound_client.shutdown(Shutdown::Write).ok();
+    let mut outbound_payload = [0; 4];
+    inbound_client
+        .read_exact(&mut outbound_payload)
+        .expect("read inbound side");
+    assert_eq!(&outbound_payload, b"pong");
+    inbound_client.shutdown(Shutdown::Both).ok();
+
+    let stats = relay.join().expect("relay thread").expect("relay result");
+    assert_eq!(stats.client_to_remote_bytes, 0);
     assert_eq!(stats.remote_to_client_bytes, 4);
     assert!(stats.remote_first_byte_after.is_some());
 }
@@ -363,6 +392,73 @@ struct NonCloneTcpStream(TcpStream);
 impl Read for NonCloneTcpStream {
     fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
         self.0.read(buffer)
+    }
+}
+
+enum MissingCloseNotifyRead {
+    Data(Vec<u8>),
+    Error(io::ErrorKind, &'static str),
+}
+
+struct MissingCloseNotifyStream {
+    reads: VecDeque<MissingCloseNotifyRead>,
+}
+
+impl MissingCloseNotifyStream {
+    fn new(payload: &[u8]) -> Self {
+        Self {
+            reads: VecDeque::from([
+                MissingCloseNotifyRead::Data(payload.to_vec()),
+                MissingCloseNotifyRead::Error(
+                    io::ErrorKind::UnexpectedEof,
+                    "peer closed connection without sending TLS close_notify",
+                ),
+            ]),
+        }
+    }
+}
+
+impl Read for MissingCloseNotifyStream {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        match self.reads.pop_front() {
+            Some(MissingCloseNotifyRead::Data(data)) => {
+                let bytes = data.len().min(buffer.len());
+                buffer[..bytes].copy_from_slice(&data[..bytes]);
+                if bytes < data.len() {
+                    self.reads
+                        .push_front(MissingCloseNotifyRead::Data(data[bytes..].to_vec()));
+                }
+                Ok(bytes)
+            }
+            Some(MissingCloseNotifyRead::Error(kind, message)) => {
+                Err(io::Error::new(kind, message))
+            }
+            None => Ok(0),
+        }
+    }
+}
+
+impl Write for MissingCloseNotifyStream {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl OwnedRelayStream for MissingCloseNotifyStream {
+    fn set_nonblocking_mode(&mut self, _nonblocking: bool) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn shutdown_write(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn shutdown_both(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 

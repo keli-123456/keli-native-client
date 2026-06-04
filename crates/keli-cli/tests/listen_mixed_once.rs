@@ -2,11 +2,15 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream, UdpSocket};
 use std::str::FromStr;
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use keli_cli::{run, CliCommand};
 use keli_net_core::{encode_socks5_udp_datagram, parse_socks5_udp_datagram, Socks5Address};
+use rcgen::generate_simple_self_signed;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use sha2::{Digest, Sha256};
 use shadowsocks_crypto::kind::CipherKind;
 use shadowsocks_crypto::v1::{openssl_bytes_to_key, Cipher};
 
@@ -105,6 +109,52 @@ fn listen_mixed_once_uses_profile_config_for_http_connect() {
 
     server_thread.join().expect("listen thread");
     ss_thread.join().expect("ss thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_anytls_http_connect() {
+    let (anytls_port, anytls_thread) = spawn_anytls_tcp_echo_server();
+    let profile_path = write_temp_anytls_profile_config(anytls_port);
+    let listen = free_local_addr();
+    let run_listen = listen.clone();
+    let run_profile_path = profile_path.clone();
+    let server_thread = thread::spawn(move || {
+        run(CliCommand::ListenMixed {
+            listen: run_listen,
+            once: true,
+            block_domains: Vec::new(),
+            profile_config: Some(run_profile_path),
+            outbound_tag: Some("ANYTLS-READY".to_string()),
+            first_byte_timeout: Duration::from_secs(2),
+            idle_timeout: Duration::from_secs(2),
+        })
+        .expect("run listen-mixed once");
+    });
+
+    let mut client = connect_with_retry(&listen);
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    client
+        .write_all(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
+        .expect("write http connect");
+
+    let mut connect_response = Vec::new();
+    read_until_header_end(&mut client, &mut connect_response);
+    assert_eq!(
+        connect_response,
+        b"HTTP/1.1 200 Connection Established\r\n\r\n"
+    );
+
+    client.write_all(b"ping").expect("write ping");
+    let mut response = [0; 4];
+    client.read_exact(&mut response).expect("read pong");
+    assert_eq!(&response, b"pong");
+    client.shutdown(Shutdown::Both).ok();
+
+    server_thread.join().expect("listen thread");
+    anytls_thread.join().expect("anytls thread");
     fs::remove_file(profile_path).ok();
 }
 
@@ -225,6 +275,31 @@ fn write_temp_profile_config(ss_port: u16) -> String {
     path.to_string_lossy().into_owned()
 }
 
+fn write_temp_anytls_profile_config(anytls_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-anytls-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: ANYTLS-READY
+    type: anytls
+    server: 127.0.0.1
+    port: {anytls_port}
+    password: secret
+    tls: true
+    sni: edge.example
+    skip-cert-verify: true
+"#
+    );
+    fs::write(&path, content).expect("write anytls profile config");
+    path.to_string_lossy().into_owned()
+}
+
 fn spawn_shadowsocks_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind ss tcp server");
     let port = listener.local_addr().expect("ss tcp addr").port();
@@ -251,6 +326,40 @@ fn spawn_shadowsocks_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
     (port, handle)
 }
 
+fn spawn_anytls_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind anytls server");
+    let port = listener.local_addr().expect("anytls addr").port();
+    let server_config = tls_server_config();
+    let handle = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept anytls tcp");
+        let connection = rustls::ServerConnection::new(server_config).expect("server tls");
+        let mut stream = rustls::StreamOwned::new(connection, stream);
+
+        assert_anytls_auth(&mut stream, "secret");
+        let (cmd, sid, settings) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid), (4, 0));
+        let settings = String::from_utf8(settings).expect("settings utf8");
+        assert!(settings.contains("v=2"));
+        assert!(settings.contains("client=keli-native-client/"));
+
+        let (cmd, sid, data) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid, data.len()), (1, 1, 0));
+
+        let (cmd, sid, target) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid), (2, 1));
+        assert_eq!(&target, b"\x03\x0bexample.com\x01\xbb");
+
+        let (cmd, sid, payload) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid), (2, 1));
+        assert_eq!(&payload, b"ping");
+
+        write_anytls_frame(&mut stream, 10, 0, b"v=2");
+        write_anytls_frame(&mut stream, 7, 1, b"");
+        write_anytls_frame(&mut stream, 2, 1, b"pong");
+    });
+    (port, handle)
+}
+
 fn spawn_shadowsocks_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
     let socket = UdpSocket::bind("127.0.0.1:0").expect("bind ss udp server");
     socket
@@ -272,6 +381,59 @@ fn spawn_shadowsocks_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
             .expect("write ss udp response");
     });
     (port, handle)
+}
+
+fn tls_server_config() -> Arc<rustls::ServerConfig> {
+    let cert = generate_simple_self_signed(vec!["edge.example".to_string()]).expect("cert");
+    let cert_der: CertificateDer<'static> = cert.cert.der().clone();
+    let key_der = PrivateKeyDer::Pkcs8(cert.signing_key.serialize_der().into());
+    Arc::new(
+        rustls::ServerConfig::builder_with_provider(
+            rustls::crypto::ring::default_provider().into(),
+        )
+        .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+        .expect("server protocol versions")
+        .with_no_client_auth()
+        .with_single_cert(vec![cert_der], key_der)
+        .expect("server config"),
+    )
+}
+
+fn assert_anytls_auth(stream: &mut impl Read, password: &str) {
+    let mut header = [0; 34];
+    stream.read_exact(&mut header).expect("read anytls auth");
+    let expected = Sha256::digest(password.as_bytes());
+    assert_eq!(&header[..32], expected.as_slice());
+    let padding_len = u16::from_be_bytes([header[32], header[33]]) as usize;
+    assert_eq!(padding_len, 30);
+    let mut padding = vec![0; padding_len];
+    stream
+        .read_exact(&mut padding)
+        .expect("read anytls auth padding");
+}
+
+fn read_anytls_frame(stream: &mut impl Read) -> (u8, u32, Vec<u8>) {
+    let mut header = [0; 7];
+    stream
+        .read_exact(&mut header)
+        .expect("read anytls frame header");
+    let cmd = header[0];
+    let sid = u32::from_be_bytes([header[1], header[2], header[3], header[4]]);
+    let len = u16::from_be_bytes([header[5], header[6]]) as usize;
+    let mut data = vec![0; len];
+    stream
+        .read_exact(&mut data)
+        .expect("read anytls frame data");
+    (cmd, sid, data)
+}
+
+fn write_anytls_frame(stream: &mut impl Write, cmd: u8, sid: u32, data: &[u8]) {
+    let mut header = [0; 7];
+    header[0] = cmd;
+    header[1..5].copy_from_slice(&sid.to_be_bytes());
+    header[5..7].copy_from_slice(&(data.len() as u16).to_be_bytes());
+    stream.write_all(&header).expect("write anytls header");
+    stream.write_all(data).expect("write anytls data");
 }
 
 fn shadowsocks_key(kind: CipherKind, password: &str) -> Vec<u8> {
