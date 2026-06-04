@@ -16,3 +16,25 @@ fn doctor_report_lists_supported_outbounds() {
         "protocol_capabilities=trojan=tcp,udp;vless=tcp,udp;vmess=tcp,udp;shadowsocks=tcp,udp;anytls=tcp,udp;naive=tcp;mieru=tcp,udp;hy2=tcp,udp;tuic=tcp,udp;socks=tcp,udp;http=tcp"
     ));
 }
+
+#[test]
+fn doctor_json_report_is_machine_readable() {
+    let mut output = Vec::new();
+    keli_cli::write_doctor_report_with_format(&mut output, keli_cli::ProbeOutputFormat::Json)
+        .expect("write doctor json report");
+    let report: serde_json::Value = serde_json::from_slice(&output).expect("doctor json");
+
+    assert_eq!(report["status"], "ok");
+    assert_eq!(report["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(report["platform"], "Windows");
+    assert_eq!(report["system_proxy"]["supported"], true);
+    assert_eq!(report["tun"], true);
+    assert_eq!(report["inbound"]["kind"], "mixed");
+    assert_eq!(report["inbound"]["port"], 7890);
+    assert_eq!(report["dns_engine"]["resolver"], "system_resolver");
+    assert_eq!(report["dns_engine"]["cache_ttl_seconds"], 60);
+    assert_eq!(report["supported_outbounds"][0], "direct");
+    assert_eq!(report["supported_udp_outbounds"][0], "direct");
+    assert_eq!(report["sample_profile_valid"], true);
+    assert_eq!(report["initial_phase"], "Idle");
+}

@@ -3,6 +3,30 @@ use std::time::Duration;
 use keli_cli::{parse_cli_command, CliCommand, ProbeOutputFormat, SmokeInboundKind};
 
 #[test]
+fn defaults_to_doctor_text_command() {
+    let command = parse_cli_command(std::iter::empty::<&str>()).expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::Doctor {
+            output: ProbeOutputFormat::Text
+        }
+    );
+}
+
+#[test]
+fn parses_doctor_json_command() {
+    let command = parse_cli_command(["doctor", "--format", "json"]).expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::Doctor {
+            output: ProbeOutputFormat::Json
+        }
+    );
+}
+
+#[test]
 fn parses_listen_mixed_once_command() {
     let command = parse_cli_command(["listen-mixed", "--listen", "127.0.0.1:7890", "--once"])
         .expect("command should parse");

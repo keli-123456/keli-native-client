@@ -48,7 +48,9 @@ const SUPPORTED_PROTOCOL_CAPABILITIES: &str =
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
-    Doctor,
+    Doctor {
+        output: ProbeOutputFormat,
+    },
     Version,
     ListenMixed {
         listen: String,
@@ -1075,7 +1077,10 @@ pub fn parse_cli_command(
 ) -> Result<CliCommand, String> {
     let mut args = args.into_iter().map(Into::into);
     match args.next().as_deref() {
-        None | Some("doctor") => Ok(CliCommand::Doctor),
+        None => Ok(CliCommand::Doctor {
+            output: ProbeOutputFormat::Text,
+        }),
+        Some("doctor") => parse_doctor(args),
         Some("version") => Ok(CliCommand::Version),
         Some("listen-mixed") => parse_listen_mixed(args),
         Some("probe-outbound") => parse_probe_outbound(args),
@@ -1087,8 +1092,8 @@ pub fn parse_cli_command(
 
 pub fn run(command: CliCommand) -> Result<(), String> {
     match command {
-        CliCommand::Doctor => {
-            print_doctor();
+        CliCommand::Doctor { output } => {
+            print_doctor(output);
             Ok(())
         }
         CliCommand::Version => {
@@ -1215,6 +1220,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
         writer,
         "usage: keli-cli [doctor|version|listen-mixed|probe-outbound|smoke-mixed|profile-check]"
     )?;
+    writeln!(writer, "       keli-cli doctor [--format text|json]")?;
     writeln!(
         writer,
         "       keli-cli listen-mixed [--listen 127.0.0.1:7890] [--once] [--profile-config subscription.yaml] [--outbound-tag proxy] [--first-byte-timeout-ms 30000] [--idle-timeout-ms 300000]"
@@ -1235,6 +1241,25 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
         writer,
         "       keli-cli profile-check --profile-config subscription.yaml [--format text|json]"
     )
+}
+
+fn parse_doctor(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
+    let mut output = ProbeOutputFormat::Text;
+    let mut args = args.peekable();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--format" => {
+                output = parse_probe_output_format(
+                    args.next()
+                        .ok_or_else(|| "--format requires text or json".to_string())?,
+                )?;
+            }
+            other => return Err(format!("unknown doctor option: {other}")),
+        }
+    }
+
+    Ok(CliCommand::Doctor { output })
 }
 
 fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
@@ -1512,12 +1537,51 @@ fn parse_profile_check(args: impl Iterator<Item = String>) -> Result<CliCommand,
     })
 }
 
-fn print_doctor() {
-    let mut stdout = io::stdout();
-    write_doctor_report(&mut stdout).expect("write doctor report");
+#[derive(Debug, Clone)]
+struct DoctorReport {
+    version: &'static str,
+    platform: String,
+    system_proxy_supported: bool,
+    system_proxy_state: String,
+    system_proxy_server: Option<String>,
+    system_proxy_error: Option<String>,
+    tun: bool,
+    secure_storage: bool,
+    inbound_debug: String,
+    inbound_kind: &'static str,
+    inbound_listen: &'static str,
+    inbound_port: u16,
+    route_default_debug: String,
+    dns_resolver: &'static str,
+    dns_cache_ttl_seconds: u64,
+    supported_outbounds: Vec<&'static str>,
+    supported_udp_outbounds: Vec<&'static str>,
+    protocol_capabilities: &'static str,
+    sample_profile_valid: bool,
+    initial_phase: String,
 }
 
-pub fn write_doctor_report(mut writer: impl Write) -> io::Result<()> {
+fn print_doctor(output: ProbeOutputFormat) {
+    let mut stdout = io::stdout();
+    write_doctor_report_with_format(&mut stdout, output).expect("write doctor report");
+}
+
+pub fn write_doctor_report(writer: impl Write) -> io::Result<()> {
+    write_doctor_report_with_format(writer, ProbeOutputFormat::Text)
+}
+
+pub fn write_doctor_report_with_format(
+    mut writer: impl Write,
+    output: ProbeOutputFormat,
+) -> io::Result<()> {
+    let report = collect_doctor_report();
+    match output {
+        ProbeOutputFormat::Text => write_doctor_text_report(&mut writer, &report),
+        ProbeOutputFormat::Json => write_doctor_json_report(&mut writer, &report),
+    }
+}
+
+fn collect_doctor_report() -> DoctorReport {
     let capabilities = PlatformCapabilities::detect();
     let system_proxy_status = SystemProxyStatus::detect();
     let inbound = LocalInbound::Mixed {
@@ -1542,41 +1606,114 @@ pub fn write_doctor_report(mut writer: impl Write) -> io::Result<()> {
         flow: None,
     };
 
-    writeln!(writer, "keli-native-client doctor")?;
-    writeln!(writer, "version={}", env!("CARGO_PKG_VERSION"))?;
-    writeln!(writer, "platform={:?}", capabilities.platform)?;
-    writeln!(writer, "system_proxy={}", capabilities.system_proxy)?;
-    writeln!(
-        writer,
-        "system_proxy_state={} server={} error={}",
-        system_proxy_status
+    DoctorReport {
+        version: env!("CARGO_PKG_VERSION"),
+        platform: format!("{:?}", capabilities.platform),
+        system_proxy_supported: capabilities.system_proxy,
+        system_proxy_state: system_proxy_status
             .enabled
             .map(|enabled| if enabled { "enabled" } else { "disabled" })
             .unwrap_or(if system_proxy_status.supported {
                 "unknown"
             } else {
                 "unsupported"
-            }),
-        system_proxy_status.server.as_deref().unwrap_or("-"),
-        system_proxy_status.error.as_deref().unwrap_or("-")
-    )?;
-    writeln!(writer, "tun={}", capabilities.tun)?;
-    writeln!(writer, "secure_storage={}", capabilities.secure_storage)?;
-    writeln!(writer, "inbound={inbound:?}")?;
-    writeln!(writer, "route_default={route_engine:?}")?;
-    writeln!(writer, "dns_engine=system_resolver cache_ttl=60s")?;
-    writeln!(writer, "supported_outbounds={SUPPORTED_OUTBOUNDS}")?;
-    writeln!(writer, "supported_udp_outbounds={SUPPORTED_UDP_OUTBOUNDS}")?;
+            })
+            .to_string(),
+        system_proxy_server: system_proxy_status.server,
+        system_proxy_error: system_proxy_status.error,
+        tun: capabilities.tun,
+        secure_storage: capabilities.secure_storage,
+        inbound_debug: format!("{inbound:?}"),
+        inbound_kind: "mixed",
+        inbound_listen: "127.0.0.1",
+        inbound_port: 7890,
+        route_default_debug: format!("{route_engine:?}"),
+        dns_resolver: "system_resolver",
+        dns_cache_ttl_seconds: 60,
+        supported_outbounds: SUPPORTED_OUTBOUNDS.split(',').collect(),
+        supported_udp_outbounds: SUPPORTED_UDP_OUTBOUNDS.split(',').collect(),
+        protocol_capabilities: SUPPORTED_PROTOCOL_CAPABILITIES,
+        sample_profile_valid: profile.validate().is_ok(),
+        initial_phase: format!("{:?}", ConnectionPhase::Idle),
+    }
+}
+
+fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io::Result<()> {
+    writeln!(writer, "keli-native-client doctor")?;
+    writeln!(writer, "version={}", report.version)?;
+    writeln!(writer, "platform={}", report.platform)?;
+    writeln!(writer, "system_proxy={}", report.system_proxy_supported)?;
     writeln!(
         writer,
-        "protocol_capabilities={SUPPORTED_PROTOCOL_CAPABILITIES}"
+        "system_proxy_state={} server={} error={}",
+        report.system_proxy_state,
+        report.system_proxy_server.as_deref().unwrap_or("-"),
+        report.system_proxy_error.as_deref().unwrap_or("-")
+    )?;
+    writeln!(writer, "tun={}", report.tun)?;
+    writeln!(writer, "secure_storage={}", report.secure_storage)?;
+    writeln!(writer, "inbound={}", report.inbound_debug)?;
+    writeln!(writer, "route_default={}", report.route_default_debug)?;
+    writeln!(
+        writer,
+        "dns_engine={} cache_ttl={}s",
+        report.dns_resolver, report.dns_cache_ttl_seconds
+    )?;
+    writeln!(
+        writer,
+        "supported_outbounds={}",
+        report.supported_outbounds.join(",")
+    )?;
+    writeln!(
+        writer,
+        "supported_udp_outbounds={}",
+        report.supported_udp_outbounds.join(",")
+    )?;
+    writeln!(
+        writer,
+        "protocol_capabilities={}",
+        report.protocol_capabilities
     )?;
     writeln!(
         writer,
         "sample_profile_valid={}",
-        profile.validate().is_ok()
+        report.sample_profile_valid
     )?;
-    writeln!(writer, "initial_phase={:?}", ConnectionPhase::Idle)?;
+    writeln!(writer, "initial_phase={}", report.initial_phase)?;
+    Ok(())
+}
+
+fn write_doctor_json_report(mut writer: impl Write, report: &DoctorReport) -> io::Result<()> {
+    let value = serde_json::json!({
+        "status": "ok",
+        "version": report.version,
+        "platform": &report.platform,
+        "system_proxy": {
+            "supported": report.system_proxy_supported,
+            "state": &report.system_proxy_state,
+            "server": report.system_proxy_server.as_deref(),
+            "error": report.system_proxy_error.as_deref(),
+        },
+        "tun": report.tun,
+        "secure_storage": report.secure_storage,
+        "inbound": {
+            "kind": report.inbound_kind,
+            "listen": report.inbound_listen,
+            "port": report.inbound_port,
+        },
+        "route_default": &report.route_default_debug,
+        "dns_engine": {
+            "resolver": report.dns_resolver,
+            "cache_ttl_seconds": report.dns_cache_ttl_seconds,
+        },
+        "supported_outbounds": &report.supported_outbounds,
+        "supported_udp_outbounds": &report.supported_udp_outbounds,
+        "protocol_capabilities": report.protocol_capabilities,
+        "sample_profile_valid": report.sample_profile_valid,
+        "initial_phase": &report.initial_phase,
+    });
+    serde_json::to_writer_pretty(&mut writer, &value).map_err(io::Error::other)?;
+    writeln!(writer)?;
     Ok(())
 }
 
