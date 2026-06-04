@@ -782,12 +782,13 @@ fn managed_mixed_session_records_tun_runtime_status_note_after_serve() {
         mtu: None,
         dns_hijack: None,
     };
+    let reads = Arc::new(Mutex::new(VecDeque::from(vec![vec![0]])));
     let controller = FakeTunDeviceController::new(stopped_snapshot.clone())
         .with_start_result(TunDeviceSnapshot::running(&config))
         .with_stop_result(stopped_snapshot)
         .with_packet_io(FakeTunPacketIo {
-            reads: VecDeque::from(vec![vec![0]]),
-            shared_reads: None,
+            reads: VecDeque::new(),
+            shared_reads: Some(Arc::clone(&reads)),
             writes: Vec::new(),
             shared_writes: None,
         });
@@ -802,8 +803,10 @@ fn managed_mixed_session_records_tun_runtime_status_note_after_serve() {
     )
     .expect("start managed mixed session");
     let listen = session.listen_addr().to_string();
+    let client_reads = Arc::clone(&reads);
     let client_thread = thread::spawn(move || {
         let mut client = connect_with_retry(&listen);
+        wait_for_tun_reads(&client_reads, 0);
         client.write_all(&[0]).expect("write unsupported byte");
     });
 
@@ -904,6 +907,19 @@ fn wait_for_tun_writes(writes: &Arc<Mutex<Vec<Vec<u8>>>>, expected_len: usize) {
         }
         if std::time::Instant::now() >= deadline {
             panic!("timed out waiting for TUN writes");
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn wait_for_tun_reads(reads: &Arc<Mutex<VecDeque<Vec<u8>>>>, expected_len: usize) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        if reads.lock().expect("TUN reads lock").len() <= expected_len {
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            panic!("timed out waiting for TUN reads");
         }
         thread::sleep(Duration::from_millis(10));
     }

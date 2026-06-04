@@ -432,12 +432,18 @@ pub enum TunPacketError {
         destination_port: Option<u16>,
     },
     MissingUdpSocketAddress,
+    MissingTcpSocketAddress,
     IpVersionAddressMismatch {
         ip_version: TunIpVersion,
         source_ip: IpAddr,
         destination_ip: IpAddr,
     },
     UdpResponsePayloadTooLarge {
+        ip_version: TunIpVersion,
+        payload_len: usize,
+        max_payload_len: usize,
+    },
+    TcpResponsePayloadTooLarge {
         ip_version: TunIpVersion,
         payload_len: usize,
         max_payload_len: usize,
@@ -544,6 +550,7 @@ impl fmt::Display for TunPacketError {
                     .unwrap_or_else(|| "-".to_string())
             ),
             Self::MissingUdpSocketAddress => write!(f, "TUN UDP flow is missing a socket address"),
+            Self::MissingTcpSocketAddress => write!(f, "TUN TCP flow is missing a socket address"),
             Self::IpVersionAddressMismatch {
                 ip_version,
                 source_ip,
@@ -559,6 +566,14 @@ impl fmt::Display for TunPacketError {
             } => write!(
                 f,
                 "TUN {ip_version:?} UDP response payload length {payload_len} exceeds max {max_payload_len}"
+            ),
+            Self::TcpResponsePayloadTooLarge {
+                ip_version,
+                payload_len,
+                max_payload_len,
+            } => write!(
+                f,
+                "TUN {ip_version:?} TCP response payload length {payload_len} exceeds max {max_payload_len}"
             ),
             Self::DnsResolve(error) => write!(f, "failed to resolve TUN DNS query: {error}"),
             Self::DnsWire(error) => write!(f, "failed to parse TUN DNS query: {error}"),
@@ -1037,6 +1052,77 @@ pub fn build_tun_udp_response_packet(
     }
 }
 
+pub fn build_tun_tcp_response_packet(
+    flow: &TunPacketFlow,
+    sequence_number: u32,
+    acknowledgment_number: u32,
+    flags: TunTcpFlags,
+    window_size: u16,
+    payload: &[u8],
+) -> Result<Vec<u8>, TunPacketError> {
+    if flow.protocol != TunTransportProtocol::Tcp {
+        return Err(TunPacketError::ExpectedTcpSegment {
+            protocol: flow.protocol,
+        });
+    }
+    let source_port = flow
+        .destination_port
+        .ok_or(TunPacketError::MissingTcpSocketAddress)?;
+    let destination_port = flow
+        .source_port
+        .ok_or(TunPacketError::MissingTcpSocketAddress)?;
+
+    match (flow.ip_version, flow.destination_ip, flow.source_ip) {
+        (TunIpVersion::Ipv4, IpAddr::V4(source_ip), IpAddr::V4(destination_ip)) => {
+            let max_payload_len = u16::MAX as usize - 20 - 20;
+            if payload.len() > max_payload_len {
+                return Err(TunPacketError::TcpResponsePayloadTooLarge {
+                    ip_version: flow.ip_version,
+                    payload_len: payload.len(),
+                    max_payload_len,
+                });
+            }
+            Ok(build_ipv4_tcp_response_packet(
+                source_ip,
+                destination_ip,
+                source_port,
+                destination_port,
+                sequence_number,
+                acknowledgment_number,
+                flags,
+                window_size,
+                payload,
+            ))
+        }
+        (TunIpVersion::Ipv6, IpAddr::V6(source_ip), IpAddr::V6(destination_ip)) => {
+            let max_payload_len = u16::MAX as usize - 20;
+            if payload.len() > max_payload_len {
+                return Err(TunPacketError::TcpResponsePayloadTooLarge {
+                    ip_version: flow.ip_version,
+                    payload_len: payload.len(),
+                    max_payload_len,
+                });
+            }
+            Ok(build_ipv6_tcp_response_packet(
+                source_ip,
+                destination_ip,
+                source_port,
+                destination_port,
+                sequence_number,
+                acknowledgment_number,
+                flags,
+                window_size,
+                payload,
+            ))
+        }
+        _ => Err(TunPacketError::IpVersionAddressMismatch {
+            ip_version: flow.ip_version,
+            source_ip: flow.source_ip,
+            destination_ip: flow.destination_ip,
+        }),
+    }
+}
+
 fn loop_event_for_relay_plan(plan: TunPacketRelayPlan) -> TunPacketLoopEvent {
     match &plan.relay_action {
         TunPacketRelayAction::Drop => TunPacketLoopEvent::Drop(plan),
@@ -1336,6 +1422,77 @@ fn build_ipv6_udp_response_packet(
     packet
 }
 
+fn build_ipv4_tcp_response_packet(
+    source_ip: Ipv4Addr,
+    destination_ip: Ipv4Addr,
+    source_port: u16,
+    destination_port: u16,
+    sequence_number: u32,
+    acknowledgment_number: u32,
+    flags: TunTcpFlags,
+    window_size: u16,
+    payload: &[u8],
+) -> Vec<u8> {
+    let tcp_length = 20 + payload.len();
+    let total_length = 20 + tcp_length;
+    let mut packet = vec![0; total_length];
+    packet[0] = 0x45;
+    packet[2..4].copy_from_slice(&(total_length as u16).to_be_bytes());
+    packet[8] = 64;
+    packet[9] = TunTransportProtocol::Tcp.ip_protocol_number();
+    packet[12..16].copy_from_slice(&source_ip.octets());
+    packet[16..20].copy_from_slice(&destination_ip.octets());
+    write_tcp_segment(
+        &mut packet[20..],
+        source_port,
+        destination_port,
+        sequence_number,
+        acknowledgment_number,
+        flags,
+        window_size,
+        payload,
+    );
+    let tcp_checksum = tcp_checksum_ipv4(source_ip, destination_ip, &packet[20..]);
+    packet[36..38].copy_from_slice(&tcp_checksum.to_be_bytes());
+    let header_checksum = checksum(&packet[..20]);
+    packet[10..12].copy_from_slice(&header_checksum.to_be_bytes());
+    packet
+}
+
+fn build_ipv6_tcp_response_packet(
+    source_ip: Ipv6Addr,
+    destination_ip: Ipv6Addr,
+    source_port: u16,
+    destination_port: u16,
+    sequence_number: u32,
+    acknowledgment_number: u32,
+    flags: TunTcpFlags,
+    window_size: u16,
+    payload: &[u8],
+) -> Vec<u8> {
+    let tcp_length = 20 + payload.len();
+    let mut packet = vec![0; 40 + tcp_length];
+    packet[0] = 0x60;
+    packet[4..6].copy_from_slice(&(tcp_length as u16).to_be_bytes());
+    packet[6] = TunTransportProtocol::Tcp.ip_protocol_number();
+    packet[7] = 64;
+    packet[8..24].copy_from_slice(&source_ip.octets());
+    packet[24..40].copy_from_slice(&destination_ip.octets());
+    write_tcp_segment(
+        &mut packet[40..],
+        source_port,
+        destination_port,
+        sequence_number,
+        acknowledgment_number,
+        flags,
+        window_size,
+        payload,
+    );
+    let tcp_checksum = tcp_checksum_ipv6(source_ip, destination_ip, &packet[40..]);
+    packet[56..58].copy_from_slice(&tcp_checksum.to_be_bytes());
+    packet
+}
+
 fn write_udp_datagram(
     datagram: &mut [u8],
     source_port: u16,
@@ -1348,6 +1505,28 @@ fn write_udp_datagram(
     datagram[4..6].copy_from_slice(&(udp_length as u16).to_be_bytes());
     datagram[6..8].copy_from_slice(&0u16.to_be_bytes());
     datagram[8..].copy_from_slice(payload);
+}
+
+fn write_tcp_segment(
+    segment: &mut [u8],
+    source_port: u16,
+    destination_port: u16,
+    sequence_number: u32,
+    acknowledgment_number: u32,
+    flags: TunTcpFlags,
+    window_size: u16,
+    payload: &[u8],
+) {
+    segment[0..2].copy_from_slice(&source_port.to_be_bytes());
+    segment[2..4].copy_from_slice(&destination_port.to_be_bytes());
+    segment[4..8].copy_from_slice(&sequence_number.to_be_bytes());
+    segment[8..12].copy_from_slice(&acknowledgment_number.to_be_bytes());
+    segment[12] = (5 << 4) | (((flags.bits() >> 8) & 0x01) as u8);
+    segment[13] = flags.bits() as u8;
+    segment[14..16].copy_from_slice(&window_size.to_be_bytes());
+    segment[16..18].copy_from_slice(&0u16.to_be_bytes());
+    segment[18..20].copy_from_slice(&0u16.to_be_bytes());
+    segment[20..].copy_from_slice(payload);
 }
 
 fn udp_checksum_ipv4(source_ip: Ipv4Addr, destination_ip: Ipv4Addr, udp_datagram: &[u8]) -> u16 {
@@ -1374,6 +1553,32 @@ fn udp_checksum_ipv6(source_ip: Ipv6Addr, destination_ip: Ipv6Addr, udp_datagram
     );
     add_checksum_bytes(&mut sum, udp_datagram);
     nonzero_checksum(sum)
+}
+
+fn tcp_checksum_ipv4(source_ip: Ipv4Addr, destination_ip: Ipv4Addr, tcp_segment: &[u8]) -> u16 {
+    let mut sum = 0;
+    add_checksum_bytes(&mut sum, &source_ip.octets());
+    add_checksum_bytes(&mut sum, &destination_ip.octets());
+    add_checksum_bytes(
+        &mut sum,
+        &[0, TunTransportProtocol::Tcp.ip_protocol_number()],
+    );
+    add_checksum_bytes(&mut sum, &(tcp_segment.len() as u16).to_be_bytes());
+    add_checksum_bytes(&mut sum, tcp_segment);
+    finish_checksum(sum)
+}
+
+fn tcp_checksum_ipv6(source_ip: Ipv6Addr, destination_ip: Ipv6Addr, tcp_segment: &[u8]) -> u16 {
+    let mut sum = 0;
+    add_checksum_bytes(&mut sum, &source_ip.octets());
+    add_checksum_bytes(&mut sum, &destination_ip.octets());
+    add_checksum_bytes(&mut sum, &(tcp_segment.len() as u32).to_be_bytes());
+    add_checksum_bytes(
+        &mut sum,
+        &[0, 0, 0, TunTransportProtocol::Tcp.ip_protocol_number()],
+    );
+    add_checksum_bytes(&mut sum, tcp_segment);
+    finish_checksum(sum)
 }
 
 fn checksum(bytes: &[u8]) -> u16 {

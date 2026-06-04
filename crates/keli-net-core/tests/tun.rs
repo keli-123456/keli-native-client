@@ -4,15 +4,16 @@ use std::time::Duration;
 
 use keli_net_core::{
     build_dns_error_response, build_dns_response, build_tun_dns_hijack_response,
-    build_tun_dns_response_packet, decide_tun_packet_route, parse_tun_packet_flow,
-    parse_tun_tcp_segment, parse_tun_udp_payload, plan_tun_dns_hijack, plan_tun_packet_relay,
-    process_tun_packet, relay_tun_direct_udp_packet, relay_tun_udp_packet, run_tun_packet_loop,
-    run_tun_packet_loop_summary, run_tun_packet_loop_with_udp_relay_summary, DnsCache, DnsEngine,
-    DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, OutboundRegistry,
-    OutboundTarget, RegistryTunUdpRelay, RouteAction, RouteDestination, RouteEngine, RouteIpCidr,
-    RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketDevice, TunPacketError,
-    TunPacketLoopEvent, TunPacketLoopSummary, TunPacketProcessAction, TunPacketRelayAction,
-    TunPacketRelayPlan, TunTransportProtocol, TunUdpRelay, TunUdpRelayError, UdpRelayResponse,
+    build_tun_dns_response_packet, build_tun_tcp_response_packet, decide_tun_packet_route,
+    parse_tun_packet_flow, parse_tun_tcp_segment, parse_tun_udp_payload, plan_tun_dns_hijack,
+    plan_tun_packet_relay, process_tun_packet, relay_tun_direct_udp_packet, relay_tun_udp_packet,
+    run_tun_packet_loop, run_tun_packet_loop_summary, run_tun_packet_loop_with_udp_relay_summary,
+    DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver,
+    OutboundRegistry, OutboundTarget, RegistryTunUdpRelay, RouteAction, RouteDestination,
+    RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketDevice,
+    TunPacketError, TunPacketLoopEvent, TunPacketLoopSummary, TunPacketProcessAction,
+    TunPacketRelayAction, TunPacketRelayPlan, TunTcpFlags, TunTransportProtocol, TunUdpRelay,
+    TunUdpRelayError, UdpRelayResponse,
 };
 
 #[test]
@@ -167,6 +168,138 @@ fn rejects_tcp_data_offset_larger_than_transport_payload() {
         TunPacketError::TcpSegmentTruncated {
             header_len: 24,
             available_len: 20
+        }
+    );
+}
+
+#[test]
+fn builds_ipv4_tun_tcp_response_packet_with_swapped_flow_and_checksum() {
+    let request = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let request_segment = parse_tun_tcp_segment(&request).expect("parse request TCP segment");
+
+    let response_packet = build_tun_tcp_response_packet(
+        &request_segment.flow,
+        1000,
+        request_segment.sequence_number + 1,
+        TunTcpFlags::from_bits(0x0012),
+        0x2000,
+        b"",
+    )
+    .expect("build TCP response packet");
+    let response = parse_tun_tcp_segment(&response_packet).expect("parse response TCP segment");
+
+    assert_eq!(
+        response.flow.source_ip,
+        "93.184.216.34".parse::<IpAddr>().expect("valid IP")
+    );
+    assert_eq!(
+        response.flow.destination_ip,
+        "10.7.0.2".parse::<IpAddr>().expect("valid IP")
+    );
+    assert_eq!(response.flow.source_port, Some(443));
+    assert_eq!(response.flow.destination_port, Some(49152));
+    assert_eq!(response.sequence_number, 1000);
+    assert_eq!(response.acknowledgment_number, 11);
+    assert_eq!(response.header_len, 20);
+    assert_eq!(response.flags.bits(), 0x0012);
+    assert!(response.flags.syn());
+    assert!(response.flags.ack());
+    assert!(response.payload.is_empty());
+    assert_ne!(&response_packet[10..12], &[0, 0]);
+    assert_ne!(&response_packet[36..38], &[0, 0]);
+}
+
+#[test]
+fn builds_ipv6_tun_tcp_response_packet_with_payload_and_checksum() {
+    let request = ipv6_packet(
+        6,
+        "fd00::2",
+        "2606:4700:4700::1111",
+        &tcp_segment(54000, 443, 50, 200, 0x0018, 0x4000, &[], b"ping"),
+    );
+    let request_segment = parse_tun_tcp_segment(&request).expect("parse request TCP segment");
+
+    let response_packet = build_tun_tcp_response_packet(
+        &request_segment.flow,
+        500,
+        request_segment.sequence_number + request_segment.payload.len() as u32,
+        TunTcpFlags::from_bits(0x0018),
+        0x3000,
+        b"ok",
+    )
+    .expect("build IPv6 TCP response packet");
+    let response = parse_tun_tcp_segment(&response_packet).expect("parse IPv6 response segment");
+
+    assert_eq!(
+        response.flow.source_ip,
+        "2606:4700:4700::1111".parse::<IpAddr>().expect("valid IP")
+    );
+    assert_eq!(
+        response.flow.destination_ip,
+        "fd00::2".parse::<IpAddr>().expect("valid IP")
+    );
+    assert_eq!(response.flow.source_port, Some(443));
+    assert_eq!(response.flow.destination_port, Some(54000));
+    assert_eq!(response.sequence_number, 500);
+    assert_eq!(response.acknowledgment_number, 54);
+    assert_eq!(response.flags.bits(), 0x0018);
+    assert!(response.flags.ack());
+    assert!(response.flags.psh());
+    assert_eq!(response.window_size, 0x3000);
+    assert_eq!(response.payload, b"ok");
+    assert_ne!(&response_packet[56..58], &[0, 0]);
+}
+
+#[test]
+fn rejects_non_tcp_flow_for_tcp_response_packet() {
+    let packet = ipv4_packet(17, "10.7.0.2", "8.8.8.8", &udp_datagram(54321, 53, b"keli"));
+    let flow = parse_tun_packet_flow(&packet).expect("parse UDP flow");
+
+    let error =
+        build_tun_tcp_response_packet(&flow, 1, 1, TunTcpFlags::from_bits(0x0010), 0x2000, b"")
+            .expect_err("UDP flow cannot build TCP response");
+
+    assert_eq!(
+        error,
+        TunPacketError::ExpectedTcpSegment {
+            protocol: TunTransportProtocol::Udp
+        }
+    );
+}
+
+#[test]
+fn rejects_oversized_ipv4_tun_tcp_response_payload() {
+    let request = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let segment = parse_tun_tcp_segment(&request).expect("parse request TCP segment");
+    let max_payload_len = u16::MAX as usize - 20 - 20;
+    let payload = vec![0; max_payload_len + 1];
+
+    let error = build_tun_tcp_response_packet(
+        &segment.flow,
+        1,
+        11,
+        TunTcpFlags::from_bits(0x0012),
+        0x2000,
+        &payload,
+    )
+    .expect_err("oversized TCP response payload should fail");
+
+    assert_eq!(
+        error,
+        TunPacketError::TcpResponsePayloadTooLarge {
+            ip_version: TunIpVersion::Ipv4,
+            payload_len: payload.len(),
+            max_payload_len
         }
     );
 }
