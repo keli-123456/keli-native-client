@@ -41,6 +41,9 @@ use keli_protocol::{
 
 const DEFAULT_FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+const DEFAULT_TUN_INTERFACE_NAME: &str = "keli-tun0";
+const DEFAULT_TUN_ADDRESS_CIDR: &str = "10.7.0.1/24";
+const DEFAULT_TUN_MTU: u16 = 1500;
 const UDP_RELAY_POLL_INTERVAL: Duration = Duration::from_millis(200);
 const MANAGED_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const SUPPORTED_OUTBOUNDS: &str =
@@ -1564,9 +1567,9 @@ fn parse_doctor(args: impl Iterator<Item = String>) -> Result<CliCommand, String
 }
 
 fn parse_tun_preflight(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
-    let mut interface_name = "keli-tun0".to_string();
-    let mut address_cidr = "10.7.0.1/24".to_string();
-    let mut mtu = 1500;
+    let mut interface_name = DEFAULT_TUN_INTERFACE_NAME.to_string();
+    let mut address_cidr = DEFAULT_TUN_ADDRESS_CIDR.to_string();
+    let mut mtu = DEFAULT_TUN_MTU;
     let mut dns_hijack = false;
     let mut output = ProbeOutputFormat::Text;
     let mut args = args.peekable();
@@ -1635,9 +1638,9 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
     let mut system_proxy = false;
     let mut system_proxy_bypass = Vec::new();
     let mut tun_enabled = false;
-    let mut tun_interface_name = "keli-tun0".to_string();
-    let mut tun_address_cidr = "10.7.0.1/24".to_string();
-    let mut tun_mtu = 1500;
+    let mut tun_interface_name = DEFAULT_TUN_INTERFACE_NAME.to_string();
+    let mut tun_address_cidr = DEFAULT_TUN_ADDRESS_CIDR.to_string();
+    let mut tun_mtu = DEFAULT_TUN_MTU;
     let mut tun_dns_hijack = false;
     let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut idle_timeout = DEFAULT_IDLE_TIMEOUT;
@@ -2324,6 +2327,20 @@ fn tun_preflight_json_value(preflight: &TunDevicePreflight) -> serde_json::Value
     })
 }
 
+fn collect_default_tun_preflight() -> TunDevicePreflight {
+    let controller = NativeTunDeviceController::new();
+    TunDevicePreflight::check(&controller, default_tun_device_config())
+}
+
+fn default_tun_device_config() -> TunDeviceConfig {
+    TunDeviceConfig::new(
+        DEFAULT_TUN_INTERFACE_NAME,
+        DEFAULT_TUN_ADDRESS_CIDR,
+        DEFAULT_TUN_MTU,
+    )
+    .expect("default TUN config is valid")
+}
+
 fn tun_device_state(status: &TunDeviceStatus) -> &'static str {
     if status.running {
         "running"
@@ -2348,6 +2365,7 @@ pub fn write_support_bundle_report(
         "schema_version": 1,
         "generated_at_unix_ms": generated_at_unix_ms,
         "doctor": doctor_report_json_value(&collect_doctor_report()),
+        "tun_preflight": tun_preflight_json_value(&collect_default_tun_preflight()),
         "profile": support_bundle_profile_value(profile_config_text),
         "redaction": {
             "profile_config_text": "omitted",

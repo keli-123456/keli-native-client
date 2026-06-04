@@ -39,6 +39,20 @@ proxies:
     assert_eq!(report["schema_version"], 1);
     assert_eq!(report["doctor"]["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(report["doctor"]["platform"], "Windows");
+    assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");
+    assert_eq!(report["tun_preflight"]["ready"], false);
+    assert_eq!(
+        report["tun_preflight"]["config"]["interface_name"],
+        "keli-tun0"
+    );
+    assert_eq!(
+        report["tun_preflight"]["config"]["address_cidr"],
+        "10.7.0.1/24"
+    );
+    assert_eq!(
+        report["tun_preflight"]["device"]["lifecycle_available"],
+        false
+    );
     assert_eq!(report["profile"]["status"], "ok");
     assert_eq!(report["profile"]["source_format"], "mihomo_yaml");
     assert_eq!(report["profile"]["supported_count"], 2);

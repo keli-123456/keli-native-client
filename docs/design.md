@@ -122,6 +122,8 @@ The first implementation target is deliberately small:
    `listen-mixed` can now request this lifecycle path with `--tun` and explicit
    TUN interface/address/MTU/DNS-hijack options, so CLI takeover uses the same
    guard and cleanup path that future UI/service runners will call.
+   Support bundles include the same default TUN preflight report, making TUN
+   readiness and lifecycle-backend failures visible in support diagnostics.
 4. Keli panel integration: subscription fetch/update, user state, node
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,
