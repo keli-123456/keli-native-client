@@ -294,6 +294,7 @@ pub enum TunDeviceReadiness {
     AlreadyRunning,
     RunningConflict,
     LifecycleUnavailable,
+    PacketIoUnavailable,
     Unsupported,
     InvalidConfig,
     SnapshotFailed,
@@ -306,6 +307,7 @@ impl TunDeviceReadiness {
             Self::AlreadyRunning => "already-running",
             Self::RunningConflict => "running-conflict",
             Self::LifecycleUnavailable => "lifecycle-unavailable",
+            Self::PacketIoUnavailable => "packet-io-unavailable",
             Self::Unsupported => "unsupported",
             Self::InvalidConfig => "invalid-config",
             Self::SnapshotFailed => "snapshot-failed",
@@ -678,6 +680,9 @@ fn tun_readiness_from_snapshot(
     if !snapshot.lifecycle_available {
         return TunDeviceReadiness::LifecycleUnavailable;
     }
+    if !snapshot.packet_io_available {
+        return TunDeviceReadiness::PacketIoUnavailable;
+    }
     if snapshot.running {
         if tun_snapshot_matches_config(snapshot, config) {
             TunDeviceReadiness::AlreadyRunning
@@ -719,6 +724,9 @@ fn tun_readiness_reason(
         )),
         TunDeviceReadiness::LifecycleUnavailable => {
             Some("TUN lifecycle backend is unavailable".to_string())
+        }
+        TunDeviceReadiness::PacketIoUnavailable => {
+            Some("TUN packet I/O backend is unavailable".to_string())
         }
         TunDeviceReadiness::Unsupported => Some("TUN is unsupported on this platform".to_string()),
         TunDeviceReadiness::InvalidConfig | TunDeviceReadiness::SnapshotFailed => {
@@ -1063,6 +1071,36 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         assert_eq!(
             preflight.reason.as_deref(),
             Some("TUN lifecycle backend is unavailable")
+        );
+    }
+
+    #[test]
+    fn tun_preflight_reports_packet_io_unavailable_boundary() {
+        let config =
+            TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500).expect("valid TUN config");
+        let controller = StaticTunController {
+            snapshot: Ok(TunDeviceSnapshot {
+                supported: true,
+                lifecycle_available: true,
+                packet_io_available: false,
+                running: false,
+                interface_name: None,
+                address_cidr: None,
+                mtu: None,
+                dns_hijack: None,
+            }),
+        };
+
+        let preflight = TunDevicePreflight::check(&controller, config);
+
+        assert_eq!(preflight.readiness, TunDeviceReadiness::PacketIoUnavailable);
+        assert!(!preflight.ready);
+        assert!(preflight.status.supported);
+        assert!(preflight.status.lifecycle_available);
+        assert!(!preflight.status.packet_io_available);
+        assert_eq!(
+            preflight.reason.as_deref(),
+            Some("TUN packet I/O backend is unavailable")
         );
     }
 

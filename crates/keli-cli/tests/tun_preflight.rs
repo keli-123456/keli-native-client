@@ -136,6 +136,40 @@ fn tun_preflight_text_reports_lifecycle_unavailable() {
 }
 
 #[test]
+fn tun_preflight_json_reports_packet_io_unavailable() {
+    let config = TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500)
+        .expect("valid TUN config")
+        .with_dns_hijack(true);
+    let controller = FakeTunDeviceController::new(TunDeviceSnapshot {
+        supported: true,
+        lifecycle_available: true,
+        packet_io_available: false,
+        running: false,
+        interface_name: None,
+        address_cidr: None,
+        mtu: None,
+        dns_hijack: None,
+    });
+
+    let mut output = Vec::new();
+    write_tun_preflight_report_with_controller(
+        &mut output,
+        ProbeOutputFormat::Json,
+        config,
+        &controller,
+    )
+    .expect("write report");
+    let report: serde_json::Value =
+        serde_json::from_slice(&output).expect("parse TUN preflight report");
+
+    assert_eq!(report["status"], "packet-io-unavailable");
+    assert_eq!(report["ready"], false);
+    assert_eq!(report["device"]["lifecycle_available"], true);
+    assert_eq!(report["device"]["packet_io_available"], false);
+    assert_eq!(report["reason"], "TUN packet I/O backend is unavailable");
+}
+
+#[test]
 fn tun_preflight_json_reports_running_conflict() {
     let running_config = TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500)
         .expect("valid TUN config")

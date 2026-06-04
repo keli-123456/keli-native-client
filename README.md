@@ -74,6 +74,9 @@ written, relayed, dropped, unsupported, idle, and packet-error outcomes.
 The platform TUN boundary now also separates lifecycle availability from packet
 I/O availability, and the CLI has an adapter that can feed platform packet I/O
 into the net-core TUN packet loop.
+TUN preflight treats packet I/O availability as its own readiness boundary,
+reporting `packet-io-unavailable` when a platform can manage the interface but
+cannot yet feed packets into the data plane.
 A bounded managed TUN packet-loop runner now ties lifecycle guard, packet I/O,
 net-core loop summary, and owned-device cleanup into one tested control path.
 Direct UDP TUN relay can execute an injected UDP relay, wrap the relay payload
