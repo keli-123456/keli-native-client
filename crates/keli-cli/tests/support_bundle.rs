@@ -74,6 +74,10 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][17],
+        "managed-packet-loop"
+    );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][18],
         "relay-plan"
     );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");

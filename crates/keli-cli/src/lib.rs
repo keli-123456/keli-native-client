@@ -22,18 +22,19 @@ use keli_net_core::{
     http_connect_bad_request_response, http_connect_success_response,
     http_proxy_bad_request_response, parse_dns_query, parse_http_connect_request,
     parse_http_proxy_request, parse_socks5_handshake, parse_socks5_request,
-    parse_socks5_udp_datagram, relay_owned_bidirectional_with_options, socks5_no_auth_response,
-    socks5_reply, ConnectionErrorKind, ConnectionReport, DirectTcpConnector, DirectUdpConnector,
-    DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy,
-    DnsQuestionType, LocalInbound, OutboundConnection, OutboundRegistry, OutboundTarget,
-    RelayOptions, RouteAction, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, Socks5Address,
-    Socks5Command, Socks5ReplyCode, SystemDnsResolver, TunPacketDevice,
+    parse_socks5_udp_datagram, relay_owned_bidirectional_with_options, run_tun_packet_loop_summary,
+    socks5_no_auth_response, socks5_reply, ConnectionErrorKind, ConnectionReport,
+    DirectTcpConnector, DirectUdpConnector, DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsError,
+    DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, LocalInbound, OutboundConnection,
+    OutboundRegistry, OutboundTarget, RelayOptions, RouteAction, RouteEngine, RouteIpCidr,
+    RouteMatcher, RouteRule, Socks5Address, Socks5Command, Socks5ReplyCode, SystemDnsResolver,
+    TunPacketDevice, TunPacketLoopSummary,
 };
 use keli_platform::{
     NativeSystemProxyController, NativeTunDeviceController, PlatformCapabilities,
     SystemProxyConfig, SystemProxyController, SystemProxySnapshot, SystemProxyStatus,
     TunDeviceConfig, TunDeviceController, TunDevicePreflight, TunDeviceReadiness,
-    TunDeviceSnapshot, TunDeviceStatus, TunPacketIo,
+    TunDeviceSnapshot, TunDeviceStatus, TunPacketIo, TunPacketIoController,
 };
 use keli_protocol::{
     detect_subscription_input_format, parse_mihomo_outbound_profiles,
@@ -59,7 +60,7 @@ const SUPPORTED_PROTOCOL_CAPABILITIES: &str =
 const ROUTE_RULE_CAPABILITIES: &str =
     "domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
-    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-guard,packet-loop,packet-loop-summary,relay-plan";
+    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,relay-plan";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
@@ -308,6 +309,15 @@ pub struct PlatformTunPacketDevice<I: TunPacketIo> {
     io: I,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedTunPacketLoopReport {
+    pub config: TunDeviceConfig,
+    pub start_snapshot: TunDeviceSnapshot,
+    pub stop_snapshot: TunDeviceSnapshot,
+    pub owns_device: bool,
+    pub summary: TunPacketLoopSummary,
+}
+
 impl<I: TunPacketIo> PlatformTunPacketDevice<I> {
     pub fn new(io: I) -> Self {
         Self { io }
@@ -328,6 +338,73 @@ impl<I: TunPacketIo> TunPacketDevice for PlatformTunPacketDevice<I> {
             .write_packet(packet)
             .map_err(|error| error.to_string())
     }
+}
+
+pub fn run_managed_tun_packet_loop<C, R>(
+    controller: &C,
+    config: TunDeviceConfig,
+    routes: &RouteEngine,
+    dns: &mut DnsEngine<R>,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+) -> Result<ManagedTunPacketLoopReport, String>
+where
+    C: TunPacketIoController + ?Sized,
+    R: DnsResolver,
+{
+    let guard = apply_tun_device_for_config(controller, config)?;
+    let config = guard.config().clone();
+    let start_snapshot = guard.snapshot().clone();
+    let owns_device = guard.owns_device();
+    let summary_result = run_managed_tun_packet_loop_inner(
+        controller,
+        &config,
+        routes,
+        dns,
+        dns_ttl_seconds,
+        max_packets,
+    );
+    let stop_result = guard.stop();
+
+    match (summary_result, stop_result) {
+        (Ok(summary), Ok(stop_snapshot)) => Ok(ManagedTunPacketLoopReport {
+            config,
+            start_snapshot,
+            stop_snapshot,
+            owns_device,
+            summary,
+        }),
+        (Ok(_), Err(stop_error)) => Err(stop_error),
+        (Err(loop_error), Ok(_)) => Err(loop_error),
+        (Err(loop_error), Err(stop_error)) => Err(format!("{loop_error}; {stop_error}")),
+    }
+}
+
+fn run_managed_tun_packet_loop_inner<C, R>(
+    controller: &C,
+    config: &TunDeviceConfig,
+    routes: &RouteEngine,
+    dns: &mut DnsEngine<R>,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+) -> Result<TunPacketLoopSummary, String>
+where
+    C: TunPacketIoController + ?Sized,
+    R: DnsResolver,
+{
+    let io = controller
+        .open_packet_io(config)
+        .map_err(|error| format!("open TUN packet I/O: {error}"))?;
+    let mut device = PlatformTunPacketDevice::new(io);
+    run_tun_packet_loop_summary(
+        &mut device,
+        routes,
+        config.dns_hijack,
+        dns,
+        dns_ttl_seconds,
+        max_packets,
+    )
+    .map_err(|error| format!("run TUN packet loop: {error}"))
 }
 
 impl<'a, C: TunDeviceController + ?Sized> ManagedTunDeviceGuard<'a, C> {

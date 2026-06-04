@@ -1,13 +1,17 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::time::Duration;
 
 use keli_cli::{
-    apply_tun_device_for_config, run_with_optional_tun_device,
+    apply_tun_device_for_config, run_managed_tun_packet_loop, run_with_optional_tun_device,
     write_tun_preflight_report_with_controller, PlatformTunPacketDevice, ProbeOutputFormat,
 };
-use keli_net_core::TunPacketDevice;
+use keli_net_core::{
+    DnsCache, DnsEngine, RouteAction, RouteEngine, SystemDnsResolver, TunPacketDevice,
+};
 use keli_platform::{
     TunDeviceConfig, TunDeviceController, TunDeviceError, TunDeviceSnapshot, TunPacketIo,
+    TunPacketIoController,
 };
 
 #[derive(Debug)]
@@ -15,7 +19,9 @@ struct FakeTunDeviceController {
     snapshot: RefCell<Result<TunDeviceSnapshot, TunDeviceError>>,
     start_result: RefCell<Result<TunDeviceSnapshot, TunDeviceError>>,
     stop_result: RefCell<Result<TunDeviceSnapshot, TunDeviceError>>,
+    packet_io_result: RefCell<Option<Result<FakeTunPacketIo, TunDeviceError>>>,
     starts: RefCell<Vec<TunDeviceConfig>>,
+    opens: RefCell<Vec<TunDeviceConfig>>,
     stops: RefCell<usize>,
 }
 
@@ -25,7 +31,9 @@ impl FakeTunDeviceController {
             snapshot: RefCell::new(Ok(snapshot.clone())),
             start_result: RefCell::new(Ok(snapshot.clone())),
             stop_result: RefCell::new(Ok(snapshot)),
+            packet_io_result: RefCell::new(Some(Ok(FakeTunPacketIo::default()))),
             starts: RefCell::new(Vec::new()),
+            opens: RefCell::new(Vec::new()),
             stops: RefCell::new(0),
         }
     }
@@ -37,6 +45,16 @@ impl FakeTunDeviceController {
 
     fn with_stop_result(self, stop_result: TunDeviceSnapshot) -> Self {
         *self.stop_result.borrow_mut() = Ok(stop_result);
+        self
+    }
+
+    fn with_packet_io(self, packet_io: FakeTunPacketIo) -> Self {
+        *self.packet_io_result.borrow_mut() = Some(Ok(packet_io));
+        self
+    }
+
+    fn with_packet_io_error(self, error: TunDeviceError) -> Self {
+        *self.packet_io_result.borrow_mut() = Some(Err(error));
         self
     }
 }
@@ -54,6 +72,18 @@ impl TunDeviceController for FakeTunDeviceController {
     fn stop(&self) -> Result<TunDeviceSnapshot, TunDeviceError> {
         *self.stops.borrow_mut() += 1;
         self.stop_result.borrow().clone()
+    }
+}
+
+impl TunPacketIoController for FakeTunDeviceController {
+    type PacketIo = FakeTunPacketIo;
+
+    fn open_packet_io(&self, config: &TunDeviceConfig) -> Result<Self::PacketIo, TunDeviceError> {
+        self.opens.borrow_mut().push(config.clone());
+        self.packet_io_result
+            .borrow_mut()
+            .take()
+            .unwrap_or_else(|| Err(TunDeviceError::Io("packet I/O already opened".to_string())))
     }
 }
 
@@ -282,6 +312,78 @@ fn optional_tun_wrapper_stops_owned_device_after_run_failure() {
 }
 
 #[test]
+fn managed_tun_packet_loop_runs_platform_io_and_stops_owned_device() {
+    let config = TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500)
+        .expect("valid TUN config")
+        .with_dns_hijack(true);
+    let stopped_snapshot = TunDeviceSnapshot {
+        supported: true,
+        lifecycle_available: true,
+        packet_io_available: true,
+        running: false,
+        interface_name: None,
+        address_cidr: None,
+        mtu: None,
+        dns_hijack: None,
+    };
+    let controller = FakeTunDeviceController::new(stopped_snapshot.clone())
+        .with_start_result(TunDeviceSnapshot::running(&config))
+        .with_stop_result(stopped_snapshot)
+        .with_packet_io(FakeTunPacketIo {
+            reads: VecDeque::from(vec![vec![0]]),
+            writes: Vec::new(),
+        });
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+
+    let report = run_managed_tun_packet_loop(&controller, config.clone(), &routes, &mut dns, 30, 2)
+        .expect("run managed TUN packet loop");
+
+    assert_eq!(controller.starts.borrow().as_slice(), &[config.clone()]);
+    assert_eq!(controller.opens.borrow().as_slice(), &[config.clone()]);
+    assert_eq!(*controller.stops.borrow(), 1);
+    assert!(report.owns_device);
+    assert_eq!(report.config, config);
+    assert!(report.start_snapshot.running);
+    assert!(!report.stop_snapshot.running);
+    assert_eq!(report.summary.packet_errors, 1);
+    assert_eq!(report.summary.idle_events, 1);
+    assert_eq!(report.summary.processed_packets(), 1);
+}
+
+#[test]
+fn managed_tun_packet_loop_stops_owned_device_after_packet_io_open_failure() {
+    let config = TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500)
+        .expect("valid TUN config")
+        .with_dns_hijack(true);
+    let stopped_snapshot = TunDeviceSnapshot {
+        supported: true,
+        lifecycle_available: true,
+        packet_io_available: true,
+        running: false,
+        interface_name: None,
+        address_cidr: None,
+        mtu: None,
+        dns_hijack: None,
+    };
+    let controller = FakeTunDeviceController::new(stopped_snapshot.clone())
+        .with_start_result(TunDeviceSnapshot::running(&config))
+        .with_stop_result(stopped_snapshot)
+        .with_packet_io_error(TunDeviceError::Io("open failed".to_string()));
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+
+    let error = run_managed_tun_packet_loop(&controller, config.clone(), &routes, &mut dns, 30, 1)
+        .expect_err("packet I/O open should fail");
+
+    assert!(error.contains("open TUN packet I/O"));
+    assert!(error.contains("open failed"));
+    assert_eq!(controller.starts.borrow().as_slice(), &[config.clone()]);
+    assert_eq!(controller.opens.borrow().as_slice(), &[config]);
+    assert_eq!(*controller.stops.borrow(), 1);
+}
+
+#[test]
 fn platform_tun_packet_device_adapts_packet_io_to_net_core_device() {
     let fake_io = FakeTunPacketIo {
         reads: VecDeque::from(vec![vec![1, 2, 3]]),
@@ -300,7 +402,7 @@ fn platform_tun_packet_device_adapts_packet_io_to_net_core_device() {
     assert_eq!(fake_io.writes, vec![vec![4, 5, 6]]);
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct FakeTunPacketIo {
     reads: VecDeque<Vec<u8>>,
     writes: Vec<Vec<u8>>,

@@ -74,6 +74,8 @@ written, relayed, dropped, unsupported, idle, and packet-error outcomes.
 The platform TUN boundary now also separates lifecycle availability from packet
 I/O availability, and the CLI has an adapter that can feed platform packet I/O
 into the net-core TUN packet loop.
+A bounded managed TUN packet-loop runner now ties lifecycle guard, packet I/O,
+net-core loop summary, and owned-device cleanup into one tested control path.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 

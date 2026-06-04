@@ -168,6 +168,8 @@ The first implementation target is deliberately small:
    The platform TUN boundary distinguishes lifecycle availability from packet
    I/O availability, with a CLI adapter that can feed platform packet I/O into
    the net-core TUN packet loop once a native backend exists.
+   A bounded managed TUN packet-loop runner now ties lifecycle guard, packet
+   I/O, loop summary, and owned-device cleanup into one tested control path.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.
