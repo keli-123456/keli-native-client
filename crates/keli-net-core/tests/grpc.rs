@@ -184,6 +184,62 @@ fn registry_from_trojan_grpc_profile_relays_over_h2_grpc() {
 }
 
 #[test]
+fn registry_from_trojan_grpc_profile_relays_udp_over_h2_grpc() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind trojan grpc udp server");
+    let port = listener.local_addr().expect("trojan grpc udp addr").port();
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Trojan,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Grpc {
+            service_name: Some("GunService".to_string()),
+        },
+        security: SecurityKind::None,
+        credential: "password".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+    let server = spawn_grpc_server(listener, "/GunService/Tun", |mut stream| {
+        let mut request_header = [0; 68];
+        stream
+            .read_exact(&mut request_header)
+            .expect("read trojan udp associate header");
+        assert_eq!(
+            &request_header[..],
+            b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x03\x01\x7f\x00\x00\x01\x005\r\n"
+        );
+        let mut request_payload = [0; 15];
+        stream
+            .read_exact(&mut request_payload)
+            .expect("read trojan udp packet");
+        assert_eq!(
+            &request_payload,
+            b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\nping"
+        );
+        stream
+            .write_all(b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\npong")
+            .expect("write trojan udp response packet");
+    });
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("127.0.0.1", 53),
+            b"ping",
+            Duration::from_secs(2),
+        )
+        .expect("registered Trojan gRPC UDP outbound should relay");
+
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("response source")
+    );
+    assert_eq!(response.payload, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn registry_from_vmess_grpc_profile_relays_over_h2_grpc() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind grpc server");
     let port = listener.local_addr().expect("grpc addr").port();
@@ -438,6 +494,68 @@ fn registry_from_trojan_tls_grpc_profile_relays_over_tls_h2_grpc() {
     stream.read_exact(&mut response).expect("read payload");
 
     assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
+fn registry_from_trojan_tls_grpc_profile_relays_udp_over_tls_h2_grpc() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind trojan tls grpc udp server");
+    let port = listener
+        .local_addr()
+        .expect("trojan tls grpc udp addr")
+        .port();
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Trojan,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Grpc {
+            service_name: Some("GunService".to_string()),
+        },
+        security: SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: true,
+        },
+        credential: "password".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+    let server = spawn_tls_grpc_server(listener, "/GunService/Tun", |mut stream| {
+        let mut request_header = [0; 68];
+        stream
+            .read_exact(&mut request_header)
+            .expect("read trojan udp associate header");
+        assert_eq!(
+            &request_header[..],
+            b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x03\x01\x7f\x00\x00\x01\x005\r\n"
+        );
+        let mut request_payload = [0; 15];
+        stream
+            .read_exact(&mut request_payload)
+            .expect("read trojan udp packet");
+        assert_eq!(
+            &request_payload,
+            b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\nping"
+        );
+        stream
+            .write_all(b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\npong")
+            .expect("write trojan udp response packet");
+    });
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("127.0.0.1", 53),
+            b"ping",
+            Duration::from_secs(2),
+        )
+        .expect("registered Trojan TLS gRPC UDP outbound should relay");
+
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("response source")
+    );
+    assert_eq!(response.payload, b"pong");
     server.join().expect("server thread");
 }
 
