@@ -1,4 +1,5 @@
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, SocketAddr, UdpSocket};
+use std::thread;
 use std::time::Duration;
 
 use keli_net_core::{
@@ -7,11 +8,11 @@ use keli_net_core::{
     parse_tun_udp_payload, plan_tun_dns_hijack, plan_tun_packet_relay, process_tun_packet,
     relay_tun_direct_udp_packet, relay_tun_udp_packet, run_tun_packet_loop,
     run_tun_packet_loop_summary, run_tun_packet_loop_with_udp_relay_summary, DnsCache, DnsEngine,
-    DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, OutboundTarget, RouteAction,
-    RouteDestination, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion,
-    TunPacketDevice, TunPacketError, TunPacketLoopEvent, TunPacketLoopSummary,
-    TunPacketProcessAction, TunPacketRelayAction, TunPacketRelayPlan, TunTransportProtocol,
-    TunUdpRelay, TunUdpRelayError, UdpRelayResponse,
+    DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, OutboundRegistry,
+    OutboundTarget, RegistryTunUdpRelay, RouteAction, RouteDestination, RouteEngine, RouteIpCidr,
+    RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketDevice, TunPacketError,
+    TunPacketLoopEvent, TunPacketLoopSummary, TunPacketProcessAction, TunPacketRelayAction,
+    TunPacketRelayPlan, TunTransportProtocol, TunUdpRelay, TunUdpRelayError, UdpRelayResponse,
 };
 
 #[test]
@@ -433,6 +434,83 @@ fn tun_packet_loop_with_udp_relay_writes_outbound_udp_response() {
             .payload,
         b"pong"
     );
+}
+
+#[test]
+fn registry_tun_udp_relay_relays_direct_udp_datagram() {
+    let (port, server) = spawn_udp_echo_server(b"ping", b"pong");
+    let packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "127.0.0.1",
+        &udp_datagram(54321, port, b"ping"),
+    );
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let plan = plan_tun_packet_relay(&packet, &routes, false).expect("plan direct UDP packet");
+    let registry = OutboundRegistry::new();
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut relay = RegistryTunUdpRelay::new(&registry, &mut dns, Duration::from_secs(1));
+
+    let response = relay_tun_udp_packet(&packet, plan, &mut relay)
+        .expect("registry relay should execute direct UDP");
+
+    assert_eq!(response.relay_source.port(), port);
+    assert_eq!(
+        parse_tun_udp_payload(&response.packet)
+            .expect("parse relay response")
+            .payload,
+        b"pong"
+    );
+    server.join().expect("udp echo server");
+}
+
+#[test]
+fn tun_packet_loop_with_registry_udp_relay_writes_tagged_outbound_response() {
+    let (port, server) = spawn_udp_echo_server(b"ping", b"pong");
+    let packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "127.0.0.1",
+        &udp_datagram(54321, port, b"ping"),
+    );
+    let routes = RouteEngine::new(RouteAction::Outbound("edge".to_string()));
+    let mut registry = OutboundRegistry::new();
+    registry.add_direct("edge");
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut relay = RegistryTunUdpRelay::new(&registry, &mut dns, Duration::from_secs(1));
+    let mut dns_for_hijack = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut device = FakeTunPacketDevice::new(vec![packet]);
+
+    let summary = run_tun_packet_loop_with_udp_relay_summary(
+        &mut device,
+        &routes,
+        true,
+        &mut dns_for_hijack,
+        30,
+        1,
+        &mut relay,
+    )
+    .expect("run TUN loop with registry UDP relay");
+
+    assert_eq!(summary.processed_packets(), 1);
+    assert_eq!(summary.udp_relay_responses_written, 1);
+    assert_eq!(device.writes.len(), 1);
+    assert_eq!(
+        parse_tun_udp_payload(&device.writes[0])
+            .expect("parse written response")
+            .payload,
+        b"pong"
+    );
+    server.join().expect("udp echo server");
 }
 
 #[test]
@@ -1018,6 +1096,24 @@ fn dns_query(id: u16, name: &str, qtype: u16) -> Vec<u8> {
 
 fn dns_rcode(payload: &[u8]) -> u8 {
     payload[3] & 0x0f
+}
+
+fn spawn_udp_echo_server(
+    expected_request: &'static [u8],
+    response: &'static [u8],
+) -> (u16, thread::JoinHandle<()>) {
+    let socket = UdpSocket::bind("127.0.0.1:0").expect("bind UDP echo server");
+    socket
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .expect("set UDP echo server timeout");
+    let port = socket.local_addr().expect("UDP echo server address").port();
+    let server = thread::spawn(move || {
+        let mut request = [0; 1500];
+        let (size, peer) = socket.recv_from(&mut request).expect("read UDP request");
+        assert_eq!(&request[..size], expected_request);
+        socket.send_to(response, peer).expect("write UDP response");
+    });
+    (port, server)
 }
 
 #[derive(Clone)]

@@ -175,6 +175,8 @@ The first implementation target is deliberately small:
    without stopping the packet loop.
    Tagged outbound UDP TUN relay uses the same response-packet path while
    preserving the selected outbound tag for registered proxy UDP execution.
+   Registry-backed TUN UDP relay can execute direct and tagged outbound UDP
+   datagrams through the shared outbound registry and DNS policy path.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

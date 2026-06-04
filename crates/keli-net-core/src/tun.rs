@@ -1,4 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::time::Duration;
 use std::{error::Error, fmt};
 
 use crate::dns::{
@@ -6,7 +7,8 @@ use crate::dns::{
     DnsQuestionType, DnsResolver, DnsWireError, DnsWireQuestion,
 };
 use crate::{
-    OutboundTarget, RouteAction, RouteDestination, RouteEngine, RouteTarget, UdpRelayResponse,
+    DirectUdpConnector, OutboundRegistry, OutboundTarget, RouteAction, RouteDestination,
+    RouteEngine, RouteTarget, UdpRelayResponse,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -192,6 +194,48 @@ pub trait TunUdpRelay {
     ) -> Result<UdpRelayResponse, String> {
         let _ = (target, payload);
         Err(format!("outbound UDP relay is unsupported for tag: {tag}"))
+    }
+}
+
+pub struct RegistryTunUdpRelay<'a, R: DnsResolver> {
+    outbounds: &'a OutboundRegistry,
+    dns: &'a mut DnsEngine<R>,
+    timeout: Duration,
+}
+
+impl<'a, R: DnsResolver> RegistryTunUdpRelay<'a, R> {
+    pub fn new(
+        outbounds: &'a OutboundRegistry,
+        dns: &'a mut DnsEngine<R>,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            outbounds,
+            dns,
+            timeout,
+        }
+    }
+}
+
+impl<R: DnsResolver> TunUdpRelay for RegistryTunUdpRelay<'_, R> {
+    fn relay_udp_datagram(
+        &mut self,
+        target: &OutboundTarget,
+        payload: &[u8],
+    ) -> Result<UdpRelayResponse, String> {
+        DirectUdpConnector::relay_datagram_with_dns(target, payload, self.timeout, &mut *self.dns)
+            .map_err(|error| error.to_string())
+    }
+
+    fn relay_outbound_udp_datagram(
+        &mut self,
+        tag: &str,
+        target: &OutboundTarget,
+        payload: &[u8],
+    ) -> Result<UdpRelayResponse, String> {
+        self.outbounds
+            .relay_udp_datagram_with_dns(tag, target, payload, self.timeout, &mut *self.dns)
+            .map_err(|error| error.to_string())
     }
 }
 
