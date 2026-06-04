@@ -1345,6 +1345,10 @@ impl OutboundRegistry {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vmess_tls_grpc_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.vmess_h2_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.vmess_tls_h2_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.hy2_tags.get(tag) {
@@ -4667,6 +4671,18 @@ impl VmessH2Outbound {
         read_vmess_response_header_from_stream(&mut stream, &request)?;
         vmess_connection_from_stream(stream, request, self.security)
     }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = crate::Http2TcpStream::connect_plain(stream, &self.host, &self.path)?;
+        send_vmess_udp_over_stream(stream, &self.uuid, self.security, target, payload, timeout)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4739,6 +4755,24 @@ impl VmessTlsH2Outbound {
             write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
         read_vmess_response_header_from_stream(&mut stream, &request)?;
         vmess_connection_from_stream(stream, request, self.security)
+    }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = crate::Http2TcpStream::connect_tls(
+            stream,
+            &self.sni,
+            self.skip_verify,
+            &self.host,
+            &self.path,
+        )?;
+        send_vmess_udp_over_stream(stream, &self.uuid, self.security, target, payload, timeout)
     }
 }
 
