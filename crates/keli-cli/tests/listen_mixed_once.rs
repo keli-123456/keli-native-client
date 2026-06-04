@@ -2,10 +2,12 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream, UdpSocket};
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use base64::Engine;
+use bytes::Bytes;
 use keli_cli::{run, CliCommand};
 use keli_net_core::{encode_socks5_udp_datagram, parse_socks5_udp_datagram, Socks5Address};
 use rcgen::generate_simple_self_signed;
@@ -159,6 +161,52 @@ fn listen_mixed_once_uses_profile_config_for_anytls_http_connect() {
 }
 
 #[test]
+fn listen_mixed_once_uses_profile_config_for_naive_http_connect() {
+    let (naive_port, naive_thread) = spawn_naive_h2_echo_server();
+    let profile_path = write_temp_naive_profile_config(naive_port);
+    let listen = free_local_addr();
+    let run_listen = listen.clone();
+    let run_profile_path = profile_path.clone();
+    let server_thread = thread::spawn(move || {
+        run(CliCommand::ListenMixed {
+            listen: run_listen,
+            once: true,
+            block_domains: Vec::new(),
+            profile_config: Some(run_profile_path),
+            outbound_tag: Some("NAIVE-READY".to_string()),
+            first_byte_timeout: Duration::from_secs(3),
+            idle_timeout: Duration::from_secs(3),
+        })
+        .expect("run listen-mixed once");
+    });
+
+    let mut client = connect_with_retry(&listen);
+    client
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .expect("client timeout");
+    client
+        .write_all(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
+        .expect("write http connect");
+
+    let mut connect_response = Vec::new();
+    read_until_header_end(&mut client, &mut connect_response);
+    assert_eq!(
+        connect_response,
+        b"HTTP/1.1 200 Connection Established\r\n\r\n"
+    );
+
+    client.write_all(b"ping").expect("write ping");
+    let mut response = [0; 4];
+    client.read_exact(&mut response).expect("read pong");
+    assert_eq!(&response, b"pong");
+    client.shutdown(Shutdown::Both).ok();
+
+    server_thread.join().expect("listen thread");
+    naive_thread.join().expect("naive thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
 fn listen_mixed_once_uses_profile_config_for_socks5_udp_associate() {
     let (ss_port, ss_thread) = spawn_shadowsocks_udp_echo_server();
     let profile_path = write_temp_profile_config(ss_port);
@@ -300,6 +348,32 @@ fn write_temp_anytls_profile_config(anytls_port: u16) -> String {
     path.to_string_lossy().into_owned()
 }
 
+fn write_temp_naive_profile_config(naive_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-naive-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: NAIVE-READY
+    type: naive
+    server: 127.0.0.1
+    port: {naive_port}
+    username: user
+    password: pass
+    tls: true
+    sni: edge.example
+    skip-cert-verify: true
+"#
+    );
+    fs::write(&path, content).expect("write naive profile config");
+    path.to_string_lossy().into_owned()
+}
+
 fn spawn_shadowsocks_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind ss tcp server");
     let port = listener.local_addr().expect("ss tcp addr").port();
@@ -360,6 +434,75 @@ fn spawn_anytls_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
     (port, handle)
 }
 
+fn spawn_naive_h2_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let (port_tx, port_rx) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build naive test runtime");
+        runtime.block_on(async move {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind naive h2 server");
+            port_tx
+                .send(listener.local_addr().expect("naive addr").port())
+                .expect("send naive port");
+            let acceptor = tokio_rustls::TlsAcceptor::from(h2_tls_server_config());
+            let (stream, _) = listener.accept().await.expect("accept naive h2 tcp");
+            let stream = acceptor.accept(stream).await.expect("accept naive tls");
+            let mut connection = h2::server::handshake(stream)
+                .await
+                .expect("server h2 handshake");
+            let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+            let mut done_tx = Some(done_tx);
+            let _connection_task = tokio::spawn(async move {
+                while let Some(request) = connection.accept().await {
+                    let (request, mut respond) = request.expect("valid h2 request");
+                    let done_tx = done_tx.take();
+                    tokio::spawn(async move {
+                        assert_eq!(request.method(), http::Method::CONNECT);
+                        assert_eq!(request.uri().to_string(), "example.com:443");
+                        assert_eq!(
+                            request.headers()["proxy-authorization"],
+                            format!(
+                                "Basic {}",
+                                base64::engine::general_purpose::STANDARD.encode("user:pass")
+                            )
+                        );
+
+                        let mut body = request.into_body();
+                        let response = http::Response::builder()
+                            .status(http::StatusCode::OK)
+                            .body(())
+                            .expect("build h2 response");
+                        let mut send = respond
+                            .send_response(response, false)
+                            .expect("send h2 response");
+                        let payload = tokio::time::timeout(Duration::from_secs(3), body.data())
+                            .await
+                            .expect("timeout waiting for naive payload")
+                            .expect("naive payload")
+                            .expect("valid h2 data");
+                        let _ = body.flow_control().release_capacity(payload.len());
+                        assert_eq!(&payload[..], b"ping");
+                        send.send_data(Bytes::from_static(b"pong"), true)
+                            .expect("send h2 payload");
+                        if let Some(done_tx) = done_tx {
+                            let _ = done_tx.send(());
+                        }
+                    });
+                }
+            });
+            tokio::time::timeout(Duration::from_secs(3), done_rx)
+                .await
+                .expect("timeout waiting for naive relay")
+                .expect("naive relay done");
+        });
+    });
+    (port_rx.recv().expect("receive naive port"), handle)
+}
+
 fn spawn_shadowsocks_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
     let socket = UdpSocket::bind("127.0.0.1:0").expect("bind ss udp server");
     socket
@@ -397,6 +540,12 @@ fn tls_server_config() -> Arc<rustls::ServerConfig> {
         .with_single_cert(vec![cert_der], key_der)
         .expect("server config"),
     )
+}
+
+fn h2_tls_server_config() -> Arc<rustls::ServerConfig> {
+    let mut config = Arc::unwrap_or_clone(tls_server_config());
+    config.alpn_protocols = vec![b"h2".to_vec()];
+    Arc::new(config)
 }
 
 fn assert_anytls_auth(stream: &mut impl Read, password: &str) {

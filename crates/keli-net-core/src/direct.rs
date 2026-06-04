@@ -6492,7 +6492,7 @@ fn pump_read(
             Ok(PumpRead::Bytes(bytes))
         }
         Err(error) if is_nonblocking_pause(&error) => Ok(PumpRead::NoProgress),
-        Err(error) if is_tls_missing_close_notify_eof(&error) => Ok(PumpRead::Eof),
+        Err(error) if is_remote_clean_close_eof(&error) => Ok(PumpRead::Eof),
         Err(error) => Err(RelayError::from(error)),
     }
 }
@@ -6524,8 +6524,10 @@ fn is_nonblocking_pause(error: &io::Error) -> bool {
         || error.kind() == io::ErrorKind::Interrupted
 }
 
-fn is_tls_missing_close_notify_eof(error: &io::Error) -> bool {
-    error.kind() == io::ErrorKind::UnexpectedEof && error.to_string().contains("close_notify")
+fn is_remote_clean_close_eof(error: &io::Error) -> bool {
+    let message = error.to_string();
+    (error.kind() == io::ErrorKind::UnexpectedEof && message.contains("close_notify"))
+        || message.contains("stream error received: not a result of an error")
 }
 
 fn relay_timeout_error(kind: ConnectionErrorKind, message: &'static str) -> RelayError {
@@ -6566,7 +6568,7 @@ fn copy_remote_with_timeouts(
     loop {
         let read = match reader.read(&mut buffer) {
             Ok(read) => read,
-            Err(error) if is_tls_missing_close_notify_eof(&error) => {
+            Err(error) if is_remote_clean_close_eof(&error) => {
                 return Ok((total, first_byte_after));
             }
             Err(error) => {

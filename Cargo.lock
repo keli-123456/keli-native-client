@@ -814,9 +814,11 @@ dependencies = [
 
 [[package]]
 name = "keli-cli"
-version = "0.1.111"
+version = "0.1.112"
 dependencies = [
+ "base64",
  "bytes",
+ "h2",
  "h3",
  "h3-quinn",
  "http",
@@ -831,18 +833,19 @@ dependencies = [
  "sha2",
  "shadowsocks-crypto",
  "tokio",
+ "tokio-rustls",
 ]
 
 [[package]]
 name = "keli-client-core"
-version = "0.1.111"
+version = "0.1.112"
 dependencies = [
  "keli-protocol",
 ]
 
 [[package]]
 name = "keli-net-core"
-version = "0.1.111"
+version = "0.1.112"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -872,11 +875,11 @@ dependencies = [
 
 [[package]]
 name = "keli-platform"
-version = "0.1.111"
+version = "0.1.112"
 
 [[package]]
 name = "keli-protocol"
-version = "0.1.111"
+version = "0.1.112"
 dependencies = [
  "base64",
  "serde",

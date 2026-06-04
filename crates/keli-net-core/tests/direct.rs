@@ -174,7 +174,35 @@ fn owned_relay_treats_missing_tls_close_notify_as_remote_eof() {
     let relay = thread::spawn(move || {
         relay_owned_bidirectional_with_options(
             inbound_core,
-            MissingCloseNotifyStream::new(b"pong"),
+            RemoteErrorAfterDataStream::missing_close_notify(b"pong"),
+            RelayOptions {
+                first_byte_timeout: Some(Duration::from_secs(1)),
+                idle_timeout: Some(Duration::from_secs(1)),
+            },
+        )
+    });
+
+    inbound_client.shutdown(Shutdown::Write).ok();
+    let mut outbound_payload = [0; 4];
+    inbound_client
+        .read_exact(&mut outbound_payload)
+        .expect("read inbound side");
+    assert_eq!(&outbound_payload, b"pong");
+    inbound_client.shutdown(Shutdown::Both).ok();
+
+    let stats = relay.join().expect("relay thread").expect("relay result");
+    assert_eq!(stats.client_to_remote_bytes, 0);
+    assert_eq!(stats.remote_to_client_bytes, 4);
+    assert!(stats.remote_first_byte_after.is_some());
+}
+
+#[test]
+fn owned_relay_treats_h2_no_error_stream_close_as_remote_eof() {
+    let (mut inbound_client, inbound_core) = tcp_pair();
+    let relay = thread::spawn(move || {
+        relay_owned_bidirectional_with_options(
+            inbound_core,
+            RemoteErrorAfterDataStream::h2_no_error_close(b"pong"),
             RelayOptions {
                 first_byte_timeout: Some(Duration::from_secs(1)),
                 idle_timeout: Some(Duration::from_secs(1)),
@@ -395,50 +423,61 @@ impl Read for NonCloneTcpStream {
     }
 }
 
-enum MissingCloseNotifyRead {
+enum RemoteRead {
     Data(Vec<u8>),
     Error(io::ErrorKind, &'static str),
 }
 
-struct MissingCloseNotifyStream {
-    reads: VecDeque<MissingCloseNotifyRead>,
+struct RemoteErrorAfterDataStream {
+    reads: VecDeque<RemoteRead>,
 }
 
-impl MissingCloseNotifyStream {
-    fn new(payload: &[u8]) -> Self {
+impl RemoteErrorAfterDataStream {
+    fn missing_close_notify(payload: &[u8]) -> Self {
+        Self::new(
+            payload,
+            io::ErrorKind::UnexpectedEof,
+            "peer closed connection without sending TLS close_notify",
+        )
+    }
+
+    fn h2_no_error_close(payload: &[u8]) -> Self {
+        Self::new(
+            payload,
+            io::ErrorKind::Other,
+            "stream error received: not a result of an error",
+        )
+    }
+
+    fn new(payload: &[u8], kind: io::ErrorKind, message: &'static str) -> Self {
         Self {
             reads: VecDeque::from([
-                MissingCloseNotifyRead::Data(payload.to_vec()),
-                MissingCloseNotifyRead::Error(
-                    io::ErrorKind::UnexpectedEof,
-                    "peer closed connection without sending TLS close_notify",
-                ),
+                RemoteRead::Data(payload.to_vec()),
+                RemoteRead::Error(kind, message),
             ]),
         }
     }
 }
 
-impl Read for MissingCloseNotifyStream {
+impl Read for RemoteErrorAfterDataStream {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         match self.reads.pop_front() {
-            Some(MissingCloseNotifyRead::Data(data)) => {
+            Some(RemoteRead::Data(data)) => {
                 let bytes = data.len().min(buffer.len());
                 buffer[..bytes].copy_from_slice(&data[..bytes]);
                 if bytes < data.len() {
                     self.reads
-                        .push_front(MissingCloseNotifyRead::Data(data[bytes..].to_vec()));
+                        .push_front(RemoteRead::Data(data[bytes..].to_vec()));
                 }
                 Ok(bytes)
             }
-            Some(MissingCloseNotifyRead::Error(kind, message)) => {
-                Err(io::Error::new(kind, message))
-            }
+            Some(RemoteRead::Error(kind, message)) => Err(io::Error::new(kind, message)),
             None => Ok(0),
         }
     }
 }
 
-impl Write for MissingCloseNotifyStream {
+impl Write for RemoteErrorAfterDataStream {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         Ok(buffer.len())
     }
@@ -448,7 +487,7 @@ impl Write for MissingCloseNotifyStream {
     }
 }
 
-impl OwnedRelayStream for MissingCloseNotifyStream {
+impl OwnedRelayStream for RemoteErrorAfterDataStream {
     fn set_nonblocking_mode(&mut self, _nonblocking: bool) -> io::Result<()> {
         Ok(())
     }
