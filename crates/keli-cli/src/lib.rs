@@ -477,6 +477,17 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         Ok(self.status())
     }
 
+    pub fn apply_recommended_outbound(&mut self) -> Result<ManagedMixedStatusSnapshot, String> {
+        {
+            let handle = self
+                .handle
+                .as_mut()
+                .ok_or_else(|| "managed mixed core is not running".to_string())?;
+            handle.apply_recommended_outbound()?;
+        }
+        Ok(self.status())
+    }
+
     pub fn stop(&mut self) -> Result<ClientRuntime, String> {
         let handle = self
             .handle
@@ -601,6 +612,30 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
                 Err(error)
             }
         }
+    }
+
+    pub fn apply_recommended_outbound(&mut self) -> Result<(), String> {
+        let (selected_outbound, recommended_outbound) = {
+            let plan = self
+                .state
+                .active_plan()
+                .ok_or_else(|| "managed mixed core has no active subscription".to_string())?;
+            let status = ManagedSubscriptionStatus::from_plan(plan, &self.node_health);
+            (
+                plan.selected_outbound().to_string(),
+                status.recommended_outbound,
+            )
+        };
+        if recommended_outbound == selected_outbound {
+            return Ok(());
+        }
+        let config_text = self
+            .state
+            .active_config()
+            .ok_or_else(|| "managed mixed core has no active subscription".to_string())?
+            .config_text()
+            .to_string();
+        self.reload_from_subscription_config_text(&config_text, Some(recommended_outbound))
     }
 
     fn ensure_active_subscription_tag(&self, tag: &str) -> Result<(), String> {

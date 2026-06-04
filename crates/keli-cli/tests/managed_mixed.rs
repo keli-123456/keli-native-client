@@ -671,6 +671,77 @@ fn managed_mixed_controller_recommends_fastest_healthy_node() {
 }
 
 #[test]
+fn managed_mixed_controller_applies_recommended_outbound() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+
+    let started = core
+        .start_from_subscription_config_text(
+            mixed_subscription_with_skipped_proxy(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+    let initial_generation = started.generation;
+
+    core.record_node_health(ManagedNodeHealthStatus::healthy(
+        "SS-READY",
+        Some(120),
+        true,
+        true,
+    ))
+    .expect("record selected health");
+    let status = core
+        .record_node_health(ManagedNodeHealthStatus::healthy(
+            "SS-NEXT",
+            Some(25),
+            true,
+            false,
+        ))
+        .expect("record recommended health");
+    let subscription = status.subscription.as_ref().expect("subscription status");
+
+    assert_eq!(subscription.selected_outbound, "SS-READY");
+    assert_eq!(subscription.recommended_outbound, "SS-NEXT");
+
+    let switched = core
+        .apply_recommended_outbound()
+        .expect("apply recommended outbound");
+    let subscription = switched.subscription.as_ref().expect("subscription status");
+
+    assert_eq!(switched.selected_outbound.as_deref(), Some("SS-NEXT"));
+    assert_eq!(switched.generation, initial_generation + 1);
+    assert_eq!(subscription.selected_outbound, "SS-NEXT");
+    assert_eq!(subscription.recommended_outbound, "SS-NEXT");
+    assert_eq!(
+        subscription
+            .health_for("SS-READY")
+            .expect("SS-READY health")
+            .latency_ms,
+        Some(120)
+    );
+    assert_eq!(
+        subscription
+            .health_for("SS-NEXT")
+            .expect("SS-NEXT health")
+            .latency_ms,
+        Some(25)
+    );
+
+    let no_op = core
+        .apply_recommended_outbound()
+        .expect("recommended outbound already selected");
+
+    assert_eq!(no_op.selected_outbound.as_deref(), Some("SS-NEXT"));
+    assert_eq!(no_op.generation, switched.generation);
+
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
 fn managed_mixed_controller_probe_node_health_records_success() {
     let (ss_port, ss_thread) = spawn_shadowsocks_tcp_echo_server();
     let config = ss_config_for_port(ss_port);
@@ -794,6 +865,12 @@ fn managed_mixed_controller_rejects_node_health_before_start() {
         .expect_err("probing health should require running core");
 
     assert!(probe_error.contains("not running"));
+
+    let apply_error = core
+        .apply_recommended_outbound()
+        .expect_err("applying recommendation should require running core");
+
+    assert!(apply_error.contains("not running"));
 }
 
 #[test]
