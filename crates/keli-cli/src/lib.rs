@@ -1793,6 +1793,7 @@ fn write_profile_check_report(
                     })
                 })
                 .collect();
+            let protocol_capabilities = protocol_capability_reports(&parsed.profiles);
             let value = serde_json::json!({
                 "status": status,
                 "supported_count": parsed.profiles.len(),
@@ -1802,6 +1803,8 @@ fn write_profile_check_report(
                 "supported_tags": supported_tags,
                 "udp_supported_count": udp_supported_tags.len(),
                 "udp_supported_tags": udp_supported_tags,
+                "protocol_capability_count": protocol_capabilities.len(),
+                "protocol_capabilities": protocol_capabilities,
                 "supported": supported,
                 "skipped": skipped,
             });
@@ -1812,6 +1815,32 @@ fn write_profile_check_report(
 
 fn profile_supports_udp(profile: &OutboundProfile) -> bool {
     !matches!(profile.protocol, ProxyProtocol::Http | ProxyProtocol::Naive)
+}
+
+fn protocol_capability_reports(profiles: &[OutboundProfile]) -> Vec<serde_json::Value> {
+    let mut capabilities = Vec::<serde_json::Value>::new();
+    for profile in profiles {
+        let protocol = format!("{:?}", profile.protocol);
+        if let Some(capability) = capabilities
+            .iter_mut()
+            .find(|capability| capability["protocol"].as_str() == Some(protocol.as_str()))
+        {
+            if let Some(tags) = capability["tags"].as_array_mut() {
+                tags.push(serde_json::json!(profile.tag.as_str()));
+            }
+            if profile_supports_udp(profile) {
+                capability["udp_supported"] = serde_json::json!(true);
+            }
+            continue;
+        }
+        capabilities.push(serde_json::json!({
+            "protocol": protocol,
+            "tcp_relay_supported": true,
+            "udp_supported": profile_supports_udp(profile),
+            "tags": [profile.tag.as_str()],
+        }));
+    }
+    capabilities
 }
 
 fn mixed_runtime_from_parsed_profiles(
