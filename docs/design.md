@@ -142,6 +142,9 @@ The first implementation target is deliberately small:
    Those decisions now map to relay plans for drop, DNS hijack, direct TCP/UDP,
    tagged outbound TCP/UDP, or unsupported transports, giving the future TUN
    read loop an executable control surface instead of only parsed metadata.
+   TUN UDP payload extraction and DNS hijack query planning now parse DNS wire
+   questions from UDP/53 packets and swap response endpoints for the future TUN
+   write path.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

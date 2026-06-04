@@ -66,9 +66,10 @@ pub use socks5::{
     Socks5Error, Socks5Handshake, Socks5ReplyCode, Socks5Request, Socks5UdpDatagram,
 };
 pub use tun::{
-    decide_tun_packet_route, parse_tun_packet_flow, plan_tun_packet_relay, TunIpVersion,
-    TunPacketError, TunPacketFlow, TunPacketRelayAction, TunPacketRelayPlan,
-    TunPacketRouteDecision, TunTransportProtocol,
+    decide_tun_packet_route, parse_tun_packet_flow, parse_tun_udp_payload, plan_tun_dns_hijack,
+    plan_tun_packet_relay, TunDnsHijackPlan, TunIpVersion, TunPacketError, TunPacketFlow,
+    TunPacketRelayAction, TunPacketRelayPlan, TunPacketRouteDecision, TunTransportProtocol,
+    TunUdpPayload,
 };
 pub use websocket::{websocket_accept_for_key, OwnedWebSocketClientStream, WebSocketClientStream};
 

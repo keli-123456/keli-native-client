@@ -1,6 +1,7 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::{error::Error, fmt};
 
+use crate::dns::{parse_dns_query, DnsWireError, DnsWireQuestion};
 use crate::{OutboundTarget, RouteAction, RouteDestination, RouteEngine, RouteTarget};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +76,20 @@ pub struct TunPacketRelayPlan {
     pub relay_action: TunPacketRelayAction,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunUdpPayload<'a> {
+    pub flow: TunPacketFlow,
+    pub payload: &'a [u8],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunDnsHijackPlan {
+    pub flow: TunPacketFlow,
+    pub question: DnsWireQuestion,
+    pub response_source: SocketAddr,
+    pub response_destination: SocketAddr,
+}
+
 impl TunPacketFlow {
     pub fn route_destination(&self) -> RouteDestination {
         RouteDestination::new(
@@ -128,6 +143,21 @@ pub enum TunPacketError {
         required_len: usize,
         available_len: usize,
     },
+    ExpectedUdpPayload {
+        protocol: TunTransportProtocol,
+    },
+    UdpLengthTooShort {
+        udp_length: usize,
+    },
+    UdpPacketTruncated {
+        udp_length: usize,
+        available_len: usize,
+    },
+    NotDnsHijackCandidate {
+        destination_port: Option<u16>,
+    },
+    MissingUdpSocketAddress,
+    DnsWire(DnsWireError),
 }
 
 impl fmt::Display for TunPacketError {
@@ -174,17 +204,113 @@ impl fmt::Display for TunPacketError {
                 "transport header for {:?} is too short: required {required_len}, available {available_len}",
                 protocol
             ),
+            Self::ExpectedUdpPayload { protocol } => {
+                write!(f, "expected UDP TUN payload, got {:?}", protocol)
+            }
+            Self::UdpLengthTooShort { udp_length } => {
+                write!(f, "UDP length {udp_length} is smaller than header length 8")
+            }
+            Self::UdpPacketTruncated {
+                udp_length,
+                available_len,
+            } => write!(
+                f,
+                "UDP payload length {udp_length} exceeds available transport bytes {available_len}"
+            ),
+            Self::NotDnsHijackCandidate { destination_port } => write!(
+                f,
+                "TUN UDP packet is not a DNS hijack candidate: destination_port={}",
+                destination_port
+                    .map(|port| port.to_string())
+                    .unwrap_or_else(|| "-".to_string())
+            ),
+            Self::MissingUdpSocketAddress => write!(f, "TUN UDP flow is missing a socket address"),
+            Self::DnsWire(error) => write!(f, "failed to parse TUN DNS query: {error}"),
         }
     }
 }
 
-impl Error for TunPacketError {}
+impl Error for TunPacketError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::DnsWire(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TunPacketParts<'a> {
+    flow: TunPacketFlow,
+    transport_payload: &'a [u8],
+}
 
 pub fn parse_tun_packet_flow(packet: &[u8]) -> Result<TunPacketFlow, TunPacketError> {
+    Ok(parse_tun_packet_parts(packet)?.flow)
+}
+
+pub fn parse_tun_udp_payload(packet: &[u8]) -> Result<TunUdpPayload<'_>, TunPacketError> {
+    let parts = parse_tun_packet_parts(packet)?;
+    if parts.flow.protocol != TunTransportProtocol::Udp {
+        return Err(TunPacketError::ExpectedUdpPayload {
+            protocol: parts.flow.protocol,
+        });
+    }
+    if parts.transport_payload.len() < 8 {
+        return Err(TunPacketError::TransportHeaderTooShort {
+            protocol: TunTransportProtocol::Udp,
+            required_len: 8,
+            available_len: parts.transport_payload.len(),
+        });
+    }
+    let udp_length = usize::from(u16::from_be_bytes([
+        parts.transport_payload[4],
+        parts.transport_payload[5],
+    ]));
+    if udp_length < 8 {
+        return Err(TunPacketError::UdpLengthTooShort { udp_length });
+    }
+    if udp_length > parts.transport_payload.len() {
+        return Err(TunPacketError::UdpPacketTruncated {
+            udp_length,
+            available_len: parts.transport_payload.len(),
+        });
+    }
+    Ok(TunUdpPayload {
+        flow: parts.flow,
+        payload: &parts.transport_payload[8..udp_length],
+    })
+}
+
+pub fn plan_tun_dns_hijack(packet: &[u8]) -> Result<TunDnsHijackPlan, TunPacketError> {
+    let udp = parse_tun_udp_payload(packet)?;
+    if !udp.flow.is_dns_hijack_candidate() {
+        return Err(TunPacketError::NotDnsHijackCandidate {
+            destination_port: udp.flow.destination_port,
+        });
+    }
+    let question = parse_dns_query(udp.payload).map_err(TunPacketError::DnsWire)?;
+    let response_source = udp
+        .flow
+        .destination_socket_addr()
+        .ok_or(TunPacketError::MissingUdpSocketAddress)?;
+    let response_destination = udp
+        .flow
+        .source_socket_addr()
+        .ok_or(TunPacketError::MissingUdpSocketAddress)?;
+    Ok(TunDnsHijackPlan {
+        flow: udp.flow,
+        question,
+        response_source,
+        response_destination,
+    })
+}
+
+fn parse_tun_packet_parts(packet: &[u8]) -> Result<TunPacketParts<'_>, TunPacketError> {
     let first = *packet.first().ok_or(TunPacketError::PacketTooShort)?;
     match first >> 4 {
-        4 => parse_ipv4_packet_flow(packet),
-        6 => parse_ipv6_packet_flow(packet),
+        4 => parse_ipv4_packet_parts(packet),
+        6 => parse_ipv6_packet_parts(packet),
         version => Err(TunPacketError::UnsupportedIpVersion(version)),
     }
 }
@@ -248,7 +374,7 @@ fn tun_relay_action_for_transport(
     }
 }
 
-fn parse_ipv4_packet_flow(packet: &[u8]) -> Result<TunPacketFlow, TunPacketError> {
+fn parse_ipv4_packet_parts(packet: &[u8]) -> Result<TunPacketParts<'_>, TunPacketError> {
     if packet.len() < 20 {
         return Err(TunPacketError::PacketTooShort);
     }
@@ -279,20 +405,23 @@ fn parse_ipv4_packet_flow(packet: &[u8]) -> Result<TunPacketFlow, TunPacketError
     let destination_ip = IpAddr::V4(Ipv4Addr::new(
         packet[16], packet[17], packet[18], packet[19],
     ));
-    let payload = &packet[header_len..total_length];
-    let (source_port, destination_port) = parse_transport_ports(protocol, payload)?;
+    let transport_payload = &packet[header_len..total_length];
+    let (source_port, destination_port) = parse_transport_ports(protocol, transport_payload)?;
 
-    Ok(TunPacketFlow {
-        ip_version: TunIpVersion::Ipv4,
-        protocol,
-        source_ip,
-        destination_ip,
-        source_port,
-        destination_port,
+    Ok(TunPacketParts {
+        flow: TunPacketFlow {
+            ip_version: TunIpVersion::Ipv4,
+            protocol,
+            source_ip,
+            destination_ip,
+            source_port,
+            destination_port,
+        },
+        transport_payload,
     })
 }
 
-fn parse_ipv6_packet_flow(packet: &[u8]) -> Result<TunPacketFlow, TunPacketError> {
+fn parse_ipv6_packet_parts(packet: &[u8]) -> Result<TunPacketParts<'_>, TunPacketError> {
     if packet.len() < 40 {
         return Err(TunPacketError::PacketTooShort);
     }
@@ -311,16 +440,19 @@ fn parse_ipv6_packet_flow(packet: &[u8]) -> Result<TunPacketFlow, TunPacketError
     let destination_ip = IpAddr::V6(Ipv6Addr::from(
         <[u8; 16]>::try_from(&packet[24..40]).expect("IPv6 destination slice length"),
     ));
-    let payload = &packet[40..total_length];
-    let (source_port, destination_port) = parse_transport_ports(protocol, payload)?;
+    let transport_payload = &packet[40..total_length];
+    let (source_port, destination_port) = parse_transport_ports(protocol, transport_payload)?;
 
-    Ok(TunPacketFlow {
-        ip_version: TunIpVersion::Ipv6,
-        protocol,
-        source_ip,
-        destination_ip,
-        source_port,
-        destination_port,
+    Ok(TunPacketParts {
+        flow: TunPacketFlow {
+            ip_version: TunIpVersion::Ipv6,
+            protocol,
+            source_ip,
+            destination_ip,
+            source_port,
+            destination_port,
+        },
+        transport_payload,
     })
 }
 

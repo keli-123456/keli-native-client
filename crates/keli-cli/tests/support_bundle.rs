@@ -41,7 +41,11 @@ proxies:
     assert_eq!(report["doctor"]["platform"], "Windows");
     assert_eq!(report["doctor"]["route_rule_capabilities"][3], "ip-cidr");
     assert_eq!(
-        report["doctor"]["tun_packet_pipeline_capabilities"][7],
+        report["doctor"]["tun_packet_pipeline_capabilities"][8],
+        "dns-query-plan"
+    );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][9],
         "relay-plan"
     );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");

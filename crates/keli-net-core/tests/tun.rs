@@ -1,9 +1,10 @@
 use std::net::IpAddr;
 
 use keli_net_core::{
-    decide_tun_packet_route, parse_tun_packet_flow, plan_tun_packet_relay, OutboundTarget,
-    RouteAction, RouteDestination, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, RouteTarget,
-    TunIpVersion, TunPacketError, TunPacketRelayAction, TunTransportProtocol,
+    decide_tun_packet_route, parse_tun_packet_flow, parse_tun_udp_payload, plan_tun_dns_hijack,
+    plan_tun_packet_relay, DnsQuestionType, OutboundTarget, RouteAction, RouteDestination,
+    RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketError,
+    TunPacketRelayAction, TunTransportProtocol,
 };
 
 #[test]
@@ -34,6 +35,52 @@ fn parses_ipv4_udp_packet_to_route_destination_and_dns_candidate() {
         RouteDestination::new(RouteTarget::Ip("8.8.8.8".parse().expect("valid IP")), 53)
     );
     assert!(flow.is_dns_hijack_candidate());
+}
+
+#[test]
+fn parses_ipv4_udp_payload_using_udp_length() {
+    let mut datagram = udp_datagram(54321, 53, b"keli");
+    datagram.extend_from_slice(b"padding");
+    let packet = ipv4_packet(17, "10.7.0.2", "8.8.8.8", &datagram);
+
+    let udp = parse_tun_udp_payload(&packet).expect("parse TUN UDP payload");
+
+    assert_eq!(udp.flow.source_port, Some(54321));
+    assert_eq!(udp.flow.destination_port, Some(53));
+    assert_eq!(udp.payload, b"keli");
+}
+
+#[test]
+fn tun_dns_hijack_plan_parses_query_and_swaps_response_endpoints() {
+    let query = dns_query(0x1234, "Example.COM", 1);
+    let packet = ipv4_packet(17, "10.7.0.2", "8.8.8.8", &udp_datagram(54321, 53, &query));
+
+    let plan = plan_tun_dns_hijack(&packet).expect("plan TUN DNS hijack");
+
+    assert_eq!(plan.question.id, 0x1234);
+    assert_eq!(plan.question.name, "example.com");
+    assert_eq!(plan.question.question_type, DnsQuestionType::A);
+    assert_eq!(plan.response_source.to_string(), "8.8.8.8:53");
+    assert_eq!(plan.response_destination.to_string(), "10.7.0.2:54321");
+}
+
+#[test]
+fn tun_dns_hijack_plan_rejects_non_dns_udp_destination() {
+    let packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "1.1.1.1",
+        &udp_datagram(54321, 443, b"keli"),
+    );
+
+    let error = plan_tun_dns_hijack(&packet).expect_err("non-DNS UDP should not hijack");
+
+    assert_eq!(
+        error,
+        TunPacketError::NotDnsHijackCandidate {
+            destination_port: Some(443)
+        }
+    );
 }
 
 #[test]
@@ -286,6 +333,35 @@ fn ipv4_packet(protocol: u8, source: &str, destination: &str, payload: &[u8]) ->
     packet[16..20].copy_from_slice(&destination);
     packet[20..].copy_from_slice(payload);
     packet
+}
+
+fn udp_datagram(source_port: u16, destination_port: u16, payload: &[u8]) -> Vec<u8> {
+    let length = 8 + payload.len();
+    let mut datagram = Vec::with_capacity(length);
+    datagram.extend_from_slice(&source_port.to_be_bytes());
+    datagram.extend_from_slice(&destination_port.to_be_bytes());
+    datagram.extend_from_slice(&(length as u16).to_be_bytes());
+    datagram.extend_from_slice(&0u16.to_be_bytes());
+    datagram.extend_from_slice(payload);
+    datagram
+}
+
+fn dns_query(id: u16, name: &str, qtype: u16) -> Vec<u8> {
+    let mut query = Vec::new();
+    query.extend_from_slice(&id.to_be_bytes());
+    query.extend_from_slice(&0x0100u16.to_be_bytes());
+    query.extend_from_slice(&1u16.to_be_bytes());
+    query.extend_from_slice(&0u16.to_be_bytes());
+    query.extend_from_slice(&0u16.to_be_bytes());
+    query.extend_from_slice(&0u16.to_be_bytes());
+    for label in name.split('.') {
+        query.push(label.len() as u8);
+        query.extend_from_slice(label.as_bytes());
+    }
+    query.push(0);
+    query.extend_from_slice(&qtype.to_be_bytes());
+    query.extend_from_slice(&1u16.to_be_bytes());
+    query
 }
 
 fn ipv6_packet(protocol: u8, source: &str, destination: &str, payload: &[u8]) -> Vec<u8> {
