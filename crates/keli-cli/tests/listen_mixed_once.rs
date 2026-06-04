@@ -436,6 +436,39 @@ fn listen_mixed_once_uses_profile_config_for_vmess_grpc_socks5_udp_associate() {
 }
 
 #[test]
+fn listen_mixed_once_uses_profile_config_for_trojan_h2_http_connect() {
+    let (trojan_port, trojan_thread) = spawn_trojan_h2_echo_server();
+    let profile_path = write_temp_trojan_h2_profile_config(trojan_port);
+
+    run_profile_http_connect_round_trip(&profile_path, "TROJAN-H2-READY");
+
+    trojan_thread.join().expect("trojan h2 thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_vless_h2_http_connect() {
+    let (vless_port, vless_thread) = spawn_vless_h2_echo_server();
+    let profile_path = write_temp_vless_h2_profile_config(vless_port);
+
+    run_profile_http_connect_round_trip(&profile_path, "VLESS-H2-READY");
+
+    vless_thread.join().expect("vless h2 thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_vmess_h2_http_connect() {
+    let (vmess_port, vmess_thread) = spawn_vmess_h2_echo_server();
+    let profile_path = write_temp_vmess_h2_profile_config(vmess_port);
+
+    run_profile_http_connect_round_trip(&profile_path, "VMESS-H2-READY");
+
+    vmess_thread.join().expect("vmess h2 thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
 fn listen_mixed_once_uses_profile_config_for_hy2_http_connect() {
     let (hy2_addr, hy2_thread) = spawn_hy2_echo_server();
     let profile_path = write_temp_hy2_profile_config(hy2_addr.port());
@@ -1333,6 +1366,89 @@ fn write_temp_vmess_grpc_profile_config(vmess_port: u16) -> String {
     path.to_string_lossy().into_owned()
 }
 
+fn write_temp_trojan_h2_profile_config(trojan_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-trojan-h2-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: TROJAN-H2-READY
+    type: trojan
+    server: 127.0.0.1
+    port: {trojan_port}
+    password: password
+    tls: false
+    network: h2
+    h2-opts:
+      path: /trojan-h2
+      host:
+        - trojan-h2.example
+"#
+    );
+    fs::write(&path, content).expect("write trojan h2 profile config");
+    path.to_string_lossy().into_owned()
+}
+
+fn write_temp_vless_h2_profile_config(vless_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-vless-h2-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: VLESS-H2-READY
+    type: vless
+    server: 127.0.0.1
+    port: {vless_port}
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    network: h2
+    h2-opts:
+      path: /h2
+      host:
+        - h2.example
+"#
+    );
+    fs::write(&path, content).expect("write vless h2 profile config");
+    path.to_string_lossy().into_owned()
+}
+
+fn write_temp_vmess_h2_profile_config(vmess_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-vmess-h2-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: VMESS-H2-READY
+    type: vmess
+    server: 127.0.0.1
+    port: {vmess_port}
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    cipher: aes-128-gcm
+    network: h2
+    h2-opts:
+      path: /vmess-h2
+      host:
+        - vmess-h2.example
+"#
+    );
+    fs::write(&path, content).expect("write vmess h2 profile config");
+    path.to_string_lossy().into_owned()
+}
+
 fn write_temp_hy2_profile_config(hy2_port: u16) -> String {
     let name = format!(
         "keli-native-client-listen-mixed-hy2-{}.yaml",
@@ -2117,6 +2233,190 @@ fn spawn_vmess_grpc_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
     (port, handle)
 }
 
+fn spawn_trojan_h2_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind trojan h2 server");
+    let port = listener.local_addr().expect("trojan h2 addr").port();
+    let handle = spawn_h2_server(
+        listener,
+        "/trojan-h2",
+        Some("trojan-h2.example"),
+        |mut stream| {
+            let mut trojan_header = [0; 76];
+            stream
+                .read_exact(&mut trojan_header)
+                .expect("read trojan h2 header");
+            assert_eq!(
+                &trojan_header[..],
+                b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x01\x03\x0bexample.com\x01\xbb\r\n"
+            );
+            let mut payload = [0; 4];
+            stream
+                .read_exact(&mut payload)
+                .expect("read trojan h2 payload");
+            assert_eq!(&payload, b"ping");
+            stream.write_all(b"pong").expect("write trojan h2 response");
+        },
+    );
+    (port, handle)
+}
+
+fn spawn_vless_h2_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vless h2 server");
+    let port = listener.local_addr().expect("vless h2 addr").port();
+    let handle = spawn_h2_server(listener, "/h2", Some("h2.example"), |mut stream| {
+        let mut vless_header = [0; 34];
+        stream
+            .read_exact(&mut vless_header)
+            .expect("read vless h2 header");
+        assert_eq!(
+            &vless_header[..],
+            &[
+                0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
+                0xdd, 0xee, 0xff, 0x00, 0x01, 0x01, 0xbb, 0x02, 0x0b, b'e', b'x', b'a', b'm', b'p',
+                b'l', b'e', b'.', b'c', b'o', b'm',
+            ]
+        );
+        stream
+            .write_all(&[0x00, 0x00])
+            .expect("write vless h2 response header");
+        let mut payload = [0; 4];
+        stream
+            .read_exact(&mut payload)
+            .expect("read vless h2 payload");
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"pong").expect("write vless h2 response");
+    });
+    (port, handle)
+}
+
+fn spawn_vmess_h2_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vmess h2 server");
+    let port = listener.local_addr().expect("vmess h2 addr").port();
+    let handle = spawn_h2_server(
+        listener,
+        "/vmess-h2",
+        Some("vmess-h2.example"),
+        move |mut stream| {
+            let request = read_vmess_aead_request(&mut stream, uuid);
+            assert_eq!(request.target_host, "example.com");
+            assert_eq!(request.target_port, 443);
+            assert_eq!(request.command, 0x01);
+            assert_eq!(request.security, VMESS_SECURITY_AES_128_GCM);
+
+            write_vmess_aead_response_header(&mut stream, &request);
+            let payload = support::vmess::read_vmess_aes128_gcm_chunk(&mut stream, &request);
+            assert_eq!(&payload, b"ping");
+            support::vmess::write_vmess_aes128_gcm_response_chunk(&mut stream, &request, b"pong");
+        },
+    );
+    (port, handle)
+}
+
+fn spawn_h2_server(
+    listener: TcpListener,
+    expected_path: &'static str,
+    expected_authority: Option<&'static str>,
+    handler: impl FnOnce(H2TestStream) + Send + 'static,
+) -> thread::JoinHandle<()> {
+    listener
+        .set_nonblocking(true)
+        .expect("listener nonblocking");
+    thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async move {
+            let listener = tokio::net::TcpListener::from_std(listener).expect("tokio listener");
+            let (stream, _) = listener.accept().await.expect("accept h2 tcp");
+            serve_h2_connection(stream, expected_path, expected_authority, handler).await;
+        });
+    })
+}
+
+async fn serve_h2_connection<S>(
+    stream: S,
+    expected_path: &'static str,
+    expected_authority: Option<&'static str>,
+    handler: impl FnOnce(H2TestStream) + Send + 'static,
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let mut connection = h2::server::handshake(stream).await.expect("h2 handshake");
+    let (done_tx, mut done_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let mut handler = Some(handler);
+    loop {
+        tokio::select! {
+            request = connection.accept() => {
+                let Some(request) = request else {
+                    break;
+                };
+                let (request, respond) = request.expect("valid h2 request");
+                let handler = handler.take().expect("single h2 request handler");
+                let done_tx = done_tx.clone();
+                tokio::spawn(async move {
+                    serve_h2_request(request, respond, expected_path, expected_authority, handler).await;
+                    let _ = done_tx.send(());
+                });
+            }
+            _ = done_rx.recv() => break,
+        }
+    }
+}
+
+async fn serve_h2_request(
+    request: Request<RecvStream>,
+    mut respond: h2::server::SendResponse<Bytes>,
+    expected_path: &str,
+    expected_authority: Option<&str>,
+    handler: impl FnOnce(H2TestStream) + Send + 'static,
+) {
+    assert_eq!(request.method(), http::Method::PUT);
+    assert_eq!(request.uri().path(), expected_path);
+    if let Some(authority) = expected_authority {
+        assert_eq!(
+            request.uri().authority().map(|value| value.as_str()),
+            Some(authority)
+        );
+    }
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .body(())
+        .expect("h2 response");
+    let mut send = respond
+        .send_response(response, false)
+        .expect("send response");
+    let (input_tx, input_rx) = mpsc::channel();
+    let (output_tx, mut output_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+    let mut body = request.into_body();
+    let read_task = tokio::spawn(async move {
+        while let Some(chunk) = body.data().await {
+            let chunk = chunk.expect("read h2 body");
+            let len = chunk.len();
+            let _ = body.flow_control().release_capacity(len);
+            if input_tx.send(chunk.to_vec()).is_err() {
+                return;
+            }
+        }
+    });
+    let write_task = tokio::spawn(async move {
+        while let Some(payload) = output_rx.recv().await {
+            send_h2_data(&mut send, Bytes::from(payload), false)
+                .await
+                .expect("write h2 body");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        send.send_data(Bytes::new(), true)
+            .expect("finish h2 response");
+    });
+    tokio::task::spawn_blocking(move || handler(H2TestStream::new(input_rx, output_tx)))
+        .await
+        .expect("handler task");
+    write_task.await.expect("write task");
+    read_task.abort();
+}
+
 fn spawn_grpc_server(
     listener: TcpListener,
     expected_path: &'static str,
@@ -2264,6 +2564,53 @@ impl Write for GrpcTestStream {
         self.output_tx
             .send(input.to_vec())
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "grpc output closed"))?;
+        Ok(input.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+struct H2TestStream {
+    input_rx: mpsc::Receiver<Vec<u8>>,
+    output_tx: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+    buffer: Vec<u8>,
+}
+
+impl H2TestStream {
+    fn new(
+        input_rx: mpsc::Receiver<Vec<u8>>,
+        output_tx: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+    ) -> Self {
+        Self {
+            input_rx,
+            output_tx,
+            buffer: Vec::new(),
+        }
+    }
+}
+
+impl Read for H2TestStream {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        while self.buffer.is_empty() {
+            self.buffer = self
+                .input_rx
+                .recv()
+                .map_err(|_| io::Error::new(io::ErrorKind::UnexpectedEof, "h2 input closed"))?;
+        }
+        let len = output.len().min(self.buffer.len());
+        output[..len].copy_from_slice(&self.buffer[..len]);
+        self.buffer.drain(..len);
+        Ok(len)
+    }
+}
+
+impl Write for H2TestStream {
+    fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+        self.output_tx
+            .send(input.to_vec())
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "h2 output closed"))?;
         Ok(input.len())
     }
 
