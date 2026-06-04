@@ -12,13 +12,14 @@ use keli_net_core::{
     encode_socks5_udp_datagram, parse_socks5_udp_datagram, websocket_accept_for_key,
     DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsLocalResolutionPolicy, HttpConnectOutbound,
     OutboundRegistry, OutboundTarget, ShadowsocksTcpOutbound, Socks5Address, Socks5TcpOutbound,
-    SystemDnsResolver, TrojanGrpcOutbound, TrojanHttpUpgradeOutbound, TrojanTcpOutbound,
-    TrojanTlsGrpcOutbound, TrojanTlsHttpUpgradeOutbound, TrojanTlsTcpOutbound, TrojanTlsWsOutbound,
-    TrojanWsOutbound, VlessGrpcOutbound, VlessHttpUpgradeOutbound, VlessTcpOutbound,
-    VlessTlsGrpcOutbound, VlessTlsHttpUpgradeOutbound, VlessTlsTcpOutbound, VlessTlsWsOutbound,
-    VlessWsOutbound, VmessBodySecurity, VmessGrpcOutbound, VmessHttpUpgradeOutbound,
-    VmessTcpOutbound, VmessTlsGrpcOutbound, VmessTlsHttpUpgradeOutbound, VmessTlsTcpOutbound,
-    VmessTlsWsOutbound, VmessWsOutbound,
+    SystemDnsResolver, TrojanGrpcOutbound, TrojanH2Outbound, TrojanHttpUpgradeOutbound,
+    TrojanTcpOutbound, TrojanTlsGrpcOutbound, TrojanTlsH2Outbound, TrojanTlsHttpUpgradeOutbound,
+    TrojanTlsTcpOutbound, TrojanTlsWsOutbound, TrojanWsOutbound, VlessGrpcOutbound,
+    VlessH2Outbound, VlessHttpUpgradeOutbound, VlessTcpOutbound, VlessTlsGrpcOutbound,
+    VlessTlsH2Outbound, VlessTlsHttpUpgradeOutbound, VlessTlsTcpOutbound, VlessTlsWsOutbound,
+    VlessWsOutbound, VmessBodySecurity, VmessGrpcOutbound, VmessH2Outbound,
+    VmessHttpUpgradeOutbound, VmessTcpOutbound, VmessTlsGrpcOutbound, VmessTlsH2Outbound,
+    VmessTlsHttpUpgradeOutbound, VmessTlsTcpOutbound, VmessTlsWsOutbound, VmessWsOutbound,
 };
 use keli_protocol::{Endpoint, OutboundProfile, ProxyProtocol, SecurityKind, TransportKind};
 use md5::{Digest as Md5Digest, Md5};
@@ -1107,6 +1108,189 @@ fn grpc_udp_outbounds_use_injected_dns_policy_for_server() {
             )
         }),
         "IPv6-only DNS policy should reject IPv4 VMess TLS gRPC UDP server",
+    );
+}
+
+#[test]
+fn h2_tcp_outbounds_use_injected_dns_policy_for_server() {
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_h2(
+                "proxy",
+                TrojanH2Outbound::new(loopback_proxy_endpoint(), "edge.example", "/h2", "password"),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan H2 server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_tls_h2(
+                "proxy",
+                TrojanTlsH2Outbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/h2",
+                    "password",
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan TLS H2 server",
+    );
+
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_h2(
+                "proxy",
+                VlessH2Outbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/h2",
+                    TEST_UUID,
+                    None,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS H2 server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_tls_h2(
+                "proxy",
+                VlessTlsH2Outbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/h2",
+                    TEST_UUID,
+                    None,
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS TLS H2 server",
+    );
+
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_h2(
+                "proxy",
+                VmessH2Outbound::new(loopback_proxy_endpoint(), "edge.example", "/h2", TEST_UUID),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess H2 server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_tls_h2(
+                "proxy",
+                VmessTlsH2Outbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/h2",
+                    TEST_UUID,
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess TLS H2 server",
+    );
+}
+
+#[test]
+fn h2_udp_outbounds_use_injected_dns_policy_for_server() {
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_h2(
+                "proxy",
+                TrojanH2Outbound::new(loopback_proxy_endpoint(), "edge.example", "/h2", "password"),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan H2 UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_tls_h2(
+                "proxy",
+                TrojanTlsH2Outbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/h2",
+                    "password",
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan TLS H2 UDP server",
+    );
+
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_h2(
+                "proxy",
+                VlessH2Outbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/h2",
+                    TEST_UUID,
+                    None,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS H2 UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_tls_h2(
+                "proxy",
+                VlessTlsH2Outbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/h2",
+                    TEST_UUID,
+                    None,
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS TLS H2 UDP server",
+    );
+
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_h2(
+                "proxy",
+                VmessH2Outbound::new_with_security(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/h2",
+                    TEST_UUID,
+                    VmessBodySecurity::Aes128Gcm,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess H2 UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_tls_h2(
+                "proxy",
+                VmessTlsH2Outbound::new_with_security(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    "/h2",
+                    TEST_UUID,
+                    "edge.example",
+                    true,
+                    VmessBodySecurity::Aes128Gcm,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess TLS H2 UDP server",
     );
 }
 
