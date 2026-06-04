@@ -1737,15 +1737,30 @@ fn write_profile_check_report(
 ) -> Result<(), String> {
     match output {
         ProbeOutputFormat::Text => {
+            let udp_supported_tags = udp_supported_tags(&parsed.profiles);
+            let protocol_capabilities = protocol_capability_reports(&parsed.profiles);
             writeln!(
                 writer,
-                "profile status={status} supported={} skipped={} default_outbound={} registry_error={}",
+                "profile status={status} supported={} skipped={} default_outbound={} registry_error={} udp_supported={} protocol_capabilities={}",
                 parsed.profiles.len(),
                 parsed.skipped.len(),
                 default_outbound.unwrap_or("-"),
-                registry_error.unwrap_or("-")
+                registry_error.unwrap_or("-"),
+                udp_supported_tags.len(),
+                protocol_capabilities.len()
             )
             .map_err(|error| error.to_string())?;
+            for capability in &protocol_capabilities {
+                writeln!(
+                    writer,
+                    "profile capability protocol={} tcp_relay_supported={} udp_supported={} tags={}",
+                    capability.protocol,
+                    capability.tcp_relay_supported,
+                    capability.udp_supported,
+                    capability.tags.join(",")
+                )
+                .map_err(|error| error.to_string())?;
+            }
             for skipped in &parsed.skipped {
                 writeln!(
                     writer,
@@ -1762,12 +1777,7 @@ fn write_profile_check_report(
                 .iter()
                 .map(|profile| profile.tag.as_str())
                 .collect();
-            let udp_supported_tags: Vec<&str> = parsed
-                .profiles
-                .iter()
-                .filter(|profile| profile_supports_udp(profile))
-                .map(|profile| profile.tag.as_str())
-                .collect();
+            let udp_supported_tags = udp_supported_tags(&parsed.profiles);
             let supported: Vec<_> = parsed
                 .profiles
                 .iter()
@@ -1794,6 +1804,17 @@ fn write_profile_check_report(
                 })
                 .collect();
             let protocol_capabilities = protocol_capability_reports(&parsed.profiles);
+            let protocol_capabilities_json: Vec<_> = protocol_capabilities
+                .iter()
+                .map(|capability| {
+                    serde_json::json!({
+                        "protocol": capability.protocol,
+                        "tcp_relay_supported": capability.tcp_relay_supported,
+                        "udp_supported": capability.udp_supported,
+                        "tags": capability.tags,
+                    })
+                })
+                .collect();
             let value = serde_json::json!({
                 "status": status,
                 "supported_count": parsed.profiles.len(),
@@ -1804,7 +1825,7 @@ fn write_profile_check_report(
                 "udp_supported_count": udp_supported_tags.len(),
                 "udp_supported_tags": udp_supported_tags,
                 "protocol_capability_count": protocol_capabilities.len(),
-                "protocol_capabilities": protocol_capabilities,
+                "protocol_capabilities": protocol_capabilities_json,
                 "supported": supported,
                 "skipped": skipped,
             });
@@ -1813,32 +1834,44 @@ fn write_profile_check_report(
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProtocolCapabilityReport {
+    protocol: String,
+    tcp_relay_supported: bool,
+    udp_supported: bool,
+    tags: Vec<String>,
+}
+
+fn udp_supported_tags(profiles: &[OutboundProfile]) -> Vec<&str> {
+    profiles
+        .iter()
+        .filter(|profile| profile_supports_udp(profile))
+        .map(|profile| profile.tag.as_str())
+        .collect()
+}
+
 fn profile_supports_udp(profile: &OutboundProfile) -> bool {
     !matches!(profile.protocol, ProxyProtocol::Http | ProxyProtocol::Naive)
 }
 
-fn protocol_capability_reports(profiles: &[OutboundProfile]) -> Vec<serde_json::Value> {
-    let mut capabilities = Vec::<serde_json::Value>::new();
+fn protocol_capability_reports(profiles: &[OutboundProfile]) -> Vec<ProtocolCapabilityReport> {
+    let mut capabilities = Vec::<ProtocolCapabilityReport>::new();
     for profile in profiles {
         let protocol = format!("{:?}", profile.protocol);
         if let Some(capability) = capabilities
             .iter_mut()
-            .find(|capability| capability["protocol"].as_str() == Some(protocol.as_str()))
+            .find(|capability| capability.protocol == protocol)
         {
-            if let Some(tags) = capability["tags"].as_array_mut() {
-                tags.push(serde_json::json!(profile.tag.as_str()));
-            }
-            if profile_supports_udp(profile) {
-                capability["udp_supported"] = serde_json::json!(true);
-            }
+            capability.tags.push(profile.tag.clone());
+            capability.udp_supported |= profile_supports_udp(profile);
             continue;
         }
-        capabilities.push(serde_json::json!({
-            "protocol": protocol,
-            "tcp_relay_supported": true,
-            "udp_supported": profile_supports_udp(profile),
-            "tags": [profile.tag.as_str()],
-        }));
+        capabilities.push(ProtocolCapabilityReport {
+            protocol,
+            tcp_relay_supported: true,
+            udp_supported: profile_supports_udp(profile),
+            tags: vec![profile.tag.clone()],
+        });
     }
     capabilities
 }

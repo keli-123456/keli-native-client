@@ -65,6 +65,48 @@ proxies:
 }
 
 #[test]
+fn profile_check_text_reports_protocol_capability_matrix() {
+    let config = r#"
+proxies:
+  - name: NAIVE-TLS
+    type: naive
+    server: naive.example.com
+    port: 443
+    username: user
+    password: pass
+    tls: true
+    sni: edge.example.com
+  - name: MIERU-TCP
+    type: mieru
+    server: mieru.example.com
+    port-range: 30000-30002
+    username: user
+    password: pass
+    transport: TCP
+    udp: true
+"#;
+    let mut output = Vec::new();
+
+    keli_cli::write_profile_check_report_from_subscription_config_text(
+        config,
+        ProbeOutputFormat::Text,
+        &mut output,
+    )
+    .expect("profile check");
+
+    let output = String::from_utf8(output).expect("utf8 output");
+    assert!(output.contains(
+        "profile status=ok supported=2 skipped=0 default_outbound=NAIVE-TLS registry_error=- udp_supported=1 protocol_capabilities=2"
+    ));
+    assert!(output.contains(
+        "profile capability protocol=Naive tcp_relay_supported=true udp_supported=false tags=NAIVE-TLS"
+    ));
+    assert!(output.contains(
+        "profile capability protocol=Mieru tcp_relay_supported=true udp_supported=true tags=MIERU-TCP"
+    ));
+}
+
+#[test]
 fn profile_check_json_reports_protocol_capability_matrix() {
     let config = r#"
 proxies:
