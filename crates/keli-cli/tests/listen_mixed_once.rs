@@ -69,6 +69,7 @@ fn listen_mixed_once_uses_profile_config_for_socks5_connect() {
             system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
     });
@@ -123,6 +124,7 @@ fn listen_mixed_once_uses_profile_config_for_http_connect() {
             system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
     });
@@ -171,6 +173,7 @@ fn listen_mixed_once_uses_profile_config_for_anytls_http_connect() {
             system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
     });
@@ -230,6 +233,7 @@ fn listen_mixed_once_uses_profile_config_for_naive_http_connect() {
             system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(3),
             idle_timeout: Duration::from_secs(3),
+            dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
     });
@@ -704,6 +708,7 @@ fn listen_mixed_once_uses_profile_config_for_socks5_udp_associate() {
             system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
     });
@@ -773,6 +778,7 @@ fn listen_mixed_once_uses_profile_config_for_mieru_socks5_udp_associate() {
             system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
     });
@@ -842,6 +848,7 @@ fn listen_mixed_once_uses_profile_config_for_vmess_socks5_udp_associate() {
             system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
     });
@@ -993,6 +1000,7 @@ fn run_profile_http_connect_round_trip(profile_path: &str, outbound_tag: &str) {
             system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
     });
@@ -1049,6 +1057,7 @@ fn run_profile_socks5_udp_associate_round_trip_to(
             system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
     });

@@ -3,8 +3,8 @@ use std::net::{TcpListener, TcpStream};
 use std::thread;
 use std::time::Duration;
 
-use keli_cli::{handle_mixed_connection_with_routes, MixedProxyRuntime};
-use keli_net_core::{RouteAction, RouteEngine, RouteMatcher, RouteRule};
+use keli_cli::{handle_mixed_connection_with_routes, MixedDnsOptions, MixedProxyRuntime};
+use keli_net_core::{DnsAddressFamilyPolicy, RouteAction, RouteEngine, RouteMatcher, RouteRule};
 
 #[test]
 fn http_connect_block_rule_returns_forbidden_without_connecting_target() {
@@ -70,6 +70,48 @@ fn socks5_block_rule_returns_connection_not_allowed() {
     assert_eq!(reply, [0x05, 0x02, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
 
     inbound_thread.join().expect("inbound thread");
+}
+
+#[test]
+fn direct_route_respects_ipv6_only_dns_policy_for_ipv4_literals() {
+    let target = TcpListener::bind("127.0.0.1:0").expect("bind target");
+    let target_port = target.local_addr().expect("target addr").port();
+    target
+        .set_nonblocking(true)
+        .expect("target nonblocking mode");
+
+    let inbound = TcpListener::bind("127.0.0.1:0").expect("bind inbound");
+    let inbound_port = inbound.local_addr().expect("inbound addr").port();
+    let mut runtime = MixedProxyRuntime::with_routes(RouteEngine::new(RouteAction::Direct));
+    runtime.dns_options = MixedDnsOptions {
+        address_family_policy: DnsAddressFamilyPolicy::Ipv6Only,
+        ..MixedDnsOptions::default()
+    };
+    let inbound_thread = thread::spawn(move || {
+        let (mut stream, _) = inbound.accept().expect("accept inbound");
+        handle_mixed_connection_with_routes(&mut stream, &runtime)
+            .expect_err("IPv6-only DNS policy should reject IPv4 literal");
+    });
+
+    let mut client = TcpStream::connect(("127.0.0.1", inbound_port)).expect("connect inbound");
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    write!(
+        client,
+        "CONNECT 127.0.0.1:{target_port} HTTP/1.1\r\nHost: 127.0.0.1:{target_port}\r\n\r\n"
+    )
+    .expect("write CONNECT");
+
+    let mut response = String::new();
+    read_until_header_end(&mut client, &mut response);
+    assert_eq!(response, "HTTP/1.1 400 Bad Request\r\n\r\n");
+
+    inbound_thread.join().expect("inbound thread");
+    assert!(
+        target.accept().is_err(),
+        "DNS address-family policy must prevent connecting to the target"
+    );
 }
 
 fn block_localhost_runtime() -> MixedProxyRuntime {

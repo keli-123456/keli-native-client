@@ -21,9 +21,10 @@ use keli_net_core::{
     http_proxy_bad_request_response, parse_http_connect_request, parse_http_proxy_request,
     parse_socks5_handshake, parse_socks5_request, parse_socks5_udp_datagram,
     relay_owned_bidirectional_with_options, socks5_no_auth_response, socks5_reply,
-    ConnectionErrorKind, ConnectionReport, DirectTcpConnector, DirectUdpConnector, LocalInbound,
+    ConnectionErrorKind, ConnectionReport, DirectTcpConnector, DirectUdpConnector,
+    DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsLocalResolutionPolicy, LocalInbound,
     OutboundConnection, OutboundRegistry, OutboundTarget, RelayOptions, RouteAction, RouteEngine,
-    Socks5Address, Socks5Command, Socks5ReplyCode,
+    Socks5Address, Socks5Command, Socks5ReplyCode, SystemDnsResolver,
 };
 use keli_platform::{
     NativeSystemProxyController, PlatformCapabilities, SystemProxyConfig, SystemProxyController,
@@ -62,6 +63,7 @@ pub enum CliCommand {
         system_proxy_bypass: Vec<String>,
         first_byte_timeout: Duration,
         idle_timeout: Duration,
+        dns_options: MixedDnsOptions,
     },
     ProbeOutbound {
         profile_config: String,
@@ -113,11 +115,55 @@ impl SmokeInboundKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MixedDnsOptions {
+    pub local_resolution_policy: DnsLocalResolutionPolicy,
+    pub address_family_policy: DnsAddressFamilyPolicy,
+    pub cache_ttl: Duration,
+}
+
+impl Default for MixedDnsOptions {
+    fn default() -> Self {
+        Self {
+            local_resolution_policy: DnsLocalResolutionPolicy::AllowSystem,
+            address_family_policy: DnsAddressFamilyPolicy::DualStack,
+            cache_ttl: Duration::from_secs(60),
+        }
+    }
+}
+
+impl MixedDnsOptions {
+    fn engine(self) -> DnsEngine<SystemDnsResolver> {
+        DnsEngine::with_policies(
+            SystemDnsResolver,
+            DnsCache::new(self.cache_ttl),
+            self.local_resolution_policy,
+            self.address_family_policy,
+        )
+    }
+
+    fn local_resolution_label(self) -> &'static str {
+        match self.local_resolution_policy {
+            DnsLocalResolutionPolicy::AllowSystem => "allow-system",
+            DnsLocalResolutionPolicy::PreventPublicLeak => "prevent-public-leak",
+        }
+    }
+
+    fn address_family_label(self) -> &'static str {
+        match self.address_family_policy {
+            DnsAddressFamilyPolicy::DualStack => "dual-stack",
+            DnsAddressFamilyPolicy::Ipv4Only => "ipv4-only",
+            DnsAddressFamilyPolicy::Ipv6Only => "ipv6-only",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MixedProxyRuntime {
     pub routes: RouteEngine,
     pub relay_options: RelayOptions,
     pub outbounds: OutboundRegistry,
+    pub dns_options: MixedDnsOptions,
 }
 
 impl MixedProxyRuntime {
@@ -126,6 +172,7 @@ impl MixedProxyRuntime {
             routes,
             relay_options: default_relay_options(),
             outbounds: OutboundRegistry::new(),
+            dns_options: MixedDnsOptions::default(),
         }
     }
 
@@ -134,6 +181,7 @@ impl MixedProxyRuntime {
             routes,
             relay_options: default_relay_options(),
             outbounds,
+            dns_options: MixedDnsOptions::default(),
         }
     }
 }
@@ -152,6 +200,7 @@ pub struct ManagedMixedOptions {
     pub relay_options: RelayOptions,
     pub system_proxy: bool,
     pub system_proxy_bypass: Vec<String>,
+    pub dns_options: MixedDnsOptions,
 }
 
 impl Default for ManagedMixedOptions {
@@ -163,6 +212,7 @@ impl Default for ManagedMixedOptions {
             relay_options: default_relay_options(),
             system_proxy: false,
             system_proxy_bypass: Vec::new(),
+            dns_options: MixedDnsOptions::default(),
         }
     }
 }
@@ -218,6 +268,7 @@ pub struct ManagedMixedSession<'a, C: SystemProxyController + ?Sized> {
     runtime: MixedProxyRuntime,
     block_domains: Vec<String>,
     relay_options: RelayOptions,
+    dns_options: MixedDnsOptions,
     system_proxy_guard: Option<ManagedSystemProxyGuard<'a, C>>,
 }
 
@@ -229,6 +280,7 @@ pub struct ManagedMixedHandle<'a, C: SystemProxyController + ?Sized> {
     runtime: Arc<RwLock<MixedProxyRuntime>>,
     block_domains: Vec<String>,
     relay_options: RelayOptions,
+    dns_options: MixedDnsOptions,
     node_health: HashMap<String, ManagedNodeHealthStatus>,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<io::Result<()>>>,
@@ -246,6 +298,7 @@ pub struct ManagedMixedStatusSnapshot {
     pub last_error: Option<ClientErrorKind>,
     pub system_proxy: Option<SystemProxyConfig>,
     pub subscription: Option<ManagedSubscriptionStatus>,
+    pub dns_options: MixedDnsOptions,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -483,6 +536,7 @@ impl ManagedMixedStatusSnapshot {
             last_error: None,
             system_proxy: None,
             subscription: None,
+            dns_options: MixedDnsOptions::default(),
         }
     }
 
@@ -648,6 +702,7 @@ impl ManagedMixedStatusSnapshot {
             last_error,
             system_proxy: handle.system_proxy_config().cloned(),
             subscription: handle.subscription_status(),
+            dns_options: handle.dns_options,
         }
     }
 }
@@ -842,11 +897,12 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
             }
         };
         let selected_outbound = plan.selected_outbound().to_string();
-        let next_runtime = match mixed_runtime_from_subscription_config_text(
+        let next_runtime = match mixed_runtime_from_subscription_config_text_with_dns_options(
             config_text,
             self.block_domains.clone(),
             self.relay_options,
             Some(selected_outbound.clone()),
+            self.dns_options,
         ) {
             Ok(runtime) => runtime,
             Err(error) => {
@@ -952,6 +1008,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
         let listen = listen_addr.to_string();
         let block_domains = options.block_domains;
         let relay_options = options.relay_options;
+        let dns_options = options.dns_options;
         let mut state = ClientRuntime::default();
         let selected_outbound = match state.start(RuntimeConfig::new(
             config_text,
@@ -961,11 +1018,12 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
             Ok(plan) => plan.selected_outbound().to_string(),
             Err(error) => return Err(format!("runtime start failed: {error:?}")),
         };
-        let runtime = match mixed_runtime_from_subscription_config_text(
+        let runtime = match mixed_runtime_from_subscription_config_text_with_dns_options(
             config_text,
             block_domains.clone(),
             relay_options,
             Some(selected_outbound),
+            dns_options,
         ) {
             Ok(runtime) => runtime,
             Err(error) => {
@@ -997,6 +1055,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
             runtime,
             block_domains,
             relay_options,
+            dns_options,
             system_proxy_guard,
         })
     }
@@ -1057,6 +1116,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
             runtime,
             block_domains: self.block_domains,
             relay_options: self.relay_options,
+            dns_options: self.dns_options,
             node_health: HashMap::new(),
             stop,
             thread: Some(thread),
@@ -1114,6 +1174,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             system_proxy_bypass,
             first_byte_timeout,
             idle_timeout,
+            dns_options,
         } => {
             let relay_options = RelayOptions {
                 first_byte_timeout: Some(first_byte_timeout),
@@ -1133,13 +1194,14 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                         relay_options,
                         system_proxy,
                         system_proxy_bypass,
+                        dns_options,
                     },
                     &controller,
                 )?;
                 return session.serve(once).map(|_| ());
             }
 
-            let runtime = mixed_runtime_from_cli(block_domains, relay_options);
+            let runtime = mixed_runtime_from_cli(block_domains, relay_options, dns_options);
             if system_proxy {
                 listen_mixed_with_system_proxy_controller(
                     &listen,
@@ -1238,7 +1300,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(writer, "       keli-cli doctor [--format text|json]")?;
     writeln!(
         writer,
-        "       keli-cli listen-mixed [--listen 127.0.0.1:7890] [--once] [--profile-config subscription.yaml] [--outbound-tag proxy] [--first-byte-timeout-ms 30000] [--idle-timeout-ms 300000]"
+        "       keli-cli listen-mixed [--listen 127.0.0.1:7890] [--once] [--profile-config subscription.yaml] [--outbound-tag proxy] [--first-byte-timeout-ms 30000] [--idle-timeout-ms 300000] [--dns-local-policy allow-system|prevent-public-leak] [--dns-address-family dual-stack|ipv4-only|ipv6-only]"
     )?;
     writeln!(
         writer,
@@ -1310,6 +1372,7 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
     let mut system_proxy_bypass = Vec::new();
     let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut idle_timeout = DEFAULT_IDLE_TIMEOUT;
+    let mut dns_options = MixedDnsOptions::default();
     let mut args = args.peekable();
 
     while let Some(arg) = args.next() {
@@ -1359,6 +1422,20 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
                         .ok_or_else(|| "--system-proxy-bypass requires a value".to_string())?,
                 );
             }
+            "--dns-local-policy" => {
+                dns_options.local_resolution_policy = parse_dns_local_resolution_policy(
+                    &args
+                        .next()
+                        .ok_or_else(|| "--dns-local-policy requires a value".to_string())?,
+                )?;
+            }
+            "--dns-address-family" => {
+                dns_options.address_family_policy = parse_dns_address_family_policy(
+                    &args
+                        .next()
+                        .ok_or_else(|| "--dns-address-family requires a value".to_string())?,
+                )?;
+            }
             other => return Err(format!("unknown listen-mixed option: {other}")),
         }
     }
@@ -1373,7 +1450,29 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
         system_proxy_bypass,
         first_byte_timeout,
         idle_timeout,
+        dns_options,
     })
+}
+
+fn parse_dns_local_resolution_policy(input: &str) -> Result<DnsLocalResolutionPolicy, String> {
+    match input {
+        "allow-system" => Ok(DnsLocalResolutionPolicy::AllowSystem),
+        "prevent-public-leak" => Ok(DnsLocalResolutionPolicy::PreventPublicLeak),
+        other => Err(format!(
+            "invalid --dns-local-policy value: {other}; expected allow-system|prevent-public-leak"
+        )),
+    }
+}
+
+fn parse_dns_address_family_policy(input: &str) -> Result<DnsAddressFamilyPolicy, String> {
+    match input {
+        "dual-stack" => Ok(DnsAddressFamilyPolicy::DualStack),
+        "ipv4-only" => Ok(DnsAddressFamilyPolicy::Ipv4Only),
+        "ipv6-only" => Ok(DnsAddressFamilyPolicy::Ipv6Only),
+        other => Err(format!(
+            "invalid --dns-address-family value: {other}; expected dual-stack|ipv4-only|ipv6-only"
+        )),
+    }
 }
 
 fn parse_probe_outbound(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
@@ -1594,6 +1693,8 @@ struct DoctorReport {
     dns_cache_ttl_seconds: u64,
     dns_leak_prevention_policy_available: bool,
     dns_address_family_policy_available: bool,
+    dns_default_local_resolution_policy: &'static str,
+    dns_default_address_family_policy: &'static str,
     supported_outbounds: Vec<&'static str>,
     supported_udp_outbounds: Vec<&'static str>,
     protocol_capabilities: &'static str,
@@ -1624,6 +1725,7 @@ pub fn write_doctor_report_with_format(
 fn collect_doctor_report() -> DoctorReport {
     let capabilities = PlatformCapabilities::detect();
     let system_proxy_status = SystemProxyStatus::detect();
+    let default_dns_options = MixedDnsOptions::default();
     let inbound = LocalInbound::Mixed {
         listen: "127.0.0.1".to_string(),
         port: 7890,
@@ -1672,6 +1774,8 @@ fn collect_doctor_report() -> DoctorReport {
         dns_cache_ttl_seconds: 60,
         dns_leak_prevention_policy_available: true,
         dns_address_family_policy_available: true,
+        dns_default_local_resolution_policy: default_dns_options.local_resolution_label(),
+        dns_default_address_family_policy: default_dns_options.address_family_label(),
         supported_outbounds: SUPPORTED_OUTBOUNDS.split(',').collect(),
         supported_udp_outbounds: SUPPORTED_UDP_OUTBOUNDS.split(',').collect(),
         protocol_capabilities: SUPPORTED_PROTOCOL_CAPABILITIES,
@@ -1710,6 +1814,16 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
         writer,
         "dns_address_family_policy_available={}",
         report.dns_address_family_policy_available
+    )?;
+    writeln!(
+        writer,
+        "dns_default_local_resolution_policy={}",
+        report.dns_default_local_resolution_policy
+    )?;
+    writeln!(
+        writer,
+        "dns_default_address_family_policy={}",
+        report.dns_default_address_family_policy
     )?;
     writeln!(
         writer,
@@ -1766,6 +1880,8 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
             "cache_ttl_seconds": report.dns_cache_ttl_seconds,
             "leak_prevention_policy_available": report.dns_leak_prevention_policy_available,
             "address_family_policy_available": report.dns_address_family_policy_available,
+            "default_local_resolution_policy": report.dns_default_local_resolution_policy,
+            "default_address_family_policy": report.dns_default_address_family_policy,
         },
         "supported_outbounds": &report.supported_outbounds,
         "supported_udp_outbounds": &report.supported_udp_outbounds,
@@ -2480,13 +2596,14 @@ fn connect_by_route(
     match decision.action {
         RouteAction::Direct => {
             let started = Instant::now();
-            DirectTcpConnector::connect(target, Duration::from_secs(10)).map(|stream| {
-                RouteConnect::Direct {
+            let mut dns = runtime.dns_options.engine();
+            DirectTcpConnector::connect_with_dns(target, Duration::from_secs(10), &mut dns).map(
+                |stream| RouteConnect::Direct {
                     stream: OutboundConnection::Tcp(stream),
                     route_action: RouteAction::Direct,
                     connect_duration: started.elapsed(),
-                }
-            })
+                },
+            )
         }
         RouteAction::Block => Ok(RouteConnect::Blocked {
             route_action: RouteAction::Block,
@@ -2524,9 +2641,31 @@ pub fn mixed_runtime_from_mihomo_config_text(
     relay_options: RelayOptions,
     outbound_tag: Option<String>,
 ) -> Result<MixedProxyRuntime, String> {
+    mixed_runtime_from_mihomo_config_text_with_dns_options(
+        config_text,
+        block_domains,
+        relay_options,
+        outbound_tag,
+        MixedDnsOptions::default(),
+    )
+}
+
+pub fn mixed_runtime_from_mihomo_config_text_with_dns_options(
+    config_text: &str,
+    block_domains: Vec<String>,
+    relay_options: RelayOptions,
+    outbound_tag: Option<String>,
+    dns_options: MixedDnsOptions,
+) -> Result<MixedProxyRuntime, String> {
     let parsed = parse_mihomo_outbound_profiles(config_text)
         .map_err(|error| format!("profile config parse failed: {error}"))?;
-    mixed_runtime_from_parsed_profiles(parsed, block_domains, relay_options, outbound_tag)
+    mixed_runtime_from_parsed_profiles(
+        parsed,
+        block_domains,
+        relay_options,
+        outbound_tag,
+        dns_options,
+    )
 }
 
 pub fn mixed_runtime_from_subscription_config_text(
@@ -2535,9 +2674,31 @@ pub fn mixed_runtime_from_subscription_config_text(
     relay_options: RelayOptions,
     outbound_tag: Option<String>,
 ) -> Result<MixedProxyRuntime, String> {
+    mixed_runtime_from_subscription_config_text_with_dns_options(
+        config_text,
+        block_domains,
+        relay_options,
+        outbound_tag,
+        MixedDnsOptions::default(),
+    )
+}
+
+pub fn mixed_runtime_from_subscription_config_text_with_dns_options(
+    config_text: &str,
+    block_domains: Vec<String>,
+    relay_options: RelayOptions,
+    outbound_tag: Option<String>,
+    dns_options: MixedDnsOptions,
+) -> Result<MixedProxyRuntime, String> {
     let parsed = parse_subscription_outbound_profiles(config_text)
         .map_err(|error| format!("profile config parse failed: {error}"))?;
-    mixed_runtime_from_parsed_profiles(parsed, block_domains, relay_options, outbound_tag)
+    mixed_runtime_from_parsed_profiles(
+        parsed,
+        block_domains,
+        relay_options,
+        outbound_tag,
+        dns_options,
+    )
 }
 
 pub fn probe_outbound_from_subscription_config_text(
@@ -2954,7 +3115,10 @@ fn probe_udp_outbound(
     let mut report = ConnectionReport::new("probe-udp", target.clone(), RouteAction::Direct);
     let started = Instant::now();
     let response = match runtime.routes.decide(&target.route_target()).action {
-        RouteAction::Direct => DirectUdpConnector::relay_datagram(&target, payload, timeout),
+        RouteAction::Direct => {
+            let mut dns = runtime.dns_options.engine();
+            DirectUdpConnector::relay_datagram_with_dns(&target, payload, timeout, &mut dns)
+        }
         RouteAction::Block => {
             report.route_action = RouteAction::Block;
             report.record_error(ConnectionErrorKind::RouteBlocked);
@@ -3339,6 +3503,7 @@ fn mixed_runtime_from_parsed_profiles(
     block_domains: Vec<String>,
     relay_options: RelayOptions,
     outbound_tag: Option<String>,
+    dns_options: MixedDnsOptions,
 ) -> Result<MixedProxyRuntime, String> {
     let available_tags: Vec<String> = parsed
         .profiles
@@ -3364,17 +3529,20 @@ fn mixed_runtime_from_parsed_profiles(
         routes: routes_from_cli(block_domains, RouteAction::Outbound(selected_tag)),
         relay_options,
         outbounds,
+        dns_options,
     })
 }
 
 fn mixed_runtime_from_cli(
     block_domains: Vec<String>,
     relay_options: RelayOptions,
+    dns_options: MixedDnsOptions,
 ) -> MixedProxyRuntime {
     MixedProxyRuntime {
         routes: routes_from_cli(block_domains, RouteAction::Direct),
         relay_options,
         outbounds: OutboundRegistry::new(),
+        dns_options,
     }
 }
 

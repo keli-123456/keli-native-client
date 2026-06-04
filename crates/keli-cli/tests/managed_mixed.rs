@@ -8,10 +8,10 @@ use std::time::Duration;
 use keli_cli::{
     apply_system_proxy_for_listener, ManagedMixedController, ManagedMixedOptions,
     ManagedMixedSession, ManagedNodeHealthState, ManagedNodeHealthStatus, ManagedNodeProbeOptions,
-    ManagedNodeProbeSweepOptions, SmokeInboundKind,
+    ManagedNodeProbeSweepOptions, MixedDnsOptions, SmokeInboundKind,
 };
 use keli_client_core::RuntimeStatus;
-use keli_net_core::ConnectionErrorKind;
+use keli_net_core::{ConnectionErrorKind, DnsAddressFamilyPolicy, DnsLocalResolutionPolicy};
 use keli_platform::{
     SystemProxyConfig, SystemProxyController, SystemProxyError, SystemProxySnapshot,
 };
@@ -366,6 +366,11 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
                 outbound_tag: Some("SS-READY".to_string()),
                 system_proxy: true,
                 system_proxy_bypass: vec!["localhost".to_string()],
+                dns_options: MixedDnsOptions {
+                    local_resolution_policy: DnsLocalResolutionPolicy::PreventPublicLeak,
+                    address_family_policy: DnsAddressFamilyPolicy::Ipv6Only,
+                    ..MixedDnsOptions::default()
+                },
                 ..ManagedMixedOptions::default()
             },
         )
@@ -377,6 +382,14 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
     assert_eq!(started.generation, 1);
     assert!(matches!(started.status, RuntimeStatus::Running { .. }));
     assert!(started.system_proxy_enabled());
+    assert_eq!(
+        started.dns_options.local_resolution_policy,
+        DnsLocalResolutionPolicy::PreventPublicLeak
+    );
+    assert_eq!(
+        started.dns_options.address_family_policy,
+        DnsAddressFamilyPolicy::Ipv6Only
+    );
     assert_eq!(
         started.system_proxy.as_ref().map(|config| &config.bypass),
         Some(&vec!["localhost".to_string()])
@@ -405,6 +418,10 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
 
     assert_eq!(reloaded.selected_outbound.as_deref(), Some("SS-NEXT"));
     assert_eq!(reloaded.generation, 2);
+    assert_eq!(
+        reloaded.dns_options.address_family_policy,
+        DnsAddressFamilyPolicy::Ipv6Only
+    );
     assert!(reloaded.event_count >= started.event_count);
     assert!(reloaded.recent_events.len() <= 5);
     assert!(matches!(

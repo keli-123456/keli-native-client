@@ -1,6 +1,9 @@
 use std::time::Duration;
 
-use keli_cli::{parse_cli_command, CliCommand, ProbeOutputFormat, SmokeInboundKind};
+use keli_cli::{
+    parse_cli_command, CliCommand, MixedDnsOptions, ProbeOutputFormat, SmokeInboundKind,
+};
+use keli_net_core::{DnsAddressFamilyPolicy, DnsLocalResolutionPolicy};
 
 #[test]
 fn defaults_to_doctor_text_command() {
@@ -56,6 +59,7 @@ fn parses_listen_mixed_once_command() {
             system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
+            dns_options: MixedDnsOptions::default(),
         }
     );
 }
@@ -76,6 +80,7 @@ fn defaults_listen_mixed_to_local_port_7890() {
             system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
+            dns_options: MixedDnsOptions::default(),
         }
     );
 }
@@ -103,6 +108,7 @@ fn parses_listen_mixed_block_domain_rules() {
             system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
+            dns_options: MixedDnsOptions::default(),
         }
     );
 }
@@ -130,6 +136,7 @@ fn parses_listen_mixed_relay_timeouts() {
             system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_millis(1500),
             idle_timeout: Duration::from_millis(90000),
+            dns_options: MixedDnsOptions::default(),
         }
     );
 }
@@ -157,6 +164,7 @@ fn parses_listen_mixed_profile_config_and_outbound_tag() {
             system_proxy_bypass: Vec::new(),
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
+            dns_options: MixedDnsOptions::default(),
         }
     );
 }
@@ -185,6 +193,39 @@ fn parses_listen_mixed_system_proxy_options() {
             system_proxy_bypass: vec!["localhost".to_string(), "<local>".to_string()],
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
+            dns_options: MixedDnsOptions::default(),
+        }
+    );
+}
+
+#[test]
+fn parses_listen_mixed_dns_policy_options() {
+    let command = parse_cli_command([
+        "listen-mixed",
+        "--dns-local-policy",
+        "prevent-public-leak",
+        "--dns-address-family",
+        "ipv6-only",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::ListenMixed {
+            listen: "127.0.0.1:7890".to_string(),
+            once: false,
+            block_domains: Vec::new(),
+            profile_config: None,
+            outbound_tag: None,
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
+            first_byte_timeout: Duration::from_secs(30),
+            idle_timeout: Duration::from_secs(300),
+            dns_options: MixedDnsOptions {
+                local_resolution_policy: DnsLocalResolutionPolicy::PreventPublicLeak,
+                address_family_policy: DnsAddressFamilyPolicy::Ipv6Only,
+                cache_ttl: Duration::from_secs(60),
+            },
         }
     );
 }

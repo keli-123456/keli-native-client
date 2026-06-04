@@ -100,6 +100,9 @@ The first implementation target is deliberately small:
    local-resolution and address-family policy hooks so TUN/DNS-hijack paths can
    block accidental public-domain system resolver leaks, enforce IPv4-only or
    IPv6-only modes, and still allow policy-safe IP literals and localhost.
+   The managed mixed runtime exposes these DNS policies through CLI/runtime
+   options, reports the defaults in doctor output, and applies them to direct
+   TCP/UDP routes.
 4. Keli panel integration: subscription fetch/update, user state, node
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,
