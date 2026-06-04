@@ -89,6 +89,22 @@ pub struct TunUdpPayload<'a> {
     pub payload: &'a [u8],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TunTcpFlags {
+    bits: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunTcpSegment<'a> {
+    pub flow: TunPacketFlow,
+    pub sequence_number: u32,
+    pub acknowledgment_number: u32,
+    pub header_len: usize,
+    pub flags: TunTcpFlags,
+    pub window_size: u16,
+    pub payload: &'a [u8],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TunDnsHijackPlan {
     pub flow: TunPacketFlow,
@@ -395,6 +411,16 @@ pub enum TunPacketError {
     ExpectedUdpPayload {
         protocol: TunTransportProtocol,
     },
+    ExpectedTcpSegment {
+        protocol: TunTransportProtocol,
+    },
+    TcpDataOffsetTooSmall {
+        data_offset: usize,
+    },
+    TcpSegmentTruncated {
+        header_len: usize,
+        available_len: usize,
+    },
     UdpLengthTooShort {
         udp_length: usize,
     },
@@ -486,6 +512,20 @@ impl fmt::Display for TunPacketError {
             Self::ExpectedUdpPayload { protocol } => {
                 write!(f, "expected UDP TUN payload, got {:?}", protocol)
             }
+            Self::ExpectedTcpSegment { protocol } => {
+                write!(f, "expected TCP TUN segment, got {:?}", protocol)
+            }
+            Self::TcpDataOffsetTooSmall { data_offset } => write!(
+                f,
+                "TCP data offset {data_offset} is smaller than minimum header length 20"
+            ),
+            Self::TcpSegmentTruncated {
+                header_len,
+                available_len,
+            } => write!(
+                f,
+                "TCP header length {header_len} exceeds available transport bytes {available_len}"
+            ),
             Self::UdpLengthTooShort { udp_length } => {
                 write!(f, "UDP length {udp_length} is smaller than header length 8")
             }
@@ -542,8 +582,105 @@ struct TunPacketParts<'a> {
     transport_payload: &'a [u8],
 }
 
+impl TunTcpFlags {
+    pub fn from_bits(bits: u16) -> Self {
+        Self {
+            bits: bits & 0x01ff,
+        }
+    }
+
+    pub fn bits(self) -> u16 {
+        self.bits
+    }
+
+    pub fn ns(self) -> bool {
+        self.bits & 0x0100 != 0
+    }
+
+    pub fn cwr(self) -> bool {
+        self.bits & 0x0080 != 0
+    }
+
+    pub fn ece(self) -> bool {
+        self.bits & 0x0040 != 0
+    }
+
+    pub fn urg(self) -> bool {
+        self.bits & 0x0020 != 0
+    }
+
+    pub fn ack(self) -> bool {
+        self.bits & 0x0010 != 0
+    }
+
+    pub fn psh(self) -> bool {
+        self.bits & 0x0008 != 0
+    }
+
+    pub fn rst(self) -> bool {
+        self.bits & 0x0004 != 0
+    }
+
+    pub fn syn(self) -> bool {
+        self.bits & 0x0002 != 0
+    }
+
+    pub fn fin(self) -> bool {
+        self.bits & 0x0001 != 0
+    }
+}
+
 pub fn parse_tun_packet_flow(packet: &[u8]) -> Result<TunPacketFlow, TunPacketError> {
     Ok(parse_tun_packet_parts(packet)?.flow)
+}
+
+pub fn parse_tun_tcp_segment(packet: &[u8]) -> Result<TunTcpSegment<'_>, TunPacketError> {
+    let parts = parse_tun_packet_parts(packet)?;
+    if parts.flow.protocol != TunTransportProtocol::Tcp {
+        return Err(TunPacketError::ExpectedTcpSegment {
+            protocol: parts.flow.protocol,
+        });
+    }
+    if parts.transport_payload.len() < 20 {
+        return Err(TunPacketError::TransportHeaderTooShort {
+            protocol: TunTransportProtocol::Tcp,
+            required_len: 20,
+            available_len: parts.transport_payload.len(),
+        });
+    }
+    let header_len = usize::from(parts.transport_payload[12] >> 4) * 4;
+    if header_len < 20 {
+        return Err(TunPacketError::TcpDataOffsetTooSmall {
+            data_offset: header_len,
+        });
+    }
+    if header_len > parts.transport_payload.len() {
+        return Err(TunPacketError::TcpSegmentTruncated {
+            header_len,
+            available_len: parts.transport_payload.len(),
+        });
+    }
+    let flags = (u16::from(parts.transport_payload[12] & 0x01) << 8)
+        | u16::from(parts.transport_payload[13]);
+    Ok(TunTcpSegment {
+        flow: parts.flow,
+        sequence_number: u32::from_be_bytes([
+            parts.transport_payload[4],
+            parts.transport_payload[5],
+            parts.transport_payload[6],
+            parts.transport_payload[7],
+        ]),
+        acknowledgment_number: u32::from_be_bytes([
+            parts.transport_payload[8],
+            parts.transport_payload[9],
+            parts.transport_payload[10],
+            parts.transport_payload[11],
+        ]),
+        header_len,
+        flags: TunTcpFlags::from_bits(flags),
+        window_size: u16::from_be_bytes([parts.transport_payload[14], parts.transport_payload[15]]),
+        payload: &parts.transport_payload[header_len..],
+    })
 }
 
 pub fn parse_tun_udp_payload(packet: &[u8]) -> Result<TunUdpPayload<'_>, TunPacketError> {

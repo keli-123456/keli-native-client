@@ -196,6 +196,10 @@ The first implementation target is deliberately small:
    Those summaries split TCP relay plans from UDP relay plans, so UI and
    support tooling can distinguish the executed UDP packet path from the
    remaining TCP/TUN stream-stack boundary.
+   The TCP side now has a TUN segment parser for flags, sequence and
+   acknowledgment numbers, window size, options length, and payload boundaries,
+   giving the future user-space TCP session runner concrete packet metadata
+   beyond source and destination ports.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

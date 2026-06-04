@@ -5,8 +5,8 @@ use std::time::Duration;
 use keli_net_core::{
     build_dns_error_response, build_dns_response, build_tun_dns_hijack_response,
     build_tun_dns_response_packet, decide_tun_packet_route, parse_tun_packet_flow,
-    parse_tun_udp_payload, plan_tun_dns_hijack, plan_tun_packet_relay, process_tun_packet,
-    relay_tun_direct_udp_packet, relay_tun_udp_packet, run_tun_packet_loop,
+    parse_tun_tcp_segment, parse_tun_udp_payload, plan_tun_dns_hijack, plan_tun_packet_relay,
+    process_tun_packet, relay_tun_direct_udp_packet, relay_tun_udp_packet, run_tun_packet_loop,
     run_tun_packet_loop_summary, run_tun_packet_loop_with_udp_relay_summary, DnsCache, DnsEngine,
     DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, OutboundRegistry,
     OutboundTarget, RegistryTunUdpRelay, RouteAction, RouteDestination, RouteEngine, RouteIpCidr,
@@ -56,6 +56,119 @@ fn parses_ipv4_udp_payload_using_udp_length() {
     assert_eq!(udp.flow.source_port, Some(54321));
     assert_eq!(udp.flow.destination_port, Some(53));
     assert_eq!(udp.payload, b"keli");
+}
+
+#[test]
+fn parses_ipv4_tcp_segment_flags_sequence_window_and_payload() {
+    let packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(
+            49152,
+            443,
+            0x0102_0304,
+            0xa0b0_c0d0,
+            0x0018,
+            0x4000,
+            &[1, 1, 0, 0],
+            b"GET /",
+        ),
+    );
+
+    let segment = parse_tun_tcp_segment(&packet).expect("parse TUN TCP segment");
+
+    assert_eq!(segment.flow.ip_version, TunIpVersion::Ipv4);
+    assert_eq!(segment.flow.source_port, Some(49152));
+    assert_eq!(segment.flow.destination_port, Some(443));
+    assert_eq!(segment.sequence_number, 0x0102_0304);
+    assert_eq!(segment.acknowledgment_number, 0xa0b0_c0d0);
+    assert_eq!(segment.header_len, 24);
+    assert_eq!(segment.flags.bits(), 0x0018);
+    assert!(segment.flags.ack());
+    assert!(segment.flags.psh());
+    assert!(!segment.flags.syn());
+    assert!(!segment.flags.fin());
+    assert_eq!(segment.window_size, 0x4000);
+    assert_eq!(segment.payload, b"GET /");
+}
+
+#[test]
+fn parses_ipv6_tcp_syn_segment_after_extension_header() {
+    let mut payload = vec![6, 0, 0, 0, 0, 0, 0, 0];
+    payload.extend_from_slice(&tcp_segment(49152, 443, 1, 0, 0x0002, 0x2000, &[], b""));
+    let packet = ipv6_packet(60, "fd00::2", "2606:4700:4700::1111", &payload);
+
+    let segment = parse_tun_tcp_segment(&packet).expect("parse extended IPv6 TCP segment");
+
+    assert_eq!(segment.flow.ip_version, TunIpVersion::Ipv6);
+    assert_eq!(segment.flow.protocol, TunTransportProtocol::Tcp);
+    assert_eq!(segment.header_len, 20);
+    assert_eq!(segment.sequence_number, 1);
+    assert!(segment.flags.syn());
+    assert!(!segment.flags.ack());
+    assert!(segment.payload.is_empty());
+}
+
+#[test]
+fn rejects_non_tcp_packet_for_tcp_segment_parser() {
+    let packet = ipv4_packet(17, "10.7.0.2", "8.8.8.8", &udp_datagram(54321, 53, b"keli"));
+
+    let error = parse_tun_tcp_segment(&packet).expect_err("UDP packet is not a TCP segment");
+
+    assert_eq!(
+        error,
+        TunPacketError::ExpectedTcpSegment {
+            protocol: TunTransportProtocol::Udp
+        }
+    );
+}
+
+#[test]
+fn rejects_truncated_tcp_segment_header() {
+    let packet = ipv4_packet(6, "10.7.0.2", "93.184.216.34", &[0xc0, 0x00, 0x01, 0xbb]);
+
+    let error = parse_tun_tcp_segment(&packet).expect_err("truncated TCP segment should fail");
+
+    assert_eq!(
+        error,
+        TunPacketError::TransportHeaderTooShort {
+            protocol: TunTransportProtocol::Tcp,
+            required_len: 20,
+            available_len: 4
+        }
+    );
+}
+
+#[test]
+fn rejects_tcp_data_offset_smaller_than_minimum_header() {
+    let mut segment = tcp_segment(49152, 443, 1, 0, 0x0002, 0x2000, &[], b"");
+    segment[12] = 0x40;
+    let packet = ipv4_packet(6, "10.7.0.2", "93.184.216.34", &segment);
+
+    let error = parse_tun_tcp_segment(&packet).expect_err("invalid TCP data offset should fail");
+
+    assert_eq!(
+        error,
+        TunPacketError::TcpDataOffsetTooSmall { data_offset: 16 }
+    );
+}
+
+#[test]
+fn rejects_tcp_data_offset_larger_than_transport_payload() {
+    let mut segment = tcp_segment(49152, 443, 1, 0, 0x0002, 0x2000, &[1, 1, 0, 0], b"");
+    segment.truncate(20);
+    let packet = ipv4_packet(6, "10.7.0.2", "93.184.216.34", &segment);
+
+    let error = parse_tun_tcp_segment(&packet).expect_err("truncated TCP options should fail");
+
+    assert_eq!(
+        error,
+        TunPacketError::TcpSegmentTruncated {
+            header_len: 24,
+            available_len: 20
+        }
+    );
 }
 
 #[test]
@@ -1130,6 +1243,32 @@ fn udp_datagram(source_port: u16, destination_port: u16, payload: &[u8]) -> Vec<
     datagram.extend_from_slice(&0u16.to_be_bytes());
     datagram.extend_from_slice(payload);
     datagram
+}
+
+fn tcp_segment(
+    source_port: u16,
+    destination_port: u16,
+    sequence_number: u32,
+    acknowledgment_number: u32,
+    flags: u16,
+    window_size: u16,
+    options: &[u8],
+    payload: &[u8],
+) -> Vec<u8> {
+    assert_eq!(options.len() % 4, 0, "TCP options must be 32-bit aligned");
+    let header_len = 20 + options.len();
+    let data_offset = (header_len / 4) as u8;
+    let mut segment = vec![0; header_len + payload.len()];
+    segment[0..2].copy_from_slice(&source_port.to_be_bytes());
+    segment[2..4].copy_from_slice(&destination_port.to_be_bytes());
+    segment[4..8].copy_from_slice(&sequence_number.to_be_bytes());
+    segment[8..12].copy_from_slice(&acknowledgment_number.to_be_bytes());
+    segment[12] = (data_offset << 4) | (((flags >> 8) & 0x01) as u8);
+    segment[13] = flags as u8;
+    segment[14..16].copy_from_slice(&window_size.to_be_bytes());
+    segment[20..header_len].copy_from_slice(options);
+    segment[header_len..].copy_from_slice(payload);
+    segment
 }
 
 fn dns_query(id: u16, name: &str, qtype: u16) -> Vec<u8> {

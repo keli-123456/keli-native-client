@@ -103,6 +103,10 @@ listener exits.
 Those TUN summaries now split TCP relay plans from UDP relay plans, making the
 current UDP execution path and the remaining TCP/TUN stream-stack boundary
 visible in runtime diagnostics.
+The TCP side now also exposes a TUN segment parser for flags, sequence and
+acknowledgment numbers, window size, header options, and payload boundaries,
+which gives the future user-space TCP session runner concrete packet metadata
+instead of only source and destination ports.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 
