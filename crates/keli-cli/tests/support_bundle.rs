@@ -94,6 +94,10 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][22],
+        "listen-mixed-tun-runtime"
+    );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][23],
         "relay-plan"
     );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");

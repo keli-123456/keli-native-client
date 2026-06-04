@@ -179,6 +179,8 @@ The first implementation target is deliberately small:
    datagrams through the shared outbound registry and DNS policy path.
    Managed TUN packet loops can now run against a mixed runtime, using its route
    engine, outbound registry, relay timeout, and DNS policy for UDP packets.
+   `listen-mixed --tun` now drives that managed TUN runtime path before serving
+   the mixed listener, so the CLI entrypoint is wired into TUN UDP execution.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

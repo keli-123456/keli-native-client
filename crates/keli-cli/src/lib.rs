@@ -52,6 +52,8 @@ const BLOCK_CIDR_RULE_PREFIX: &str = "cidr:";
 const BLOCK_PORT_RULE_PREFIX: &str = "port:";
 const UDP_RELAY_POLL_INTERVAL: Duration = Duration::from_millis(200);
 const MANAGED_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(25);
+const DEFAULT_TUN_DNS_TTL_SECONDS: u32 = 30;
+const DEFAULT_TUN_PACKET_LOOP_MAX_PACKETS: usize = usize::MAX;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
 const SUPPORTED_UDP_OUTBOUNDS: &str =
@@ -61,7 +63,7 @@ const SUPPORTED_PROTOCOL_CAPABILITIES: &str =
 const ROUTE_RULE_CAPABILITIES: &str =
     "domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
-    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,relay-plan";
+    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,relay-plan";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
@@ -452,6 +454,48 @@ where
     )
 }
 
+pub fn run_with_optional_tun_runtime<C, F, T>(
+    controller: &C,
+    config: Option<TunDeviceConfig>,
+    runtime: &MixedProxyRuntime,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+    run: F,
+) -> Result<T, String>
+where
+    C: TunPacketIoController + ?Sized,
+    F: FnOnce() -> Result<T, String>,
+{
+    let guard = config
+        .map(|config| apply_tun_device_for_config(controller, config))
+        .transpose()?;
+    let tun_result = if let Some(guard) = guard.as_ref() {
+        run_managed_tun_packet_loop_inner_with_runtime(
+            controller,
+            guard.config(),
+            runtime,
+            dns_ttl_seconds,
+            max_packets,
+        )
+    } else {
+        Ok(())
+    };
+    let run_result = match tun_result {
+        Ok(()) => run(),
+        Err(error) => Err(error),
+    };
+    let stop_result = guard
+        .map(|guard| guard.stop().map(|_| ()))
+        .unwrap_or(Ok(()));
+
+    match (run_result, stop_result) {
+        (Ok(output), Ok(())) => Ok(output),
+        (Err(run_error), Ok(())) => Err(run_error),
+        (Ok(_), Err(stop_error)) => Err(stop_error),
+        (Err(run_error), Err(stop_error)) => Err(format!("{run_error}; {stop_error}")),
+    }
+}
+
 fn run_managed_tun_packet_loop_inner<C, R>(
     controller: &C,
     config: &TunDeviceConfig,
@@ -477,6 +521,35 @@ where
         max_packets,
     )
     .map_err(|error| format!("run TUN packet loop: {error}"))
+}
+
+fn run_managed_tun_packet_loop_inner_with_runtime<C>(
+    controller: &C,
+    config: &TunDeviceConfig,
+    runtime: &MixedProxyRuntime,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+) -> Result<(), String>
+where
+    C: TunPacketIoController + ?Sized,
+{
+    let mut dns = runtime.dns_options.engine();
+    let mut relay_dns = runtime.dns_options.engine();
+    let timeout = runtime
+        .relay_options
+        .first_byte_timeout
+        .unwrap_or(DEFAULT_FIRST_BYTE_TIMEOUT);
+    let mut udp_relay = RegistryTunUdpRelay::new(&runtime.outbounds, &mut relay_dns, timeout);
+    run_managed_tun_packet_loop_inner_with_udp_relay(
+        controller,
+        config,
+        &runtime.routes,
+        &mut dns,
+        dns_ttl_seconds,
+        max_packets,
+        &mut udp_relay,
+    )
+    .map(|_| ())
 }
 
 fn run_managed_tun_packet_loop_inner_with_udp_relay<C, R, U>(
@@ -1534,6 +1607,43 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
         }
     }
 
+    pub fn serve_with_optional_tun_controller<T>(
+        mut self,
+        once: bool,
+        tun_controller: &T,
+        tun_device: Option<TunDeviceConfig>,
+    ) -> Result<ClientRuntime, String>
+    where
+        T: TunPacketIoController + ?Sized,
+    {
+        let listener = self
+            .listener
+            .take()
+            .expect("managed mixed listener is present");
+        let runtime = self.runtime.clone();
+        let serve_result = run_with_optional_tun_runtime(
+            tun_controller,
+            tun_device,
+            &runtime,
+            DEFAULT_TUN_DNS_TTL_SECONDS,
+            DEFAULT_TUN_PACKET_LOOP_MAX_PACKETS,
+            || {
+                serve_mixed_listener(listener, once, &runtime)
+                    .map_err(|error| format!("listen-mixed failed: {error}"))
+            },
+        );
+        let stop_result = self.stop();
+
+        match (serve_result, stop_result) {
+            (Ok(()), Ok(state)) => Ok(state),
+            (Err(serve_error), Ok(_)) => Err(serve_error),
+            (Ok(()), Err(restore_error)) => Err(restore_error),
+            (Err(serve_error), Err(restore_error)) => {
+                Err(format!("{serve_error}; {restore_error}"))
+            }
+        }
+    }
+
     pub fn spawn_background(mut self) -> Result<ManagedMixedHandle<'a, C>, String> {
         let listener = self
             .listener
@@ -1629,41 +1739,38 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             };
             let controller = NativeSystemProxyController::new();
             let tun_controller = NativeTunDeviceController::new();
-
-            run_with_optional_tun_device(&tun_controller, tun_device, || {
-                if let Some(path) = profile_config {
-                    let config_text = fs::read_to_string(&path)
-                        .map_err(|error| format!("read profile config {path}: {error}"))?;
-                    let session = ManagedMixedSession::start_from_subscription_config_text(
-                        &config_text,
-                        ManagedMixedOptions {
-                            listen,
-                            block_domains,
-                            outbound_tag,
-                            relay_options,
-                            system_proxy,
-                            system_proxy_bypass,
-                            dns_options,
-                        },
-                        &controller,
-                    )?;
-                    return session.serve(once).map(|_| ());
-                }
-
-                let runtime = mixed_runtime_from_cli(block_domains, relay_options, dns_options);
-                if system_proxy {
-                    listen_mixed_with_system_proxy_controller(
-                        &listen,
-                        once,
-                        &runtime,
-                        &controller,
+            if let Some(path) = profile_config {
+                let config_text = fs::read_to_string(&path)
+                    .map_err(|error| format!("read profile config {path}: {error}"))?;
+                let session = ManagedMixedSession::start_from_subscription_config_text(
+                    &config_text,
+                    ManagedMixedOptions {
+                        listen,
+                        block_domains,
+                        outbound_tag,
+                        relay_options,
+                        system_proxy,
                         system_proxy_bypass,
-                    )
-                } else {
-                    listen_mixed(&listen, once, &runtime)
-                        .map_err(|error| format!("listen-mixed failed on {listen}: {error}"))
-                }
-            })
+                        dns_options,
+                    },
+                    &controller,
+                )?;
+                return session
+                    .serve_with_optional_tun_controller(once, &tun_controller, tun_device)
+                    .map(|_| ());
+            }
+
+            let runtime = mixed_runtime_from_cli(block_domains, relay_options, dns_options);
+            listen_mixed_with_optional_tun_controller(
+                &listen,
+                once,
+                &runtime,
+                &controller,
+                system_proxy,
+                system_proxy_bypass,
+                &tun_controller,
+                tun_device,
+            )
         }
         CliCommand::ProbeOutbound {
             profile_config,
@@ -2852,6 +2959,43 @@ pub fn listen_mixed_with_system_proxy_controller<C: SystemProxyController + ?Siz
             "listen-mixed failed: {serve_error}; {restore_error}"
         )),
     }
+}
+
+pub fn listen_mixed_with_optional_tun_controller<C, T>(
+    listen: &str,
+    once: bool,
+    runtime: &MixedProxyRuntime,
+    system_proxy_controller: &C,
+    system_proxy: bool,
+    bypass: Vec<String>,
+    tun_controller: &T,
+    tun_device: Option<TunDeviceConfig>,
+) -> Result<(), String>
+where
+    C: SystemProxyController + ?Sized,
+    T: TunPacketIoController + ?Sized,
+{
+    run_with_optional_tun_runtime(
+        tun_controller,
+        tun_device,
+        runtime,
+        DEFAULT_TUN_DNS_TTL_SECONDS,
+        DEFAULT_TUN_PACKET_LOOP_MAX_PACKETS,
+        || {
+            if system_proxy {
+                listen_mixed_with_system_proxy_controller(
+                    listen,
+                    once,
+                    runtime,
+                    system_proxy_controller,
+                    bypass,
+                )
+            } else {
+                listen_mixed(listen, once, runtime)
+                    .map_err(|error| format!("listen-mixed failed on {listen}: {error}"))
+            }
+        },
+    )
 }
 
 pub fn apply_system_proxy_for_listener<'a, C: SystemProxyController + ?Sized>(
