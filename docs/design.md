@@ -106,4 +106,6 @@ The managed mixed runtime now supports a background handle with runtime status,
 generation tracking, event history, explicit stop, system proxy restoration, and
 subscription hot reload. Reload success advances generation and replaces the
 runtime used for new connections; reload rejection records a failure event
-without dropping the active plan.
+without dropping the active plan. `ManagedMixedController` provides the
+UI-facing control surface for start/status/reload/stop while keeping the lower
+level listener handle internal to the managed core path.

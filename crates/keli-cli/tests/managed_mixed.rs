@@ -1,7 +1,10 @@
 use std::cell::RefCell;
 use std::net::TcpListener;
 
-use keli_cli::{apply_system_proxy_for_listener, ManagedMixedOptions, ManagedMixedSession};
+use keli_cli::{
+    apply_system_proxy_for_listener, ManagedMixedController, ManagedMixedOptions,
+    ManagedMixedSession,
+};
 use keli_client_core::RuntimeStatus;
 use keli_platform::{
     SystemProxyConfig, SystemProxyController, SystemProxyError, SystemProxySnapshot,
@@ -280,6 +283,83 @@ fn managed_mixed_background_reload_failure_preserves_active_runtime() {
         .stop()
         .expect("stop managed mixed background listener");
     assert_eq!(state.status(), &RuntimeStatus::Stopped);
+}
+
+#[test]
+fn managed_mixed_controller_start_status_reload_and_stop() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+
+    assert!(!core.is_running());
+    assert_eq!(core.status().status, RuntimeStatus::Stopped);
+
+    let started = core
+        .start_from_subscription_config_text(
+            ss_config(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                system_proxy: false,
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+
+    assert!(core.is_running());
+    assert_eq!(started.selected_outbound.as_deref(), Some("SS-READY"));
+    assert!(started.listen_addr.is_some());
+    assert_eq!(started.generation, 1);
+    assert!(matches!(started.status, RuntimeStatus::Running { .. }));
+
+    let duplicate_start = core
+        .start_from_subscription_config_text(
+            ss_config(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect_err("controller should reject duplicate start");
+    assert!(duplicate_start.contains("already running"));
+
+    let reloaded = core
+        .reload_from_subscription_config_text(
+            &ss_config_with_tag("SS-NEXT"),
+            Some("SS-NEXT".to_string()),
+        )
+        .expect("reload managed mixed controller");
+
+    assert_eq!(reloaded.selected_outbound.as_deref(), Some("SS-NEXT"));
+    assert_eq!(reloaded.generation, 2);
+    assert!(matches!(
+        reloaded.status,
+        RuntimeStatus::Running {
+            selected_outbound,
+            ..
+        } if selected_outbound == "SS-NEXT"
+    ));
+
+    let stopped = core.stop().expect("stop managed mixed controller");
+
+    assert_eq!(stopped.status(), &RuntimeStatus::Stopped);
+    assert!(!core.is_running());
+    assert_eq!(core.status().status, RuntimeStatus::Stopped);
+}
+
+#[test]
+fn managed_mixed_controller_rejects_reload_and_stop_before_start() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+
+    let reload_error = core
+        .reload_from_subscription_config_text(ss_config(), Some("SS-READY".to_string()))
+        .expect_err("reload should require running core");
+    let stop_error = core.stop().expect_err("stop should require running core");
+
+    assert!(reload_error.contains("not running"));
+    assert!(stop_error.contains("not running"));
+    assert_eq!(core.status().status, RuntimeStatus::Stopped);
 }
 
 #[test]

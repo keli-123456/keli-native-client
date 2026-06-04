@@ -207,6 +207,106 @@ pub struct ManagedMixedHandle<'a, C: SystemProxyController + ?Sized> {
     system_proxy_guard: Option<ManagedSystemProxyGuard<'a, C>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedMixedStatusSnapshot {
+    pub status: RuntimeStatus,
+    pub listen_addr: Option<SocketAddr>,
+    pub selected_outbound: Option<String>,
+    pub generation: u64,
+    pub event_count: usize,
+}
+
+impl ManagedMixedStatusSnapshot {
+    fn stopped() -> Self {
+        Self {
+            status: RuntimeStatus::Stopped,
+            listen_addr: None,
+            selected_outbound: None,
+            generation: 0,
+            event_count: 0,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ManagedMixedController<'a, C: SystemProxyController + ?Sized> {
+    controller: &'a C,
+    handle: Option<ManagedMixedHandle<'a, C>>,
+}
+
+impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
+    pub fn new(controller: &'a C) -> Self {
+        Self {
+            controller,
+            handle: None,
+        }
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.handle.is_some()
+    }
+
+    pub fn status(&self) -> ManagedMixedStatusSnapshot {
+        self.handle
+            .as_ref()
+            .map(ManagedMixedStatusSnapshot::from_handle)
+            .unwrap_or_else(ManagedMixedStatusSnapshot::stopped)
+    }
+
+    pub fn start_from_subscription_config_text(
+        &mut self,
+        config_text: &str,
+        options: ManagedMixedOptions,
+    ) -> Result<ManagedMixedStatusSnapshot, String> {
+        if self.handle.is_some() {
+            return Err("managed mixed core is already running".to_string());
+        }
+
+        let session = ManagedMixedSession::start_from_subscription_config_text(
+            config_text,
+            options,
+            self.controller,
+        )?;
+        self.handle = Some(session.spawn_background()?);
+        Ok(self.status())
+    }
+
+    pub fn reload_from_subscription_config_text(
+        &mut self,
+        config_text: &str,
+        outbound_tag: Option<String>,
+    ) -> Result<ManagedMixedStatusSnapshot, String> {
+        {
+            let handle = self
+                .handle
+                .as_mut()
+                .ok_or_else(|| "managed mixed core is not running".to_string())?;
+            handle.reload_from_subscription_config_text(config_text, outbound_tag)?;
+        }
+        Ok(self.status())
+    }
+
+    pub fn stop(&mut self) -> Result<ClientRuntime, String> {
+        let handle = self
+            .handle
+            .take()
+            .ok_or_else(|| "managed mixed core is not running".to_string())?;
+        handle.stop()
+    }
+}
+
+impl ManagedMixedStatusSnapshot {
+    fn from_handle<C: SystemProxyController + ?Sized>(handle: &ManagedMixedHandle<'_, C>) -> Self {
+        Self {
+            status: handle.status().clone(),
+            listen_addr: Some(handle.listen_addr()),
+            selected_outbound: handle.selected_outbound().map(str::to_string),
+            generation: handle.generation(),
+            event_count: handle.events().len(),
+        }
+    }
+}
+
 impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
     pub fn status(&self) -> &RuntimeStatus {
         self.state.status()
