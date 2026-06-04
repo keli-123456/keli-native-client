@@ -12,6 +12,7 @@ use url::Url;
 
 const VLESS_VERSION: u8 = 0x00;
 const VLESS_COMMAND_TCP: u8 = 0x01;
+const VLESS_COMMAND_UDP: u8 = 0x02;
 const VLESS_ATYP_IPV4: u8 = 0x01;
 const VLESS_ATYP_DOMAIN: u8 = 0x02;
 const VLESS_ATYP_IPV6: u8 = 0x03;
@@ -1486,6 +1487,20 @@ pub fn encode_vless_tcp_request_header(
     header.extend_from_slice(&user_id);
     encode_vless_addon(&mut header, flow.unwrap_or(""))?;
     header.push(VLESS_COMMAND_TCP);
+    encode_vless_target(&mut header, target)?;
+    Ok(header)
+}
+
+pub fn encode_vless_udp_request_header(
+    uuid: &str,
+    target: &Endpoint,
+) -> Result<Vec<u8>, ProtocolEncodingError> {
+    let user_id = parse_uuid_bytes(uuid)?;
+    let mut header = Vec::with_capacity(32 + target.host.len());
+    header.push(VLESS_VERSION);
+    header.extend_from_slice(&user_id);
+    encode_vless_addon(&mut header, "")?;
+    header.push(VLESS_COMMAND_UDP);
     encode_vless_target(&mut header, target)?;
     Ok(header)
 }

@@ -27,8 +27,8 @@ use crate::{
 };
 use keli_protocol::{
     encode_shadowsocks_tcp_request_header, encode_trojan_tcp_request_header,
-    encode_vless_tcp_request_header, Endpoint, OutboundProfile, ProtocolEncodingError,
-    ProtocolValidationError, ProxyProtocol, SecurityKind, TransportKind,
+    encode_vless_tcp_request_header, encode_vless_udp_request_header, Endpoint, OutboundProfile,
+    ProtocolEncodingError, ProtocolValidationError, ProxyProtocol, SecurityKind, TransportKind,
 };
 
 const VMESS_VERSION: u8 = 0x01;
@@ -1350,6 +1350,8 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vmess_tls_h2_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vmess_quic_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.vless_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
@@ -3961,6 +3963,24 @@ impl VlessTcpOutbound {
         read_vless_response_header_from_stream(&mut stream)?;
         Ok(OutboundConnection::Tcp(stream))
     }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        send_vless_udp_over_stream(
+            stream,
+            &self.uuid,
+            self.flow.as_deref(),
+            target,
+            payload,
+            timeout,
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4020,6 +4040,54 @@ fn read_vless_response_header_from_stream(stream: &mut impl Read) -> io::Result<
         stream.read_exact(&mut addon)?;
     }
     Ok(())
+}
+
+fn send_vless_udp_over_stream<S: Read + Write>(
+    mut stream: S,
+    uuid: &str,
+    flow: Option<&str>,
+    target: &OutboundTarget,
+    payload: &[u8],
+    timeout: Duration,
+) -> io::Result<UdpRelayResponse> {
+    if flow.is_some_and(|value| !value.trim().is_empty()) {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "VLESS UDP outbound does not support flow",
+        ));
+    }
+    let target_endpoint = Endpoint::new(target.host.clone(), target.port);
+    let header =
+        encode_vless_udp_request_header(uuid, &target_endpoint).map_err(protocol_encoding_to_io)?;
+    stream.write_all(&header)?;
+    read_vless_response_header_from_stream(&mut stream)?;
+    write_vless_udp_payload(&mut stream, payload)?;
+    stream.flush()?;
+    let payload = read_vless_udp_payload(&mut stream)?;
+    Ok(UdpRelayResponse {
+        source: outbound_target_socket_addr(target, timeout)?,
+        payload,
+    })
+}
+
+fn write_vless_udp_payload(stream: &mut impl Write, payload: &[u8]) -> io::Result<()> {
+    if payload.len() > u16::MAX as usize {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "VLESS UDP payload is too large",
+        ));
+    }
+    stream.write_all(&(payload.len() as u16).to_be_bytes())?;
+    stream.write_all(payload)
+}
+
+fn read_vless_udp_payload(stream: &mut impl Read) -> io::Result<Vec<u8>> {
+    let mut len = [0; 2];
+    stream.read_exact(&mut len)?;
+    let len = usize::from(u16::from_be_bytes(len));
+    let mut payload = vec![0; len];
+    stream.read_exact(&mut payload)?;
+    Ok(payload)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
