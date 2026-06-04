@@ -1397,6 +1397,8 @@ impl OutboundRegistry {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.trojan_tls_h2_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.trojan_quic_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.hy2_tags.get(tag) {
@@ -4298,6 +4300,22 @@ impl TrojanQuicOutbound {
             .map_err(protocol_encoding_to_io)?;
         stream.write_all(&header)?;
         Ok(OutboundConnection::Owned(Box::new(stream)))
+    }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let stream = connect_legacy_quic_stream(
+            &self.server,
+            &self.sni,
+            self.skip_verify,
+            &self.transport,
+            timeout,
+        )?;
+        send_trojan_udp_over_stream(stream, &self.password, target, payload, timeout)
     }
 }
 

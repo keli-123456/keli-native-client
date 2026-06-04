@@ -1152,6 +1152,82 @@ async fn registry_from_trojan_quic_profile_relays_over_legacy_quic_stream() {
 }
 
 #[tokio::test]
+async fn registry_from_trojan_quic_profile_relays_udp_over_legacy_quic_stream() {
+    let server_endpoint = quinn::Endpoint::server(
+        legacy_quic_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local trojan quic udp server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let (mut send, mut recv) = connection
+            .accept_bi()
+            .await
+            .expect("accept Trojan QUIC UDP stream");
+        let request_header = keli_protocol::encode_trojan_udp_request_header(
+            "password",
+            &keli_protocol::Endpoint::new("localhost", 53),
+        )
+        .expect("expected Trojan UDP associate request");
+        let mut request = vec![0; request_header.len()];
+        recv.read_exact(&mut request)
+            .await
+            .expect("read Trojan QUIC UDP associate request");
+        assert_eq!(request, request_header);
+        let mut request_payload = [0; 21];
+        recv.read_exact(&mut request_payload)
+            .await
+            .expect("read Trojan QUIC UDP packet");
+        assert_eq!(&request_payload, b"\x03\x09localhost\x005\x00\x04\r\nping");
+        send.write_all(b"\x03\x09localhost\x005\x00\x04\r\npong")
+            .await
+            .expect("write Trojan QUIC UDP response packet");
+        send.finish()
+            .expect("finish Trojan QUIC UDP response stream");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    });
+    let client = tokio::task::spawn_blocking(move || {
+        let registry =
+            keli_net_core::OutboundRegistry::from_profiles([keli_protocol::OutboundProfile {
+                tag: "trojan-quic".to_string(),
+                protocol: keli_protocol::ProxyProtocol::Trojan,
+                endpoint: keli_protocol::Endpoint::new("127.0.0.1", server_addr.port()),
+                transport: keli_protocol::TransportKind::Quic {
+                    security: None,
+                    key: None,
+                    header_type: None,
+                },
+                security: keli_protocol::SecurityKind::Tls {
+                    sni: Some("localhost".to_string()),
+                    skip_verify: true,
+                },
+                credential: "password".to_string(),
+                cipher: None,
+                flow: None,
+            }])
+            .expect("build Trojan QUIC registry");
+        registry
+            .relay_udp_datagram(
+                "trojan-quic",
+                &keli_net_core::OutboundTarget::new("localhost", 53),
+                b"ping",
+                Duration::from_secs(2),
+            )
+            .expect("relay Trojan QUIC UDP datagram")
+    });
+
+    let response = client.await.expect("client task");
+    assert_eq!(response.source.port(), 53);
+    assert_eq!(response.payload, b"pong");
+    server.await.expect("server task");
+}
+
+#[tokio::test]
 async fn registry_from_vmess_quic_profile_relays_over_legacy_quic_stream() {
     let server_endpoint = quinn::Endpoint::server(
         legacy_quic_test_server_config(),
