@@ -192,6 +192,68 @@ fn registry_from_trojan_h2_profile_relays_over_http2_body() {
 }
 
 #[test]
+fn registry_from_trojan_h2_profile_relays_udp_over_http2_body() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind trojan h2 udp server");
+    let port = listener.local_addr().expect("trojan h2 udp addr").port();
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Trojan,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Http2 {
+            path: "/trojan-h2".to_string(),
+            host: Some("trojan-h2.example".to_string()),
+        },
+        security: SecurityKind::None,
+        credential: "password".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+    let server = spawn_h2_server(
+        listener,
+        "/trojan-h2",
+        Some("trojan-h2.example"),
+        |mut stream| {
+            let mut request_header = [0; 68];
+            stream
+                .read_exact(&mut request_header)
+                .expect("read trojan udp associate header");
+            assert_eq!(
+                &request_header[..],
+                b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x03\x01\x7f\x00\x00\x01\x005\r\n"
+            );
+            let mut request_payload = [0; 15];
+            stream
+                .read_exact(&mut request_payload)
+                .expect("read trojan udp packet");
+            assert_eq!(
+                &request_payload,
+                b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\nping"
+            );
+            stream
+                .write_all(b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\npong")
+                .expect("write trojan udp response packet");
+        },
+    );
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("127.0.0.1", 53),
+            b"ping",
+            Duration::from_secs(2),
+        )
+        .expect("registered Trojan h2 UDP outbound should relay");
+
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("response source")
+    );
+    assert_eq!(response.payload, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn registry_from_vmess_h2_profile_relays_over_http2_body() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind h2 server");
     let port = listener.local_addr().expect("h2 addr").port();
@@ -460,6 +522,74 @@ fn registry_from_trojan_tls_h2_profile_relays_over_tls_http2_body() {
     stream.read_exact(&mut response).expect("read payload");
 
     assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
+fn registry_from_trojan_tls_h2_profile_relays_udp_over_tls_http2_body() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind trojan tls h2 udp server");
+    let port = listener
+        .local_addr()
+        .expect("trojan tls h2 udp addr")
+        .port();
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Trojan,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Http2 {
+            path: "/trojan-h2".to_string(),
+            host: Some("trojan-h2.example".to_string()),
+        },
+        security: SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: true,
+        },
+        credential: "password".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+    let server = spawn_tls_h2_server(
+        listener,
+        "/trojan-h2",
+        Some("trojan-h2.example"),
+        |mut stream| {
+            let mut request_header = [0; 68];
+            stream
+                .read_exact(&mut request_header)
+                .expect("read trojan udp associate header");
+            assert_eq!(
+                &request_header[..],
+                b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x03\x01\x7f\x00\x00\x01\x005\r\n"
+            );
+            let mut request_payload = [0; 15];
+            stream
+                .read_exact(&mut request_payload)
+                .expect("read trojan udp packet");
+            assert_eq!(
+                &request_payload,
+                b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\nping"
+            );
+            stream
+                .write_all(b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\npong")
+                .expect("write trojan udp response packet");
+        },
+    );
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("127.0.0.1", 53),
+            b"ping",
+            Duration::from_secs(2),
+        )
+        .expect("registered Trojan TLS h2 UDP outbound should relay");
+
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("response source")
+    );
+    assert_eq!(response.payload, b"pong");
     server.join().expect("server thread");
 }
 
