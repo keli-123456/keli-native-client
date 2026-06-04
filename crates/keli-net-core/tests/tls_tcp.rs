@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use bytes::Bytes;
@@ -420,6 +420,84 @@ fn registry_from_anytls_profile_authenticates_and_relays_single_stream() {
     stream.read_exact(&mut response).expect("read response");
 
     assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
+fn registry_from_anytls_profile_relays_udp_over_uot_stream() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind anytls udp server");
+    listener
+        .set_nonblocking(true)
+        .expect("nonblocking anytls udp listener");
+    let port = listener.local_addr().expect("server addr").port();
+    let server_config = tls_server_config();
+    let server = thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+                        && Instant::now() < deadline =>
+                {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("accept anytls udp tcp: {error}"),
+            }
+        };
+        stream
+            .set_nonblocking(false)
+            .expect("blocking anytls udp tcp");
+        let connection = rustls::ServerConnection::new(server_config).expect("server tls");
+        let mut stream = rustls::StreamOwned::new(connection, stream);
+
+        assert_anytls_auth(&mut stream, "secret");
+        let (cmd, sid, settings) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid), (4, 0));
+        assert!(String::from_utf8(settings)
+            .expect("settings utf8")
+            .contains("v=2"));
+        let (cmd, sid, data) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid, data.len()), (1, 1, 0));
+        let (cmd, sid, target) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid), (2, 1));
+        assert_eq!(&target, b"\x03\x11udp-over-tcp.arpa\x00\x00");
+        write_anytls_frame(&mut stream, 7, 1, b"");
+
+        let (cmd, sid, packet) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid), (2, 1));
+        assert_eq!(&packet, b"\x01\x01\x7f\x00\x00\x01\x005\x00\x04ping");
+        write_anytls_frame(&mut stream, 2, 1, b"\x00\x04pong");
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::AnyTls,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Tcp,
+        security: SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: true,
+        },
+        credential: "secret".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("127.0.0.1", 53),
+            b"ping",
+            Duration::from_secs(2),
+        )
+        .expect("registered AnyTLS UoT UDP outbound should relay");
+
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("response source")
+    );
+    assert_eq!(response.payload, b"pong");
     server.join().expect("server thread");
 }
 

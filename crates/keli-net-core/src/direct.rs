@@ -1401,6 +1401,8 @@ impl OutboundRegistry {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.anytls_tls_tcp_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.hy2_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.tuic_tags.get(tag) {
@@ -2765,6 +2767,7 @@ const ANYTLS_CMD_SERVER_SETTINGS: u8 = 10;
 const ANYTLS_STREAM_ID: u32 = 1;
 const ANYTLS_AUTH_PADDING_LEN: usize = 30;
 const ANYTLS_DEFAULT_PADDING_MD5: &str = "75cff2ad89aadf5e257059ee571ebe11";
+const ANYTLS_UOT_MAGIC_DOMAIN: &str = "udp-over-tcp.arpa";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnyTlsTlsTcpOutbound {
@@ -2810,6 +2813,36 @@ impl AnyTlsTlsTcpOutbound {
             encode_shadowsocks_tcp_request_header(&target).map_err(protocol_encoding_to_io)?;
         anytls.write_startup_frames(&target_header)?;
         Ok(OutboundConnection::Owned(Box::new(anytls)))
+    }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
+        write_anytls_auth(&mut stream, &self.password)?;
+        let mut anytls = AnyTlsTcpStream {
+            inner: stream,
+            read_buffer: Vec::new(),
+            read_offset: 0,
+            stream_closed: false,
+            fin_sent: false,
+        };
+        let uot_target = Endpoint::new(ANYTLS_UOT_MAGIC_DOMAIN, 0);
+        let target_header =
+            encode_shadowsocks_tcp_request_header(&uot_target).map_err(protocol_encoding_to_io)?;
+        anytls.write_startup_frames(&target_header)?;
+        let request = encode_anytls_uot_connect_request(target, payload)?;
+        anytls.write_frame(ANYTLS_CMD_PSH, ANYTLS_STREAM_ID, &request)?;
+        let response = read_anytls_uot_connect_response(&mut anytls)?;
+        Ok(UdpRelayResponse {
+            source: outbound_target_socket_addr(target, timeout)?,
+            payload: response,
+        })
     }
 }
 
@@ -3650,6 +3683,36 @@ impl OwnedRelayStream for AnyTlsTcpStream {
         self.shutdown_write().ok();
         self.inner.shutdown_both()
     }
+}
+
+fn encode_anytls_uot_connect_request(
+    target: &OutboundTarget,
+    payload: &[u8],
+) -> io::Result<Vec<u8>> {
+    if payload.len() > u16::MAX as usize {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "AnyTLS UoT payload is too large",
+        ));
+    }
+    let target = Endpoint::new(target.host.clone(), target.port);
+    let target_header =
+        encode_shadowsocks_tcp_request_header(&target).map_err(protocol_encoding_to_io)?;
+    let mut output = Vec::with_capacity(1 + target_header.len() + 2 + payload.len());
+    output.push(1);
+    output.extend_from_slice(&target_header);
+    output.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+    output.extend_from_slice(payload);
+    Ok(output)
+}
+
+fn read_anytls_uot_connect_response(stream: &mut AnyTlsTcpStream) -> io::Result<Vec<u8>> {
+    let mut length = [0; 2];
+    stream.read_exact(&mut length)?;
+    let length = u16::from_be_bytes(length) as usize;
+    let mut payload = vec![0; length];
+    stream.read_exact(&mut payload)?;
+    Ok(payload)
 }
 
 fn write_anytls_auth(stream: &mut impl Write, password: &str) -> io::Result<()> {
