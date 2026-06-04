@@ -14,9 +14,11 @@ serde_json.workspace = true
 [dev-dependencies]
 base64.workspace = true
 bytes.workspace = true
+chacha20poly1305.workspace = true
 h2.workspace = true
 h3.workspace = true
 h3-quinn.workspace = true
+hmac.workspace = true
 http.workspace = true
 quinn.workspace = true
 rcgen.workspace = true
