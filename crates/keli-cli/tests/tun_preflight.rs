@@ -1,7 +1,8 @@
 use std::cell::RefCell;
 
 use keli_cli::{
-    apply_tun_device_for_config, write_tun_preflight_report_with_controller, ProbeOutputFormat,
+    apply_tun_device_for_config, run_with_optional_tun_device,
+    write_tun_preflight_report_with_controller, ProbeOutputFormat,
 };
 use keli_platform::{TunDeviceConfig, TunDeviceController, TunDeviceError, TunDeviceSnapshot};
 
@@ -203,4 +204,66 @@ fn managed_tun_guard_rejects_mismatched_start_snapshot() {
     assert!(error.contains("different running config"));
     assert_eq!(controller.starts.borrow().len(), 1);
     assert_eq!(*controller.stops.borrow(), 0);
+}
+
+#[test]
+fn optional_tun_wrapper_stops_owned_device_after_success() {
+    let config = TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500).expect("valid TUN config");
+    let controller = FakeTunDeviceController::new(TunDeviceSnapshot {
+        supported: true,
+        lifecycle_available: true,
+        running: false,
+        interface_name: None,
+        address_cidr: None,
+        mtu: None,
+        dns_hijack: None,
+    })
+    .with_start_result(TunDeviceSnapshot::running(&config))
+    .with_stop_result(TunDeviceSnapshot {
+        supported: true,
+        lifecycle_available: true,
+        running: false,
+        interface_name: None,
+        address_cidr: None,
+        mtu: None,
+        dns_hijack: None,
+    });
+
+    run_with_optional_tun_device(&controller, Some(config), || Ok(())).expect("run with TUN guard");
+
+    assert_eq!(controller.starts.borrow().len(), 1);
+    assert_eq!(*controller.stops.borrow(), 1);
+}
+
+#[test]
+fn optional_tun_wrapper_stops_owned_device_after_run_failure() {
+    let config = TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500).expect("valid TUN config");
+    let controller = FakeTunDeviceController::new(TunDeviceSnapshot {
+        supported: true,
+        lifecycle_available: true,
+        running: false,
+        interface_name: None,
+        address_cidr: None,
+        mtu: None,
+        dns_hijack: None,
+    })
+    .with_start_result(TunDeviceSnapshot::running(&config))
+    .with_stop_result(TunDeviceSnapshot {
+        supported: true,
+        lifecycle_available: true,
+        running: false,
+        interface_name: None,
+        address_cidr: None,
+        mtu: None,
+        dns_hijack: None,
+    });
+
+    let error = run_with_optional_tun_device(&controller, Some(config), || {
+        Err("mixed listener failed".to_string())
+    })
+    .expect_err("run failure should be preserved");
+
+    assert_eq!(error, "mixed listener failed");
+    assert_eq!(controller.starts.borrow().len(), 1);
+    assert_eq!(*controller.stops.borrow(), 1);
 }

@@ -85,6 +85,7 @@ fn parses_listen_mixed_once_command() {
             outbound_tag: None,
             system_proxy: false,
             system_proxy_bypass: Vec::new(),
+            tun_device: None,
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             dns_options: MixedDnsOptions::default(),
@@ -106,6 +107,7 @@ fn defaults_listen_mixed_to_local_port_7890() {
             outbound_tag: None,
             system_proxy: false,
             system_proxy_bypass: Vec::new(),
+            tun_device: None,
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             dns_options: MixedDnsOptions::default(),
@@ -134,6 +136,7 @@ fn parses_listen_mixed_block_domain_rules() {
             outbound_tag: None,
             system_proxy: false,
             system_proxy_bypass: Vec::new(),
+            tun_device: None,
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             dns_options: MixedDnsOptions::default(),
@@ -162,6 +165,7 @@ fn parses_listen_mixed_relay_timeouts() {
             outbound_tag: None,
             system_proxy: false,
             system_proxy_bypass: Vec::new(),
+            tun_device: None,
             first_byte_timeout: Duration::from_millis(1500),
             idle_timeout: Duration::from_millis(90000),
             dns_options: MixedDnsOptions::default(),
@@ -190,6 +194,7 @@ fn parses_listen_mixed_profile_config_and_outbound_tag() {
             outbound_tag: Some("美国-TROJAN-54".to_string()),
             system_proxy: false,
             system_proxy_bypass: Vec::new(),
+            tun_device: None,
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             dns_options: MixedDnsOptions::default(),
@@ -219,6 +224,44 @@ fn parses_listen_mixed_system_proxy_options() {
             outbound_tag: None,
             system_proxy: true,
             system_proxy_bypass: vec!["localhost".to_string(), "<local>".to_string()],
+            tun_device: None,
+            first_byte_timeout: Duration::from_secs(30),
+            idle_timeout: Duration::from_secs(300),
+            dns_options: MixedDnsOptions::default(),
+        }
+    );
+}
+
+#[test]
+fn parses_listen_mixed_tun_options() {
+    let command = parse_cli_command([
+        "listen-mixed",
+        "--tun",
+        "--tun-interface",
+        "keli-main0",
+        "--tun-address",
+        "10.9.0.1/24",
+        "--tun-mtu",
+        "1400",
+        "--tun-dns-hijack",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::ListenMixed {
+            listen: "127.0.0.1:7890".to_string(),
+            once: false,
+            block_domains: Vec::new(),
+            profile_config: None,
+            outbound_tag: None,
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
+            tun_device: Some(
+                TunDeviceConfig::new("keli-main0", "10.9.0.1/24", 1400)
+                    .expect("valid TUN config")
+                    .with_dns_hijack(true)
+            ),
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             dns_options: MixedDnsOptions::default(),
@@ -247,6 +290,7 @@ fn parses_listen_mixed_dns_policy_options() {
             outbound_tag: None,
             system_proxy: false,
             system_proxy_bypass: Vec::new(),
+            tun_device: None,
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             dns_options: MixedDnsOptions {

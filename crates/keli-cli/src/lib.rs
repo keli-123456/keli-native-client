@@ -68,6 +68,7 @@ pub enum CliCommand {
         outbound_tag: Option<String>,
         system_proxy: bool,
         system_proxy_bypass: Vec<String>,
+        tun_device: Option<TunDeviceConfig>,
         first_byte_timeout: Duration,
         idle_timeout: Duration,
         dns_options: MixedDnsOptions,
@@ -364,6 +365,31 @@ fn managed_tun_snapshot_matches_config(
         && snapshot.address_cidr.as_deref() == Some(config.address_cidr.as_str())
         && snapshot.mtu == Some(config.mtu)
         && snapshot.dns_hijack == Some(config.dns_hijack)
+}
+
+pub fn run_with_optional_tun_device<C, F>(
+    controller: &C,
+    config: Option<TunDeviceConfig>,
+    run: F,
+) -> Result<(), String>
+where
+    C: TunDeviceController + ?Sized,
+    F: FnOnce() -> Result<(), String>,
+{
+    let guard = config
+        .map(|config| apply_tun_device_for_config(controller, config))
+        .transpose()?;
+    let run_result = run();
+    let stop_result = guard
+        .map(|guard| guard.stop().map(|_| ()))
+        .unwrap_or(Ok(()));
+
+    match (run_result, stop_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(run_error), Ok(())) => Err(run_error),
+        (Ok(()), Err(stop_error)) => Err(stop_error),
+        (Err(run_error), Err(stop_error)) => Err(format!("{run_error}; {stop_error}")),
+    }
 }
 
 #[derive(Debug)]
@@ -1358,6 +1384,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             outbound_tag,
             system_proxy,
             system_proxy_bypass,
+            tun_device,
             first_byte_timeout,
             idle_timeout,
             dns_options,
@@ -1367,39 +1394,42 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 idle_timeout: Some(idle_timeout),
             };
             let controller = NativeSystemProxyController::new();
+            let tun_controller = NativeTunDeviceController::new();
 
-            if let Some(path) = profile_config {
-                let config_text = fs::read_to_string(&path)
-                    .map_err(|error| format!("read profile config {path}: {error}"))?;
-                let session = ManagedMixedSession::start_from_subscription_config_text(
-                    &config_text,
-                    ManagedMixedOptions {
-                        listen,
-                        block_domains,
-                        outbound_tag,
-                        relay_options,
-                        system_proxy,
+            run_with_optional_tun_device(&tun_controller, tun_device, || {
+                if let Some(path) = profile_config {
+                    let config_text = fs::read_to_string(&path)
+                        .map_err(|error| format!("read profile config {path}: {error}"))?;
+                    let session = ManagedMixedSession::start_from_subscription_config_text(
+                        &config_text,
+                        ManagedMixedOptions {
+                            listen,
+                            block_domains,
+                            outbound_tag,
+                            relay_options,
+                            system_proxy,
+                            system_proxy_bypass,
+                            dns_options,
+                        },
+                        &controller,
+                    )?;
+                    return session.serve(once).map(|_| ());
+                }
+
+                let runtime = mixed_runtime_from_cli(block_domains, relay_options, dns_options);
+                if system_proxy {
+                    listen_mixed_with_system_proxy_controller(
+                        &listen,
+                        once,
+                        &runtime,
+                        &controller,
                         system_proxy_bypass,
-                        dns_options,
-                    },
-                    &controller,
-                )?;
-                return session.serve(once).map(|_| ());
-            }
-
-            let runtime = mixed_runtime_from_cli(block_domains, relay_options, dns_options);
-            if system_proxy {
-                listen_mixed_with_system_proxy_controller(
-                    &listen,
-                    once,
-                    &runtime,
-                    &controller,
-                    system_proxy_bypass,
-                )
-            } else {
-                listen_mixed(&listen, once, &runtime)
-                    .map_err(|error| format!("listen-mixed failed on {listen}: {error}"))
-            }
+                    )
+                } else {
+                    listen_mixed(&listen, once, &runtime)
+                        .map_err(|error| format!("listen-mixed failed on {listen}: {error}"))
+                }
+            })
         }
         CliCommand::ProbeOutbound {
             profile_config,
@@ -1490,7 +1520,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli listen-mixed [--listen 127.0.0.1:7890] [--once] [--profile-config subscription.yaml] [--outbound-tag proxy] [--first-byte-timeout-ms 30000] [--idle-timeout-ms 300000] [--dns-local-policy allow-system|prevent-public-leak] [--dns-address-family dual-stack|ipv4-only|ipv6-only]"
+        "       keli-cli listen-mixed [--listen 127.0.0.1:7890] [--once] [--profile-config subscription.yaml] [--outbound-tag proxy] [--first-byte-timeout-ms 30000] [--idle-timeout-ms 300000] [--dns-local-policy allow-system|prevent-public-leak] [--dns-address-family dual-stack|ipv4-only|ipv6-only] [--tun] [--tun-interface keli-tun0] [--tun-address 10.7.0.1/24] [--tun-mtu 1500] [--tun-dns-hijack]"
     )?;
     writeln!(
         writer,
@@ -1604,6 +1634,11 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
     let mut outbound_tag = None;
     let mut system_proxy = false;
     let mut system_proxy_bypass = Vec::new();
+    let mut tun_enabled = false;
+    let mut tun_interface_name = "keli-tun0".to_string();
+    let mut tun_address_cidr = "10.7.0.1/24".to_string();
+    let mut tun_mtu = 1500;
+    let mut tun_dns_hijack = false;
     let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut idle_timeout = DEFAULT_IDLE_TIMEOUT;
     let mut dns_options = MixedDnsOptions::default();
@@ -1656,6 +1691,31 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
                         .ok_or_else(|| "--system-proxy-bypass requires a value".to_string())?,
                 );
             }
+            "--tun" => tun_enabled = true,
+            "--tun-interface" | "--tun-interface-name" => {
+                tun_enabled = true;
+                tun_interface_name = args
+                    .next()
+                    .ok_or_else(|| "--tun-interface requires a TUN interface name".to_string())?;
+            }
+            "--tun-address" | "--tun-address-cidr" => {
+                tun_enabled = true;
+                tun_address_cidr = args
+                    .next()
+                    .ok_or_else(|| "--tun-address requires an IP CIDR".to_string())?;
+            }
+            "--tun-mtu" => {
+                tun_enabled = true;
+                tun_mtu = args
+                    .next()
+                    .ok_or_else(|| "--tun-mtu requires a value".to_string())?
+                    .parse::<u16>()
+                    .map_err(|_| "--tun-mtu must be a non-zero u16 value".to_string())?;
+            }
+            "--tun-dns-hijack" => {
+                tun_enabled = true;
+                tun_dns_hijack = true;
+            }
             "--dns-local-policy" => {
                 dns_options.local_resolution_policy = parse_dns_local_resolution_policy(
                     &args
@@ -1674,6 +1734,16 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
         }
     }
 
+    let tun_device = if tun_enabled {
+        Some(
+            TunDeviceConfig::new(tun_interface_name, tun_address_cidr, tun_mtu)
+                .map_err(|error| format!("invalid listen-mixed TUN config: {error}"))?
+                .with_dns_hijack(tun_dns_hijack),
+        )
+    } else {
+        None
+    };
+
     Ok(CliCommand::ListenMixed {
         listen,
         once,
@@ -1682,6 +1752,7 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
         outbound_tag,
         system_proxy,
         system_proxy_bypass,
+        tun_device,
         first_byte_timeout,
         idle_timeout,
         dns_options,

@@ -119,6 +119,9 @@ The first implementation target is deliberately small:
    devices only after preflight, safely adopts an already-running matching
    device without claiming stop ownership, and rejects running conflicts before
    backend mutation.
+   `listen-mixed` can now request this lifecycle path with `--tun` and explicit
+   TUN interface/address/MTU/DNS-hijack options, so CLI takeover uses the same
+   guard and cleanup path that future UI/service runners will call.
 4. Keli panel integration: subscription fetch/update, user state, node
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,
