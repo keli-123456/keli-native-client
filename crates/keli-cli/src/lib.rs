@@ -10,7 +10,7 @@ use std::sync::{
     Arc, RwLock,
 };
 use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use keli_client_core::{
     build_connection_plan, ClientErrorKind, ClientRuntime, ConnectionPhase, ConnectionPlan,
@@ -86,6 +86,9 @@ pub enum CliCommand {
     ProfileCheck {
         profile_config: String,
         output: ProbeOutputFormat,
+    },
+    SupportBundle {
+        profile_config: Option<String>,
     },
 }
 
@@ -1086,6 +1089,7 @@ pub fn parse_cli_command(
         Some("probe-outbound") => parse_probe_outbound(args),
         Some("smoke-mixed") => parse_smoke_mixed(args),
         Some("profile-check") => parse_profile_check(args),
+        Some("support-bundle") => parse_support_bundle(args),
         Some(other) => Err(format!("unknown command: {other}")),
     }
 }
@@ -1212,13 +1216,24 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 &mut stdout,
             )
         }
+        CliCommand::SupportBundle { profile_config } => {
+            let config_text = profile_config
+                .as_deref()
+                .map(|path| {
+                    fs::read_to_string(path)
+                        .map_err(|error| format!("read profile config {path}: {error}"))
+                })
+                .transpose()?;
+            let mut stdout = io::stdout();
+            write_support_bundle_report(config_text.as_deref(), &mut stdout)
+        }
     }
 }
 
 pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
-        "usage: keli-cli [doctor|version|listen-mixed|probe-outbound|smoke-mixed|profile-check]"
+        "usage: keli-cli [doctor|version|listen-mixed|probe-outbound|smoke-mixed|profile-check|support-bundle]"
     )?;
     writeln!(writer, "       keli-cli doctor [--format text|json]")?;
     writeln!(
@@ -1240,6 +1255,10 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
         "       keli-cli profile-check --profile-config subscription.yaml [--format text|json]"
+    )?;
+    writeln!(
+        writer,
+        "       keli-cli support-bundle [--profile-config subscription.yaml]"
     )
 }
 
@@ -1260,6 +1279,25 @@ fn parse_doctor(args: impl Iterator<Item = String>) -> Result<CliCommand, String
     }
 
     Ok(CliCommand::Doctor { output })
+}
+
+fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
+    let mut profile_config = None;
+    let mut args = args.peekable();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--profile-config" => {
+                profile_config = Some(
+                    args.next()
+                        .ok_or_else(|| "--profile-config requires a path".to_string())?,
+                );
+            }
+            other => return Err(format!("unknown support-bundle option: {other}")),
+        }
+    }
+
+    Ok(CliCommand::SupportBundle { profile_config })
 }
 
 fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
@@ -1684,7 +1722,14 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
 }
 
 fn write_doctor_json_report(mut writer: impl Write, report: &DoctorReport) -> io::Result<()> {
-    let value = serde_json::json!({
+    let value = doctor_report_json_value(report);
+    serde_json::to_writer_pretty(&mut writer, &value).map_err(io::Error::other)?;
+    writeln!(writer)?;
+    Ok(())
+}
+
+fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
+    serde_json::json!({
         "status": "ok",
         "version": report.version,
         "platform": &report.platform,
@@ -1711,10 +1756,105 @@ fn write_doctor_json_report(mut writer: impl Write, report: &DoctorReport) -> io
         "protocol_capabilities": report.protocol_capabilities,
         "sample_profile_valid": report.sample_profile_valid,
         "initial_phase": &report.initial_phase,
+    })
+}
+
+pub fn write_support_bundle_report(
+    profile_config_text: Option<&str>,
+    mut writer: impl Write,
+) -> Result<(), String> {
+    let generated_at_unix_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    let value = serde_json::json!({
+        "status": "ok",
+        "kind": "keli_support_bundle",
+        "schema_version": 1,
+        "generated_at_unix_ms": generated_at_unix_ms,
+        "doctor": doctor_report_json_value(&collect_doctor_report()),
+        "profile": support_bundle_profile_value(profile_config_text),
+        "redaction": {
+            "profile_config_text": "omitted",
+            "credentials": "omitted",
+            "server_endpoints": "omitted",
+        },
     });
-    serde_json::to_writer_pretty(&mut writer, &value).map_err(io::Error::other)?;
-    writeln!(writer)?;
-    Ok(())
+    serde_json::to_writer_pretty(&mut writer, &value).map_err(|error| error.to_string())?;
+    writeln!(writer).map_err(|error| error.to_string())
+}
+
+fn support_bundle_profile_value(profile_config_text: Option<&str>) -> serde_json::Value {
+    let Some(config_text) = profile_config_text else {
+        return serde_json::Value::Null;
+    };
+
+    let source_format = detect_subscription_input_format(config_text);
+    let parsed = match parse_subscription_outbound_profiles(config_text) {
+        Ok(parsed) => profiles_with_registry_supported_outbounds(parsed),
+        Err(error) => {
+            return serde_json::json!({
+                "status": "error",
+                "source_format": source_format.as_str(),
+                "error": format!("profile config parse failed: {error}"),
+            });
+        }
+    };
+    let supported_tags: Vec<&str> = parsed
+        .profiles
+        .iter()
+        .map(|profile| profile.tag.as_str())
+        .collect();
+    let udp_supported_tags = udp_supported_tags(&parsed.profiles);
+    let skipped_summary = skipped_summary_reports(&parsed.skipped);
+    let skipped_summary_json: Vec<_> = skipped_summary
+        .iter()
+        .map(|summary| {
+            serde_json::json!({
+                "reason": &summary.reason,
+                "count": summary.names.len(),
+                "names": &summary.names,
+            })
+        })
+        .collect();
+    let skipped: Vec<_> = parsed
+        .skipped
+        .iter()
+        .map(|skipped| {
+            serde_json::json!({
+                "name": skipped.name.as_str(),
+                "reason": skipped.reason.as_str(),
+            })
+        })
+        .collect();
+    let protocol_capabilities = protocol_capability_reports(&parsed.profiles);
+    let protocol_capabilities_json: Vec<_> = protocol_capabilities
+        .iter()
+        .map(|capability| {
+            serde_json::json!({
+                "protocol": &capability.protocol,
+                "tcp_relay_supported": capability.tcp_relay_supported,
+                "udp_supported": capability.udp_supported,
+                "tags": &capability.tags,
+            })
+        })
+        .collect();
+
+    serde_json::json!({
+        "status": if parsed.profiles.is_empty() { "error" } else { "ok" },
+        "source_format": source_format.as_str(),
+        "supported_count": parsed.profiles.len(),
+        "skipped_count": parsed.skipped.len(),
+        "skipped_summary_count": skipped_summary.len(),
+        "default_outbound": parsed.profiles.first().map(|profile| profile.tag.as_str()),
+        "supported_tags": supported_tags,
+        "udp_supported_count": udp_supported_tags.len(),
+        "udp_supported_tags": udp_supported_tags,
+        "protocol_capability_count": protocol_capabilities.len(),
+        "protocol_capabilities": protocol_capabilities_json,
+        "skipped_summary": skipped_summary_json,
+        "skipped": skipped,
+    })
 }
 
 fn listen_mixed(listen: &str, once: bool, runtime: &MixedProxyRuntime) -> io::Result<()> {

@@ -27,6 +27,19 @@ fn parses_doctor_json_command() {
 }
 
 #[test]
+fn parses_support_bundle_command() {
+    let command = parse_cli_command(["support-bundle", "--profile-config", "subscription.yaml"])
+        .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::SupportBundle {
+            profile_config: Some("subscription.yaml".to_string())
+        }
+    );
+}
+
+#[test]
 fn parses_listen_mixed_once_command() {
     let command = parse_cli_command(["listen-mixed", "--listen", "127.0.0.1:7890", "--once"])
         .expect("command should parse");

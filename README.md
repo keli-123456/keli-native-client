@@ -64,7 +64,8 @@ The client protocol set is aligned with `keli-core-rs/src/protocol.rs`.
 
 Both Mihomo YAML and share-link subscriptions have parser and registry matrix
 tests for these protocols. `keli-cli doctor` prints the authoritative runtime
-capability list in text or JSON form.
+capability list in text or JSON form, and `keli-cli support-bundle` exports a
+redacted JSON support report.
 
 ## Design Principles
 
@@ -82,4 +83,5 @@ cargo fmt --check
 $env:CARGO_INCREMENTAL='0'; cargo test --workspace -j 1
 cargo run -p keli-cli -- doctor
 cargo run -p keli-cli -- doctor --format json
+cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
 ```
