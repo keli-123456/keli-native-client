@@ -1363,6 +1363,10 @@ impl OutboundRegistry {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vless_tls_httpupgrade_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.vless_grpc_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.vless_tls_grpc_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.hy2_tags.get(tag) {
@@ -2033,6 +2037,26 @@ impl VlessGrpcOutbound {
         read_vless_response_header_from_stream(&mut stream)?;
         Ok(OutboundConnection::Owned(Box::new(stream)))
     }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream =
+            crate::GrpcTcpStream::connect_plain(stream, &self.host, self.service_name.as_deref())?;
+        send_vless_udp_over_stream(
+            stream,
+            &self.uuid,
+            self.flow.as_deref(),
+            target,
+            payload,
+            timeout,
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2087,6 +2111,31 @@ impl VlessTlsGrpcOutbound {
         stream.write_all(&header)?;
         read_vless_response_header_from_stream(&mut stream)?;
         Ok(OutboundConnection::Owned(Box::new(stream)))
+    }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = crate::GrpcTcpStream::connect_tls(
+            stream,
+            &self.sni,
+            self.skip_verify,
+            &self.host,
+            self.service_name.as_deref(),
+        )?;
+        send_vless_udp_over_stream(
+            stream,
+            &self.uuid,
+            self.flow.as_deref(),
+            target,
+            payload,
+            timeout,
+        )
     }
 }
 

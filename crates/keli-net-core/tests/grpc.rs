@@ -78,6 +78,65 @@ fn registry_from_vless_grpc_profile_relays_over_h2_grpc() {
 }
 
 #[test]
+fn registry_from_vless_grpc_profile_relays_udp_over_h2_grpc() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind grpc udp server");
+    let port = listener.local_addr().expect("grpc udp addr").port();
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Vless,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Grpc {
+            service_name: Some("GunService".to_string()),
+        },
+        security: SecurityKind::None,
+        credential: VLESS_UUID.to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+    let server = spawn_grpc_server(listener, "/GunService/Tun", |mut stream| {
+        let mut request_header = [0; 26];
+        stream
+            .read_exact(&mut request_header)
+            .expect("read vless udp request header");
+        assert_eq!(
+            request_header,
+            [
+                0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
+                0xdd, 0xee, 0xff, 0x00, 0x02, 0x00, 0x35, 0x01, 0x7f, 0x00, 0x00, 0x01,
+            ]
+        );
+        stream
+            .write_all(&[0x00, 0x00])
+            .expect("write vless response header");
+        let mut request_payload = [0; 6];
+        stream
+            .read_exact(&mut request_payload)
+            .expect("read vless udp payload");
+        assert_eq!(&request_payload, b"\x00\x04ping");
+        stream
+            .write_all(b"\x00\x04pong")
+            .expect("write vless udp response payload");
+    });
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("127.0.0.1", 53),
+            b"ping",
+            Duration::from_secs(2),
+        )
+        .expect("registered VLESS gRPC UDP outbound should relay");
+
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("response source")
+    );
+    assert_eq!(response.payload, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn registry_from_trojan_grpc_profile_relays_over_h2_grpc() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind grpc server");
     let port = listener.local_addr().expect("grpc addr").port();
@@ -267,6 +326,68 @@ fn registry_from_vless_tls_grpc_profile_relays_over_tls_h2_grpc() {
     stream.read_exact(&mut response).expect("read payload");
 
     assert_eq!(&response, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
+fn registry_from_vless_tls_grpc_profile_relays_udp_over_tls_h2_grpc() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind tls grpc udp server");
+    let port = listener.local_addr().expect("tls grpc udp addr").port();
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Vless,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Grpc {
+            service_name: Some("GunService".to_string()),
+        },
+        security: SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: true,
+        },
+        credential: VLESS_UUID.to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+    let server = spawn_tls_grpc_server(listener, "/GunService/Tun", |mut stream| {
+        let mut request_header = [0; 26];
+        stream
+            .read_exact(&mut request_header)
+            .expect("read vless udp request header");
+        assert_eq!(
+            request_header,
+            [
+                0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
+                0xdd, 0xee, 0xff, 0x00, 0x02, 0x00, 0x35, 0x01, 0x7f, 0x00, 0x00, 0x01,
+            ]
+        );
+        stream
+            .write_all(&[0x00, 0x00])
+            .expect("write vless response header");
+        let mut request_payload = [0; 6];
+        stream
+            .read_exact(&mut request_payload)
+            .expect("read vless udp payload");
+        assert_eq!(&request_payload, b"\x00\x04ping");
+        stream
+            .write_all(b"\x00\x04pong")
+            .expect("write vless udp response payload");
+    });
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("127.0.0.1", 53),
+            b"ping",
+            Duration::from_secs(2),
+        )
+        .expect("registered VLESS TLS gRPC UDP outbound should relay");
+
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("response source")
+    );
+    assert_eq!(response.payload, b"pong");
     server.join().expect("server thread");
 }
 
