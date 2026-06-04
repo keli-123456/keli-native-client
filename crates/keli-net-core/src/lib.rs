@@ -12,6 +12,7 @@ mod mieru;
 mod naive;
 mod quic;
 mod socks5;
+mod tun;
 mod websocket;
 
 pub use direct::{
@@ -63,6 +64,9 @@ pub use socks5::{
     encode_socks5_udp_datagram, parse_socks5_handshake, parse_socks5_request,
     parse_socks5_udp_datagram, socks5_no_auth_response, socks5_reply, Socks5Address, Socks5Command,
     Socks5Error, Socks5Handshake, Socks5ReplyCode, Socks5Request, Socks5UdpDatagram,
+};
+pub use tun::{
+    parse_tun_packet_flow, TunIpVersion, TunPacketError, TunPacketFlow, TunTransportProtocol,
 };
 pub use websocket::{websocket_accept_for_key, OwnedWebSocketClientStream, WebSocketClientStream};
 

@@ -45,6 +45,8 @@ supported nodes, skipped nodes, default outbound, selected outbound, and node
 health records for latency, TCP/UDP availability, and failure reasons.
 The route engine now also has destination-aware keyword, CIDR, and port
 matching, and the mixed TCP/UDP paths use that richer decision surface.
+TUN data-plane preparation has started with raw IPv4/IPv6 packet flow parsing
+for TCP, UDP, ICMP, route destinations, and DNS-hijack candidate detection.
 
 ## Protocol Matrix
 
