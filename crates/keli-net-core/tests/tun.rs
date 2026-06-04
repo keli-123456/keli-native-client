@@ -5,11 +5,11 @@ use keli_net_core::{
     build_dns_error_response, build_dns_response, build_tun_dns_hijack_response,
     build_tun_dns_response_packet, decide_tun_packet_route, parse_tun_packet_flow,
     parse_tun_udp_payload, plan_tun_dns_hijack, plan_tun_packet_relay, process_tun_packet,
-    run_tun_packet_loop, DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy, DnsQuestionType,
-    DnsResolver, OutboundTarget, RouteAction, RouteDestination, RouteEngine, RouteIpCidr,
-    RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketDevice, TunPacketError,
-    TunPacketLoopEvent, TunPacketProcessAction, TunPacketRelayAction, TunPacketRelayPlan,
-    TunTransportProtocol,
+    run_tun_packet_loop, run_tun_packet_loop_summary, DnsCache, DnsEngine, DnsError,
+    DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, OutboundTarget, RouteAction,
+    RouteDestination, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion,
+    TunPacketDevice, TunPacketError, TunPacketLoopEvent, TunPacketLoopSummary,
+    TunPacketProcessAction, TunPacketRelayAction, TunPacketRelayPlan, TunTransportProtocol,
 };
 
 #[test]
@@ -399,6 +399,84 @@ fn tun_packet_loop_keeps_processing_after_packet_error() {
     ));
     assert!(matches!(events[1], TunPacketLoopEvent::WrotePacket { .. }));
     assert_eq!(device.writes.len(), 1);
+}
+
+#[test]
+fn tun_packet_loop_summary_counts_event_outcomes() {
+    let build_packets = || {
+        let mut fragmented =
+            ipv4_packet(17, "10.7.0.2", "8.8.8.8", &udp_datagram(54321, 53, b"keli"));
+        fragmented[6..8].copy_from_slice(&0x2000u16.to_be_bytes());
+        vec![
+            fragmented,
+            ipv4_packet(
+                17,
+                "10.7.0.2",
+                "8.8.8.8",
+                &udp_datagram(54322, 53, &dns_query(0x5678, "example.com", 1)),
+            ),
+            ipv4_packet(
+                17,
+                "10.7.0.2",
+                "1.1.1.1",
+                &udp_datagram(54323, 443, b"keli"),
+            ),
+            ipv4_packet(
+                17,
+                "10.7.0.2",
+                "10.1.2.3",
+                &udp_datagram(54324, 443, b"keli"),
+            ),
+            ipv4_packet(1, "10.7.0.2", "1.1.1.2", &[8, 0, 0, 0]),
+        ]
+    };
+    let build_routes = || {
+        let mut routes = RouteEngine::new(RouteAction::Direct);
+        routes.add_rule(RouteRule {
+            name: "block-lan".to_string(),
+            matcher: RouteMatcher::IpCidr(
+                RouteIpCidr::new("10.0.0.0".parse().expect("valid IP"), 8).expect("valid CIDR"),
+            ),
+            action: RouteAction::Block,
+        });
+        routes
+    };
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut device = FakeTunPacketDevice::new(build_packets());
+    let routes = build_routes();
+
+    let events =
+        run_tun_packet_loop(&mut device, &routes, true, &mut dns, 30, 6).expect("run TUN loop");
+    let summary = TunPacketLoopSummary::from_events(&events);
+
+    assert_eq!(events.len(), 6);
+    assert_eq!(summary.processed_packets(), 5);
+    assert_eq!(summary.idle_events, 1);
+    assert_eq!(summary.dns_responses_written, 1);
+    assert_eq!(summary.relay_packets, 1);
+    assert_eq!(summary.dropped_packets, 1);
+    assert_eq!(summary.unsupported_packets, 1);
+    assert_eq!(summary.packet_errors, 1);
+    assert!(matches!(
+        summary.last_packet_error,
+        Some(TunPacketError::Ipv4FragmentedPacket { .. })
+    ));
+
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut device = FakeTunPacketDevice::new(build_packets());
+    let routes = build_routes();
+
+    let summary_from_runner =
+        run_tun_packet_loop_summary(&mut device, &routes, true, &mut dns, 30, 6)
+            .expect("run TUN summary loop");
+
+    assert_eq!(summary_from_runner, summary);
 }
 
 #[test]

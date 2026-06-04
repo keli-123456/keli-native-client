@@ -117,6 +117,17 @@ pub enum TunPacketLoopEvent {
     PacketError(TunPacketError),
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TunPacketLoopSummary {
+    pub idle_events: usize,
+    pub dns_responses_written: usize,
+    pub relay_packets: usize,
+    pub dropped_packets: usize,
+    pub unsupported_packets: usize,
+    pub packet_errors: usize,
+    pub last_packet_error: Option<TunPacketError>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TunPacketLoopError {
     Read(String),
@@ -137,6 +148,48 @@ impl Error for TunPacketLoopError {}
 pub trait TunPacketDevice {
     fn read_packet(&mut self) -> Result<Option<Vec<u8>>, String>;
     fn write_packet(&mut self, packet: &[u8]) -> Result<(), String>;
+}
+
+impl TunPacketLoopSummary {
+    pub fn from_events(events: &[TunPacketLoopEvent]) -> Self {
+        let mut summary = Self::default();
+        for event in events {
+            summary.record_event(event);
+        }
+        summary
+    }
+
+    pub fn record_event(&mut self, event: &TunPacketLoopEvent) {
+        match event {
+            TunPacketLoopEvent::NoPacket => {
+                self.idle_events += 1;
+            }
+            TunPacketLoopEvent::WrotePacket { .. } => {
+                self.dns_responses_written += 1;
+            }
+            TunPacketLoopEvent::Relay(_) => {
+                self.relay_packets += 1;
+            }
+            TunPacketLoopEvent::Drop(_) => {
+                self.dropped_packets += 1;
+            }
+            TunPacketLoopEvent::Unsupported(_) => {
+                self.unsupported_packets += 1;
+            }
+            TunPacketLoopEvent::PacketError(error) => {
+                self.packet_errors += 1;
+                self.last_packet_error = Some(error.clone());
+            }
+        }
+    }
+
+    pub fn processed_packets(&self) -> usize {
+        self.dns_responses_written
+            + self.relay_packets
+            + self.dropped_packets
+            + self.unsupported_packets
+            + self.packet_errors
+    }
 }
 
 impl TunPacketFlow {
@@ -488,6 +541,27 @@ pub fn run_tun_packet_loop<D: TunPacketDevice, R: DnsResolver>(
         }
     }
     Ok(events)
+}
+
+pub fn run_tun_packet_loop_summary<D: TunPacketDevice, R: DnsResolver>(
+    device: &mut D,
+    routes: &RouteEngine,
+    dns_hijack_enabled: bool,
+    dns: &mut DnsEngine<R>,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+) -> Result<TunPacketLoopSummary, TunPacketLoopError> {
+    let mut summary = TunPacketLoopSummary::default();
+    for _ in 0..max_packets {
+        let event =
+            process_tun_device_packet(device, routes, dns_hijack_enabled, dns, dns_ttl_seconds)?;
+        let should_stop = event == TunPacketLoopEvent::NoPacket;
+        summary.record_event(&event);
+        if should_stop {
+            break;
+        }
+    }
+    Ok(summary)
 }
 
 pub fn build_tun_udp_response_packet(

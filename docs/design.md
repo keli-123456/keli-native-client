@@ -163,6 +163,8 @@ The first implementation target is deliberately small:
    read packets from an injected device, write DNS hijack responses, emit
    relay/drop/unsupported events, and keep processing after packet parse
    errors.
+   Loop events can also be summarized into diagnostic counters for processed,
+   written, relayed, dropped, unsupported, idle, and packet-error outcomes.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

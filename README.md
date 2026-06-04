@@ -69,6 +69,8 @@ The TUN packet path now has a reusable packet loop abstraction that can read
 from an injected device, write DNS hijack responses back to the device, emit
 relay/drop/unsupported events, and continue processing after packet parse
 errors.
+Those loop events can be summarized into diagnostic counters for processed,
+written, relayed, dropped, unsupported, idle, and packet-error outcomes.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 
