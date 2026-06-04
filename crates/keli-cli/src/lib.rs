@@ -14,7 +14,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use keli_client_core::{
     build_connection_plan, ClientErrorKind, ClientRuntime, ConnectionPhase, ConnectionPlan,
-    RuntimeConfig, RuntimeEvent, RuntimeStatus, SkippedProfileSummary, SubscriptionNodeCapability,
+    PanelState, RuntimeConfig, RuntimeEvent, RuntimeStatus, SkippedProfileSummary,
+    SubscriptionNodeCapability,
 };
 use keli_net_core::{
     encode_socks5_udp_datagram, http_connect_bad_request_response, http_connect_success_response,
@@ -299,6 +300,7 @@ pub struct ManagedMixedStatusSnapshot {
     pub system_proxy: Option<SystemProxyConfig>,
     pub subscription: Option<ManagedSubscriptionStatus>,
     pub dns_options: MixedDnsOptions,
+    pub panel_state: Option<PanelState>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -534,7 +536,7 @@ fn recommend_managed_outbound_from_health(
 }
 
 impl ManagedMixedStatusSnapshot {
-    fn stopped() -> Self {
+    fn stopped(panel_state: Option<PanelState>) -> Self {
         Self {
             status: RuntimeStatus::Stopped,
             listen_addr: None,
@@ -546,6 +548,7 @@ impl ManagedMixedStatusSnapshot {
             system_proxy: None,
             subscription: None,
             dns_options: MixedDnsOptions::default(),
+            panel_state,
         }
     }
 
@@ -558,6 +561,7 @@ impl ManagedMixedStatusSnapshot {
 pub struct ManagedMixedController<'a, C: SystemProxyController + ?Sized> {
     controller: &'a C,
     handle: Option<ManagedMixedHandle<'a, C>>,
+    panel_state: Option<PanelState>,
 }
 
 impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
@@ -565,6 +569,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         Self {
             controller,
             handle: None,
+            panel_state: None,
         }
     }
 
@@ -575,8 +580,8 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
     pub fn status(&self) -> ManagedMixedStatusSnapshot {
         self.handle
             .as_ref()
-            .map(ManagedMixedStatusSnapshot::from_handle)
-            .unwrap_or_else(ManagedMixedStatusSnapshot::stopped)
+            .map(|handle| ManagedMixedStatusSnapshot::from_handle(handle, self.panel_state.clone()))
+            .unwrap_or_else(|| ManagedMixedStatusSnapshot::stopped(self.panel_state.clone()))
     }
 
     pub fn start_from_subscription_config_text(
@@ -680,6 +685,22 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         Ok(self.status())
     }
 
+    pub fn record_panel_state(&mut self, panel_state: PanelState) -> ManagedMixedStatusSnapshot {
+        if let Some(handle) = self.handle.as_mut() {
+            handle.record_panel_state(&panel_state);
+        }
+        self.panel_state = Some(panel_state);
+        self.status()
+    }
+
+    pub fn clear_panel_state(&mut self) -> ManagedMixedStatusSnapshot {
+        if let Some(handle) = self.handle.as_mut() {
+            handle.record_panel_state_cleared();
+        }
+        self.panel_state = None;
+        self.status()
+    }
+
     pub fn stop(&mut self) -> Result<ClientRuntime, String> {
         let handle = self
             .handle
@@ -690,7 +711,10 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
 }
 
 impl ManagedMixedStatusSnapshot {
-    fn from_handle<C: SystemProxyController + ?Sized>(handle: &ManagedMixedHandle<'_, C>) -> Self {
+    fn from_handle<C: SystemProxyController + ?Sized>(
+        handle: &ManagedMixedHandle<'_, C>,
+        panel_state: Option<PanelState>,
+    ) -> Self {
         let recent_events: Vec<RuntimeEvent> =
             handle.events().iter().rev().take(5).cloned().collect();
         let last_error = handle
@@ -712,6 +736,7 @@ impl ManagedMixedStatusSnapshot {
             system_proxy: handle.system_proxy_config().cloned(),
             subscription: handle.subscription_status(),
             dns_options: handle.dns_options,
+            panel_state,
         }
     }
 }
@@ -747,6 +772,19 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
         self.state
             .active_plan()
             .map(|plan| ManagedSubscriptionStatus::from_plan(plan, &self.node_health))
+    }
+
+    fn record_panel_state(&mut self, panel_state: &PanelState) {
+        self.state.record_status_note(format!(
+            "panel state recorded: account={} risk={} restrict_traffic={}",
+            panel_state.user.account_state.label(),
+            panel_state.risk_control.label(),
+            panel_state.should_restrict_traffic()
+        ));
+    }
+
+    fn record_panel_state_cleared(&mut self) {
+        self.state.record_status_note("panel state cleared");
     }
 
     pub fn record_node_health(&mut self, health: ManagedNodeHealthStatus) -> Result<(), String> {

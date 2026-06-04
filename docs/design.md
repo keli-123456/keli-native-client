@@ -128,6 +128,9 @@ Health records support unknown/healthy/unhealthy states, latency, TCP/UDP
 availability, failure reasons, and runtime events for UI listeners;
 subscription reload prunes health entries that no longer belong to the active
 subscription.
+Managed status snapshots also carry panel user and risk-control state, including
+traffic quota fields, expiry state, risk-control state, support notes, and a
+core-side `should_restrict_traffic` decision for UI takeover and support flows.
 Support bundles include doctor output and redacted subscription diagnostics,
 including supported tags, default outbound, UDP-capable tags, protocol
 capability groups, skipped-profile summaries, and per-node protocol/transport

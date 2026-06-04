@@ -190,6 +190,111 @@ pub struct SkippedProfileSummary {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PanelAccountState {
+    Unknown,
+    Active,
+    Limited,
+    Expired,
+    Disabled,
+}
+
+impl PanelAccountState {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Active => "active",
+            Self::Limited => "limited",
+            Self::Expired => "expired",
+            Self::Disabled => "disabled",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PanelRiskControlState {
+    Unknown,
+    Clear,
+    Warning,
+    Restricted,
+    Blocked,
+}
+
+impl PanelRiskControlState {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Clear => "clear",
+            Self::Warning => "warning",
+            Self::Restricted => "restricted",
+            Self::Blocked => "blocked",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PanelUserState {
+    pub account_state: PanelAccountState,
+    pub used_bytes: Option<u64>,
+    pub total_bytes: Option<u64>,
+    pub expires_at: Option<SystemTime>,
+}
+
+impl PanelUserState {
+    pub fn traffic_used_per_mille(&self) -> Option<u16> {
+        let (Some(used), Some(total)) = (self.used_bytes, self.total_bytes) else {
+            return None;
+        };
+        if total == 0 {
+            return None;
+        }
+        let per_mille = (u128::from(used) * 1000) / u128::from(total);
+        Some(per_mille.min(u128::from(u16::MAX)) as u16)
+    }
+
+    pub fn quota_exhausted(&self) -> bool {
+        matches!(
+            (self.used_bytes, self.total_bytes),
+            (Some(used), Some(total)) if total > 0 && used >= total
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PanelState {
+    pub user: PanelUserState,
+    pub risk_control: PanelRiskControlState,
+    pub updated_at: SystemTime,
+    pub support_note: Option<String>,
+}
+
+impl PanelState {
+    pub fn new(user: PanelUserState, risk_control: PanelRiskControlState) -> Self {
+        Self {
+            user,
+            risk_control,
+            updated_at: SystemTime::now(),
+            support_note: None,
+        }
+    }
+
+    pub fn with_support_note(mut self, support_note: impl Into<String>) -> Self {
+        self.support_note = Some(support_note.into());
+        self
+    }
+
+    pub fn should_restrict_traffic(&self) -> bool {
+        matches!(
+            self.user.account_state,
+            PanelAccountState::Expired | PanelAccountState::Disabled
+        ) || self.user.quota_exhausted()
+            || matches!(
+                self.risk_control,
+                PanelRiskControlState::Restricted | PanelRiskControlState::Blocked
+            )
+    }
+}
+
 pub fn preflight_subscription_config(
     config_text: &str,
 ) -> Result<SubscriptionPreflightReport, ClientErrorKind> {
@@ -621,6 +726,53 @@ proxies:
         assert!(!debug.contains("private-sni.example.com"));
         assert!(!debug.contains("private-host.example.com"));
         assert!(!debug.contains("/private-vmess-path"));
+    }
+
+    #[test]
+    fn panel_state_reports_quota_and_risk_restrictions() {
+        let active_user = PanelUserState {
+            account_state: PanelAccountState::Active,
+            used_bytes: Some(250),
+            total_bytes: Some(1000),
+            expires_at: None,
+        };
+        assert_eq!(active_user.traffic_used_per_mille(), Some(250));
+        assert!(!active_user.quota_exhausted());
+        let warning = PanelState::new(active_user.clone(), PanelRiskControlState::Warning);
+        assert_eq!(warning.user.account_state.label(), "active");
+        assert_eq!(warning.risk_control.label(), "warning");
+        assert!(!warning.should_restrict_traffic());
+
+        let quota_limited = PanelState::new(
+            PanelUserState {
+                account_state: PanelAccountState::Limited,
+                used_bytes: Some(1000),
+                total_bytes: Some(1000),
+                expires_at: None,
+            },
+            PanelRiskControlState::Clear,
+        );
+        assert!(quota_limited.user.quota_exhausted());
+        assert!(quota_limited.should_restrict_traffic());
+
+        let expired = PanelState::new(
+            PanelUserState {
+                account_state: PanelAccountState::Expired,
+                used_bytes: None,
+                total_bytes: None,
+                expires_at: Some(SystemTime::UNIX_EPOCH),
+            },
+            PanelRiskControlState::Clear,
+        );
+        assert!(expired.should_restrict_traffic());
+
+        let restricted = PanelState::new(active_user, PanelRiskControlState::Restricted)
+            .with_support_note("risk-control restricted by panel");
+        assert!(restricted.should_restrict_traffic());
+        assert_eq!(
+            restricted.support_note.as_deref(),
+            Some("risk-control restricted by panel")
+        );
     }
 
     #[test]

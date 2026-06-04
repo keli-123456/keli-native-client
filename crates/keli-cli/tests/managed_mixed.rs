@@ -10,7 +10,9 @@ use keli_cli::{
     ManagedMixedSession, ManagedNodeHealthState, ManagedNodeHealthStatus, ManagedNodeProbeOptions,
     ManagedNodeProbeSweepOptions, MixedDnsOptions, SmokeInboundKind,
 };
-use keli_client_core::RuntimeStatus;
+use keli_client_core::{
+    PanelAccountState, PanelRiskControlState, PanelState, PanelUserState, RuntimeStatus,
+};
 use keli_net_core::{ConnectionErrorKind, DnsAddressFamilyPolicy, DnsLocalResolutionPolicy};
 use keli_platform::{
     SystemProxyConfig, SystemProxyController, SystemProxyError, SystemProxySnapshot,
@@ -469,6 +471,84 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
     assert_eq!(core.status().status, RuntimeStatus::Stopped);
     assert!(!core.status().system_proxy_enabled());
     assert!(!platform_controller.restored.borrow().is_empty());
+}
+
+#[test]
+fn managed_mixed_controller_records_panel_state_across_runtime() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+
+    let healthy_panel = PanelState::new(
+        PanelUserState {
+            account_state: PanelAccountState::Active,
+            used_bytes: Some(128),
+            total_bytes: Some(1024),
+            expires_at: None,
+        },
+        PanelRiskControlState::Clear,
+    )
+    .with_support_note("panel account active");
+    let stopped = core.record_panel_state(healthy_panel.clone());
+
+    assert_eq!(stopped.status, RuntimeStatus::Stopped);
+    assert_eq!(stopped.panel_state, Some(healthy_panel.clone()));
+    assert!(!stopped
+        .panel_state
+        .as_ref()
+        .expect("panel state")
+        .should_restrict_traffic());
+    assert_eq!(
+        stopped
+            .panel_state
+            .as_ref()
+            .expect("panel state")
+            .user
+            .traffic_used_per_mille(),
+        Some(125)
+    );
+
+    let started = core
+        .start_from_subscription_config_text(
+            ss_config(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+    assert_eq!(started.panel_state, Some(healthy_panel));
+
+    let restricted_panel = PanelState::new(
+        PanelUserState {
+            account_state: PanelAccountState::Limited,
+            used_bytes: Some(1024),
+            total_bytes: Some(1024),
+            expires_at: None,
+        },
+        PanelRiskControlState::Restricted,
+    )
+    .with_support_note("panel risk-control restricted traffic");
+    let restricted = core.record_panel_state(restricted_panel.clone());
+
+    assert!(restricted
+        .panel_state
+        .as_ref()
+        .expect("restricted panel state")
+        .should_restrict_traffic());
+    assert!(restricted.recent_events.iter().any(|event| {
+        event.note.as_deref()
+            == Some("panel state recorded: account=limited risk=restricted restrict_traffic=true")
+    }));
+
+    core.stop().expect("stop managed mixed controller");
+    let stopped_after_runtime = core.status();
+    assert_eq!(stopped_after_runtime.status, RuntimeStatus::Stopped);
+    assert_eq!(stopped_after_runtime.panel_state, Some(restricted_panel));
+
+    let cleared = core.clear_panel_state();
+    assert_eq!(cleared.status, RuntimeStatus::Stopped);
+    assert_eq!(cleared.panel_state, None);
 }
 
 #[test]
