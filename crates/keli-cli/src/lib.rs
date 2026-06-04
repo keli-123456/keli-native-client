@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{
@@ -202,6 +203,7 @@ pub struct ManagedMixedHandle<'a, C: SystemProxyController + ?Sized> {
     runtime: Arc<RwLock<MixedProxyRuntime>>,
     block_domains: Vec<String>,
     relay_options: RelayOptions,
+    node_health: HashMap<String, ManagedNodeHealthStatus>,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<io::Result<()>>>,
     system_proxy_guard: Option<ManagedSystemProxyGuard<'a, C>>,
@@ -227,17 +229,32 @@ pub struct ManagedSubscriptionStatus {
     pub skipped: Vec<SkippedProfileSummary>,
     pub default_outbound: Option<String>,
     pub selected_outbound: String,
+    pub node_health: Vec<ManagedNodeHealthStatus>,
 }
 
 impl ManagedSubscriptionStatus {
-    fn from_plan(plan: &ConnectionPlan) -> Self {
+    fn from_plan(
+        plan: &ConnectionPlan,
+        node_health: &HashMap<String, ManagedNodeHealthStatus>,
+    ) -> Self {
         let preflight = plan.preflight();
+        let supported_tags = preflight.supported_tags().to_vec();
+        let node_health = supported_tags
+            .iter()
+            .map(|tag| {
+                node_health
+                    .get(tag)
+                    .cloned()
+                    .unwrap_or_else(|| ManagedNodeHealthStatus::unknown(tag.clone()))
+            })
+            .collect();
         Self {
             usable: preflight.is_usable(),
-            supported_tags: preflight.supported_tags().to_vec(),
+            supported_tags,
             skipped: preflight.skipped().to_vec(),
             default_outbound: preflight.default_outbound().map(str::to_string),
             selected_outbound: plan.selected_outbound().to_string(),
+            node_health,
         }
     }
 
@@ -247,6 +264,75 @@ impl ManagedSubscriptionStatus {
 
     pub fn skipped_count(&self) -> usize {
         self.skipped.len()
+    }
+
+    pub fn health_for(&self, tag: &str) -> Option<&ManagedNodeHealthStatus> {
+        self.node_health.iter().find(|health| health.tag == tag)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ManagedNodeHealthState {
+    Unknown,
+    Healthy,
+    Unhealthy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedNodeHealthStatus {
+    pub tag: String,
+    pub state: ManagedNodeHealthState,
+    pub tcp_available: Option<bool>,
+    pub udp_available: Option<bool>,
+    pub latency_ms: Option<u128>,
+    pub error_kind: Option<ConnectionErrorKind>,
+    pub error_detail: Option<String>,
+}
+
+impl ManagedNodeHealthStatus {
+    pub fn unknown(tag: impl Into<String>) -> Self {
+        Self {
+            tag: tag.into(),
+            state: ManagedNodeHealthState::Unknown,
+            tcp_available: None,
+            udp_available: None,
+            latency_ms: None,
+            error_kind: None,
+            error_detail: None,
+        }
+    }
+
+    pub fn healthy(
+        tag: impl Into<String>,
+        latency_ms: Option<u128>,
+        tcp_available: bool,
+        udp_available: bool,
+    ) -> Self {
+        Self {
+            tag: tag.into(),
+            state: ManagedNodeHealthState::Healthy,
+            tcp_available: Some(tcp_available),
+            udp_available: Some(udp_available),
+            latency_ms,
+            error_kind: None,
+            error_detail: None,
+        }
+    }
+
+    pub fn unhealthy(
+        tag: impl Into<String>,
+        error_kind: ConnectionErrorKind,
+        error_detail: Option<String>,
+    ) -> Self {
+        Self {
+            tag: tag.into(),
+            state: ManagedNodeHealthState::Unhealthy,
+            tcp_available: Some(false),
+            udp_available: Some(false),
+            latency_ms: None,
+            error_kind: Some(error_kind),
+            error_detail,
+        }
     }
 }
 
@@ -328,6 +414,20 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         Ok(self.status())
     }
 
+    pub fn record_node_health(
+        &mut self,
+        health: ManagedNodeHealthStatus,
+    ) -> Result<ManagedMixedStatusSnapshot, String> {
+        {
+            let handle = self
+                .handle
+                .as_mut()
+                .ok_or_else(|| "managed mixed core is not running".to_string())?;
+            handle.record_node_health(health)?;
+        }
+        Ok(self.status())
+    }
+
     pub fn stop(&mut self) -> Result<ClientRuntime, String> {
         let handle = self
             .handle
@@ -393,7 +493,26 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
     pub fn subscription_status(&self) -> Option<ManagedSubscriptionStatus> {
         self.state
             .active_plan()
-            .map(ManagedSubscriptionStatus::from_plan)
+            .map(|plan| ManagedSubscriptionStatus::from_plan(plan, &self.node_health))
+    }
+
+    pub fn record_node_health(&mut self, health: ManagedNodeHealthStatus) -> Result<(), String> {
+        let Some(plan) = self.state.active_plan() else {
+            return Err("managed mixed core has no active subscription".to_string());
+        };
+        if !plan
+            .preflight()
+            .supported_tags()
+            .iter()
+            .any(|tag| tag == &health.tag)
+        {
+            return Err(format!(
+                "node health tag is not in active subscription: {}",
+                health.tag
+            ));
+        }
+        self.node_health.insert(health.tag.clone(), health);
+        Ok(())
     }
 
     pub fn reload_from_subscription_config_text(
@@ -438,7 +557,21 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
             .reload(config)
             .map_err(|error| format!("runtime reload failed: {error:?}"))?;
         self.selected_outbound = Some(selected_outbound);
+        self.prune_node_health_to_active_plan();
         Ok(())
+    }
+
+    fn prune_node_health_to_active_plan(&mut self) {
+        let Some(plan) = self.state.active_plan() else {
+            self.node_health.clear();
+            return;
+        };
+        self.node_health.retain(|tag, _| {
+            plan.preflight()
+                .supported_tags()
+                .iter()
+                .any(|supported| supported == tag)
+        });
     }
 
     pub fn stop(mut self) -> Result<ClientRuntime, String> {
@@ -592,6 +725,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
             runtime,
             block_domains: self.block_domains,
             relay_options: self.relay_options,
+            node_health: HashMap::new(),
             stop,
             thread: Some(thread),
             system_proxy_guard: self.system_proxy_guard,

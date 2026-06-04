@@ -3,9 +3,10 @@ use std::net::TcpListener;
 
 use keli_cli::{
     apply_system_proxy_for_listener, ManagedMixedController, ManagedMixedOptions,
-    ManagedMixedSession,
+    ManagedMixedSession, ManagedNodeHealthState, ManagedNodeHealthStatus,
 };
 use keli_client_core::RuntimeStatus;
+use keli_net_core::ConnectionErrorKind;
 use keli_platform::{
     SystemProxyConfig, SystemProxyController, SystemProxyError, SystemProxySnapshot,
 };
@@ -480,6 +481,120 @@ fn managed_mixed_controller_status_reports_subscription_nodes() {
 
     core.stop().expect("stop managed mixed controller");
     assert!(core.status().subscription.is_none());
+}
+
+#[test]
+fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+
+    let started = core
+        .start_from_subscription_config_text(
+            mixed_subscription_with_skipped_proxy(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+    let subscription = started.subscription.as_ref().expect("subscription status");
+
+    assert_eq!(
+        subscription
+            .health_for("SS-READY")
+            .expect("SS-READY health")
+            .state,
+        ManagedNodeHealthState::Unknown
+    );
+    assert_eq!(
+        subscription
+            .health_for("SS-NEXT")
+            .expect("SS-NEXT health")
+            .state,
+        ManagedNodeHealthState::Unknown
+    );
+
+    core.record_node_health(ManagedNodeHealthStatus::healthy(
+        "SS-READY",
+        Some(42),
+        true,
+        true,
+    ))
+    .expect("record healthy node");
+    let status = core
+        .record_node_health(ManagedNodeHealthStatus::unhealthy(
+            "SS-NEXT",
+            ConnectionErrorKind::TcpConnectTimeout,
+            Some("timeout to example target".to_string()),
+        ))
+        .expect("record unhealthy node");
+    let subscription = status.subscription.as_ref().expect("subscription status");
+    let ready = subscription
+        .health_for("SS-READY")
+        .expect("SS-READY health");
+    let next = subscription.health_for("SS-NEXT").expect("SS-NEXT health");
+
+    assert_eq!(ready.state, ManagedNodeHealthState::Healthy);
+    assert_eq!(ready.latency_ms, Some(42));
+    assert_eq!(ready.tcp_available, Some(true));
+    assert_eq!(ready.udp_available, Some(true));
+    assert_eq!(next.state, ManagedNodeHealthState::Unhealthy);
+    assert_eq!(
+        next.error_kind,
+        Some(ConnectionErrorKind::TcpConnectTimeout)
+    );
+    assert_eq!(
+        next.error_detail.as_deref(),
+        Some("timeout to example target")
+    );
+
+    let unsupported = core
+        .record_node_health(ManagedNodeHealthStatus::healthy(
+            "WG-SKIPPED",
+            Some(1),
+            true,
+            false,
+        ))
+        .expect_err("skipped node should not accept health");
+    assert!(unsupported.contains("not in active subscription"));
+
+    let reloaded = core
+        .reload_from_subscription_config_text(ss_config(), Some("SS-READY".to_string()))
+        .expect("reload managed mixed controller");
+    let subscription = reloaded
+        .subscription
+        .as_ref()
+        .expect("subscription after reload");
+
+    assert_eq!(subscription.supported_tags, vec!["SS-READY".to_string()]);
+    assert!(subscription.health_for("SS-NEXT").is_none());
+    assert_eq!(
+        subscription
+            .health_for("SS-READY")
+            .expect("SS-READY health")
+            .state,
+        ManagedNodeHealthState::Healthy
+    );
+
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_controller_rejects_node_health_before_start() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+
+    let error = core
+        .record_node_health(ManagedNodeHealthStatus::healthy(
+            "SS-READY",
+            Some(10),
+            true,
+            true,
+        ))
+        .expect_err("recording health should require running core");
+
+    assert!(error.contains("not running"));
 }
 
 #[test]
