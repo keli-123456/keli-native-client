@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::net::{IpAddr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,6 +15,13 @@ pub enum DnsLocalResolutionPolicy {
     PreventPublicLeak,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DnsAddressFamilyPolicy {
+    DualStack,
+    Ipv4Only,
+    Ipv6Only,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DnsError {
     ResolveFailed {
@@ -26,6 +33,10 @@ pub enum DnsError {
         host: String,
         policy: DnsLocalResolutionPolicy,
     },
+    AddressFamilyFiltered {
+        host: String,
+        policy: DnsAddressFamilyPolicy,
+    },
 }
 
 impl fmt::Display for DnsError {
@@ -35,6 +46,9 @@ impl fmt::Display for DnsError {
             Self::NoRecords(host) => write!(f, "DNS returned no records for {host}"),
             Self::LocalResolutionBlocked { host, policy } => {
                 write!(f, "local DNS resolution for {host} blocked by {policy:?}")
+            }
+            Self::AddressFamilyFiltered { host, policy } => {
+                write!(f, "DNS records for {host} were filtered by {policy:?}")
             }
         }
     }
@@ -121,6 +135,7 @@ pub struct DnsEngine<R> {
     resolver: R,
     cache: DnsCache,
     policy: DnsLocalResolutionPolicy,
+    address_family_policy: DnsAddressFamilyPolicy,
 }
 
 impl<R: DnsResolver> DnsEngine<R> {
@@ -129,24 +144,40 @@ impl<R: DnsResolver> DnsEngine<R> {
     }
 
     pub fn with_policy(resolver: R, cache: DnsCache, policy: DnsLocalResolutionPolicy) -> Self {
+        Self::with_policies(resolver, cache, policy, DnsAddressFamilyPolicy::DualStack)
+    }
+
+    pub fn with_policies(
+        resolver: R,
+        cache: DnsCache,
+        policy: DnsLocalResolutionPolicy,
+        address_family_policy: DnsAddressFamilyPolicy,
+    ) -> Self {
         Self {
             resolver,
             cache,
             policy,
+            address_family_policy,
         }
     }
 
     pub fn resolve(&mut self, host: &str, port: u16) -> Result<Vec<ResolvedAddress>, DnsError> {
         let normalized_host = normalize_host(host);
-        if let Ok(ip) = host.parse::<IpAddr>() {
+        if let Ok(ip) = normalized_host.parse::<IpAddr>() {
+            if !address_family_matches(ip, self.address_family_policy) {
+                return Err(DnsError::AddressFamilyFiltered {
+                    host: normalized_host,
+                    policy: self.address_family_policy,
+                });
+            }
             return Ok(vec![ResolvedAddress { ip, port }]);
         }
         if self.policy == DnsLocalResolutionPolicy::PreventPublicLeak {
             if normalized_host == "localhost" {
-                return Ok(vec![ResolvedAddress {
-                    ip: IpAddr::from([127, 0, 0, 1]),
-                    port,
-                }]);
+                return Ok(localhost_ips(self.address_family_policy)
+                    .into_iter()
+                    .map(|ip| ResolvedAddress { ip, port })
+                    .collect());
             }
             return Err(DnsError::LocalResolutionBlocked {
                 host: normalized_host,
@@ -166,11 +197,40 @@ impl<R: DnsResolver> DnsEngine<R> {
                 ips
             }
         };
+        let ips: Vec<IpAddr> = ips
+            .into_iter()
+            .filter(|ip| address_family_matches(*ip, self.address_family_policy))
+            .collect();
+        if ips.is_empty() {
+            return Err(DnsError::AddressFamilyFiltered {
+                host: normalized_host,
+                policy: self.address_family_policy,
+            });
+        }
 
         Ok(ips
             .into_iter()
             .map(|ip| ResolvedAddress { ip, port })
             .collect())
+    }
+}
+
+fn address_family_matches(ip: IpAddr, policy: DnsAddressFamilyPolicy) -> bool {
+    match policy {
+        DnsAddressFamilyPolicy::DualStack => true,
+        DnsAddressFamilyPolicy::Ipv4Only => ip.is_ipv4(),
+        DnsAddressFamilyPolicy::Ipv6Only => ip.is_ipv6(),
+    }
+}
+
+fn localhost_ips(policy: DnsAddressFamilyPolicy) -> Vec<IpAddr> {
+    match policy {
+        DnsAddressFamilyPolicy::DualStack => vec![
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            IpAddr::V6(Ipv6Addr::LOCALHOST),
+        ],
+        DnsAddressFamilyPolicy::Ipv4Only => vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
+        DnsAddressFamilyPolicy::Ipv6Only => vec![IpAddr::V6(Ipv6Addr::LOCALHOST)],
     }
 }
 

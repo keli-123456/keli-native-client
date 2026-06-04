@@ -30,8 +30,8 @@ pub use direct::{
     VmessTlsWsOutbound, VmessWsOutbound,
 };
 pub use dns::{
-    DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy, DnsResolver, ResolvedAddress,
-    SystemDnsResolver,
+    DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy, DnsResolver,
+    ResolvedAddress, SystemDnsResolver,
 };
 pub use grpc::GrpcTcpStream;
 pub use http2::Http2TcpStream;

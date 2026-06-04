@@ -1593,6 +1593,7 @@ struct DoctorReport {
     dns_resolver: &'static str,
     dns_cache_ttl_seconds: u64,
     dns_leak_prevention_policy_available: bool,
+    dns_address_family_policy_available: bool,
     supported_outbounds: Vec<&'static str>,
     supported_udp_outbounds: Vec<&'static str>,
     protocol_capabilities: &'static str,
@@ -1670,6 +1671,7 @@ fn collect_doctor_report() -> DoctorReport {
         dns_resolver: "system_resolver",
         dns_cache_ttl_seconds: 60,
         dns_leak_prevention_policy_available: true,
+        dns_address_family_policy_available: true,
         supported_outbounds: SUPPORTED_OUTBOUNDS.split(',').collect(),
         supported_udp_outbounds: SUPPORTED_UDP_OUTBOUNDS.split(',').collect(),
         protocol_capabilities: SUPPORTED_PROTOCOL_CAPABILITIES,
@@ -1703,6 +1705,11 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
         writer,
         "dns_leak_prevention_policy_available={}",
         report.dns_leak_prevention_policy_available
+    )?;
+    writeln!(
+        writer,
+        "dns_address_family_policy_available={}",
+        report.dns_address_family_policy_available
     )?;
     writeln!(
         writer,
@@ -1758,6 +1765,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
             "resolver": report.dns_resolver,
             "cache_ttl_seconds": report.dns_cache_ttl_seconds,
             "leak_prevention_policy_available": report.dns_leak_prevention_policy_available,
+            "address_family_policy_available": report.dns_address_family_policy_available,
         },
         "supported_outbounds": &report.supported_outbounds,
         "supported_udp_outbounds": &report.supported_udp_outbounds,
