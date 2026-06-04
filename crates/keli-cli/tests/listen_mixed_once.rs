@@ -278,6 +278,28 @@ fn listen_mixed_once_uses_profile_config_for_vless_ws_http_connect() {
 }
 
 #[test]
+fn listen_mixed_once_uses_profile_config_for_trojan_ws_socks5_udp_associate() {
+    let (trojan_port, trojan_thread) = spawn_trojan_ws_udp_echo_server();
+    let profile_path = write_temp_trojan_ws_profile_config(trojan_port);
+
+    run_profile_socks5_udp_associate_round_trip(&profile_path, "TROJAN-WS-READY");
+
+    trojan_thread.join().expect("trojan ws udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_vless_ws_socks5_udp_associate() {
+    let (vless_port, vless_thread) = spawn_vless_ws_udp_echo_server();
+    let profile_path = write_temp_vless_ws_profile_config(vless_port);
+
+    run_profile_socks5_udp_associate_round_trip(&profile_path, "VLESS-WS-READY");
+
+    vless_thread.join().expect("vless ws udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
 fn listen_mixed_once_uses_profile_config_for_hy2_http_connect() {
     let (hy2_addr, hy2_thread) = spawn_hy2_echo_server();
     let profile_path = write_temp_hy2_profile_config(hy2_addr.port());
@@ -622,6 +644,66 @@ fn run_profile_http_connect_round_trip(profile_path: &str, outbound_tag: &str) {
     let mut response = [0; 4];
     client.read_exact(&mut response).expect("read pong");
     assert_eq!(&response, b"pong");
+    client.shutdown(Shutdown::Both).ok();
+
+    server_thread.join().expect("listen thread");
+}
+
+fn run_profile_socks5_udp_associate_round_trip(profile_path: &str, outbound_tag: &str) {
+    let listen = free_local_addr();
+    let run_listen = listen.clone();
+    let run_profile_path = profile_path.to_string();
+    let run_outbound_tag = outbound_tag.to_string();
+    let server_thread = thread::spawn(move || {
+        run(CliCommand::ListenMixed {
+            listen: run_listen,
+            once: true,
+            block_domains: Vec::new(),
+            profile_config: Some(run_profile_path),
+            outbound_tag: Some(run_outbound_tag),
+            first_byte_timeout: Duration::from_secs(2),
+            idle_timeout: Duration::from_secs(2),
+        })
+        .expect("run listen-mixed once");
+    });
+
+    let mut client = connect_with_retry(&listen);
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    client.write_all(&[0x05, 0x01, 0x00]).expect("write hello");
+    let mut hello = [0; 2];
+    client.read_exact(&mut hello).expect("read hello response");
+    assert_eq!(hello, [0x05, 0x00]);
+
+    client
+        .write_all(&[0x05, 0x03, 0x00, 0x01, 127, 0, 0, 1, 0x00, 0x00])
+        .expect("write udp associate request");
+    let mut reply = [0; 10];
+    client.read_exact(&mut reply).expect("read udp reply");
+    assert_eq!(&reply[..4], &[0x05, 0x00, 0x00, 0x01]);
+    let relay_port = u16::from_be_bytes([reply[8], reply[9]]);
+    assert_ne!(relay_port, 0);
+
+    let udp_client = UdpSocket::bind("127.0.0.1:0").expect("bind udp client");
+    udp_client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("udp timeout");
+    let request =
+        encode_socks5_udp_datagram(&Socks5Address::Ipv4(Ipv4Addr::LOCALHOST), 53, b"ping")
+            .expect("encode socks5 udp");
+    udp_client
+        .send_to(&request, ("127.0.0.1", relay_port))
+        .expect("send udp request");
+
+    let mut response = [0; 1500];
+    let (size, _) = udp_client
+        .recv_from(&mut response)
+        .expect("read udp response");
+    let response = parse_socks5_udp_datagram(&response[..size]).expect("parse udp response");
+    assert_eq!(response.address, Socks5Address::Ipv4(Ipv4Addr::LOCALHOST));
+    assert_eq!(response.port, 53);
+    assert_eq!(response.payload, b"pong");
     client.shutdown(Shutdown::Both).ok();
 
     server_thread.join().expect("listen thread");
@@ -1215,6 +1297,81 @@ fn spawn_vless_ws_echo_server() -> (u16, thread::JoinHandle<()>) {
         stream.write_all(b"\x82\x04pong").expect("write pong frame");
     });
     (port, handle)
+}
+
+fn spawn_trojan_ws_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind trojan ws udp server");
+    let port = listener.local_addr().expect("trojan ws udp addr").port();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept trojan ws udp server");
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /answer HTTP/1.1\r\n"));
+        assert!(request.contains("Host: edge.example\r\n"));
+        let key = header_value(&request, "Sec-WebSocket-Key").expect("client key");
+        let accept = websocket_accept_for_key(&key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .expect("write ws response");
+
+        let trojan_header = read_masked_client_frame(&mut stream);
+        assert_eq!(
+            &trojan_header,
+            b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x03\x01\x7f\x00\x00\x01\x005\r\n"
+        );
+        let request_payload = read_masked_client_frame(&mut stream);
+        assert_eq!(
+            &request_payload,
+            b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\nping"
+        );
+        write_server_binary_frame(&mut stream, b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\npong");
+    });
+    (port, handle)
+}
+
+fn spawn_vless_ws_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vless ws udp server");
+    let port = listener.local_addr().expect("vless ws udp addr").port();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept vless ws udp server");
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /vless HTTP/1.1\r\n"));
+        assert!(request.contains("Host: edge.example\r\n"));
+        let key = header_value(&request, "Sec-WebSocket-Key").expect("client key");
+        let accept = websocket_accept_for_key(&key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .expect("write ws response");
+
+        let vless_header = read_masked_client_frame(&mut stream);
+        assert_eq!(
+            &vless_header[..],
+            &[
+                0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
+                0xdd, 0xee, 0xff, 0x00, 0x02, 0x00, 0x35, 0x01, 0x7f, 0x00, 0x00, 0x01,
+            ]
+        );
+        write_server_binary_frame(&mut stream, b"\x00\x00");
+
+        let mut request_payload = read_masked_client_frame(&mut stream);
+        if request_payload.len() == 2 {
+            request_payload.extend(read_masked_client_frame(&mut stream));
+        }
+        assert_eq!(&request_payload, b"\x00\x04ping");
+        write_server_binary_frame(&mut stream, b"\x00\x04pong");
+    });
+    (port, handle)
+}
+
+fn write_server_binary_frame(stream: &mut impl Write, payload: &[u8]) {
+    assert!(payload.len() <= 125);
+    stream
+        .write_all(&[0x82, payload.len() as u8])
+        .expect("write frame header");
+    stream.write_all(payload).expect("write frame payload");
 }
 
 fn spawn_hy2_echo_server() -> (SocketAddr, thread::JoinHandle<()>) {
