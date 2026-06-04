@@ -831,26 +831,77 @@ fn rejects_truncated_ipv6_packet() {
 }
 
 #[test]
-fn rejects_ipv6_hop_by_hop_extension_header() {
-    let packet = ipv6_packet(0, "fd00::2", "fd00::1", &[17, 0, 0, 0, 0, 0, 0, 0]);
+fn parses_ipv6_hop_by_hop_extension_header_to_udp_socket_addresses() {
+    let mut payload = vec![17, 0, 0, 0, 0, 0, 0, 0];
+    payload.extend_from_slice(&udp_datagram(54321, 53, b"keli"));
+    let packet = ipv6_packet(0, "fd00::2", "fd00::1", &payload);
 
-    let error = parse_tun_packet_flow(&packet).expect_err("IPv6 extension header should fail");
+    let flow = parse_tun_packet_flow(&packet).expect("parse IPv6 extension header packet");
+
+    assert_eq!(flow.ip_version, TunIpVersion::Ipv6);
+    assert_eq!(flow.protocol, TunTransportProtocol::Udp);
+    assert_eq!(flow.source_port, Some(54321));
+    assert_eq!(flow.destination_port, Some(53));
+    assert!(flow.is_dns_hijack_candidate());
+}
+
+#[test]
+fn parses_chained_ipv6_option_extension_headers_to_tcp_socket_addresses() {
+    let mut payload = vec![60, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0];
+    payload.extend_from_slice(&[
+        0xc0, 0x00, 0x01, 0xbb, 0, 0, 0, 0, 0, 0, 0, 0, 0x50, 0x02, 0x10, 0x00, 0, 0, 0, 0,
+    ]);
+    let packet = ipv6_packet(0, "fd00::2", "2606:4700:4700::1111", &payload);
+
+    let flow = parse_tun_packet_flow(&packet).expect("parse chained IPv6 extension headers");
+
+    assert_eq!(flow.ip_version, TunIpVersion::Ipv6);
+    assert_eq!(flow.protocol, TunTransportProtocol::Tcp);
+    assert_eq!(flow.source_port, Some(49152));
+    assert_eq!(flow.destination_port, Some(443));
+}
+
+#[test]
+fn rejects_truncated_ipv6_extension_header() {
+    let packet = ipv6_packet(0, "fd00::2", "fd00::1", &[17]);
+
+    let error = parse_tun_packet_flow(&packet).expect_err("truncated IPv6 extension header");
 
     assert_eq!(
         error,
-        TunPacketError::Ipv6ExtensionHeaderUnsupported { next_header: 0 }
+        TunPacketError::Ipv6ExtensionHeaderTruncated {
+            next_header: 0,
+            required_len: 2,
+            available_len: 1
+        }
     );
 }
 
 #[test]
-fn rejects_ipv6_destination_options_extension_header() {
-    let packet = ipv6_packet(60, "fd00::2", "fd00::1", &[17, 0, 0, 0, 0, 0, 0, 0]);
+fn rejects_oversized_ipv6_extension_header() {
+    let packet = ipv6_packet(60, "fd00::2", "fd00::1", &[17, 1, 0, 0, 0, 0, 0, 0]);
 
-    let error = parse_tun_packet_flow(&packet).expect_err("IPv6 extension header should fail");
+    let error = parse_tun_packet_flow(&packet).expect_err("oversized IPv6 extension header");
 
     assert_eq!(
         error,
-        TunPacketError::Ipv6ExtensionHeaderUnsupported { next_header: 60 }
+        TunPacketError::Ipv6ExtensionHeaderTruncated {
+            next_header: 60,
+            required_len: 16,
+            available_len: 8
+        }
+    );
+}
+
+#[test]
+fn rejects_ipv6_fragment_extension_header_until_reassembly_exists() {
+    let packet = ipv6_packet(44, "fd00::2", "fd00::1", &[17, 0, 0, 0, 0, 0, 0, 0]);
+
+    let error = parse_tun_packet_flow(&packet).expect_err("IPv6 fragment header should fail");
+
+    assert_eq!(
+        error,
+        TunPacketError::Ipv6ExtensionHeaderUnsupported { next_header: 44 }
     );
 }
 

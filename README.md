@@ -63,8 +63,10 @@ The packet processor can now return either a write-back DNS response action or
 the relay/drop plan that a future TUN read loop should execute.
 IPv4 fragmented packets are rejected explicitly until the core has a real
 fragment reassembly strategy.
-IPv6 extension headers are also rejected explicitly until the parser supports
-safe extension-header traversal.
+IPv6 Hop-by-Hop, Routing, and Destination Options extension headers are safely
+traversed before TCP/UDP/ICMPv6 classification, while Fragment/AH/ESP remain
+explicitly rejected until the core has reassembly or encrypted-payload
+handling.
 The TUN packet path now has a reusable packet loop abstraction that can read
 from an injected device, write DNS hijack responses back to the device, emit
 relay/drop/unsupported events, and continue processing after packet parse

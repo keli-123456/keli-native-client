@@ -156,9 +156,10 @@ The first implementation target is deliberately small:
    IPv4 fragmented packets are rejected explicitly until the core has a real
    fragment reassembly strategy, preventing partial fragments from being
    misclassified as relayable TCP/UDP flows.
-   IPv6 extension headers are rejected explicitly until the parser supports
-   safe extension-header traversal, avoiding silent misclassification as
-   unknown plain transports.
+   IPv6 Hop-by-Hop, Routing, and Destination Options extension headers are now
+   safely traversed before TCP/UDP/ICMPv6 classification, while Fragment/AH/ESP
+   remain explicit unsupported guards until the core has reassembly or
+   encrypted-payload handling.
    The packet path now includes a reusable TUN packet loop abstraction that can
    read packets from an injected device, write DNS hijack responses, emit
    relay/drop/unsupported events, and keep processing after packet parse

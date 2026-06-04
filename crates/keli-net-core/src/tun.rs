@@ -369,6 +369,11 @@ pub enum TunPacketError {
     Ipv6ExtensionHeaderUnsupported {
         next_header: u8,
     },
+    Ipv6ExtensionHeaderTruncated {
+        next_header: u8,
+        required_len: usize,
+        available_len: usize,
+    },
     TransportHeaderTooShort {
         protocol: TunTransportProtocol,
         required_len: usize,
@@ -447,6 +452,14 @@ impl fmt::Display for TunPacketError {
             Self::Ipv6ExtensionHeaderUnsupported { next_header } => write!(
                 f,
                 "IPv6 extension header {next_header} is unsupported in TUN packets"
+            ),
+            Self::Ipv6ExtensionHeaderTruncated {
+                next_header,
+                required_len,
+                available_len,
+            } => write!(
+                f,
+                "IPv6 extension header {next_header} is truncated: required {required_len}, available {available_len}"
             ),
             Self::TransportHeaderTooShort {
                 protocol,
@@ -1041,10 +1054,8 @@ fn parse_ipv6_packet_parts(packet: &[u8]) -> Result<TunPacketParts<'_>, TunPacke
             packet_len: packet.len(),
         });
     }
-    let next_header = packet[6];
-    if is_ipv6_extension_header(next_header) {
-        return Err(TunPacketError::Ipv6ExtensionHeaderUnsupported { next_header });
-    }
+    let (next_header, transport_offset) =
+        parse_ipv6_transport_header(packet, total_length, packet[6])?;
     let protocol = TunTransportProtocol::from_ip_protocol_number(next_header);
     let source_ip = IpAddr::V6(Ipv6Addr::from(
         <[u8; 16]>::try_from(&packet[8..24]).expect("IPv6 source slice length"),
@@ -1052,7 +1063,7 @@ fn parse_ipv6_packet_parts(packet: &[u8]) -> Result<TunPacketParts<'_>, TunPacke
     let destination_ip = IpAddr::V6(Ipv6Addr::from(
         <[u8; 16]>::try_from(&packet[24..40]).expect("IPv6 destination slice length"),
     ));
-    let transport_payload = &packet[40..total_length];
+    let transport_payload = &packet[transport_offset..total_length];
     let (source_port, destination_port) = parse_transport_ports(protocol, transport_payload)?;
 
     Ok(TunPacketParts {
@@ -1066,6 +1077,38 @@ fn parse_ipv6_packet_parts(packet: &[u8]) -> Result<TunPacketParts<'_>, TunPacke
         },
         transport_payload,
     })
+}
+
+fn parse_ipv6_transport_header(
+    packet: &[u8],
+    total_length: usize,
+    mut next_header: u8,
+) -> Result<(u8, usize), TunPacketError> {
+    let mut offset = 40;
+    while is_ipv6_skippable_extension_header(next_header) {
+        let available_len = total_length - offset;
+        if available_len < 2 {
+            return Err(TunPacketError::Ipv6ExtensionHeaderTruncated {
+                next_header,
+                required_len: 2,
+                available_len,
+            });
+        }
+        let extension_len = (usize::from(packet[offset + 1]) + 1) * 8;
+        if available_len < extension_len {
+            return Err(TunPacketError::Ipv6ExtensionHeaderTruncated {
+                next_header,
+                required_len: extension_len,
+                available_len,
+            });
+        }
+        next_header = packet[offset];
+        offset += extension_len;
+    }
+    if is_ipv6_extension_header(next_header) {
+        return Err(TunPacketError::Ipv6ExtensionHeaderUnsupported { next_header });
+    }
+    Ok((next_header, offset))
 }
 
 fn parse_transport_ports(
@@ -1088,6 +1131,10 @@ fn parse_transport_ports(
         }
         _ => Ok((None, None)),
     }
+}
+
+fn is_ipv6_skippable_extension_header(next_header: u8) -> bool {
+    matches!(next_header, 0 | 43 | 60)
 }
 
 fn is_ipv6_extension_header(next_header: u8) -> bool {

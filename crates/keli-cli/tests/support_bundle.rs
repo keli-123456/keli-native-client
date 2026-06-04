@@ -62,58 +62,62 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][14],
-        "ipv6-extension-guard"
+        "ipv6-extension-traversal"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][15],
-        "packet-loop"
+        "ipv6-extension-guard"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][16],
-        "packet-loop-summary"
+        "packet-loop"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][17],
-        "managed-packet-loop"
+        "packet-loop-summary"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][18],
-        "direct-udp-relay"
+        "managed-packet-loop"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][19],
-        "outbound-udp-relay"
+        "direct-udp-relay"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][20],
-        "registry-udp-relay"
+        "outbound-udp-relay"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][21],
-        "managed-registry-udp-relay"
+        "registry-udp-relay"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][22],
-        "listen-mixed-tun-runtime"
+        "managed-registry-udp-relay"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][23],
-        "concurrent-tun-runtime"
+        "listen-mixed-tun-runtime"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][24],
-        "background-runtime-report"
+        "concurrent-tun-runtime"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][25],
-        "tun-runtime-status-note"
+        "background-runtime-report"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][26],
-        "packet-io-readiness"
+        "tun-runtime-status-note"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][27],
+        "packet-io-readiness"
+    );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][28],
         "relay-plan"
     );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");
