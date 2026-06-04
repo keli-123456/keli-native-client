@@ -76,6 +76,9 @@ I/O availability, and the CLI has an adapter that can feed platform packet I/O
 into the net-core TUN packet loop.
 A bounded managed TUN packet-loop runner now ties lifecycle guard, packet I/O,
 net-core loop summary, and owned-device cleanup into one tested control path.
+Direct UDP TUN relay can execute an injected UDP relay, wrap the relay payload
+back into a swapped TUN UDP response packet, and record relay errors without
+stopping the packet loop.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 

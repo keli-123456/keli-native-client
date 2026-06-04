@@ -5,7 +5,9 @@ use crate::dns::{
     build_dns_error_response, build_dns_response, parse_dns_query, DnsEngine, DnsError,
     DnsQuestionType, DnsResolver, DnsWireError, DnsWireQuestion,
 };
-use crate::{OutboundTarget, RouteAction, RouteDestination, RouteEngine, RouteTarget};
+use crate::{
+    OutboundTarget, RouteAction, RouteDestination, RouteEngine, RouteTarget, UdpRelayResponse,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TunIpVersion {
@@ -102,6 +104,14 @@ pub struct TunDnsHijackResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunUdpRelayResponse {
+    pub plan: TunPacketRelayPlan,
+    pub relay_source: SocketAddr,
+    pub relay_payload: Vec<u8>,
+    pub packet: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TunPacketProcessAction {
     WritePacket { response: TunDnsHijackResponse },
     Relay(TunPacketRelayPlan),
@@ -111,21 +121,38 @@ pub enum TunPacketProcessAction {
 pub enum TunPacketLoopEvent {
     NoPacket,
     WrotePacket { response: TunDnsHijackResponse },
+    WroteUdpRelayPacket { response: TunUdpRelayResponse },
     Relay(TunPacketRelayPlan),
     Drop(TunPacketRelayPlan),
     Unsupported(TunPacketRelayPlan),
     PacketError(TunPacketError),
+    UdpRelayError(TunUdpRelayError),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TunPacketLoopSummary {
     pub idle_events: usize,
     pub dns_responses_written: usize,
+    pub udp_relay_responses_written: usize,
     pub relay_packets: usize,
     pub dropped_packets: usize,
     pub unsupported_packets: usize,
     pub packet_errors: usize,
     pub last_packet_error: Option<TunPacketError>,
+    pub udp_relay_errors: usize,
+    pub last_udp_relay_error: Option<TunUdpRelayError>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TunUdpRelayError {
+    UnsupportedRelayAction(TunPacketRelayAction),
+    Packet(TunPacketError),
+    ResponsePacket(TunPacketError),
+    PlanFlowMismatch {
+        packet_flow: TunPacketFlow,
+        plan_flow: TunPacketFlow,
+    },
+    Relay(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,6 +177,38 @@ pub trait TunPacketDevice {
     fn write_packet(&mut self, packet: &[u8]) -> Result<(), String>;
 }
 
+pub trait TunUdpRelay {
+    fn relay_udp_datagram(
+        &mut self,
+        target: &OutboundTarget,
+        payload: &[u8],
+    ) -> Result<UdpRelayResponse, String>;
+}
+
+impl fmt::Display for TunUdpRelayError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedRelayAction(action) => {
+                write!(f, "unsupported TUN UDP relay action: {action:?}")
+            }
+            Self::Packet(error) => write!(f, "failed to parse TUN UDP relay packet: {error}"),
+            Self::ResponsePacket(error) => {
+                write!(f, "failed to build TUN UDP relay response packet: {error}")
+            }
+            Self::PlanFlowMismatch {
+                packet_flow,
+                plan_flow,
+            } => write!(
+                f,
+                "TUN UDP relay plan flow mismatch: packet={packet_flow:?} plan={plan_flow:?}"
+            ),
+            Self::Relay(error) => write!(f, "TUN UDP relay failed: {error}"),
+        }
+    }
+}
+
+impl Error for TunUdpRelayError {}
+
 impl TunPacketLoopSummary {
     pub fn from_events(events: &[TunPacketLoopEvent]) -> Self {
         let mut summary = Self::default();
@@ -167,6 +226,9 @@ impl TunPacketLoopSummary {
             TunPacketLoopEvent::WrotePacket { .. } => {
                 self.dns_responses_written += 1;
             }
+            TunPacketLoopEvent::WroteUdpRelayPacket { .. } => {
+                self.udp_relay_responses_written += 1;
+            }
             TunPacketLoopEvent::Relay(_) => {
                 self.relay_packets += 1;
             }
@@ -180,15 +242,21 @@ impl TunPacketLoopSummary {
                 self.packet_errors += 1;
                 self.last_packet_error = Some(error.clone());
             }
+            TunPacketLoopEvent::UdpRelayError(error) => {
+                self.udp_relay_errors += 1;
+                self.last_udp_relay_error = Some(error.clone());
+            }
         }
     }
 
     pub fn processed_packets(&self) -> usize {
         self.dns_responses_written
+            + self.udp_relay_responses_written
             + self.relay_packets
             + self.dropped_packets
             + self.unsupported_packets
             + self.packet_errors
+            + self.udp_relay_errors
     }
 }
 
@@ -522,6 +590,52 @@ pub fn process_tun_device_packet<D: TunPacketDevice, R: DnsResolver>(
     }
 }
 
+pub fn process_tun_device_packet_with_udp_relay<D, R, U>(
+    device: &mut D,
+    routes: &RouteEngine,
+    dns_hijack_enabled: bool,
+    dns: &mut DnsEngine<R>,
+    dns_ttl_seconds: u32,
+    udp_relay: &mut U,
+) -> Result<TunPacketLoopEvent, TunPacketLoopError>
+where
+    D: TunPacketDevice,
+    R: DnsResolver,
+    U: TunUdpRelay,
+{
+    let Some(packet) = device.read_packet().map_err(TunPacketLoopError::Read)? else {
+        return Ok(TunPacketLoopEvent::NoPacket);
+    };
+
+    let action = match process_tun_packet(&packet, routes, dns_hijack_enabled, dns, dns_ttl_seconds)
+    {
+        Ok(action) => action,
+        Err(error) => return Ok(TunPacketLoopEvent::PacketError(error)),
+    };
+
+    match action {
+        TunPacketProcessAction::WritePacket { response } => {
+            device
+                .write_packet(&response.packet)
+                .map_err(TunPacketLoopError::Write)?;
+            Ok(TunPacketLoopEvent::WrotePacket { response })
+        }
+        TunPacketProcessAction::Relay(plan) => {
+            if matches!(plan.relay_action, TunPacketRelayAction::DirectUdp { .. }) {
+                let response = match relay_tun_direct_udp_packet(&packet, plan, udp_relay) {
+                    Ok(response) => response,
+                    Err(error) => return Ok(TunPacketLoopEvent::UdpRelayError(error)),
+                };
+                device
+                    .write_packet(&response.packet)
+                    .map_err(TunPacketLoopError::Write)?;
+                return Ok(TunPacketLoopEvent::WroteUdpRelayPacket { response });
+            }
+            Ok(loop_event_for_relay_plan(plan))
+        }
+    }
+}
+
 pub fn run_tun_packet_loop<D: TunPacketDevice, R: DnsResolver>(
     device: &mut D,
     routes: &RouteEngine,
@@ -562,6 +676,69 @@ pub fn run_tun_packet_loop_summary<D: TunPacketDevice, R: DnsResolver>(
         }
     }
     Ok(summary)
+}
+
+pub fn run_tun_packet_loop_with_udp_relay_summary<D, R, U>(
+    device: &mut D,
+    routes: &RouteEngine,
+    dns_hijack_enabled: bool,
+    dns: &mut DnsEngine<R>,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+    udp_relay: &mut U,
+) -> Result<TunPacketLoopSummary, TunPacketLoopError>
+where
+    D: TunPacketDevice,
+    R: DnsResolver,
+    U: TunUdpRelay,
+{
+    let mut summary = TunPacketLoopSummary::default();
+    for _ in 0..max_packets {
+        let event = process_tun_device_packet_with_udp_relay(
+            device,
+            routes,
+            dns_hijack_enabled,
+            dns,
+            dns_ttl_seconds,
+            udp_relay,
+        )?;
+        let should_stop = event == TunPacketLoopEvent::NoPacket;
+        summary.record_event(&event);
+        if should_stop {
+            break;
+        }
+    }
+    Ok(summary)
+}
+
+pub fn relay_tun_direct_udp_packet<U: TunUdpRelay>(
+    packet: &[u8],
+    plan: TunPacketRelayPlan,
+    udp_relay: &mut U,
+) -> Result<TunUdpRelayResponse, TunUdpRelayError> {
+    let TunPacketRelayAction::DirectUdp { target } = &plan.relay_action else {
+        return Err(TunUdpRelayError::UnsupportedRelayAction(
+            plan.relay_action.clone(),
+        ));
+    };
+    let udp = parse_tun_udp_payload(packet).map_err(TunUdpRelayError::Packet)?;
+    if udp.flow != plan.route.flow {
+        return Err(TunUdpRelayError::PlanFlowMismatch {
+            packet_flow: udp.flow,
+            plan_flow: plan.route.flow,
+        });
+    }
+    let relay_response = udp_relay
+        .relay_udp_datagram(target, udp.payload)
+        .map_err(TunUdpRelayError::Relay)?;
+    let packet = build_tun_udp_response_packet(&udp.flow, &relay_response.payload)
+        .map_err(TunUdpRelayError::ResponsePacket)?;
+    Ok(TunUdpRelayResponse {
+        plan,
+        relay_source: relay_response.source,
+        relay_payload: relay_response.payload,
+        packet,
+    })
 }
 
 pub fn build_tun_udp_response_packet(
