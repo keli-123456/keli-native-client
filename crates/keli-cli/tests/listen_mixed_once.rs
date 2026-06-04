@@ -6,6 +6,8 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+mod support;
+
 use base64::Engine;
 use bytes::Bytes;
 use chacha20poly1305::aead::{Aead, KeyInit};
@@ -18,6 +20,7 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use sha2::{Digest, Sha256};
 use shadowsocks_crypto::kind::CipherKind;
 use shadowsocks_crypto::v1::{openssl_bytes_to_key, Cipher};
+use support::vmess::{read_vmess_aead_request, write_vmess_aead_response_header};
 
 const MIERU_NONCE_LEN: usize = 24;
 const MIERU_METADATA_LEN: usize = 32;
@@ -32,6 +35,10 @@ const MIERU_STATUS_OK: u8 = 0;
 const MIERU_SOCKS_CONNECT_SUCCESS: [u8; 10] = [5, 0, 0, 1, 0, 0, 0, 0, 0, 0];
 const MIERU_UDP_MARKER_START: u8 = 0x00;
 const MIERU_UDP_MARKER_END: u8 = 0xff;
+const VMESS_OPTION_CHUNK_STREAM: u8 = 0x01;
+const VMESS_OPTION_CHUNK_MASKING: u8 = 0x04;
+const VMESS_SECURITY_AES_128_GCM: u8 = 0x03;
+const VMESS_SECURITY_NONE: u8 = 0x05;
 
 #[test]
 fn listen_mixed_once_uses_profile_config_for_socks5_connect() {
@@ -235,6 +242,17 @@ fn listen_mixed_once_uses_profile_config_for_mieru_http_connect() {
 }
 
 #[test]
+fn listen_mixed_once_uses_profile_config_for_vmess_http_connect() {
+    let (vmess_port, vmess_thread) = spawn_vmess_tcp_echo_server();
+    let profile_path = write_temp_vmess_profile_config(vmess_port);
+
+    run_profile_http_connect_round_trip(&profile_path, "VMESS-READY");
+
+    vmess_thread.join().expect("vmess thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
 fn listen_mixed_once_uses_profile_config_for_remote_socks5_http_connect() {
     let (socks_port, socks_thread) = spawn_socks5_tcp_proxy_echo_server();
     let profile_path = write_temp_socks5_profile_config(socks_port);
@@ -387,6 +405,70 @@ fn listen_mixed_once_uses_profile_config_for_mieru_socks5_udp_associate() {
 
     server_thread.join().expect("listen thread");
     mieru_thread.join().expect("mieru thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_vmess_socks5_udp_associate() {
+    let (vmess_port, vmess_thread) = spawn_vmess_udp_echo_server();
+    let profile_path = write_temp_vmess_udp_profile_config(vmess_port);
+    let listen = free_local_addr();
+    let run_listen = listen.clone();
+    let run_profile_path = profile_path.clone();
+    let server_thread = thread::spawn(move || {
+        run(CliCommand::ListenMixed {
+            listen: run_listen,
+            once: true,
+            block_domains: Vec::new(),
+            profile_config: Some(run_profile_path),
+            outbound_tag: Some("VMESS-READY".to_string()),
+            first_byte_timeout: Duration::from_secs(2),
+            idle_timeout: Duration::from_secs(2),
+        })
+        .expect("run listen-mixed once");
+    });
+
+    let mut client = connect_with_retry(&listen);
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    client.write_all(&[0x05, 0x01, 0x00]).expect("write hello");
+    let mut hello = [0; 2];
+    client.read_exact(&mut hello).expect("read hello response");
+    assert_eq!(hello, [0x05, 0x00]);
+
+    client
+        .write_all(&[0x05, 0x03, 0x00, 0x01, 127, 0, 0, 1, 0x00, 0x00])
+        .expect("write udp associate request");
+    let mut reply = [0; 10];
+    client.read_exact(&mut reply).expect("read udp reply");
+    assert_eq!(&reply[..4], &[0x05, 0x00, 0x00, 0x01]);
+    let relay_port = u16::from_be_bytes([reply[8], reply[9]]);
+    assert_ne!(relay_port, 0);
+
+    let udp_client = UdpSocket::bind("127.0.0.1:0").expect("bind udp client");
+    udp_client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("udp timeout");
+    let request =
+        encode_socks5_udp_datagram(&Socks5Address::Ipv4(Ipv4Addr::LOCALHOST), 53, b"ping")
+            .expect("encode socks5 udp");
+    udp_client
+        .send_to(&request, ("127.0.0.1", relay_port))
+        .expect("send udp request");
+
+    let mut response = [0; 1500];
+    let (size, _) = udp_client
+        .recv_from(&mut response)
+        .expect("read udp response");
+    let response = parse_socks5_udp_datagram(&response[..size]).expect("parse udp response");
+    assert_eq!(response.address, Socks5Address::Ipv4(Ipv4Addr::LOCALHOST));
+    assert_eq!(response.port, 53);
+    assert_eq!(response.payload, b"pong");
+    client.shutdown(Shutdown::Both).ok();
+
+    server_thread.join().expect("listen thread");
+    vmess_thread.join().expect("vmess thread");
     fs::remove_file(profile_path).ok();
 }
 
@@ -604,6 +686,54 @@ fn write_temp_mieru_profile_config(mieru_port: u16) -> String {
     path.to_string_lossy().into_owned()
 }
 
+fn write_temp_vmess_profile_config(vmess_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-vmess-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: VMESS-READY
+    type: vmess
+    server: 127.0.0.1
+    port: {vmess_port}
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    cipher: none
+    network: tcp
+"#
+    );
+    fs::write(&path, content).expect("write vmess profile config");
+    path.to_string_lossy().into_owned()
+}
+
+fn write_temp_vmess_udp_profile_config(vmess_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-vmess-udp-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: VMESS-READY
+    type: vmess
+    server: 127.0.0.1
+    port: {vmess_port}
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    cipher: auto
+    network: tcp
+"#
+    );
+    fs::write(&path, content).expect("write vmess udp profile config");
+    path.to_string_lossy().into_owned()
+}
+
 fn spawn_shadowsocks_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind ss tcp server");
     let port = listener.local_addr().expect("ss tcp addr").port();
@@ -791,6 +921,51 @@ fn spawn_mieru_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
             MIERU_DATA_SERVER_TO_CLIENT,
             &encode_mieru_udp_frame_for_test(&response),
         );
+    });
+    (port, handle)
+}
+
+fn spawn_vmess_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vmess tcp server");
+    let port = listener.local_addr().expect("vmess tcp addr").port();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept vmess tcp server");
+        let request = read_vmess_aead_request(&mut stream, uuid);
+        assert_eq!(request.target_host, "example.com");
+        assert_eq!(request.target_port, 443);
+        assert_eq!(request.command, 0x01);
+        assert_eq!(request.security, VMESS_SECURITY_NONE);
+
+        write_vmess_aead_response_header(&mut stream, &request);
+        let mut payload = [0; 4];
+        stream.read_exact(&mut payload).expect("read vmess payload");
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"pong").expect("write vmess response");
+    });
+    (port, handle)
+}
+
+fn spawn_vmess_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vmess udp server");
+    let port = listener.local_addr().expect("vmess udp addr").port();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept vmess udp server");
+        let request = read_vmess_aead_request(&mut stream, uuid);
+        assert_eq!(request.target_host, "127.0.0.1");
+        assert_eq!(request.target_port, 53);
+        assert_eq!(request.command, 0x02);
+        assert_eq!(
+            request.option,
+            VMESS_OPTION_CHUNK_STREAM | VMESS_OPTION_CHUNK_MASKING
+        );
+        assert_eq!(request.security, VMESS_SECURITY_AES_128_GCM);
+
+        write_vmess_aead_response_header(&mut stream, &request);
+        let payload = support::vmess::read_vmess_aes128_gcm_chunk(&mut stream, &request);
+        assert_eq!(&payload, b"ping");
+        support::vmess::write_vmess_aes128_gcm_response_chunk(&mut stream, &request, b"pong");
     });
     (port, handle)
 }
