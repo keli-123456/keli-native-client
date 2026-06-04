@@ -63,6 +63,8 @@ The packet processor can now return either a write-back DNS response action or
 the relay/drop plan that a future TUN read loop should execute.
 IPv4 fragmented packets are rejected explicitly until the core has a real
 fragment reassembly strategy.
+IPv6 extension headers are also rejected explicitly until the parser supports
+safe extension-header traversal.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 

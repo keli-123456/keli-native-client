@@ -377,6 +377,30 @@ fn rejects_truncated_ipv6_packet() {
 }
 
 #[test]
+fn rejects_ipv6_hop_by_hop_extension_header() {
+    let packet = ipv6_packet(0, "fd00::2", "fd00::1", &[17, 0, 0, 0, 0, 0, 0, 0]);
+
+    let error = parse_tun_packet_flow(&packet).expect_err("IPv6 extension header should fail");
+
+    assert_eq!(
+        error,
+        TunPacketError::Ipv6ExtensionHeaderUnsupported { next_header: 0 }
+    );
+}
+
+#[test]
+fn rejects_ipv6_destination_options_extension_header() {
+    let packet = ipv6_packet(60, "fd00::2", "fd00::1", &[17, 0, 0, 0, 0, 0, 0, 0]);
+
+    let error = parse_tun_packet_flow(&packet).expect_err("IPv6 extension header should fail");
+
+    assert_eq!(
+        error,
+        TunPacketError::Ipv6ExtensionHeaderUnsupported { next_header: 60 }
+    );
+}
+
+#[test]
 fn rejects_ipv4_more_fragments_packet() {
     let mut packet = ipv4_packet(17, "10.7.0.2", "8.8.8.8", &udp_datagram(54321, 53, b"keli"));
     packet[6..8].copy_from_slice(&0x2000u16.to_be_bytes());

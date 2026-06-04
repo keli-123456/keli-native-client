@@ -156,6 +156,9 @@ The first implementation target is deliberately small:
    IPv4 fragmented packets are rejected explicitly until the core has a real
    fragment reassembly strategy, preventing partial fragments from being
    misclassified as relayable TCP/UDP flows.
+   IPv6 extension headers are rejected explicitly until the parser supports
+   safe extension-header traversal, avoiding silent misclassification as
+   unknown plain transports.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

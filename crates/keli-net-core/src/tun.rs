@@ -159,6 +159,9 @@ pub enum TunPacketError {
         total_length: usize,
         packet_len: usize,
     },
+    Ipv6ExtensionHeaderUnsupported {
+        next_header: u8,
+    },
     TransportHeaderTooShort {
         protocol: TunTransportProtocol,
         required_len: usize,
@@ -233,6 +236,10 @@ impl fmt::Display for TunPacketError {
             } => write!(
                 f,
                 "IPv6 packet length {packet_len} is smaller than total length {total_length}"
+            ),
+            Self::Ipv6ExtensionHeaderUnsupported { next_header } => write!(
+                f,
+                "IPv6 extension header {next_header} is unsupported in TUN packets"
             ),
             Self::TransportHeaderTooShort {
                 protocol,
@@ -620,7 +627,11 @@ fn parse_ipv6_packet_parts(packet: &[u8]) -> Result<TunPacketParts<'_>, TunPacke
             packet_len: packet.len(),
         });
     }
-    let protocol = TunTransportProtocol::from_ip_protocol_number(packet[6]);
+    let next_header = packet[6];
+    if is_ipv6_extension_header(next_header) {
+        return Err(TunPacketError::Ipv6ExtensionHeaderUnsupported { next_header });
+    }
+    let protocol = TunTransportProtocol::from_ip_protocol_number(next_header);
     let source_ip = IpAddr::V6(Ipv6Addr::from(
         <[u8; 16]>::try_from(&packet[8..24]).expect("IPv6 source slice length"),
     ));
@@ -663,6 +674,10 @@ fn parse_transport_ports(
         }
         _ => Ok((None, None)),
     }
+}
+
+fn is_ipv6_extension_header(next_header: u8) -> bool {
+    matches!(next_header, 0 | 43 | 44 | 50 | 51 | 60)
 }
 
 fn build_ipv4_udp_response_packet(
