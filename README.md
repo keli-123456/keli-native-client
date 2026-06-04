@@ -61,6 +61,8 @@ TUN DNS hijack now has a core helper that resolves through the DNS engine,
 applies DNS policy outcomes, and returns the final response packet.
 The packet processor can now return either a write-back DNS response action or
 the relay/drop plan that a future TUN read loop should execute.
+IPv4 fragmented packets are rejected explicitly until the core has a real
+fragment reassembly strategy.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 

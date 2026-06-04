@@ -58,6 +58,10 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][13],
+        "ipv4-fragment-guard"
+    );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][14],
         "relay-plan"
     );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");

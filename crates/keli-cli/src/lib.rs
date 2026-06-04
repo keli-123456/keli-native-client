@@ -59,7 +59,7 @@ const SUPPORTED_PROTOCOL_CAPABILITIES: &str =
 const ROUTE_RULE_CAPABILITIES: &str =
     "domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
-    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,relay-plan";
+    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,relay-plan";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {

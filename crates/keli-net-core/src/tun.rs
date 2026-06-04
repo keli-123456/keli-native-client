@@ -151,6 +151,10 @@ pub enum TunPacketError {
         total_length: usize,
         packet_len: usize,
     },
+    Ipv4FragmentedPacket {
+        fragment_offset: u16,
+        more_fragments: bool,
+    },
     Ipv6PacketTruncated {
         total_length: usize,
         packet_len: usize,
@@ -215,6 +219,13 @@ impl fmt::Display for TunPacketError {
             } => write!(
                 f,
                 "IPv4 packet length {packet_len} is smaller than total length {total_length}"
+            ),
+            Self::Ipv4FragmentedPacket {
+                fragment_offset,
+                more_fragments,
+            } => write!(
+                f,
+                "fragmented IPv4 TUN packets are unsupported: offset={fragment_offset}, more_fragments={more_fragments}"
             ),
             Self::Ipv6PacketTruncated {
                 total_length,
@@ -563,6 +574,15 @@ fn parse_ipv4_packet_parts(packet: &[u8]) -> Result<TunPacketParts<'_>, TunPacke
         return Err(TunPacketError::Ipv4PacketTruncated {
             total_length,
             packet_len: packet.len(),
+        });
+    }
+    let fragment_control = u16::from_be_bytes([packet[6], packet[7]]);
+    let more_fragments = fragment_control & 0x2000 != 0;
+    let fragment_offset = fragment_control & 0x1fff;
+    if more_fragments || fragment_offset != 0 {
+        return Err(TunPacketError::Ipv4FragmentedPacket {
+            fragment_offset,
+            more_fragments,
         });
     }
     let protocol = TunTransportProtocol::from_ip_protocol_number(packet[9]);

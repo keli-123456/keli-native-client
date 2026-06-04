@@ -153,6 +153,9 @@ The first implementation target is deliberately small:
    A packet processor now converts raw TUN packet bytes into either a DNS
    write-back action or the relay/drop plan that a future TUN read loop should
    execute.
+   IPv4 fragmented packets are rejected explicitly until the core has a real
+   fragment reassembly strategy, preventing partial fragments from being
+   misclassified as relayable TCP/UDP flows.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

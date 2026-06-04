@@ -377,6 +377,38 @@ fn rejects_truncated_ipv6_packet() {
 }
 
 #[test]
+fn rejects_ipv4_more_fragments_packet() {
+    let mut packet = ipv4_packet(17, "10.7.0.2", "8.8.8.8", &udp_datagram(54321, 53, b"keli"));
+    packet[6..8].copy_from_slice(&0x2000u16.to_be_bytes());
+
+    let error = parse_tun_packet_flow(&packet).expect_err("fragmented packet should fail");
+
+    assert_eq!(
+        error,
+        TunPacketError::Ipv4FragmentedPacket {
+            fragment_offset: 0,
+            more_fragments: true
+        }
+    );
+}
+
+#[test]
+fn rejects_ipv4_nonzero_fragment_offset_packet() {
+    let mut packet = ipv4_packet(17, "10.7.0.2", "8.8.8.8", &udp_datagram(54321, 53, b"keli"));
+    packet[6..8].copy_from_slice(&1u16.to_be_bytes());
+
+    let error = parse_tun_packet_flow(&packet).expect_err("fragment offset should fail");
+
+    assert_eq!(
+        error,
+        TunPacketError::Ipv4FragmentedPacket {
+            fragment_offset: 1,
+            more_fragments: false
+        }
+    );
+}
+
+#[test]
 fn tun_dns_hijack_decision_overrides_default_route() {
     let routes = RouteEngine::new(RouteAction::Direct);
     let packet = ipv4_packet(
