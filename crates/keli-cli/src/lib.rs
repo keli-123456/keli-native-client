@@ -240,6 +240,7 @@ pub struct ManagedSubscriptionStatus {
     pub skipped: Vec<SkippedProfileSummary>,
     pub default_outbound: Option<String>,
     pub selected_outbound: String,
+    pub recommended_outbound: String,
     pub node_health: Vec<ManagedNodeHealthStatus>,
 }
 
@@ -258,13 +259,17 @@ impl ManagedSubscriptionStatus {
                     .cloned()
                     .unwrap_or_else(|| ManagedNodeHealthStatus::unknown(tag.clone()))
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let selected_outbound = plan.selected_outbound().to_string();
+        let recommended_outbound =
+            recommend_managed_outbound_from_health(&node_health, &selected_outbound);
         Self {
             usable: preflight.is_usable(),
             supported_tags,
             skipped: preflight.skipped().to_vec(),
             default_outbound: preflight.default_outbound().map(str::to_string),
-            selected_outbound: plan.selected_outbound().to_string(),
+            selected_outbound,
+            recommended_outbound,
             node_health,
         }
     }
@@ -345,6 +350,25 @@ impl ManagedNodeHealthStatus {
             error_detail,
         }
     }
+}
+
+fn recommend_managed_outbound_from_health(
+    node_health: &[ManagedNodeHealthStatus],
+    selected_outbound: &str,
+) -> String {
+    node_health
+        .iter()
+        .filter(|health| {
+            health.state == ManagedNodeHealthState::Healthy && health.tcp_available != Some(false)
+        })
+        .min_by_key(|health| {
+            (
+                health.latency_ms.is_none(),
+                health.latency_ms.unwrap_or(u128::MAX),
+            )
+        })
+        .map(|health| health.tag.clone())
+        .unwrap_or_else(|| selected_outbound.to_string())
 }
 
 impl ManagedMixedStatusSnapshot {

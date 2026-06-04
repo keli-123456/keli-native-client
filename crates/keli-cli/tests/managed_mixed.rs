@@ -481,6 +481,7 @@ fn managed_mixed_controller_status_reports_subscription_nodes() {
     );
     assert_eq!(subscription.default_outbound.as_deref(), Some("SS-READY"));
     assert_eq!(subscription.selected_outbound, "SS-NEXT");
+    assert_eq!(subscription.recommended_outbound, "SS-NEXT");
     assert_eq!(subscription.skipped[0].name, "WG-SKIPPED");
     assert_eq!(
         subscription.skipped[0].reason,
@@ -499,6 +500,7 @@ fn managed_mixed_controller_status_reports_subscription_nodes() {
     assert_eq!(subscription.skipped_count(), 0);
     assert_eq!(subscription.selected_outbound, "SS-READY");
     assert_eq!(subscription.default_outbound.as_deref(), Some("SS-READY"));
+    assert_eq!(subscription.recommended_outbound, "SS-READY");
 
     core.stop().expect("stop managed mixed controller");
     assert!(core.status().subscription.is_none());
@@ -561,6 +563,7 @@ fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
     assert_eq!(ready.tcp_available, Some(true));
     assert_eq!(ready.udp_available, Some(true));
     assert_eq!(next.state, ManagedNodeHealthState::Unhealthy);
+    assert_eq!(subscription.recommended_outbound, "SS-READY");
     assert_eq!(
         next.error_kind,
         Some(ConnectionErrorKind::TcpConnectTimeout)
@@ -597,6 +600,72 @@ fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
             .state,
         ManagedNodeHealthState::Healthy
     );
+    assert_eq!(subscription.recommended_outbound, "SS-READY");
+
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_controller_recommends_fastest_healthy_node() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+
+    let started = core
+        .start_from_subscription_config_text(
+            mixed_subscription_with_skipped_proxy(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+    let subscription = started.subscription.as_ref().expect("subscription status");
+
+    assert_eq!(subscription.selected_outbound, "SS-READY");
+    assert_eq!(subscription.recommended_outbound, "SS-READY");
+
+    core.record_node_health(ManagedNodeHealthStatus::healthy(
+        "SS-READY",
+        Some(120),
+        true,
+        true,
+    ))
+    .expect("record selected health");
+    let status = core
+        .record_node_health(ManagedNodeHealthStatus::healthy(
+            "SS-NEXT",
+            Some(30),
+            true,
+            false,
+        ))
+        .expect("record faster health");
+    let subscription = status.subscription.as_ref().expect("subscription status");
+
+    assert_eq!(subscription.selected_outbound, "SS-READY");
+    assert_eq!(subscription.recommended_outbound, "SS-NEXT");
+
+    let status = core
+        .record_node_health(ManagedNodeHealthStatus::unhealthy(
+            "SS-NEXT",
+            ConnectionErrorKind::RelayIo,
+            Some("relay failed".to_string()),
+        ))
+        .expect("record faster node failure");
+    let subscription = status.subscription.as_ref().expect("subscription status");
+
+    assert_eq!(subscription.recommended_outbound, "SS-READY");
+
+    let status = core
+        .record_node_health(ManagedNodeHealthStatus::unhealthy(
+            "SS-READY",
+            ConnectionErrorKind::FirstByteTimeout,
+            Some("selected node timeout".to_string()),
+        ))
+        .expect("record selected node failure");
+    let subscription = status.subscription.as_ref().expect("subscription status");
+
+    assert_eq!(subscription.recommended_outbound, "SS-READY");
 
     core.stop().expect("stop managed mixed controller");
 }
