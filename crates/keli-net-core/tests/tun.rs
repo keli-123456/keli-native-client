@@ -1,7 +1,8 @@
 use std::net::IpAddr;
 
 use keli_net_core::{
-    parse_tun_packet_flow, RouteDestination, RouteTarget, TunIpVersion, TunPacketError,
+    decide_tun_packet_route, parse_tun_packet_flow, RouteAction, RouteDestination, RouteEngine,
+    RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketError,
     TunTransportProtocol,
 };
 
@@ -106,6 +107,69 @@ fn rejects_truncated_ipv6_packet() {
             packet_len: 42
         }
     );
+}
+
+#[test]
+fn tun_dns_hijack_decision_overrides_default_route() {
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "8.8.8.8",
+        &[0xd4, 0x31, 0x00, 0x35, 0, 8, 0, 0],
+    );
+
+    let decision =
+        decide_tun_packet_route(&packet, &routes, true).expect("decide TUN packet route");
+
+    assert_eq!(decision.action, RouteAction::HijackDns);
+    assert_eq!(decision.matched_rule, None);
+    assert!(decision.dns_hijacked);
+    assert!(decision.flow.is_dns_hijack_candidate());
+}
+
+#[test]
+fn tun_cidr_rule_blocks_matching_destination() {
+    let mut routes = RouteEngine::new(RouteAction::Outbound("proxy".to_string()));
+    routes.add_rule(RouteRule {
+        name: "block-lan".to_string(),
+        matcher: RouteMatcher::IpCidr(
+            RouteIpCidr::new("10.0.0.1".parse().expect("valid IP"), 8).expect("valid CIDR"),
+        ),
+        action: RouteAction::Block,
+    });
+    let packet = ipv4_packet(6, "10.7.0.2", "10.9.8.7", &[0xd4, 0x31, 0x01, 0xbb]);
+
+    let decision =
+        decide_tun_packet_route(&packet, &routes, false).expect("decide TUN packet route");
+
+    assert_eq!(decision.action, RouteAction::Block);
+    assert_eq!(decision.matched_rule, Some("block-lan".to_string()));
+    assert!(!decision.dns_hijacked);
+}
+
+#[test]
+fn tun_port_rule_uses_destination_port() {
+    let mut routes = RouteEngine::new(RouteAction::Direct);
+    routes.add_rule(RouteRule {
+        name: "proxy-https".to_string(),
+        matcher: RouteMatcher::PortExact(443),
+        action: RouteAction::Outbound("proxy".to_string()),
+    });
+    let packet = ipv6_packet(
+        6,
+        "fd00::2",
+        "2606:4700:4700::1111",
+        &[
+            0xc0, 0x00, 0x01, 0xbb, 0, 0, 0, 0, 0, 0, 0, 0, 0x50, 0x02, 0x10, 0x00, 0, 0, 0, 0,
+        ],
+    );
+
+    let decision =
+        decide_tun_packet_route(&packet, &routes, false).expect("decide TUN packet route");
+
+    assert_eq!(decision.action, RouteAction::Outbound("proxy".to_string()));
+    assert_eq!(decision.matched_rule, Some("proxy-https".to_string()));
 }
 
 fn ipv4_packet(protocol: u8, source: &str, destination: &str, payload: &[u8]) -> Vec<u8> {

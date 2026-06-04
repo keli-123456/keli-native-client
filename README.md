@@ -47,6 +47,8 @@ The route engine now also has destination-aware keyword, CIDR, and port
 matching, and the mixed TCP/UDP paths use that richer decision surface.
 TUN data-plane preparation has started with raw IPv4/IPv6 packet flow parsing
 for TCP, UDP, ICMP, route destinations, and DNS-hijack candidate detection.
+Those parsed packets can also be evaluated through the shared route engine,
+including optional UDP/53 DNS hijack decisions for future TUN read loops.
 
 ## Protocol Matrix
 

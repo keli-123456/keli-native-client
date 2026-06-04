@@ -134,6 +134,9 @@ The first implementation target is deliberately small:
    flow metadata, route destinations, and DNS-hijack candidates, providing the
    packet-classification layer needed before a native TUN driver feeds traffic
    into the relay engine.
+   Parsed TUN packets can now be evaluated against the same route engine, with
+   optional UDP/53 DNS-hijack promotion, so a future TUN read loop can produce
+   direct, block, outbound, or hijack decisions from packet bytes.
 4. Keli panel integration: subscription fetch/update, user state, node
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,

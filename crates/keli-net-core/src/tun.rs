@@ -1,7 +1,7 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::{error::Error, fmt};
 
-use crate::{RouteDestination, RouteTarget};
+use crate::{RouteAction, RouteDestination, RouteEngine, RouteTarget};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TunIpVersion {
@@ -48,6 +48,14 @@ pub struct TunPacketFlow {
     pub destination_ip: IpAddr,
     pub source_port: Option<u16>,
     pub destination_port: Option<u16>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunPacketRouteDecision {
+    pub flow: TunPacketFlow,
+    pub action: RouteAction,
+    pub matched_rule: Option<String>,
+    pub dns_hijacked: bool,
 }
 
 impl TunPacketFlow {
@@ -157,6 +165,29 @@ pub fn parse_tun_packet_flow(packet: &[u8]) -> Result<TunPacketFlow, TunPacketEr
         6 => parse_ipv6_packet_flow(packet),
         version => Err(TunPacketError::UnsupportedIpVersion(version)),
     }
+}
+
+pub fn decide_tun_packet_route(
+    packet: &[u8],
+    routes: &RouteEngine,
+    dns_hijack_enabled: bool,
+) -> Result<TunPacketRouteDecision, TunPacketError> {
+    let flow = parse_tun_packet_flow(packet)?;
+    if dns_hijack_enabled && flow.is_dns_hijack_candidate() {
+        return Ok(TunPacketRouteDecision {
+            flow,
+            action: RouteAction::HijackDns,
+            matched_rule: None,
+            dns_hijacked: true,
+        });
+    }
+    let decision = routes.decide_destination(&flow.route_destination());
+    Ok(TunPacketRouteDecision {
+        flow,
+        action: decision.action,
+        matched_rule: decision.matched_rule,
+        dns_hijacked: false,
+    })
 }
 
 fn parse_ipv4_packet_flow(packet: &[u8]) -> Result<TunPacketFlow, TunPacketError> {
