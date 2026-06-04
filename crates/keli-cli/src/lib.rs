@@ -1749,6 +1749,7 @@ fn write_profile_check_report(
         ProbeOutputFormat::Text => {
             let udp_supported_tags = udp_supported_tags(&parsed.profiles);
             let protocol_capabilities = protocol_capability_reports(&parsed.profiles);
+            let skipped_summary = skipped_summary_reports(&parsed.skipped);
             writeln!(
                 writer,
                 "profile status={status} source_format={source_format} supported={} skipped={} default_outbound={} registry_error={} udp_supported={} protocol_capabilities={}",
@@ -1768,6 +1769,16 @@ fn write_profile_check_report(
                     capability.tcp_relay_supported,
                     capability.udp_supported,
                     capability.tags.join(",")
+                )
+                .map_err(|error| error.to_string())?;
+            }
+            for summary in &skipped_summary {
+                writeln!(
+                    writer,
+                    "profile skipped_summary count={} names={} reason={}",
+                    summary.names.len(),
+                    summary.names.join(","),
+                    summary.reason
                 )
                 .map_err(|error| error.to_string())?;
             }

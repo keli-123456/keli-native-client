@@ -174,6 +174,42 @@ proxies:
 }
 
 #[test]
+fn profile_check_text_groups_skipped_reasons() {
+    let config = r#"
+proxies:
+  - name: SS-READY
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+  - name: WG-ONE
+    type: wireguard
+    server: wg1.example.com
+    port: 51820
+    password: ignored
+  - name: WG-TWO
+    type: wireguard
+    server: wg2.example.com
+    port: 51820
+    password: ignored
+"#;
+    let mut output = Vec::new();
+
+    keli_cli::write_profile_check_report_from_subscription_config_text(
+        config,
+        ProbeOutputFormat::Text,
+        &mut output,
+    )
+    .expect("profile check");
+
+    let output = String::from_utf8(output).expect("utf8 output");
+    assert!(output.contains(
+        "profile skipped_summary count=2 names=WG-ONE,WG-TWO reason=unsupported protocol: wireguard"
+    ));
+}
+
+#[test]
 fn profile_check_json_reports_protocol_capability_matrix() {
     let config = r#"
 proxies:
