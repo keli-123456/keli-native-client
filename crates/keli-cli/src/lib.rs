@@ -12,8 +12,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use keli_client_core::{
-    build_connection_plan, ClientErrorKind, ClientRuntime, ConnectionPhase, RuntimeConfig,
-    RuntimeEvent, RuntimeStatus,
+    build_connection_plan, ClientErrorKind, ClientRuntime, ConnectionPhase, ConnectionPlan,
+    RuntimeConfig, RuntimeEvent, RuntimeStatus, SkippedProfileSummary,
 };
 use keli_net_core::{
     encode_socks5_udp_datagram, http_connect_bad_request_response, http_connect_success_response,
@@ -217,6 +217,37 @@ pub struct ManagedMixedStatusSnapshot {
     pub recent_events: Vec<RuntimeEvent>,
     pub last_error: Option<ClientErrorKind>,
     pub system_proxy: Option<SystemProxyConfig>,
+    pub subscription: Option<ManagedSubscriptionStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedSubscriptionStatus {
+    pub usable: bool,
+    pub supported_tags: Vec<String>,
+    pub skipped: Vec<SkippedProfileSummary>,
+    pub default_outbound: Option<String>,
+    pub selected_outbound: String,
+}
+
+impl ManagedSubscriptionStatus {
+    fn from_plan(plan: &ConnectionPlan) -> Self {
+        let preflight = plan.preflight();
+        Self {
+            usable: preflight.is_usable(),
+            supported_tags: preflight.supported_tags().to_vec(),
+            skipped: preflight.skipped().to_vec(),
+            default_outbound: preflight.default_outbound().map(str::to_string),
+            selected_outbound: plan.selected_outbound().to_string(),
+        }
+    }
+
+    pub fn supported_count(&self) -> usize {
+        self.supported_tags.len()
+    }
+
+    pub fn skipped_count(&self) -> usize {
+        self.skipped.len()
+    }
 }
 
 impl ManagedMixedStatusSnapshot {
@@ -230,6 +261,7 @@ impl ManagedMixedStatusSnapshot {
             recent_events: Vec::new(),
             last_error: None,
             system_proxy: None,
+            subscription: None,
         }
     }
 
@@ -326,6 +358,7 @@ impl ManagedMixedStatusSnapshot {
             recent_events,
             last_error,
             system_proxy: handle.system_proxy_config().cloned(),
+            subscription: handle.subscription_status(),
         }
     }
 }
@@ -355,6 +388,12 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
         self.system_proxy_guard
             .as_ref()
             .map(ManagedSystemProxyGuard::config)
+    }
+
+    pub fn subscription_status(&self) -> Option<ManagedSubscriptionStatus> {
+        self.state
+            .active_plan()
+            .map(ManagedSubscriptionStatus::from_plan)
     }
 
     pub fn reload_from_subscription_config_text(

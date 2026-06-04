@@ -40,7 +40,8 @@ reload subscription config for subsequent connections while preserving the
 active runtime on reload failure. A managed controller API now wraps
 start/status/reload/stop for desktop or service integration, with status
 snapshots that include recent runtime events, last error, and managed system
-proxy details for support diagnostics.
+proxy details for support diagnostics. Subscription status is also exposed with
+supported nodes, skipped nodes, default outbound, and selected outbound.
 
 ## Protocol Matrix
 

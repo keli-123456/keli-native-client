@@ -36,6 +36,29 @@ proxies:
     )
 }
 
+fn mixed_subscription_with_skipped_proxy() -> &'static str {
+    r#"
+proxies:
+  - name: SS-READY
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+  - name: SS-NEXT
+    type: ss
+    server: next.example.com
+    port: 8389
+    cipher: aes-256-gcm
+    password: secret
+  - name: WG-SKIPPED
+    type: wireguard
+    server: wg.example.com
+    port: 51820
+    password: ignored
+"#
+}
+
 #[derive(Debug)]
 struct FakeSystemProxyController {
     snapshot: SystemProxySnapshot,
@@ -408,6 +431,55 @@ fn managed_mixed_controller_status_reports_reload_failure_detail() {
         .any(|event| matches!(event.status, RuntimeStatus::Failed(_))));
 
     core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_controller_status_reports_subscription_nodes() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+
+    let started = core
+        .start_from_subscription_config_text(
+            mixed_subscription_with_skipped_proxy(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-NEXT".to_string()),
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+    let subscription = started.subscription.as_ref().expect("subscription status");
+
+    assert!(subscription.usable);
+    assert_eq!(subscription.supported_count(), 2);
+    assert_eq!(subscription.skipped_count(), 1);
+    assert_eq!(
+        subscription.supported_tags,
+        vec!["SS-READY".to_string(), "SS-NEXT".to_string()]
+    );
+    assert_eq!(subscription.default_outbound.as_deref(), Some("SS-READY"));
+    assert_eq!(subscription.selected_outbound, "SS-NEXT");
+    assert_eq!(subscription.skipped[0].name, "WG-SKIPPED");
+    assert_eq!(
+        subscription.skipped[0].reason,
+        "unsupported protocol: wireguard"
+    );
+
+    let reloaded = core
+        .reload_from_subscription_config_text(ss_config(), Some("SS-READY".to_string()))
+        .expect("reload managed mixed controller");
+    let subscription = reloaded
+        .subscription
+        .as_ref()
+        .expect("reloaded subscription status");
+
+    assert_eq!(subscription.supported_count(), 1);
+    assert_eq!(subscription.skipped_count(), 0);
+    assert_eq!(subscription.selected_outbound, "SS-READY");
+    assert_eq!(subscription.default_outbound.as_deref(), Some("SS-READY"));
+
+    core.stop().expect("stop managed mixed controller");
+    assert!(core.status().subscription.is_none());
 }
 
 #[test]
