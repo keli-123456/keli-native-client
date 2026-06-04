@@ -222,6 +222,75 @@ fn registry_from_trojan_tls_ws_profile_relays_over_tls_websocket() {
 }
 
 #[test]
+fn registry_from_trojan_tls_ws_profile_relays_udp_over_tls_websocket() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind trojan tls ws udp server");
+    let port = listener
+        .local_addr()
+        .expect("trojan tls ws udp addr")
+        .port();
+    let server_config = tls_server_config();
+    let server = thread::spawn(move || {
+        let (tcp, _) = listener.accept().expect("accept trojan tls ws udp");
+        let connection = rustls::ServerConnection::new(server_config).expect("server tls");
+        let mut stream = rustls::StreamOwned::new(connection, tcp);
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /trojan HTTP/1.1\r\n"));
+        assert!(request.contains("Host: edge.example\r\n"));
+        let key = header_value(&request, "Sec-WebSocket-Key").expect("client key");
+        let accept = websocket_accept_for_key(&key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .expect("write ws response");
+        let request_header = read_masked_client_frame(&mut stream);
+        assert_eq!(
+            &request_header,
+            b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x03\x01\x7f\x00\x00\x01\x005\r\n"
+        );
+        let request_payload = read_masked_client_frame(&mut stream);
+        assert_eq!(
+            &request_payload,
+            b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\nping"
+        );
+        write_server_binary_frame(&mut stream, b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\npong");
+    });
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Trojan,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::WebSocket {
+            path: "/trojan".to_string(),
+            host: Some("edge.example".to_string()),
+        },
+        security: SecurityKind::Tls {
+            sni: Some("edge.example".to_string()),
+            skip_verify: true,
+        },
+        credential: "password".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("127.0.0.1", 53),
+            b"ping",
+            Duration::from_secs(1),
+        )
+        .expect("registered Trojan TLS WS UDP outbound should relay");
+
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("response source")
+    );
+    assert_eq!(response.payload, b"pong");
+    server.join().expect("server thread");
+}
+
+#[test]
 fn registry_from_vmess_tls_ws_profile_relays_over_tls_websocket() {
     let uuid = "00112233-4455-6677-8899-aabbccddeeff";
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind vmess tls ws server");
