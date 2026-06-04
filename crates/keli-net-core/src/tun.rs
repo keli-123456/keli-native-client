@@ -107,6 +107,38 @@ pub enum TunPacketProcessAction {
     Relay(TunPacketRelayPlan),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TunPacketLoopEvent {
+    NoPacket,
+    WrotePacket { response: TunDnsHijackResponse },
+    Relay(TunPacketRelayPlan),
+    Drop(TunPacketRelayPlan),
+    Unsupported(TunPacketRelayPlan),
+    PacketError(TunPacketError),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TunPacketLoopError {
+    Read(String),
+    Write(String),
+}
+
+impl fmt::Display for TunPacketLoopError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Read(error) => write!(f, "TUN packet read failed: {error}"),
+            Self::Write(error) => write!(f, "TUN packet write failed: {error}"),
+        }
+    }
+}
+
+impl Error for TunPacketLoopError {}
+
+pub trait TunPacketDevice {
+    fn read_packet(&mut self) -> Result<Option<Vec<u8>>, String>;
+    fn write_packet(&mut self, packet: &[u8]) -> Result<(), String>;
+}
+
 impl TunPacketFlow {
     pub fn route_destination(&self) -> RouteDestination {
         RouteDestination::new(
@@ -409,6 +441,55 @@ pub fn process_tun_packet<R: DnsResolver>(
     Ok(TunPacketProcessAction::Relay(relay_plan))
 }
 
+pub fn process_tun_device_packet<D: TunPacketDevice, R: DnsResolver>(
+    device: &mut D,
+    routes: &RouteEngine,
+    dns_hijack_enabled: bool,
+    dns: &mut DnsEngine<R>,
+    dns_ttl_seconds: u32,
+) -> Result<TunPacketLoopEvent, TunPacketLoopError> {
+    let Some(packet) = device.read_packet().map_err(TunPacketLoopError::Read)? else {
+        return Ok(TunPacketLoopEvent::NoPacket);
+    };
+
+    let action = match process_tun_packet(&packet, routes, dns_hijack_enabled, dns, dns_ttl_seconds)
+    {
+        Ok(action) => action,
+        Err(error) => return Ok(TunPacketLoopEvent::PacketError(error)),
+    };
+
+    match action {
+        TunPacketProcessAction::WritePacket { response } => {
+            device
+                .write_packet(&response.packet)
+                .map_err(TunPacketLoopError::Write)?;
+            Ok(TunPacketLoopEvent::WrotePacket { response })
+        }
+        TunPacketProcessAction::Relay(plan) => Ok(loop_event_for_relay_plan(plan)),
+    }
+}
+
+pub fn run_tun_packet_loop<D: TunPacketDevice, R: DnsResolver>(
+    device: &mut D,
+    routes: &RouteEngine,
+    dns_hijack_enabled: bool,
+    dns: &mut DnsEngine<R>,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+) -> Result<Vec<TunPacketLoopEvent>, TunPacketLoopError> {
+    let mut events = Vec::new();
+    for _ in 0..max_packets {
+        let event =
+            process_tun_device_packet(device, routes, dns_hijack_enabled, dns, dns_ttl_seconds)?;
+        let should_stop = event == TunPacketLoopEvent::NoPacket;
+        events.push(event);
+        if should_stop {
+            break;
+        }
+    }
+    Ok(events)
+}
+
 pub fn build_tun_udp_response_packet(
     flow: &TunPacketFlow,
     payload: &[u8],
@@ -465,6 +546,14 @@ pub fn build_tun_udp_response_packet(
             source_ip: flow.source_ip,
             destination_ip: flow.destination_ip,
         }),
+    }
+}
+
+fn loop_event_for_relay_plan(plan: TunPacketRelayPlan) -> TunPacketLoopEvent {
+    match &plan.relay_action {
+        TunPacketRelayAction::Drop => TunPacketLoopEvent::Drop(plan),
+        TunPacketRelayAction::UnsupportedTransport { .. } => TunPacketLoopEvent::Unsupported(plan),
+        _ => TunPacketLoopEvent::Relay(plan),
     }
 }
 

@@ -68,9 +68,11 @@ pub use socks5::{
 pub use tun::{
     build_tun_dns_hijack_response, build_tun_dns_response_packet, build_tun_udp_response_packet,
     decide_tun_packet_route, parse_tun_packet_flow, parse_tun_udp_payload, plan_tun_dns_hijack,
-    plan_tun_packet_relay, process_tun_packet, TunDnsHijackPlan, TunDnsHijackResponse,
-    TunIpVersion, TunPacketError, TunPacketFlow, TunPacketProcessAction, TunPacketRelayAction,
-    TunPacketRelayPlan, TunPacketRouteDecision, TunTransportProtocol, TunUdpPayload,
+    plan_tun_packet_relay, process_tun_device_packet, process_tun_packet, run_tun_packet_loop,
+    TunDnsHijackPlan, TunDnsHijackResponse, TunIpVersion, TunPacketDevice, TunPacketError,
+    TunPacketFlow, TunPacketLoopError, TunPacketLoopEvent, TunPacketProcessAction,
+    TunPacketRelayAction, TunPacketRelayPlan, TunPacketRouteDecision, TunTransportProtocol,
+    TunUdpPayload,
 };
 pub use websocket::{websocket_accept_for_key, OwnedWebSocketClientStream, WebSocketClientStream};
 

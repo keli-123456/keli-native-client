@@ -159,6 +159,10 @@ The first implementation target is deliberately small:
    IPv6 extension headers are rejected explicitly until the parser supports
    safe extension-header traversal, avoiding silent misclassification as
    unknown plain transports.
+   The packet path now includes a reusable TUN packet loop abstraction that can
+   read packets from an injected device, write DNS hijack responses, emit
+   relay/drop/unsupported events, and keep processing after packet parse
+   errors.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

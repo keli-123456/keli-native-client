@@ -65,6 +65,10 @@ IPv4 fragmented packets are rejected explicitly until the core has a real
 fragment reassembly strategy.
 IPv6 extension headers are also rejected explicitly until the parser supports
 safe extension-header traversal.
+The TUN packet path now has a reusable packet loop abstraction that can read
+from an injected device, write DNS hijack responses back to the device, emit
+relay/drop/unsupported events, and continue processing after packet parse
+errors.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 

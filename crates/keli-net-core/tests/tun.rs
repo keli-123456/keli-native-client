@@ -5,10 +5,11 @@ use keli_net_core::{
     build_dns_error_response, build_dns_response, build_tun_dns_hijack_response,
     build_tun_dns_response_packet, decide_tun_packet_route, parse_tun_packet_flow,
     parse_tun_udp_payload, plan_tun_dns_hijack, plan_tun_packet_relay, process_tun_packet,
-    DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver,
-    OutboundTarget, RouteAction, RouteDestination, RouteEngine, RouteIpCidr, RouteMatcher,
-    RouteRule, RouteTarget, TunIpVersion, TunPacketError, TunPacketProcessAction,
-    TunPacketRelayAction, TunPacketRelayPlan, TunTransportProtocol,
+    run_tun_packet_loop, DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy, DnsQuestionType,
+    DnsResolver, OutboundTarget, RouteAction, RouteDestination, RouteEngine, RouteIpCidr,
+    RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketDevice, TunPacketError,
+    TunPacketLoopEvent, TunPacketProcessAction, TunPacketRelayAction, TunPacketRelayPlan,
+    TunTransportProtocol,
 };
 
 #[test]
@@ -301,6 +302,103 @@ fn process_tun_packet_returns_drop_plan_for_blocked_route() {
     };
     assert_eq!(plan.relay_action, TunPacketRelayAction::Drop);
     assert_eq!(plan.route.matched_rule, Some("block-lan".to_string()));
+}
+
+#[test]
+fn tun_packet_loop_writes_dns_response_to_device() {
+    let packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "8.8.8.8",
+        &udp_datagram(54321, 53, &dns_query(0x1234, "example.com", 1)),
+    );
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut device = FakeTunPacketDevice::new(vec![packet]);
+
+    let events =
+        run_tun_packet_loop(&mut device, &routes, true, &mut dns, 30, 1).expect("run TUN loop");
+
+    assert_eq!(events.len(), 1);
+    let TunPacketLoopEvent::WrotePacket { response } = &events[0] else {
+        panic!("expected write packet event");
+    };
+    assert_eq!(response.rcode, 0);
+    assert_eq!(device.writes.len(), 1);
+    assert_eq!(device.writes[0], response.packet);
+    assert!(parse_tun_udp_payload(&device.writes[0])
+        .expect("parse written response")
+        .payload
+        .windows(4)
+        .any(|window| window == [203, 0, 113, 7]));
+}
+
+#[test]
+fn tun_packet_loop_reports_relay_and_drop_without_writing() {
+    let direct_packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "1.1.1.1",
+        &udp_datagram(54321, 443, b"keli"),
+    );
+    let blocked_packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "10.1.2.3",
+        &udp_datagram(54321, 443, b"keli"),
+    );
+    let mut routes = RouteEngine::new(RouteAction::Direct);
+    routes.add_rule(RouteRule {
+        name: "block-lan".to_string(),
+        matcher: RouteMatcher::IpCidr(
+            RouteIpCidr::new("10.0.0.0".parse().expect("valid IP"), 8).expect("valid CIDR"),
+        ),
+        action: RouteAction::Block,
+    });
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut device = FakeTunPacketDevice::new(vec![direct_packet, blocked_packet]);
+
+    let events =
+        run_tun_packet_loop(&mut device, &routes, true, &mut dns, 30, 2).expect("run TUN loop");
+
+    assert_eq!(events.len(), 2);
+    assert!(matches!(events[0], TunPacketLoopEvent::Relay(_)));
+    assert!(matches!(events[1], TunPacketLoopEvent::Drop(_)));
+    assert!(device.writes.is_empty());
+}
+
+#[test]
+fn tun_packet_loop_keeps_processing_after_packet_error() {
+    let mut fragmented = ipv4_packet(17, "10.7.0.2", "8.8.8.8", &udp_datagram(54321, 53, b"keli"));
+    fragmented[6..8].copy_from_slice(&0x2000u16.to_be_bytes());
+    let dns_packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "8.8.8.8",
+        &udp_datagram(54322, 53, &dns_query(0x5678, "example.com", 1)),
+    );
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut device = FakeTunPacketDevice::new(vec![fragmented, dns_packet]);
+
+    let events =
+        run_tun_packet_loop(&mut device, &routes, true, &mut dns, 30, 2).expect("run TUN loop");
+
+    assert!(matches!(
+        events[0],
+        TunPacketLoopEvent::PacketError(TunPacketError::Ipv4FragmentedPacket { .. })
+    ));
+    assert!(matches!(events[1], TunPacketLoopEvent::WrotePacket { .. }));
+    assert_eq!(device.writes.len(), 1);
 }
 
 #[test]
@@ -658,6 +756,31 @@ impl StaticResolver {
 impl DnsResolver for StaticResolver {
     fn resolve(&self, _host: &str) -> Result<Vec<IpAddr>, DnsError> {
         Ok(self.ips.clone())
+    }
+}
+
+struct FakeTunPacketDevice {
+    reads: std::collections::VecDeque<Vec<u8>>,
+    writes: Vec<Vec<u8>>,
+}
+
+impl FakeTunPacketDevice {
+    fn new(reads: Vec<Vec<u8>>) -> Self {
+        Self {
+            reads: reads.into(),
+            writes: Vec::new(),
+        }
+    }
+}
+
+impl TunPacketDevice for FakeTunPacketDevice {
+    fn read_packet(&mut self) -> Result<Option<Vec<u8>>, String> {
+        Ok(self.reads.pop_front())
+    }
+
+    fn write_packet(&mut self, packet: &[u8]) -> Result<(), String> {
+        self.writes.push(packet.to_vec());
+        Ok(())
     }
 }
 
