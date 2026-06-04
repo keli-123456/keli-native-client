@@ -207,6 +207,28 @@ fn listen_mixed_once_uses_profile_config_for_naive_http_connect() {
 }
 
 #[test]
+fn listen_mixed_once_uses_profile_config_for_remote_socks5_http_connect() {
+    let (socks_port, socks_thread) = spawn_socks5_tcp_proxy_echo_server();
+    let profile_path = write_temp_socks5_profile_config(socks_port);
+
+    run_profile_http_connect_round_trip(&profile_path, "SOCKS5-READY");
+
+    socks_thread.join().expect("socks5 proxy thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_remote_http_proxy_connect() {
+    let (http_port, http_thread) = spawn_http_connect_proxy_echo_server();
+    let profile_path = write_temp_http_proxy_profile_config(http_port);
+
+    run_profile_http_connect_round_trip(&profile_path, "HTTP-READY");
+
+    http_thread.join().expect("http proxy thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
 fn listen_mixed_once_uses_profile_config_for_socks5_udp_associate() {
     let (ss_port, ss_thread) = spawn_shadowsocks_udp_echo_server();
     let profile_path = write_temp_profile_config(ss_port);
@@ -281,6 +303,12 @@ fn read_until_header_end(stream: &mut TcpStream, output: &mut Vec<u8>) {
     }
 }
 
+fn read_http_request(stream: &mut TcpStream) -> String {
+    let mut request = Vec::new();
+    read_until_header_end(stream, &mut request);
+    String::from_utf8(request).expect("request utf8")
+}
+
 fn free_local_addr() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind free addr");
     listener.local_addr().expect("local addr").to_string()
@@ -298,6 +326,48 @@ fn connect_with_retry(addr: &str) -> TcpStream {
             Err(error) => panic!("connect listen-mixed {addr}: {error}"),
         }
     }
+}
+
+fn run_profile_http_connect_round_trip(profile_path: &str, outbound_tag: &str) {
+    let listen = free_local_addr();
+    let run_listen = listen.clone();
+    let run_profile_path = profile_path.to_string();
+    let run_outbound_tag = outbound_tag.to_string();
+    let server_thread = thread::spawn(move || {
+        run(CliCommand::ListenMixed {
+            listen: run_listen,
+            once: true,
+            block_domains: Vec::new(),
+            profile_config: Some(run_profile_path),
+            outbound_tag: Some(run_outbound_tag),
+            first_byte_timeout: Duration::from_secs(2),
+            idle_timeout: Duration::from_secs(2),
+        })
+        .expect("run listen-mixed once");
+    });
+
+    let mut client = connect_with_retry(&listen);
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    client
+        .write_all(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
+        .expect("write http connect");
+
+    let mut connect_response = Vec::new();
+    read_until_header_end(&mut client, &mut connect_response);
+    assert_eq!(
+        connect_response,
+        b"HTTP/1.1 200 Connection Established\r\n\r\n"
+    );
+
+    client.write_all(b"ping").expect("write ping");
+    let mut response = [0; 4];
+    client.read_exact(&mut response).expect("read pong");
+    assert_eq!(&response, b"pong");
+    client.shutdown(Shutdown::Both).ok();
+
+    server_thread.join().expect("listen thread");
 }
 
 fn write_temp_profile_config(ss_port: u16) -> String {
@@ -320,6 +390,48 @@ fn write_temp_profile_config(ss_port: u16) -> String {
 "#
     );
     fs::write(&path, content).expect("write profile config");
+    path.to_string_lossy().into_owned()
+}
+
+fn write_temp_socks5_profile_config(socks_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-socks5-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: SOCKS5-READY
+    type: socks5
+    server: 127.0.0.1
+    port: {socks_port}
+"#
+    );
+    fs::write(&path, content).expect("write socks5 profile config");
+    path.to_string_lossy().into_owned()
+}
+
+fn write_temp_http_proxy_profile_config(http_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-http-proxy-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: HTTP-READY
+    type: http
+    server: 127.0.0.1
+    port: {http_port}
+"#
+    );
+    fs::write(&path, content).expect("write http proxy profile config");
     path.to_string_lossy().into_owned()
 }
 
@@ -501,6 +613,63 @@ fn spawn_naive_h2_echo_server() -> (u16, thread::JoinHandle<()>) {
         });
     });
     (port_rx.recv().expect("receive naive port"), handle)
+}
+
+fn spawn_socks5_tcp_proxy_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind socks5 proxy");
+    let port = listener.local_addr().expect("socks5 proxy addr").port();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept socks5 proxy");
+        let mut hello = [0; 3];
+        stream.read_exact(&mut hello).expect("read socks5 hello");
+        assert_eq!(hello, [0x05, 0x01, 0x00]);
+        stream
+            .write_all(&[0x05, 0x00])
+            .expect("write socks5 hello response");
+
+        let mut request = [0; 18];
+        stream
+            .read_exact(&mut request)
+            .expect("read socks5 connect request");
+        assert_eq!(
+            request,
+            [
+                0x05, 0x01, 0x00, 0x03, 0x0b, b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.', b'c',
+                b'o', b'm', 0x01, 0xbb,
+            ]
+        );
+        stream
+            .write_all(&[0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0, 0])
+            .expect("write socks5 connect response");
+
+        let mut payload = [0; 4];
+        stream
+            .read_exact(&mut payload)
+            .expect("read socks5 payload");
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"pong").expect("write socks5 response");
+    });
+    (port, handle)
+}
+
+fn spawn_http_connect_proxy_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind http proxy");
+    let port = listener.local_addr().expect("http proxy addr").port();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept http proxy");
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("CONNECT example.com:443 HTTP/1.1\r\n"));
+        assert!(request.contains("Host: example.com:443\r\n"));
+        stream
+            .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+            .expect("write http proxy response");
+
+        let mut payload = [0; 4];
+        stream.read_exact(&mut payload).expect("read http payload");
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"pong").expect("write http response");
+    });
+    (port, handle)
 }
 
 fn spawn_shadowsocks_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
