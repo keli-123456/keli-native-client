@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 use std::{error::Error, fmt};
@@ -103,6 +104,43 @@ pub struct TunTcpSegment<'a> {
     pub flags: TunTcpFlags,
     pub window_size: u16,
     pub payload: &'a [u8],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TunTcpSessionKey {
+    pub source_ip: IpAddr,
+    pub source_port: u16,
+    pub destination_ip: IpAddr,
+    pub destination_port: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TunTcpSessionPhase {
+    SynReceived,
+    Established,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunTcpSessionRecord {
+    pub key: TunTcpSessionKey,
+    pub flow: TunPacketFlow,
+    pub client_initial_sequence_number: u32,
+    pub client_next_sequence_number: u32,
+    pub server_initial_sequence_number: u32,
+    pub server_next_sequence_number: u32,
+    pub window_size: u16,
+    pub phase: TunTcpSessionPhase,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunTcpSynAckResponse {
+    pub session: TunTcpSessionRecord,
+    pub packet: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TunTcpSessionTable {
+    sessions: HashMap<TunTcpSessionKey, TunTcpSessionRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -429,6 +467,9 @@ pub enum TunPacketError {
     ExpectedTcpSegment {
         protocol: TunTransportProtocol,
     },
+    ExpectedTcpSynSegment {
+        flags: TunTcpFlags,
+    },
     TcpDataOffsetTooSmall {
         data_offset: usize,
     },
@@ -536,6 +577,11 @@ impl fmt::Display for TunPacketError {
             Self::ExpectedTcpSegment { protocol } => {
                 write!(f, "expected TCP TUN segment, got {:?}", protocol)
             }
+            Self::ExpectedTcpSynSegment { flags } => write!(
+                f,
+                "expected initial TCP SYN segment, got flags=0x{:03x}",
+                flags.bits()
+            ),
             Self::TcpDataOffsetTooSmall { data_offset } => write!(
                 f,
                 "TCP data offset {data_offset} is smaller than minimum header length 20"
@@ -657,6 +703,114 @@ impl TunTcpFlags {
 
     pub fn fin(self) -> bool {
         self.bits & 0x0001 != 0
+    }
+}
+
+impl TunTcpSessionKey {
+    pub fn from_flow(flow: &TunPacketFlow) -> Result<Self, TunPacketError> {
+        if flow.protocol != TunTransportProtocol::Tcp {
+            return Err(TunPacketError::ExpectedTcpSegment {
+                protocol: flow.protocol,
+            });
+        }
+        Ok(Self {
+            source_ip: flow.source_ip,
+            source_port: flow
+                .source_port
+                .ok_or(TunPacketError::MissingTcpSocketAddress)?,
+            destination_ip: flow.destination_ip,
+            destination_port: flow
+                .destination_port
+                .ok_or(TunPacketError::MissingTcpSocketAddress)?,
+        })
+    }
+}
+
+impl TunTcpSessionTable {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn len(&self) -> usize {
+        self.sessions.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sessions.is_empty()
+    }
+
+    pub fn get(&self, key: &TunTcpSessionKey) -> Option<&TunTcpSessionRecord> {
+        self.sessions.get(key)
+    }
+
+    pub fn get_flow(
+        &self,
+        flow: &TunPacketFlow,
+    ) -> Result<Option<&TunTcpSessionRecord>, TunPacketError> {
+        Ok(self.sessions.get(&TunTcpSessionKey::from_flow(flow)?))
+    }
+
+    pub fn start_from_syn(
+        &mut self,
+        segment: &TunTcpSegment<'_>,
+        server_initial_sequence_number: u32,
+        window_size: u16,
+    ) -> Result<TunTcpSynAckResponse, TunPacketError> {
+        if !is_initial_tcp_syn_segment(segment) {
+            return Err(TunPacketError::ExpectedTcpSynSegment {
+                flags: segment.flags,
+            });
+        }
+        let key = TunTcpSessionKey::from_flow(&segment.flow)?;
+        let session = TunTcpSessionRecord {
+            key: key.clone(),
+            flow: segment.flow.clone(),
+            client_initial_sequence_number: segment.sequence_number,
+            client_next_sequence_number: tcp_segment_next_sequence_number(segment),
+            server_initial_sequence_number,
+            server_next_sequence_number: server_initial_sequence_number.wrapping_add(1),
+            window_size,
+            phase: TunTcpSessionPhase::SynReceived,
+        };
+        let packet = build_tun_tcp_syn_ack_response_packet(
+            segment,
+            server_initial_sequence_number,
+            window_size,
+        )?;
+        self.sessions.insert(key, session.clone());
+        Ok(TunTcpSynAckResponse { session, packet })
+    }
+
+    pub fn apply_ack(
+        &mut self,
+        segment: &TunTcpSegment<'_>,
+    ) -> Result<Option<TunTcpSessionRecord>, TunPacketError> {
+        let key = TunTcpSessionKey::from_flow(&segment.flow)?;
+        let Some(session) = self.sessions.get_mut(&key) else {
+            return Ok(None);
+        };
+        if session.phase == TunTcpSessionPhase::SynReceived
+            && segment.flags.ack()
+            && !segment.flags.syn()
+            && !segment.flags.rst()
+            && segment.sequence_number == session.client_next_sequence_number
+            && segment.acknowledgment_number == session.server_next_sequence_number
+        {
+            session.phase = TunTcpSessionPhase::Established;
+            return Ok(Some(session.clone()));
+        }
+        Ok(None)
+    }
+
+    pub fn remove_on_close(
+        &mut self,
+        segment: &TunTcpSegment<'_>,
+    ) -> Result<Option<TunTcpSessionRecord>, TunPacketError> {
+        if !(segment.flags.rst() || segment.flags.fin()) {
+            return Ok(None);
+        }
+        let key = TunTcpSessionKey::from_flow(&segment.flow)?;
+        Ok(self.sessions.remove(&key))
     }
 }
 
@@ -1065,6 +1219,26 @@ fn build_tun_tcp_reset_response(
     })
 }
 
+pub fn build_tun_tcp_syn_ack_response_packet(
+    segment: &TunTcpSegment<'_>,
+    server_initial_sequence_number: u32,
+    window_size: u16,
+) -> Result<Vec<u8>, TunPacketError> {
+    if !is_initial_tcp_syn_segment(segment) {
+        return Err(TunPacketError::ExpectedTcpSynSegment {
+            flags: segment.flags,
+        });
+    }
+    build_tun_tcp_response_packet(
+        &segment.flow,
+        server_initial_sequence_number,
+        tcp_segment_next_sequence_number(segment),
+        TunTcpFlags::from_bits(0x0012),
+        window_size,
+        b"",
+    )
+}
+
 pub fn build_tun_udp_response_packet(
     flow: &TunPacketFlow,
     payload: &[u8],
@@ -1204,6 +1378,16 @@ fn tcp_reset_sequence_number(segment: &TunTcpSegment<'_>) -> u32 {
 }
 
 fn tcp_reset_acknowledgment_number(segment: &TunTcpSegment<'_>) -> u32 {
+    tcp_segment_next_sequence_number(segment)
+}
+
+fn tcp_segment_next_sequence_number(segment: &TunTcpSegment<'_>) -> u32 {
+    segment
+        .sequence_number
+        .wrapping_add(tcp_segment_sequence_len(segment))
+}
+
+fn tcp_segment_sequence_len(segment: &TunTcpSegment<'_>) -> u32 {
     let mut sequence_len = segment.payload.len() as u32;
     if segment.flags.syn() {
         sequence_len = sequence_len.wrapping_add(1);
@@ -1211,7 +1395,11 @@ fn tcp_reset_acknowledgment_number(segment: &TunTcpSegment<'_>) -> u32 {
     if segment.flags.fin() {
         sequence_len = sequence_len.wrapping_add(1);
     }
-    segment.sequence_number.wrapping_add(sequence_len)
+    sequence_len
+}
+
+fn is_initial_tcp_syn_segment(segment: &TunTcpSegment<'_>) -> bool {
+    segment.flags.syn() && !segment.flags.ack() && !segment.flags.rst()
 }
 
 fn loop_event_for_relay_plan(plan: TunPacketRelayPlan) -> TunPacketLoopEvent {

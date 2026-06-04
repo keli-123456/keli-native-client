@@ -206,6 +206,10 @@ The first implementation target is deliberately small:
    Blocked TUN TCP flows now use that write path to emit RST+ACK packets
    instead of silent drops, with loop summary counters that distinguish TCP
    resets from DNS and UDP response writes.
+   The TCP/TUN path also has a lightweight session table that records initial
+   SYN flows, builds SYN-ACK packets, marks sessions established on matching
+   ACKs, and removes sessions on FIN/RST, giving the future user-space TCP
+   relay a concrete state boundary before stream forwarding is attached.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

@@ -113,6 +113,10 @@ to write back to TUN.
 Blocked TUN TCP flows now use that write path to return RST+ACK packets instead
 of only recording a silent drop, and loop summaries count those TCP resets
 separately from DNS and UDP responses.
+The TCP/TUN path also has a lightweight session table that records initial SYN
+flows, builds SYN-ACK packets, marks sessions established on matching ACKs, and
+removes sessions on FIN/RST, giving the future user-space TCP relay a concrete
+state boundary.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 
