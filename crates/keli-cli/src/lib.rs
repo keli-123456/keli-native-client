@@ -26,8 +26,8 @@ use keli_net_core::{
     socks5_reply, ConnectionErrorKind, ConnectionReport, DirectTcpConnector, DirectUdpConnector,
     DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy,
     DnsQuestionType, LocalInbound, OutboundConnection, OutboundRegistry, OutboundTarget,
-    RelayOptions, RouteAction, RouteEngine, Socks5Address, Socks5Command, Socks5ReplyCode,
-    SystemDnsResolver,
+    RelayOptions, RouteAction, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, Socks5Address,
+    Socks5Command, Socks5ReplyCode, SystemDnsResolver,
 };
 use keli_platform::{
     NativeSystemProxyController, NativeTunDeviceController, PlatformCapabilities,
@@ -46,6 +46,8 @@ const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 const DEFAULT_TUN_INTERFACE_NAME: &str = "keli-tun0";
 const DEFAULT_TUN_ADDRESS_CIDR: &str = "10.7.0.1/24";
 const DEFAULT_TUN_MTU: u16 = 1500;
+const BLOCK_CIDR_RULE_PREFIX: &str = "cidr:";
+const BLOCK_PORT_RULE_PREFIX: &str = "port:";
 const UDP_RELAY_POLL_INTERVAL: Duration = Duration::from_millis(200);
 const MANAGED_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const SUPPORTED_OUTBOUNDS: &str =
@@ -117,6 +119,22 @@ pub enum ProbeOutputFormat {
 pub enum SmokeInboundKind {
     Socks5,
     HttpConnect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CliPortRange {
+    start: u16,
+    end: u16,
+}
+
+impl CliPortRange {
+    fn label(self) -> String {
+        if self.start == self.end {
+            self.start.to_string()
+        } else {
+            format!("{}-{}", self.start, self.end)
+        }
+    }
 }
 
 impl SmokeInboundKind {
@@ -1525,7 +1543,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli listen-mixed [--listen 127.0.0.1:7890] [--once] [--profile-config subscription.yaml] [--outbound-tag proxy] [--first-byte-timeout-ms 30000] [--idle-timeout-ms 300000] [--dns-local-policy allow-system|prevent-public-leak] [--dns-address-family dual-stack|ipv4-only|ipv6-only] [--tun] [--tun-interface keli-tun0] [--tun-address 10.7.0.1/24] [--tun-mtu 1500] [--tun-dns-hijack]"
+        "       keli-cli listen-mixed [--listen 127.0.0.1:7890] [--once] [--profile-config subscription.yaml] [--outbound-tag proxy] [--block-domain example.com] [--block-cidr 10.0.0.0/8] [--block-port 25|1000-2000] [--first-byte-timeout-ms 30000] [--idle-timeout-ms 300000] [--dns-local-policy allow-system|prevent-public-leak] [--dns-address-family dual-stack|ipv4-only|ipv6-only] [--tun] [--tun-interface keli-tun0] [--tun-address 10.7.0.1/24] [--tun-mtu 1500] [--tun-dns-hijack]"
     )?;
     writeln!(
         writer,
@@ -1677,6 +1695,22 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
                         .ok_or_else(|| "--block-domain requires a domain".to_string())?,
                 );
             }
+            "--block-cidr" | "--block-ip-cidr" => {
+                let cidr = parse_cli_block_cidr(
+                    &args
+                        .next()
+                        .ok_or_else(|| "--block-cidr requires an IP CIDR".to_string())?,
+                )?;
+                block_domains.push(block_cidr_rule_value(&cidr));
+            }
+            "--block-port" => {
+                let range = parse_cli_block_port(
+                    &args
+                        .next()
+                        .ok_or_else(|| "--block-port requires a port or range".to_string())?,
+                )?;
+                block_domains.push(block_port_rule_value(range));
+            }
             "--profile-config" => {
                 profile_config = Some(
                     args.next()
@@ -1783,6 +1817,59 @@ fn parse_dns_address_family_policy(input: &str) -> Result<DnsAddressFamilyPolicy
             "invalid --dns-address-family value: {other}; expected dual-stack|ipv4-only|ipv6-only"
         )),
     }
+}
+
+fn parse_cli_block_cidr(input: &str) -> Result<RouteIpCidr, String> {
+    let Some((network, prefix_len)) = input.split_once('/') else {
+        return Err(format!(
+            "invalid --block-cidr value: {input}; expected ip/prefix"
+        ));
+    };
+    let network = network
+        .parse::<IpAddr>()
+        .map_err(|_| format!("invalid --block-cidr IP address: {input}"))?;
+    let prefix_len = prefix_len
+        .parse::<u8>()
+        .map_err(|_| format!("invalid --block-cidr prefix length: {input}"))?;
+    RouteIpCidr::new(network, prefix_len)
+        .map_err(|error| format!("invalid --block-cidr value: {error}"))
+}
+
+fn parse_cli_block_port(input: &str) -> Result<CliPortRange, String> {
+    let parse_port = |value: &str| -> Result<u16, String> {
+        let port = value
+            .parse::<u16>()
+            .map_err(|_| format!("invalid --block-port value: {input}"))?;
+        if port == 0 {
+            return Err("--block-port must be between 1 and 65535".to_string());
+        }
+        Ok(port)
+    };
+    if let Some((start, end)) = input.split_once('-') {
+        let start = parse_port(start)?;
+        let end = parse_port(end)?;
+        if start > end {
+            return Err(format!("invalid --block-port range: {input}"));
+        }
+        return Ok(CliPortRange { start, end });
+    }
+    let port = parse_port(input)?;
+    Ok(CliPortRange {
+        start: port,
+        end: port,
+    })
+}
+
+fn block_cidr_rule_value(cidr: &RouteIpCidr) -> String {
+    format!(
+        "{BLOCK_CIDR_RULE_PREFIX}{}/{}",
+        cidr.network(),
+        cidr.prefix_len()
+    )
+}
+
+fn block_port_rule_value(range: CliPortRange) -> String {
+    format!("{BLOCK_PORT_RULE_PREFIX}{}", range.label())
 }
 
 fn parse_probe_outbound(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
@@ -4109,10 +4196,38 @@ fn mixed_runtime_from_cli(
 
 fn routes_from_cli(block_domains: Vec<String>, default_action: RouteAction) -> RouteEngine {
     let mut routes = RouteEngine::new(default_action);
-    for domain in block_domains {
-        routes.add_rule(keli_net_core::RouteRule {
-            name: format!("block-domain:{domain}"),
-            matcher: keli_net_core::RouteMatcher::DomainSuffix(domain),
+    for rule in block_domains {
+        if let Some(cidr) = rule.strip_prefix(BLOCK_CIDR_RULE_PREFIX) {
+            if let Ok(cidr) = parse_cli_block_cidr(cidr) {
+                routes.add_rule(RouteRule {
+                    name: format!("block-cidr:{}/{}", cidr.network(), cidr.prefix_len()),
+                    matcher: RouteMatcher::IpCidr(cidr),
+                    action: RouteAction::Block,
+                });
+                continue;
+            }
+        }
+        if let Some(port) = rule.strip_prefix(BLOCK_PORT_RULE_PREFIX) {
+            if let Ok(range) = parse_cli_block_port(port) {
+                let matcher = if range.start == range.end {
+                    RouteMatcher::PortExact(range.start)
+                } else {
+                    RouteMatcher::PortRange {
+                        start: range.start,
+                        end: range.end,
+                    }
+                };
+                routes.add_rule(RouteRule {
+                    name: format!("block-port:{}", range.label()),
+                    matcher,
+                    action: RouteAction::Block,
+                });
+                continue;
+            }
+        }
+        routes.add_rule(RouteRule {
+            name: format!("block-domain:{rule}"),
+            matcher: RouteMatcher::DomainSuffix(rule),
             action: RouteAction::Block,
         });
     }

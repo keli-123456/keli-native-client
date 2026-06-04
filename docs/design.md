@@ -130,6 +130,8 @@ The first implementation target is deliberately small:
    Route decisions now support destination-level matching for domain keywords,
    IP CIDR ranges, and exact/ranged ports, and the mixed TCP, SOCKS5 UDP, and
    UDP probe paths use the same destination-aware route engine.
+   CLI/runtime route setup can now install block rules for domain suffixes,
+   IP CIDR ranges, exact ports, and port ranges through the same route engine.
    The network core now also parses raw IPv4/IPv6 TUN packets into TCP/UDP/ICMP
    flow metadata, route destinations, and DNS-hijack candidates, providing the
    packet-classification layer needed before a native TUN driver feeds traffic

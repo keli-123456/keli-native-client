@@ -158,6 +158,97 @@ fn listen_mixed_once_uses_profile_config_for_http_connect() {
 }
 
 #[test]
+fn listen_mixed_once_blocks_cli_port_rule_without_connecting_target() {
+    let target = TcpListener::bind("127.0.0.1:0").expect("bind target");
+    let target_port = target.local_addr().expect("target addr").port();
+    target
+        .set_nonblocking(true)
+        .expect("target nonblocking mode");
+    let listen = free_local_addr();
+    let run_listen = listen.clone();
+    let server_thread = thread::spawn(move || {
+        run(CliCommand::ListenMixed {
+            listen: run_listen,
+            once: true,
+            block_domains: vec![format!("port:{target_port}")],
+            profile_config: None,
+            outbound_tag: None,
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
+            tun_device: None,
+            first_byte_timeout: Duration::from_secs(2),
+            idle_timeout: Duration::from_secs(2),
+            dns_options: Default::default(),
+        })
+        .expect("run listen-mixed once");
+    });
+
+    let mut client = connect_with_retry(&listen);
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    write!(
+        client,
+        "CONNECT 127.0.0.1:{target_port} HTTP/1.1\r\nHost: 127.0.0.1:{target_port}\r\n\r\n"
+    )
+    .expect("write http connect");
+
+    let mut connect_response = Vec::new();
+    read_until_header_end(&mut client, &mut connect_response);
+    assert_eq!(connect_response, b"HTTP/1.1 403 Forbidden\r\n\r\n");
+    client.shutdown(Shutdown::Both).ok();
+
+    server_thread.join().expect("listen thread");
+    assert!(
+        target.accept().is_err(),
+        "CLI port route must not connect to the target"
+    );
+}
+
+#[test]
+fn listen_mixed_once_blocks_cli_cidr_rule_for_socks5_connect() {
+    let listen = free_local_addr();
+    let run_listen = listen.clone();
+    let server_thread = thread::spawn(move || {
+        run(CliCommand::ListenMixed {
+            listen: run_listen,
+            once: true,
+            block_domains: vec!["cidr:127.0.0.0/8".to_string()],
+            profile_config: None,
+            outbound_tag: None,
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
+            tun_device: None,
+            first_byte_timeout: Duration::from_secs(2),
+            idle_timeout: Duration::from_secs(2),
+            dns_options: Default::default(),
+        })
+        .expect("run listen-mixed once");
+    });
+
+    let mut client = connect_with_retry(&listen);
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    client.write_all(&[0x05, 0x01, 0x00]).expect("write hello");
+    let mut hello = [0; 2];
+    client.read_exact(&mut hello).expect("read hello response");
+    assert_eq!(hello, [0x05, 0x00]);
+
+    client
+        .write_all(&[0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0x01, 0xbb])
+        .expect("write socks5 connect");
+    let mut connect_response = [0; 10];
+    client
+        .read_exact(&mut connect_response)
+        .expect("read connect response");
+    assert_eq!(connect_response, [0x05, 0x02, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+    client.shutdown(Shutdown::Both).ok();
+
+    server_thread.join().expect("listen thread");
+}
+
+#[test]
 fn listen_mixed_once_uses_profile_config_for_anytls_http_connect() {
     let (anytls_port, anytls_thread) = spawn_anytls_tcp_echo_server();
     let profile_path = write_temp_anytls_profile_config(anytls_port);

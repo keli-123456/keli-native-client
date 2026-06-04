@@ -145,6 +145,49 @@ fn parses_listen_mixed_block_domain_rules() {
 }
 
 #[test]
+fn parses_listen_mixed_block_cidr_and_port_rules() {
+    let command = parse_cli_command([
+        "listen-mixed",
+        "--block-cidr",
+        "10.1.2.3/8",
+        "--block-port",
+        "25",
+        "--block-port",
+        "1000-1002",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::ListenMixed {
+            listen: "127.0.0.1:7890".to_string(),
+            once: false,
+            block_domains: vec![
+                "cidr:10.0.0.0/8".to_string(),
+                "port:25".to_string(),
+                "port:1000-1002".to_string()
+            ],
+            profile_config: None,
+            outbound_tag: None,
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
+            tun_device: None,
+            first_byte_timeout: Duration::from_secs(30),
+            idle_timeout: Duration::from_secs(300),
+            dns_options: MixedDnsOptions::default(),
+        }
+    );
+}
+
+#[test]
+fn rejects_invalid_listen_mixed_block_port_range() {
+    let error = parse_cli_command(["listen-mixed", "--block-port", "100-10"])
+        .expect_err("invalid port range should fail");
+
+    assert!(error.contains("invalid --block-port range"));
+}
+
+#[test]
 fn parses_listen_mixed_relay_timeouts() {
     let command = parse_cli_command([
         "listen-mixed",
