@@ -131,3 +131,6 @@ Support bundles include doctor output and redacted subscription diagnostics,
 including supported tags, default outbound, UDP-capable tags, protocol
 capability groups, skipped-profile summaries, and per-node protocol/transport
 capability entries without credentials, endpoints, path, host, or SNI fields.
+The same redacted per-node capability shape is used by profile-check JSON so
+subscription diagnostics can be shared with support without exposing node
+servers, credentials, Host headers, paths, or SNI values.

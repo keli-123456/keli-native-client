@@ -16,6 +16,13 @@ proxies:
     server: vmess.example.com
     port: 443
     uuid: 00112233-4455-6677-8899-aabbccddeeff
+    tls: true
+    servername: private-sni.example.com
+    network: ws
+    ws-opts:
+      path: /private-vmess-path
+      headers:
+        Host: private-host.example.com
   - name: NAIVE-TLS
     type: naive
     server: naive.example.com
@@ -43,7 +50,8 @@ proxies:
     )
     .expect("profile check");
 
-    let report: serde_json::Value = serde_json::from_slice(&output).expect("json report");
+    let output = String::from_utf8(output).expect("profile check utf8");
+    let report: serde_json::Value = serde_json::from_str(&output).expect("json report");
     assert_eq!(report["status"], "ok");
     assert_eq!(report["supported_count"], 4);
     assert_eq!(report["skipped_count"], 0);
@@ -56,12 +64,38 @@ proxies:
     assert_eq!(report["udp_supported_tags"][0], "SS-READY");
     assert_eq!(report["udp_supported_tags"][1], "VMESS-OLD");
     assert_eq!(report["udp_supported_tags"][2], "MIERU-TCP");
+    assert_eq!(report["supported"][0]["transport"], "tcp");
+    assert_eq!(report["supported"][0]["security"], "none");
     assert_eq!(report["supported"][0]["udp_supported"], true);
+    assert!(report["supported"][0]["tls_skip_verify"].is_null());
+    assert_eq!(report["supported"][1]["transport"], "ws");
+    assert_eq!(report["supported"][1]["security"], "tls");
     assert_eq!(report["supported"][1]["udp_supported"], true);
+    assert_eq!(report["supported"][1]["tls_skip_verify"], false);
     assert_eq!(report["supported"][2]["protocol"], "Naive");
+    assert_eq!(report["supported"][2]["transport"], "tcp");
+    assert_eq!(report["supported"][2]["security"], "tls");
     assert_eq!(report["supported"][2]["udp_supported"], false);
+    assert_eq!(report["supported"][2]["tls_skip_verify"], true);
     assert_eq!(report["supported"][3]["protocol"], "Mieru");
     assert_eq!(report["supported"][3]["udp_supported"], true);
+    let supported = report["supported"][1]
+        .as_object()
+        .expect("supported profile object");
+    assert!(!supported.contains_key("server"));
+    assert!(!supported.contains_key("port"));
+    assert!(!output.contains("secret"));
+    assert!(!output.contains("00112233-4455-6677-8899-aabbccddeeff"));
+    assert!(!output.contains("ss.example.com"));
+    assert!(!output.contains("vmess.example.com"));
+    assert!(!output.contains("naive.example.com"));
+    assert!(!output.contains("mieru.example.com"));
+    assert!(!output.contains("private-sni.example.com"));
+    assert!(!output.contains("private-host.example.com"));
+    assert!(!output.contains("/private-vmess-path"));
+    assert!(!output.contains("edge.example.com"));
+    assert!(!output.contains("user"));
+    assert!(!output.contains("pass"));
 }
 
 #[test]

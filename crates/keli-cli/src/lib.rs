@@ -1940,7 +1940,7 @@ fn support_bundle_profile_value(profile_config_text: Option<&str>) -> serde_json
     let supported: Vec<_> = parsed
         .profiles
         .iter()
-        .map(support_bundle_supported_profile_value)
+        .map(redacted_supported_profile_value)
         .collect();
     let udp_supported_tags = udp_supported_tags(&parsed.profiles);
     let skipped_summary = skipped_summary_reports(&parsed.skipped);
@@ -3375,17 +3375,7 @@ fn write_profile_check_report(
             let supported: Vec<_> = parsed
                 .profiles
                 .iter()
-                .map(|profile| {
-                    serde_json::json!({
-                        "tag": profile.tag.as_str(),
-                        "protocol": format!("{:?}", profile.protocol),
-                        "transport": format!("{:?}", profile.transport),
-                        "security": format!("{:?}", profile.security),
-                        "server": profile.endpoint.host.as_str(),
-                        "port": profile.endpoint.port,
-                        "udp_supported": profile_supports_udp(profile),
-                    })
-                })
+                .map(redacted_supported_profile_value)
                 .collect();
             let skipped: Vec<_> = parsed
                 .skipped
@@ -3486,18 +3476,18 @@ fn profile_supports_udp(profile: &OutboundProfile) -> bool {
     !matches!(profile.protocol, ProxyProtocol::Http | ProxyProtocol::Naive)
 }
 
-fn support_bundle_supported_profile_value(profile: &OutboundProfile) -> serde_json::Value {
+fn redacted_supported_profile_value(profile: &OutboundProfile) -> serde_json::Value {
     serde_json::json!({
         "tag": profile.tag.as_str(),
         "protocol": format!("{:?}", profile.protocol),
-        "transport": support_bundle_transport_label(&profile.transport),
-        "security": support_bundle_security_label(&profile.security),
-        "tls_skip_verify": support_bundle_tls_skip_verify(&profile.security),
+        "transport": redacted_transport_label(&profile.transport),
+        "security": redacted_security_label(&profile.security),
+        "tls_skip_verify": redacted_tls_skip_verify(&profile.security),
         "udp_supported": profile_supports_udp(profile),
     })
 }
 
-fn support_bundle_transport_label(transport: &TransportKind) -> &'static str {
+fn redacted_transport_label(transport: &TransportKind) -> &'static str {
     match transport {
         TransportKind::Tcp => "tcp",
         TransportKind::WebSocket { .. } => "ws",
@@ -3508,14 +3498,14 @@ fn support_bundle_transport_label(transport: &TransportKind) -> &'static str {
     }
 }
 
-fn support_bundle_security_label(security: &SecurityKind) -> &'static str {
+fn redacted_security_label(security: &SecurityKind) -> &'static str {
     match security {
         SecurityKind::None => "none",
         SecurityKind::Tls { .. } => "tls",
     }
 }
 
-fn support_bundle_tls_skip_verify(security: &SecurityKind) -> Option<bool> {
+fn redacted_tls_skip_verify(security: &SecurityKind) -> Option<bool> {
     match security {
         SecurityKind::None => None,
         SecurityKind::Tls { skip_verify, .. } => Some(*skip_verify),
