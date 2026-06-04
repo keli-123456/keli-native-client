@@ -30,7 +30,8 @@ use keli_net_core::{
 use keli_platform::{
     NativeSystemProxyController, NativeTunDeviceController, PlatformCapabilities,
     SystemProxyConfig, SystemProxyController, SystemProxySnapshot, SystemProxyStatus,
-    TunDeviceConfig, TunDeviceController, TunDevicePreflight, TunDeviceStatus,
+    TunDeviceConfig, TunDeviceController, TunDevicePreflight, TunDeviceReadiness,
+    TunDeviceSnapshot, TunDeviceStatus,
 };
 use keli_protocol::{
     detect_subscription_input_format, parse_mihomo_outbound_profiles,
@@ -264,6 +265,105 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedSystemProxyGuard<'a, C> {
             .restore(&snapshot)
             .map_err(|error| format!("restore system proxy: {error}"))
     }
+}
+
+#[derive(Debug)]
+pub struct ManagedTunDeviceGuard<'a, C: TunDeviceController + ?Sized> {
+    controller: &'a C,
+    config: TunDeviceConfig,
+    snapshot: TunDeviceSnapshot,
+    owns_device: bool,
+}
+
+impl<'a, C: TunDeviceController + ?Sized> ManagedTunDeviceGuard<'a, C> {
+    pub fn config(&self) -> &TunDeviceConfig {
+        &self.config
+    }
+
+    pub fn snapshot(&self) -> &TunDeviceSnapshot {
+        &self.snapshot
+    }
+
+    pub fn owns_device(&self) -> bool {
+        self.owns_device
+    }
+
+    pub fn stop(self) -> Result<TunDeviceSnapshot, String> {
+        if !self.owns_device {
+            return Ok(self.snapshot);
+        }
+        self.controller
+            .stop()
+            .map_err(|error| format!("stop TUN device: {error}"))
+    }
+}
+
+pub fn apply_tun_device_for_config<'a, C: TunDeviceController + ?Sized>(
+    controller: &'a C,
+    config: TunDeviceConfig,
+) -> Result<ManagedTunDeviceGuard<'a, C>, String> {
+    let preflight = TunDevicePreflight::check(controller, config.clone());
+    if !preflight.ready {
+        return Err(format!(
+            "TUN preflight failed: status={} reason={}",
+            preflight.readiness.label(),
+            preflight.reason.as_deref().unwrap_or("-")
+        ));
+    }
+
+    match preflight.readiness {
+        TunDeviceReadiness::AlreadyRunning => {
+            return Ok(ManagedTunDeviceGuard {
+                controller,
+                config,
+                snapshot: TunDeviceSnapshot {
+                    supported: preflight.status.supported,
+                    lifecycle_available: preflight.status.lifecycle_available,
+                    running: preflight.status.running,
+                    interface_name: preflight.status.interface_name,
+                    address_cidr: preflight.status.address_cidr,
+                    mtu: preflight.status.mtu,
+                    dns_hijack: preflight.status.dns_hijack,
+                },
+                owns_device: false,
+            });
+        }
+        TunDeviceReadiness::Ready => {}
+        _ => {
+            return Err(format!(
+                "TUN preflight failed: status={} reason={}",
+                preflight.readiness.label(),
+                preflight.reason.as_deref().unwrap_or("-")
+            ));
+        }
+    }
+
+    let snapshot = controller
+        .start(&config)
+        .map_err(|error| format!("start TUN device: {error}"))?;
+    if !snapshot.running {
+        return Err("start TUN device did not report a running device".to_string());
+    }
+    if !managed_tun_snapshot_matches_config(&snapshot, &config) {
+        return Err("start TUN device returned a different running config".to_string());
+    }
+
+    Ok(ManagedTunDeviceGuard {
+        controller,
+        config,
+        snapshot,
+        owns_device: true,
+    })
+}
+
+fn managed_tun_snapshot_matches_config(
+    snapshot: &TunDeviceSnapshot,
+    config: &TunDeviceConfig,
+) -> bool {
+    snapshot.interface_name.as_deref() == Some(config.interface_name.as_str())
+        && snapshot.address_cidr.as_deref() == Some(config.address_cidr.as_str())
+        && snapshot.mtu == Some(config.mtu)
+        && snapshot.dns_hijack == Some(config.dns_hijack)
 }
 
 #[derive(Debug)]

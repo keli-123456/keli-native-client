@@ -115,6 +115,10 @@ The first implementation target is deliberately small:
    same platform model, allowing UI/service automation to validate the intended
    TUN config and distinguish ready, already-running, conflict, unsupported, and
    lifecycle-unavailable states before a native backend is wired in.
+   The managed layer has a TUN lifecycle guard contract that starts owned TUN
+   devices only after preflight, safely adopts an already-running matching
+   device without claiming stop ownership, and rejects running conflicts before
+   backend mutation.
 4. Keli panel integration: subscription fetch/update, user state, node
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,
