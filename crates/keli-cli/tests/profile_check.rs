@@ -685,6 +685,76 @@ proxies:
     }
 }
 
+#[test]
+fn profile_check_json_keeps_full_share_link_transport_matrix_supported() {
+    let links = r#"
+trojan://password@trojan.example.com:443?security=tls&sni=sni.example.com&type=tcp#TROJAN-TCP
+trojan://password@trojan.example.com:443?security=tls&sni=sni.example.com&type=ws&host=host.example.com&path=%2Fanswer#TROJAN-WS
+trojan://password@trojan.example.com:443?security=tls&sni=sni.example.com&type=httpupgrade&host=host.example.com&path=%2Fupgrade#TROJAN-HTTPUPGRADE
+trojan://password@trojan.example.com:443?security=tls&sni=sni.example.com&type=grpc&serviceName=GunService#TROJAN-GRPC
+trojan://password@trojan.example.com:443?security=tls&sni=sni.example.com&type=h2&host=host.example.com&path=%2Fh2#TROJAN-H2
+trojan://password@trojan.example.com:443?security=tls&sni=sni.example.com&type=quic&quicSecurity=aes-128-gcm&key=secret&headerType=none#TROJAN-QUIC
+vless://00112233-4455-6677-8899-aabbccddeeff@vless.example.com:443?security=tls&sni=sni.example.com&type=tcp#VLESS-TCP
+vless://00112233-4455-6677-8899-aabbccddeeff@vless.example.com:443?security=tls&sni=sni.example.com&type=ws&host=host.example.com&path=%2Fvless#VLESS-WS
+vless://00112233-4455-6677-8899-aabbccddeeff@vless.example.com:443?security=tls&sni=sni.example.com&type=httpupgrade&host=host.example.com&path=%2Fupgrade#VLESS-HTTPUPGRADE
+vless://00112233-4455-6677-8899-aabbccddeeff@vless.example.com:443?security=tls&sni=sni.example.com&type=grpc&serviceName=GunService#VLESS-GRPC
+vless://00112233-4455-6677-8899-aabbccddeeff@vless.example.com:443?security=tls&sni=sni.example.com&type=h2&host=host.example.com&path=%2Fh2#VLESS-H2
+vless://00112233-4455-6677-8899-aabbccddeeff@vless.example.com:443?security=tls&sni=sni.example.com&type=quic&quicSecurity=aes-128-gcm&key=secret&headerType=none#VLESS-QUIC
+vmess://00112233-4455-6677-8899-aabbccddeeff@vmess.example.com:443?security=none&type=tcp&cipher=auto#VMESS-TCP
+vmess://00112233-4455-6677-8899-aabbccddeeff@vmess.example.com:443?security=tls&sni=sni.example.com&type=ws&host=host.example.com&path=%2Fvmess&cipher=auto#VMESS-WS
+vmess://00112233-4455-6677-8899-aabbccddeeff@vmess.example.com:443?security=tls&sni=sni.example.com&type=httpupgrade&host=host.example.com&path=%2Fupgrade&cipher=auto#VMESS-HTTPUPGRADE
+vmess://00112233-4455-6677-8899-aabbccddeeff@vmess.example.com:443?security=tls&sni=sni.example.com&type=grpc&serviceName=GunService&cipher=auto#VMESS-GRPC
+vmess://00112233-4455-6677-8899-aabbccddeeff@vmess.example.com:443?security=tls&sni=sni.example.com&type=h2&host=host.example.com&path=%2Fh2&cipher=auto#VMESS-H2
+vmess://00112233-4455-6677-8899-aabbccddeeff@vmess.example.com:443?security=tls&sni=sni.example.com&type=quic&quicSecurity=aes-128-gcm&key=secret&headerType=none&cipher=auto#VMESS-QUIC
+ss://YWVzLTI1Ni1nY206c2VjcmV0@ss.example.com:8388#SS-AEAD
+anytls://secret@anytls.example.com:443?sni=sni.example.com&allowInsecure=1#ANYTLS
+naive://user:pass@naive.example.com:443?security=tls&sni=edge.example.com#NAIVE-H2
+mierus://user:pass@mieru.example.com?profile=MIERU-TCP&multiplexing=MULTIPLEXING_LOW&port=30000-30002&protocol=TCP
+hysteria2://secret@hy2.example.com:443/?insecure=1&sni=sni.example.com#HY2
+tuic://00112233-4455-6677-8899-aabbccddeeff:secret@tuic.example.com:443#TUIC
+socks://user:pass@socks.example.com:1080#SOCKS5
+http://user:pass@http.example.com:8080#HTTP
+"#;
+    let mut output = Vec::new();
+
+    keli_cli::write_profile_check_report_from_subscription_config_text(
+        links,
+        ProbeOutputFormat::Json,
+        &mut output,
+    )
+    .expect("profile check");
+
+    let report: Value = serde_json::from_slice(&output).expect("json report");
+    assert_eq!(report["status"], "ok");
+    assert_eq!(report["source_format"], "share_links");
+    assert_eq!(report["supported_count"], 26);
+    assert_eq!(report["skipped_count"], 0);
+    assert_eq!(report["udp_supported_count"], 24);
+    assert_eq!(report["protocol_capability_count"], 11);
+
+    for protocol in ["Trojan", "Vless", "Vmess"] {
+        let capability = protocol_capability(&report, protocol);
+        assert_eq!(capability["udp_supported"], true);
+        assert_eq!(capability["tags"].as_array().expect("tags").len(), 6);
+    }
+    for protocol in ["Shadowsocks", "AnyTls", "Mieru", "Hy2", "Tuic", "Socks"] {
+        assert_eq!(
+            protocol_capability(&report, protocol)["udp_supported"],
+            true
+        );
+    }
+    for protocol in ["Naive", "Http"] {
+        assert_eq!(
+            protocol_capability(&report, protocol)["tcp_relay_supported"],
+            true
+        );
+        assert_eq!(
+            protocol_capability(&report, protocol)["udp_supported"],
+            false
+        );
+    }
+}
+
 fn protocol_capability<'a>(report: &'a Value, protocol: &str) -> &'a Value {
     report["protocol_capabilities"]
         .as_array()
