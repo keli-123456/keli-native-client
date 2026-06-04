@@ -352,6 +352,140 @@ proxies:
 }
 
 #[test]
+fn parses_trojan_httpupgrade_tls_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: TROJAN-HTTPUpgrade
+    type: trojan
+    server: trojan.example.com
+    port: 443
+    password: password
+    sni: sni.example.com
+    skip-cert-verify: true
+    network: httpupgrade
+    httpupgrade-opts:
+      path: /upgrade
+      host: host.example.com
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "TROJAN-HTTPUpgrade");
+    assert_eq!(profile.protocol, ProxyProtocol::Trojan);
+    assert_eq!(profile.endpoint, Endpoint::new("trojan.example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::HttpUpgrade {
+            path: "/upgrade".to_string(),
+            host: Some("host.example.com".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("sni.example.com".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(profile.credential, "password");
+    profile
+        .validate()
+        .expect("valid trojan httpupgrade profile");
+}
+
+#[test]
+fn parses_trojan_h2_tls_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: TROJAN-H2
+    type: trojan
+    server: trojan.example.com
+    port: 443
+    password: password
+    sni: sni.example.com
+    skip-cert-verify: true
+    network: h2
+    h2-opts:
+      path: /h2
+      host:
+        - host.example.com
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "TROJAN-H2");
+    assert_eq!(profile.protocol, ProxyProtocol::Trojan);
+    assert_eq!(profile.endpoint, Endpoint::new("trojan.example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::Http2 {
+            path: "/h2".to_string(),
+            host: Some("host.example.com".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("sni.example.com".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(profile.credential, "password");
+    profile.validate().expect("valid trojan h2 profile");
+}
+
+#[test]
+fn parses_trojan_quic_tls_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: TROJAN-QUIC
+    type: trojan
+    server: trojan.example.com
+    port: 443
+    password: password
+    sni: sni.example.com
+    skip-cert-verify: true
+    network: quic
+    quic-opts:
+      security: chacha20-poly1305
+      key: secret
+      header: srtp
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "TROJAN-QUIC");
+    assert_eq!(profile.protocol, ProxyProtocol::Trojan);
+    assert_eq!(profile.endpoint, Endpoint::new("trojan.example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::Quic {
+            security: Some("chacha20-poly1305".to_string()),
+            key: Some("secret".to_string()),
+            header_type: Some("srtp".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("sni.example.com".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(profile.credential, "password");
+    profile.validate().expect("valid trojan quic profile");
+}
+
+#[test]
 fn parses_vmess_grpc_tls_proxy_from_mihomo_yaml() {
     let yaml = r#"
 proxies:
@@ -469,6 +603,152 @@ proxies:
     assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
     assert_eq!(profile.cipher, Some("auto".to_string()));
     profile.validate().expect("valid vmess ws tls profile");
+}
+
+#[test]
+fn parses_vmess_httpupgrade_tls_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: VMess-HTTPUpgrade
+    type: vmess
+    server: vmess.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    alterId: 0
+    cipher: auto
+    tls: true
+    servername: edge.example.com
+    skip-cert-verify: true
+    network: httpupgrade
+    httpupgrade-opts:
+      path: /upgrade
+      host: host.example.com
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "VMess-HTTPUpgrade");
+    assert_eq!(profile.protocol, ProxyProtocol::Vmess);
+    assert_eq!(profile.endpoint, Endpoint::new("vmess.example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::HttpUpgrade {
+            path: "/upgrade".to_string(),
+            host: Some("host.example.com".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("edge.example.com".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    assert_eq!(profile.cipher, Some("auto".to_string()));
+    profile
+        .validate()
+        .expect("valid vmess httpupgrade tls profile");
+}
+
+#[test]
+fn parses_vmess_h2_tls_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: VMess-H2
+    type: vmess
+    server: vmess.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    alterId: 0
+    cipher: auto
+    tls: true
+    servername: edge.example.com
+    skip-cert-verify: true
+    network: h2
+    h2-opts:
+      path: /h2
+      host:
+        - host.example.com
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "VMess-H2");
+    assert_eq!(profile.protocol, ProxyProtocol::Vmess);
+    assert_eq!(profile.endpoint, Endpoint::new("vmess.example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::Http2 {
+            path: "/h2".to_string(),
+            host: Some("host.example.com".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("edge.example.com".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    assert_eq!(profile.cipher, Some("auto".to_string()));
+    profile.validate().expect("valid vmess h2 tls profile");
+}
+
+#[test]
+fn parses_vmess_quic_tls_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: VMess-QUIC
+    type: vmess
+    server: vmess.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    alterId: 0
+    cipher: auto
+    tls: true
+    servername: edge.example.com
+    skip-cert-verify: true
+    network: quic
+    quic-opts:
+      security: aes-128-gcm
+      key: secret
+      header: none
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "VMess-QUIC");
+    assert_eq!(profile.protocol, ProxyProtocol::Vmess);
+    assert_eq!(profile.endpoint, Endpoint::new("vmess.example.com", 443));
+    assert_eq!(
+        profile.transport,
+        TransportKind::Quic {
+            security: Some("aes-128-gcm".to_string()),
+            key: Some("secret".to_string()),
+            header_type: Some("none".to_string()),
+        }
+    );
+    assert_eq!(
+        profile.security,
+        SecurityKind::Tls {
+            sni: Some("edge.example.com".to_string()),
+            skip_verify: true,
+        }
+    );
+    assert_eq!(profile.credential, "00112233-4455-6677-8899-aabbccddeeff");
+    assert_eq!(profile.cipher, Some("auto".to_string()));
+    profile.validate().expect("valid vmess quic tls profile");
 }
 
 #[test]
