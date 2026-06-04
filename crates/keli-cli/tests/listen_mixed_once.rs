@@ -14,7 +14,9 @@ use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use hmac::{Hmac, Mac};
 use keli_cli::{run, CliCommand};
-use keli_net_core::{encode_socks5_udp_datagram, parse_socks5_udp_datagram, Socks5Address};
+use keli_net_core::{
+    encode_socks5_udp_datagram, parse_socks5_udp_datagram, websocket_accept_for_key, Socks5Address,
+};
 use rcgen::generate_simple_self_signed;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use sha2::{Digest, Sha256};
@@ -253,6 +255,28 @@ fn listen_mixed_once_uses_profile_config_for_vmess_http_connect() {
 }
 
 #[test]
+fn listen_mixed_once_uses_profile_config_for_trojan_ws_http_connect() {
+    let (trojan_port, trojan_thread) = spawn_trojan_ws_echo_server();
+    let profile_path = write_temp_trojan_ws_profile_config(trojan_port);
+
+    run_profile_http_connect_round_trip(&profile_path, "TROJAN-WS-READY");
+
+    trojan_thread.join().expect("trojan ws thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_vless_ws_http_connect() {
+    let (vless_port, vless_thread) = spawn_vless_ws_echo_server();
+    let profile_path = write_temp_vless_ws_profile_config(vless_port);
+
+    run_profile_http_connect_round_trip(&profile_path, "VLESS-WS-READY");
+
+    vless_thread.join().expect("vless ws thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
 fn listen_mixed_once_uses_profile_config_for_remote_socks5_http_connect() {
     let (socks_port, socks_thread) = spawn_socks5_tcp_proxy_echo_server();
     let profile_path = write_temp_socks5_profile_config(socks_port);
@@ -484,6 +508,39 @@ fn read_http_request(stream: &mut TcpStream) -> String {
     let mut request = Vec::new();
     read_until_header_end(stream, &mut request);
     String::from_utf8(request).expect("request utf8")
+}
+
+fn header_value(request: &str, header: &str) -> Option<String> {
+    request.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.eq_ignore_ascii_case(header)
+            .then(|| value.trim().to_string())
+    })
+}
+
+fn read_masked_client_frame(stream: &mut TcpStream) -> Vec<u8> {
+    let mut header = [0; 2];
+    stream.read_exact(&mut header).expect("read frame header");
+    assert_eq!(header[0], 0x82);
+    assert!(header[1] & 0x80 != 0);
+    let payload_len = match header[1] & 0x7f {
+        len @ 0..=125 => usize::from(len),
+        126 => {
+            let mut bytes = [0; 2];
+            stream.read_exact(&mut bytes).expect("read extended len");
+            usize::from(u16::from_be_bytes(bytes))
+        }
+        127 => panic!("test payload should not use 64-bit length"),
+        _ => unreachable!(),
+    };
+    let mut mask = [0; 4];
+    stream.read_exact(&mut mask).expect("read mask");
+    let mut payload = vec![0; payload_len];
+    stream.read_exact(&mut payload).expect("read payload");
+    for (index, byte) in payload.iter_mut().enumerate() {
+        *byte ^= mask[index % 4];
+    }
+    payload
 }
 
 fn free_local_addr() -> String {
@@ -734,6 +791,61 @@ fn write_temp_vmess_udp_profile_config(vmess_port: u16) -> String {
     path.to_string_lossy().into_owned()
 }
 
+fn write_temp_trojan_ws_profile_config(trojan_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-trojan-ws-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: TROJAN-WS-READY
+    type: trojan
+    server: 127.0.0.1
+    port: {trojan_port}
+    password: password
+    tls: false
+    network: ws
+    ws-opts:
+      path: /answer
+      headers:
+        Host: edge.example
+"#
+    );
+    fs::write(&path, content).expect("write trojan ws profile config");
+    path.to_string_lossy().into_owned()
+}
+
+fn write_temp_vless_ws_profile_config(vless_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-vless-ws-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: VLESS-WS-READY
+    type: vless
+    server: 127.0.0.1
+    port: {vless_port}
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    network: ws
+    ws-opts:
+      path: /vless
+      headers:
+        Host: edge.example
+"#
+    );
+    fs::write(&path, content).expect("write vless ws profile config");
+    path.to_string_lossy().into_owned()
+}
+
 fn spawn_shadowsocks_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind ss tcp server");
     let port = listener.local_addr().expect("ss tcp addr").port();
@@ -966,6 +1078,69 @@ fn spawn_vmess_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
         let payload = support::vmess::read_vmess_aes128_gcm_chunk(&mut stream, &request);
         assert_eq!(&payload, b"ping");
         support::vmess::write_vmess_aes128_gcm_response_chunk(&mut stream, &request, b"pong");
+    });
+    (port, handle)
+}
+
+fn spawn_trojan_ws_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind trojan ws server");
+    let port = listener.local_addr().expect("trojan ws addr").port();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept trojan ws server");
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /answer HTTP/1.1\r\n"));
+        assert!(request.contains("Host: edge.example\r\n"));
+        let key = header_value(&request, "Sec-WebSocket-Key").expect("client key");
+        let accept = websocket_accept_for_key(&key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .expect("write ws response");
+
+        let trojan_header = read_masked_client_frame(&mut stream);
+        assert_eq!(
+            &trojan_header[..],
+            b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x01\x03\x0bexample.com\x01\xbb\r\n"
+        );
+        let payload = read_masked_client_frame(&mut stream);
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"\x82\x04pong").expect("write pong frame");
+    });
+    (port, handle)
+}
+
+fn spawn_vless_ws_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vless ws server");
+    let port = listener.local_addr().expect("vless ws addr").port();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept vless ws server");
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /vless HTTP/1.1\r\n"));
+        assert!(request.contains("Host: edge.example\r\n"));
+        let key = header_value(&request, "Sec-WebSocket-Key").expect("client key");
+        let accept = websocket_accept_for_key(&key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .expect("write ws response");
+
+        let vless_header = read_masked_client_frame(&mut stream);
+        assert_eq!(
+            &vless_header[..],
+            &[
+                0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
+                0xdd, 0xee, 0xff, 0x00, 0x01, 0x01, 0xbb, 0x02, 0x0b, b'e', b'x', b'a', b'm', b'p',
+                b'l', b'e', b'.', b'c', b'o', b'm',
+            ]
+        );
+        stream
+            .write_all(b"\x82\x02\x00\x00")
+            .expect("write vless response header");
+        let payload = read_masked_client_frame(&mut stream);
+        assert_eq!(&payload, b"ping");
+        stream.write_all(b"\x82\x04pong").expect("write pong frame");
     });
     (port, handle)
 }

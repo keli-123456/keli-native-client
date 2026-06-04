@@ -129,9 +129,9 @@ impl OutboundProfile {
             (
                 ProxyProtocol::Trojan,
                 TransportKind::WebSocket { path, .. },
-                SecurityKind::Tls { .. },
+                SecurityKind::None | SecurityKind::Tls { .. },
             ) if path.starts_with('/') => Ok(()),
-            (ProxyProtocol::Trojan, TransportKind::WebSocket { .. }, SecurityKind::Tls { .. }) => {
+            (ProxyProtocol::Trojan, TransportKind::WebSocket { .. }, _) => {
                 Err(ProtocolValidationError::InvalidWebSocketPath)
             }
             (

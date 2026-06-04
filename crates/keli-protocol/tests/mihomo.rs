@@ -51,6 +51,43 @@ proxies:
 }
 
 #[test]
+fn parses_trojan_ws_plain_proxy_from_mihomo_yaml() {
+    let yaml = r#"
+proxies:
+  - name: TROJAN-WS-PLAIN
+    type: trojan
+    server: edge.example.com
+    port: 80
+    password: password
+    tls: false
+    network: ws
+    ws-opts:
+      path: /answer
+      headers:
+        Host: host.example.com
+"#;
+
+    let parsed = parse_mihomo_outbound_profiles(yaml).expect("parse subscription");
+
+    assert!(parsed.skipped.is_empty());
+    assert_eq!(parsed.profiles.len(), 1);
+    let profile = &parsed.profiles[0];
+    assert_eq!(profile.tag, "TROJAN-WS-PLAIN");
+    assert_eq!(profile.protocol, ProxyProtocol::Trojan);
+    assert_eq!(profile.endpoint, Endpoint::new("edge.example.com", 80));
+    assert_eq!(
+        profile.transport,
+        TransportKind::WebSocket {
+            path: "/answer".to_string(),
+            host: Some("host.example.com".to_string()),
+        }
+    );
+    assert_eq!(profile.security, SecurityKind::None);
+    assert_eq!(profile.credential, "password");
+    profile.validate().expect("valid plain trojan ws profile");
+}
+
+#[test]
 fn parses_vless_ws_tls_proxy_from_mihomo_yaml() {
     let yaml = r#"
 proxies:
