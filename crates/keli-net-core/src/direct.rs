@@ -1331,6 +1331,8 @@ impl OutboundRegistry {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vmess_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.vmess_tls_tcp_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vmess_ws_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vmess_httpupgrade_tags.get(tag) {
@@ -4134,6 +4136,18 @@ impl VmessTlsTcpOutbound {
             write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
         read_vmess_response_header_from_stream(&mut stream, &request)?;
         vmess_connection_from_stream(stream, request, self.security)
+    }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
+        send_vmess_udp_over_stream(stream, &self.uuid, self.security, target, payload, timeout)
     }
 }
 

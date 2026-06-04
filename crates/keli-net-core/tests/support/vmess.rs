@@ -72,10 +72,19 @@ pub fn read_vmess_aead_request(stream: &mut impl Read, uuid: &str) -> VmessReque
     let security = header[35] & 0x0f;
     let command = header[37];
     let target_port = u16::from_be_bytes([header[38], header[39]]);
-    assert_eq!(header[40], 0x02, "test only expects a domain target");
-    let domain_len = header[41] as usize;
-    let target_host =
-        String::from_utf8(header[42..42 + domain_len].to_vec()).expect("domain target");
+    let target_host = match header[40] {
+        0x01 => std::net::Ipv4Addr::new(header[41], header[42], header[43], header[44]).to_string(),
+        0x02 => {
+            let domain_len = header[41] as usize;
+            String::from_utf8(header[42..42 + domain_len].to_vec()).expect("domain target")
+        }
+        0x03 => {
+            let mut octets = [0; 16];
+            octets.copy_from_slice(&header[41..57]);
+            std::net::Ipv6Addr::from(octets).to_string()
+        }
+        atyp => panic!("unsupported VMess test target address type: {atyp}"),
+    };
 
     VmessRequestForTest {
         target_host,
