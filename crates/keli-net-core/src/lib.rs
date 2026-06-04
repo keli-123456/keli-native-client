@@ -66,7 +66,8 @@ pub use socks5::{
     Socks5Error, Socks5Handshake, Socks5ReplyCode, Socks5Request, Socks5UdpDatagram,
 };
 pub use tun::{
-    build_tun_dns_hijack_response, build_tun_dns_response_packet, build_tun_tcp_response_packet,
+    build_tun_dns_hijack_response, build_tun_dns_response_packet,
+    build_tun_tcp_reset_response_packet, build_tun_tcp_response_packet,
     build_tun_udp_response_packet, decide_tun_packet_route, parse_tun_packet_flow,
     parse_tun_tcp_segment, parse_tun_udp_payload, plan_tun_dns_hijack, plan_tun_packet_relay,
     process_tun_device_packet, process_tun_device_packet_with_udp_relay, process_tun_packet,
@@ -75,8 +76,8 @@ pub use tun::{
     TunDnsHijackPlan, TunDnsHijackResponse, TunIpVersion, TunPacketDevice, TunPacketError,
     TunPacketFlow, TunPacketLoopError, TunPacketLoopEvent, TunPacketLoopSummary,
     TunPacketProcessAction, TunPacketRelayAction, TunPacketRelayPlan, TunPacketRouteDecision,
-    TunTcpFlags, TunTcpSegment, TunTransportProtocol, TunUdpPayload, TunUdpRelay, TunUdpRelayError,
-    TunUdpRelayResponse,
+    TunTcpFlags, TunTcpResetResponse, TunTcpSegment, TunTransportProtocol, TunUdpPayload,
+    TunUdpRelay, TunUdpRelayError, TunUdpRelayResponse,
 };
 pub use websocket::{websocket_accept_for_key, OwnedWebSocketClientStream, WebSocketClientStream};
 

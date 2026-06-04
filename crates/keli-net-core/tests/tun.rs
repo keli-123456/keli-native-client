@@ -4,16 +4,17 @@ use std::time::Duration;
 
 use keli_net_core::{
     build_dns_error_response, build_dns_response, build_tun_dns_hijack_response,
-    build_tun_dns_response_packet, build_tun_tcp_response_packet, decide_tun_packet_route,
-    parse_tun_packet_flow, parse_tun_tcp_segment, parse_tun_udp_payload, plan_tun_dns_hijack,
-    plan_tun_packet_relay, process_tun_packet, relay_tun_direct_udp_packet, relay_tun_udp_packet,
-    run_tun_packet_loop, run_tun_packet_loop_summary, run_tun_packet_loop_with_udp_relay_summary,
-    DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver,
-    OutboundRegistry, OutboundTarget, RegistryTunUdpRelay, RouteAction, RouteDestination,
-    RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketDevice,
-    TunPacketError, TunPacketLoopEvent, TunPacketLoopSummary, TunPacketProcessAction,
-    TunPacketRelayAction, TunPacketRelayPlan, TunTcpFlags, TunTransportProtocol, TunUdpRelay,
-    TunUdpRelayError, UdpRelayResponse,
+    build_tun_dns_response_packet, build_tun_tcp_reset_response_packet,
+    build_tun_tcp_response_packet, decide_tun_packet_route, parse_tun_packet_flow,
+    parse_tun_tcp_segment, parse_tun_udp_payload, plan_tun_dns_hijack, plan_tun_packet_relay,
+    process_tun_packet, relay_tun_direct_udp_packet, relay_tun_udp_packet, run_tun_packet_loop,
+    run_tun_packet_loop_summary, run_tun_packet_loop_with_udp_relay_summary, DnsCache, DnsEngine,
+    DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, OutboundRegistry,
+    OutboundTarget, RegistryTunUdpRelay, RouteAction, RouteDestination, RouteEngine, RouteIpCidr,
+    RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketDevice, TunPacketError,
+    TunPacketLoopEvent, TunPacketLoopSummary, TunPacketProcessAction, TunPacketRelayAction,
+    TunPacketRelayPlan, TunTcpFlags, TunTransportProtocol, TunUdpRelay, TunUdpRelayError,
+    UdpRelayResponse,
 };
 
 #[test]
@@ -302,6 +303,98 @@ fn rejects_oversized_ipv4_tun_tcp_response_payload() {
             max_payload_len
         }
     );
+}
+
+#[test]
+fn builds_tun_tcp_reset_response_packet_with_ack_for_syn_payload_and_fin() {
+    let request = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 100, 0, 0x0003, 0x4000, &[], b"x"),
+    );
+    let request_segment = parse_tun_tcp_segment(&request).expect("parse request TCP segment");
+
+    let response_packet =
+        build_tun_tcp_reset_response_packet(&request_segment).expect("build TCP RST response");
+    let response = parse_tun_tcp_segment(&response_packet).expect("parse TCP RST response");
+
+    assert_eq!(response.flow.source_port, Some(443));
+    assert_eq!(response.flow.destination_port, Some(49152));
+    assert_eq!(response.sequence_number, 0);
+    assert_eq!(response.acknowledgment_number, 103);
+    assert_eq!(response.flags.bits(), 0x0014);
+    assert!(response.flags.rst());
+    assert!(response.flags.ack());
+    assert_eq!(response.window_size, 0);
+    assert!(response.payload.is_empty());
+}
+
+#[test]
+fn process_tun_packet_writes_tcp_reset_for_blocked_tcp_route() {
+    let mut routes = RouteEngine::new(RouteAction::Direct);
+    routes.add_rule(RouteRule {
+        name: "block-web".to_string(),
+        matcher: RouteMatcher::PortExact(443),
+        action: RouteAction::Block,
+    });
+    let packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+
+    let action =
+        process_tun_packet(&packet, &routes, true, &mut dns, 30).expect("process blocked TCP");
+
+    let TunPacketProcessAction::WriteTcpReset { response } = action else {
+        panic!("expected TCP reset write action");
+    };
+    assert_eq!(response.plan.relay_action, TunPacketRelayAction::Drop);
+    assert_eq!(
+        response.plan.route.matched_rule,
+        Some("block-web".to_string())
+    );
+    assert_eq!(response.sequence_number, 0);
+    assert_eq!(response.acknowledgment_number, 11);
+    let reset = parse_tun_tcp_segment(&response.packet).expect("parse reset packet");
+    assert_eq!(reset.flow.source_port, Some(443));
+    assert_eq!(reset.flow.destination_port, Some(49152));
+    assert!(reset.flags.rst());
+    assert!(reset.flags.ack());
+}
+
+#[test]
+fn process_tun_packet_drops_blocked_tcp_rst_without_reset_loop() {
+    let mut routes = RouteEngine::new(RouteAction::Direct);
+    routes.add_rule(RouteRule {
+        name: "block-web".to_string(),
+        matcher: RouteMatcher::PortExact(443),
+        action: RouteAction::Block,
+    });
+    let packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0004, 0x4000, &[], b""),
+    );
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+
+    let action =
+        process_tun_packet(&packet, &routes, true, &mut dns, 30).expect("process blocked TCP RST");
+
+    let TunPacketProcessAction::Relay(plan) = action else {
+        panic!("expected blocked RST to remain a drop plan");
+    };
+    assert_eq!(plan.relay_action, TunPacketRelayAction::Drop);
 }
 
 #[test]
@@ -860,6 +953,41 @@ fn tun_packet_loop_writes_dns_response_to_device() {
         .payload
         .windows(4)
         .any(|window| window == [203, 0, 113, 7]));
+}
+
+#[test]
+fn tun_packet_loop_writes_tcp_reset_for_blocked_tcp_to_device() {
+    let packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let mut routes = RouteEngine::new(RouteAction::Direct);
+    routes.add_rule(RouteRule {
+        name: "block-web".to_string(),
+        matcher: RouteMatcher::PortExact(443),
+        action: RouteAction::Block,
+    });
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut device = FakeTunPacketDevice::new(vec![packet]);
+
+    let summary = run_tun_packet_loop_summary(&mut device, &routes, true, &mut dns, 30, 1)
+        .expect("run TUN loop");
+
+    assert_eq!(summary.processed_packets(), 1);
+    assert_eq!(summary.tcp_resets_written, 1);
+    assert_eq!(summary.dropped_packets, 0);
+    assert_eq!(device.writes.len(), 1);
+    let reset = parse_tun_tcp_segment(&device.writes[0]).expect("parse written TCP reset");
+    assert_eq!(reset.flow.source_port, Some(443));
+    assert_eq!(reset.flow.destination_port, Some(49152));
+    assert_eq!(reset.acknowledgment_number, 11);
+    assert!(reset.flags.rst());
+    assert!(reset.flags.ack());
 }
 
 #[test]

@@ -203,6 +203,9 @@ The first implementation target is deliberately small:
    The TCP write side can also build swapped IPv4/IPv6 TCP response packets
    with checksums, providing concrete SYN-ACK, RST, and data packet bytes for
    the future TUN write path without claiming the TCP stream stack is complete.
+   Blocked TUN TCP flows now use that write path to emit RST+ACK packets
+   instead of silent drops, with loop summary counters that distinguish TCP
+   resets from DNS and UDP response writes.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

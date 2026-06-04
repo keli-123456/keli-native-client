@@ -110,6 +110,9 @@ instead of only source and destination ports.
 The TCP write side can also build swapped IPv4/IPv6 TCP response packets with
 checksums, providing the packet bytes future SYN-ACK, RST, and data paths need
 to write back to TUN.
+Blocked TUN TCP flows now use that write path to return RST+ACK packets instead
+of only recording a silent drop, and loop summaries count those TCP resets
+separately from DNS and UDP responses.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 

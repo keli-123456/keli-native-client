@@ -130,8 +130,17 @@ pub struct TunUdpRelayResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunTcpResetResponse {
+    pub plan: TunPacketRelayPlan,
+    pub sequence_number: u32,
+    pub acknowledgment_number: u32,
+    pub packet: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TunPacketProcessAction {
     WritePacket { response: TunDnsHijackResponse },
+    WriteTcpReset { response: TunTcpResetResponse },
     Relay(TunPacketRelayPlan),
 }
 
@@ -140,6 +149,7 @@ pub enum TunPacketLoopEvent {
     NoPacket,
     WrotePacket { response: TunDnsHijackResponse },
     WroteUdpRelayPacket { response: TunUdpRelayResponse },
+    WroteTcpResetPacket { response: TunTcpResetResponse },
     Relay(TunPacketRelayPlan),
     Drop(TunPacketRelayPlan),
     Unsupported(TunPacketRelayPlan),
@@ -152,6 +162,7 @@ pub struct TunPacketLoopSummary {
     pub idle_events: usize,
     pub dns_responses_written: usize,
     pub udp_relay_responses_written: usize,
+    pub tcp_resets_written: usize,
     pub relay_packets: usize,
     pub tcp_relay_plans: usize,
     pub udp_relay_plans: usize,
@@ -301,6 +312,9 @@ impl TunPacketLoopSummary {
             TunPacketLoopEvent::WroteUdpRelayPacket { .. } => {
                 self.udp_relay_responses_written += 1;
             }
+            TunPacketLoopEvent::WroteTcpResetPacket { .. } => {
+                self.tcp_resets_written += 1;
+            }
             TunPacketLoopEvent::Relay(plan) => {
                 self.relay_packets += 1;
                 match plan.relay_action {
@@ -335,6 +349,7 @@ impl TunPacketLoopSummary {
     pub fn processed_packets(&self) -> usize {
         self.dns_responses_written
             + self.udp_relay_responses_written
+            + self.tcp_resets_written
             + self.relay_packets
             + self.dropped_packets
             + self.unsupported_packets
@@ -791,6 +806,16 @@ pub fn process_tun_packet<R: DnsResolver>(
             response: build_tun_dns_hijack_response(packet, dns, dns_ttl_seconds)?,
         });
     }
+    if relay_plan.relay_action == TunPacketRelayAction::Drop
+        && relay_plan.route.flow.protocol == TunTransportProtocol::Tcp
+    {
+        let segment = parse_tun_tcp_segment(packet)?;
+        if !segment.flags.rst() {
+            return Ok(TunPacketProcessAction::WriteTcpReset {
+                response: build_tun_tcp_reset_response(relay_plan, &segment)?,
+            });
+        }
+    }
     Ok(TunPacketProcessAction::Relay(relay_plan))
 }
 
@@ -817,6 +842,12 @@ pub fn process_tun_device_packet<D: TunPacketDevice, R: DnsResolver>(
                 .write_packet(&response.packet)
                 .map_err(TunPacketLoopError::Write)?;
             Ok(TunPacketLoopEvent::WrotePacket { response })
+        }
+        TunPacketProcessAction::WriteTcpReset { response } => {
+            device
+                .write_packet(&response.packet)
+                .map_err(TunPacketLoopError::Write)?;
+            Ok(TunPacketLoopEvent::WroteTcpResetPacket { response })
         }
         TunPacketProcessAction::Relay(plan) => Ok(loop_event_for_relay_plan(plan)),
     }
@@ -851,6 +882,12 @@ where
                 .write_packet(&response.packet)
                 .map_err(TunPacketLoopError::Write)?;
             Ok(TunPacketLoopEvent::WrotePacket { response })
+        }
+        TunPacketProcessAction::WriteTcpReset { response } => {
+            device
+                .write_packet(&response.packet)
+                .map_err(TunPacketLoopError::Write)?;
+            Ok(TunPacketLoopEvent::WroteTcpResetPacket { response })
         }
         TunPacketProcessAction::Relay(plan) => {
             if matches!(
@@ -993,6 +1030,41 @@ pub fn relay_tun_udp_packet<U: TunUdpRelay>(
     })
 }
 
+pub fn build_tun_tcp_reset_response_packet(
+    segment: &TunTcpSegment<'_>,
+) -> Result<Vec<u8>, TunPacketError> {
+    build_tun_tcp_response_packet(
+        &segment.flow,
+        tcp_reset_sequence_number(segment),
+        tcp_reset_acknowledgment_number(segment),
+        TunTcpFlags::from_bits(0x0014),
+        0,
+        b"",
+    )
+}
+
+fn build_tun_tcp_reset_response(
+    plan: TunPacketRelayPlan,
+    segment: &TunTcpSegment<'_>,
+) -> Result<TunTcpResetResponse, TunPacketError> {
+    let sequence_number = tcp_reset_sequence_number(segment);
+    let acknowledgment_number = tcp_reset_acknowledgment_number(segment);
+    let packet = build_tun_tcp_response_packet(
+        &segment.flow,
+        sequence_number,
+        acknowledgment_number,
+        TunTcpFlags::from_bits(0x0014),
+        0,
+        b"",
+    )?;
+    Ok(TunTcpResetResponse {
+        plan,
+        sequence_number,
+        acknowledgment_number,
+        packet,
+    })
+}
+
 pub fn build_tun_udp_response_packet(
     flow: &TunPacketFlow,
     payload: &[u8],
@@ -1121,6 +1193,25 @@ pub fn build_tun_tcp_response_packet(
             destination_ip: flow.destination_ip,
         }),
     }
+}
+
+fn tcp_reset_sequence_number(segment: &TunTcpSegment<'_>) -> u32 {
+    if segment.flags.ack() {
+        segment.acknowledgment_number
+    } else {
+        0
+    }
+}
+
+fn tcp_reset_acknowledgment_number(segment: &TunTcpSegment<'_>) -> u32 {
+    let mut sequence_len = segment.payload.len() as u32;
+    if segment.flags.syn() {
+        sequence_len = sequence_len.wrapping_add(1);
+    }
+    if segment.flags.fin() {
+        sequence_len = sequence_len.wrapping_add(1);
+    }
+    segment.sequence_number.wrapping_add(sequence_len)
 }
 
 fn loop_event_for_relay_plan(plan: TunPacketRelayPlan) -> TunPacketLoopEvent {
