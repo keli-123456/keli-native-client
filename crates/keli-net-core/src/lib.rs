@@ -29,7 +29,10 @@ pub use direct::{
     VmessTlsGrpcOutbound, VmessTlsH2Outbound, VmessTlsHttpUpgradeOutbound, VmessTlsTcpOutbound,
     VmessTlsWsOutbound, VmessWsOutbound,
 };
-pub use dns::{DnsCache, DnsEngine, DnsError, DnsResolver, ResolvedAddress, SystemDnsResolver};
+pub use dns::{
+    DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy, DnsResolver, ResolvedAddress,
+    SystemDnsResolver,
+};
 pub use grpc::GrpcTcpStream;
 pub use http2::Http2TcpStream;
 pub use http_connect::{

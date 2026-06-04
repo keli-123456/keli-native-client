@@ -9,10 +9,23 @@ pub struct ResolvedAddress {
     pub port: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DnsLocalResolutionPolicy {
+    AllowSystem,
+    PreventPublicLeak,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DnsError {
-    ResolveFailed { host: String, detail: String },
+    ResolveFailed {
+        host: String,
+        detail: String,
+    },
     NoRecords(String),
+    LocalResolutionBlocked {
+        host: String,
+        policy: DnsLocalResolutionPolicy,
+    },
 }
 
 impl fmt::Display for DnsError {
@@ -20,6 +33,9 @@ impl fmt::Display for DnsError {
         match self {
             Self::ResolveFailed { host, detail } => write!(f, "failed to resolve {host}: {detail}"),
             Self::NoRecords(host) => write!(f, "DNS returned no records for {host}"),
+            Self::LocalResolutionBlocked { host, policy } => {
+                write!(f, "local DNS resolution for {host} blocked by {policy:?}")
+            }
         }
     }
 }
@@ -104,27 +120,49 @@ impl DnsCache {
 pub struct DnsEngine<R> {
     resolver: R,
     cache: DnsCache,
+    policy: DnsLocalResolutionPolicy,
 }
 
 impl<R: DnsResolver> DnsEngine<R> {
     pub fn new(resolver: R, cache: DnsCache) -> Self {
-        Self { resolver, cache }
+        Self::with_policy(resolver, cache, DnsLocalResolutionPolicy::AllowSystem)
+    }
+
+    pub fn with_policy(resolver: R, cache: DnsCache, policy: DnsLocalResolutionPolicy) -> Self {
+        Self {
+            resolver,
+            cache,
+            policy,
+        }
     }
 
     pub fn resolve(&mut self, host: &str, port: u16) -> Result<Vec<ResolvedAddress>, DnsError> {
+        let normalized_host = normalize_host(host);
         if let Ok(ip) = host.parse::<IpAddr>() {
             return Ok(vec![ResolvedAddress { ip, port }]);
         }
+        if self.policy == DnsLocalResolutionPolicy::PreventPublicLeak {
+            if normalized_host == "localhost" {
+                return Ok(vec![ResolvedAddress {
+                    ip: IpAddr::from([127, 0, 0, 1]),
+                    port,
+                }]);
+            }
+            return Err(DnsError::LocalResolutionBlocked {
+                host: normalized_host,
+                policy: self.policy,
+            });
+        }
 
         let now = Instant::now();
-        let ips = match self.cache.get(host, now) {
+        let ips = match self.cache.get(&normalized_host, now) {
             Some(ips) => ips,
             None => {
-                let ips = self.resolver.resolve(host)?;
+                let ips = self.resolver.resolve(&normalized_host)?;
                 if ips.is_empty() {
-                    return Err(DnsError::NoRecords(host.to_string()));
+                    return Err(DnsError::NoRecords(normalized_host));
                 }
-                self.cache.insert(host, ips.clone(), now);
+                self.cache.insert(&normalized_host, ips.clone(), now);
                 ips
             }
         };

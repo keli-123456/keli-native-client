@@ -6,6 +6,7 @@ fn doctor_report_lists_supported_outbounds() {
 
     assert!(output.contains("version="));
     assert!(output.contains("system_proxy_state="));
+    assert!(output.contains("dns_leak_prevention_policy_available=true"));
     assert!(output.contains(
         "supported_outbounds=direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic"
     ));
@@ -33,6 +34,10 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(report["inbound"]["port"], 7890);
     assert_eq!(report["dns_engine"]["resolver"], "system_resolver");
     assert_eq!(report["dns_engine"]["cache_ttl_seconds"], 60);
+    assert_eq!(
+        report["dns_engine"]["leak_prevention_policy_available"],
+        true
+    );
     assert_eq!(report["supported_outbounds"][0], "direct");
     assert_eq!(report["supported_udp_outbounds"][0], "direct");
     assert_eq!(report["sample_profile_valid"], true);

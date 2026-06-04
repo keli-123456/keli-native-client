@@ -96,7 +96,10 @@ The first implementation target is deliberately small:
    start/stop/restart, config hot reload, cancellation, and clear runtime
    status events.
 3. Client DNS and TUN: TUN device lifecycle, DNS hijack, leak prevention,
-   IPv4/IPv6 policy, route rules, and failure recovery.
+   IPv4/IPv6 policy, route rules, and failure recovery. The DNS engine has a
+   local-resolution policy hook so TUN/DNS-hijack paths can block accidental
+   public-domain system resolver leaks while still allowing IP literals and
+   localhost.
 4. Keli panel integration: subscription fetch/update, user state, node
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,
