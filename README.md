@@ -10,9 +10,32 @@ before any full desktop UI is built.
 - Rust workspace and crate boundaries.
 - Client business state machine.
 - Native proxy core routing and inbound/outbound abstractions.
-- Protocol profile validation for the first supported protocol set.
+- Protocol profile validation, subscription parsing, and local relay coverage for
+  the current Keli native protocol set.
 - Platform capability boundaries for Windows-first development.
 - CLI doctor command for smoke verification.
+
+## Protocol Matrix
+
+The client protocol set is aligned with `keli-core-rs/src/protocol.rs`.
+
+| Protocol | TCP relay | UDP relay | Covered transports |
+| --- | --- | --- | --- |
+| Trojan | yes | yes | TCP, WS, HTTPUpgrade, gRPC, H2, QUIC |
+| VLESS | yes | yes | TCP, WS, HTTPUpgrade, gRPC, H2, QUIC |
+| VMess | yes | yes | TCP, WS, HTTPUpgrade, gRPC, H2, QUIC |
+| Shadowsocks | yes | yes | AEAD TCP profile with UDP relay |
+| AnyTLS | yes | yes | TLS TCP, UoT UDP |
+| Naive | yes | no | H2 TCP, H3 QUIC |
+| Mieru | yes | yes | TCP profile, port-range subscription parsing |
+| HY2 | yes | yes | QUIC |
+| TUIC | yes | yes | QUIC |
+| SOCKS5 outbound | yes | yes | TCP, UDP associate |
+| HTTP outbound | yes | no | HTTP CONNECT |
+
+Both Mihomo YAML and share-link subscriptions have parser and registry matrix
+tests for these protocols. `keli-cli doctor` prints the authoritative runtime
+capability list.
 
 ## Design Principles
 
@@ -27,6 +50,6 @@ before any full desktop UI is built.
 
 ```powershell
 cargo fmt --check
-cargo test --workspace
+$env:CARGO_INCREMENTAL='0'; cargo test --workspace -j 1
 cargo run -p keli-cli -- doctor
 ```
