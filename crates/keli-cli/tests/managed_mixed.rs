@@ -502,6 +502,12 @@ fn managed_mixed_controller_status_reports_subscription_nodes() {
     assert_eq!(subscription.default_outbound.as_deref(), Some("SS-READY"));
     assert_eq!(subscription.selected_outbound, "SS-NEXT");
     assert_eq!(subscription.recommended_outbound, "SS-NEXT");
+    assert_eq!(subscription.health_summary.healthy_count, 0);
+    assert_eq!(subscription.health_summary.unhealthy_count, 0);
+    assert_eq!(subscription.health_summary.unknown_count, 2);
+    assert_eq!(subscription.health_summary.checked_count, 0);
+    assert_eq!(subscription.health_summary.last_checked_at, None);
+    assert!(subscription.health_summary.recommended_is_selected);
     assert_eq!(subscription.skipped[0].name, "WG-SKIPPED");
     assert_eq!(
         subscription.skipped[0].reason,
@@ -521,6 +527,9 @@ fn managed_mixed_controller_status_reports_subscription_nodes() {
     assert_eq!(subscription.selected_outbound, "SS-READY");
     assert_eq!(subscription.default_outbound.as_deref(), Some("SS-READY"));
     assert_eq!(subscription.recommended_outbound, "SS-READY");
+    assert_eq!(subscription.health_summary.unknown_count, 1);
+    assert_eq!(subscription.health_summary.checked_count, 0);
+    assert!(subscription.health_summary.recommended_is_selected);
 
     core.stop().expect("stop managed mixed controller");
     assert!(core.status().subscription.is_none());
@@ -551,6 +560,8 @@ fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
     assert_eq!(ready.checked_at, None);
     assert_eq!(next.state, ManagedNodeHealthState::Unknown);
     assert_eq!(next.checked_at, None);
+    assert_eq!(subscription.health_summary.unknown_count, 2);
+    assert_eq!(subscription.health_summary.checked_count, 0);
 
     core.record_node_health(ManagedNodeHealthStatus::healthy(
         "SS-READY",
@@ -580,6 +591,12 @@ fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
     assert_eq!(next.state, ManagedNodeHealthState::Unhealthy);
     assert!(next.checked_at.is_some());
     assert_eq!(subscription.recommended_outbound, "SS-READY");
+    assert_eq!(subscription.health_summary.healthy_count, 1);
+    assert_eq!(subscription.health_summary.unhealthy_count, 1);
+    assert_eq!(subscription.health_summary.unknown_count, 0);
+    assert_eq!(subscription.health_summary.checked_count, 2);
+    assert!(subscription.health_summary.last_checked_at.is_some());
+    assert!(subscription.health_summary.recommended_is_selected);
     assert_eq!(
         next.error_kind,
         Some(ConnectionErrorKind::TcpConnectTimeout)
@@ -660,6 +677,10 @@ fn managed_mixed_controller_recommends_fastest_healthy_node() {
 
     assert_eq!(subscription.selected_outbound, "SS-READY");
     assert_eq!(subscription.recommended_outbound, "SS-NEXT");
+    assert_eq!(subscription.health_summary.healthy_count, 2);
+    assert_eq!(subscription.health_summary.unhealthy_count, 0);
+    assert_eq!(subscription.health_summary.checked_count, 2);
+    assert!(!subscription.health_summary.recommended_is_selected);
 
     let status = core
         .record_node_health(ManagedNodeHealthStatus::unhealthy(
@@ -671,6 +692,9 @@ fn managed_mixed_controller_recommends_fastest_healthy_node() {
     let subscription = status.subscription.as_ref().expect("subscription status");
 
     assert_eq!(subscription.recommended_outbound, "SS-READY");
+    assert_eq!(subscription.health_summary.healthy_count, 1);
+    assert_eq!(subscription.health_summary.unhealthy_count, 1);
+    assert!(subscription.health_summary.recommended_is_selected);
 
     let status = core
         .record_node_health(ManagedNodeHealthStatus::unhealthy(
@@ -682,6 +706,9 @@ fn managed_mixed_controller_recommends_fastest_healthy_node() {
     let subscription = status.subscription.as_ref().expect("subscription status");
 
     assert_eq!(subscription.recommended_outbound, "SS-READY");
+    assert_eq!(subscription.health_summary.healthy_count, 0);
+    assert_eq!(subscription.health_summary.unhealthy_count, 2);
+    assert!(subscription.health_summary.recommended_is_selected);
 
     core.stop().expect("stop managed mixed controller");
 }
@@ -722,6 +749,7 @@ fn managed_mixed_controller_applies_recommended_outbound() {
 
     assert_eq!(subscription.selected_outbound, "SS-READY");
     assert_eq!(subscription.recommended_outbound, "SS-NEXT");
+    assert!(!subscription.health_summary.recommended_is_selected);
 
     let switched = core
         .apply_recommended_outbound()
@@ -732,6 +760,7 @@ fn managed_mixed_controller_applies_recommended_outbound() {
     assert_eq!(switched.generation, initial_generation + 1);
     assert_eq!(subscription.selected_outbound, "SS-NEXT");
     assert_eq!(subscription.recommended_outbound, "SS-NEXT");
+    assert!(subscription.health_summary.recommended_is_selected);
     assert_eq!(
         subscription
             .health_for("SS-READY")
@@ -799,6 +828,12 @@ fn managed_mixed_controller_probe_all_node_health_records_each_supported_node() 
     assert_eq!(next.state, ManagedNodeHealthState::Unhealthy);
     assert_eq!(next.tcp_available, Some(false));
     assert!(next.checked_at.is_some());
+    assert_eq!(subscription.health_summary.healthy_count, 1);
+    assert_eq!(subscription.health_summary.unhealthy_count, 1);
+    assert_eq!(subscription.health_summary.unknown_count, 0);
+    assert_eq!(subscription.health_summary.checked_count, 2);
+    assert!(subscription.health_summary.last_checked_at.is_some());
+    assert!(!subscription.health_summary.recommended_is_selected);
     assert!(next.error_kind.is_some());
     assert!(next.error_detail.is_some());
 
@@ -848,6 +883,10 @@ fn managed_mixed_controller_probe_all_node_health_can_apply_recommended_outbound
     assert!(ready.checked_at.is_some());
     assert_eq!(next.state, ManagedNodeHealthState::Unhealthy);
     assert!(next.checked_at.is_some());
+    assert_eq!(subscription.health_summary.healthy_count, 1);
+    assert_eq!(subscription.health_summary.unhealthy_count, 1);
+    assert_eq!(subscription.health_summary.checked_count, 2);
+    assert!(subscription.health_summary.recommended_is_selected);
 
     ss_thread.join().expect("ss tcp echo server");
     core.stop().expect("stop managed mixed controller");

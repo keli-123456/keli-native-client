@@ -251,6 +251,7 @@ pub struct ManagedSubscriptionStatus {
     pub default_outbound: Option<String>,
     pub selected_outbound: String,
     pub recommended_outbound: String,
+    pub health_summary: ManagedSubscriptionHealthSummary,
     pub node_health: Vec<ManagedNodeHealthStatus>,
 }
 
@@ -273,6 +274,11 @@ impl ManagedSubscriptionStatus {
         let selected_outbound = plan.selected_outbound().to_string();
         let recommended_outbound =
             recommend_managed_outbound_from_health(&node_health, &selected_outbound);
+        let health_summary = ManagedSubscriptionHealthSummary::from_node_health(
+            &node_health,
+            &selected_outbound,
+            &recommended_outbound,
+        );
         Self {
             usable: preflight.is_usable(),
             supported_tags,
@@ -280,6 +286,7 @@ impl ManagedSubscriptionStatus {
             default_outbound: preflight.default_outbound().map(str::to_string),
             selected_outbound,
             recommended_outbound,
+            health_summary,
             node_health,
         }
     }
@@ -294,6 +301,53 @@ impl ManagedSubscriptionStatus {
 
     pub fn health_for(&self, tag: &str) -> Option<&ManagedNodeHealthStatus> {
         self.node_health.iter().find(|health| health.tag == tag)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedSubscriptionHealthSummary {
+    pub healthy_count: usize,
+    pub unhealthy_count: usize,
+    pub unknown_count: usize,
+    pub checked_count: usize,
+    pub last_checked_at: Option<SystemTime>,
+    pub recommended_is_selected: bool,
+}
+
+impl ManagedSubscriptionHealthSummary {
+    fn from_node_health(
+        node_health: &[ManagedNodeHealthStatus],
+        selected_outbound: &str,
+        recommended_outbound: &str,
+    ) -> Self {
+        let mut healthy_count = 0;
+        let mut unhealthy_count = 0;
+        let mut unknown_count = 0;
+        let mut checked_count = 0;
+        let mut last_checked_at = None;
+
+        for health in node_health {
+            match health.state {
+                ManagedNodeHealthState::Healthy => healthy_count += 1,
+                ManagedNodeHealthState::Unhealthy => unhealthy_count += 1,
+                ManagedNodeHealthState::Unknown => unknown_count += 1,
+            }
+            if let Some(checked_at) = health.checked_at {
+                checked_count += 1;
+                last_checked_at = Some(
+                    last_checked_at.map_or(checked_at, |latest: SystemTime| latest.max(checked_at)),
+                );
+            }
+        }
+
+        Self {
+            healthy_count,
+            unhealthy_count,
+            unknown_count,
+            checked_count,
+            last_checked_at,
+            recommended_is_selected: selected_outbound == recommended_outbound,
+        }
     }
 }
 
