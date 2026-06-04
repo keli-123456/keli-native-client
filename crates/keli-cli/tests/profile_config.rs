@@ -181,6 +181,69 @@ proxies:
 }
 
 #[test]
+fn mihomo_profile_config_accepts_mieru_proxy() {
+    let yaml = r#"
+proxies:
+  - name: MIERU-READY
+    type: mieru
+    server: mieru.example.com
+    port-range: 30000-30002
+    username: user
+    password: pass
+    transport: TCP
+    udp: true
+"#;
+
+    let runtime = mixed_runtime_from_mihomo_config_text(
+        yaml,
+        Vec::new(),
+        relay_options(),
+        Some("MIERU-READY".to_string()),
+    )
+    .expect("runtime from Mieru mihomo config");
+
+    let decision = runtime
+        .routes
+        .decide(&RouteTarget::Domain("youtube.com".to_string()));
+    assert_eq!(
+        decision.action,
+        RouteAction::Outbound("MIERU-READY".to_string())
+    );
+}
+
+#[test]
+fn mihomo_profile_config_accepts_naive_proxy() {
+    let yaml = r#"
+proxies:
+  - name: NAIVE-READY
+    type: naive
+    server: naive.example.com
+    port: 443
+    username: user
+    password: pass
+    tls: true
+    sni: sni.example.com
+    skip-cert-verify: true
+"#;
+
+    let runtime = mixed_runtime_from_mihomo_config_text(
+        yaml,
+        Vec::new(),
+        relay_options(),
+        Some("NAIVE-READY".to_string()),
+    )
+    .expect("runtime from Naive mihomo config");
+
+    let decision = runtime
+        .routes
+        .decide(&RouteTarget::Domain("youtube.com".to_string()));
+    assert_eq!(
+        decision.action,
+        RouteAction::Outbound("NAIVE-READY".to_string())
+    );
+}
+
+#[test]
 fn subscription_profile_config_accepts_base64_share_links() {
     let base64_links = "dHJvamFuOi8vcGFzc3dvcmRAZXhhbXBsZS5jb206NDQzP3NlY3VyaXR5PXRscyZzbmk9ZWRnZS5leGFtcGxlJnR5cGU9d3MmaG9zdD1lZGdlLmV4YW1wbGUmcGF0aD0lMkZhbnN3ZXImYWxsb3dJbnNlY3VyZT0xI3Ryb2phbi13cw==";
 
@@ -268,6 +331,34 @@ fn subscription_profile_config_accepts_anytls_share_links() {
         decision.action,
         RouteAction::Outbound("anytls-ready".to_string())
     );
+}
+
+#[test]
+fn subscription_profile_config_accepts_remaining_share_link_protocols() {
+    for (links, expected_tag) in [
+        (
+            "naive://user:pass@example.com:443?security=tls&sni=edge.example.com&allowInsecure=1#naive-ready",
+            "naive-ready",
+        ),
+        (
+            "mierus://user:pass@example.com?profile=mieru-ready&multiplexing=MULTIPLEXING_LOW&port=30000-30002&protocol=TCP",
+            "mieru-ready",
+        ),
+        ("socks://user:pass@example.com:1080#socks-ready", "socks-ready"),
+        ("http://user:pass@example.com:8080#http-ready", "http-ready"),
+    ] {
+        let runtime =
+            mixed_runtime_from_subscription_config_text(links, Vec::new(), relay_options(), None)
+                .expect("runtime from share config");
+
+        let decision = runtime
+            .routes
+            .decide(&RouteTarget::Domain("youtube.com".to_string()));
+        assert_eq!(
+            decision.action,
+            RouteAction::Outbound(expected_tag.to_string())
+        );
+    }
 }
 
 fn relay_options() -> RelayOptions {
