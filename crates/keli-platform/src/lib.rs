@@ -199,6 +199,7 @@ impl TunDeviceConfig {
 pub struct TunDeviceSnapshot {
     pub supported: bool,
     pub lifecycle_available: bool,
+    pub packet_io_available: bool,
     pub running: bool,
     pub interface_name: Option<String>,
     pub address_cidr: Option<String>,
@@ -211,6 +212,7 @@ impl TunDeviceSnapshot {
         Self {
             supported: false,
             lifecycle_available: false,
+            packet_io_available: false,
             running: false,
             interface_name: None,
             address_cidr: None,
@@ -223,6 +225,7 @@ impl TunDeviceSnapshot {
         Self {
             supported: true,
             lifecycle_available: false,
+            packet_io_available: false,
             running: false,
             interface_name: None,
             address_cidr: None,
@@ -235,6 +238,7 @@ impl TunDeviceSnapshot {
         Self {
             supported: true,
             lifecycle_available: true,
+            packet_io_available: true,
             running: true,
             interface_name: Some(config.interface_name.clone()),
             address_cidr: Some(config.address_cidr.clone()),
@@ -248,6 +252,7 @@ impl TunDeviceSnapshot {
 pub struct TunDeviceStatus {
     pub supported: bool,
     pub lifecycle_available: bool,
+    pub packet_io_available: bool,
     pub running: bool,
     pub interface_name: Option<String>,
     pub address_cidr: Option<String>,
@@ -272,6 +277,7 @@ impl TunDeviceStatus {
         Self {
             supported: snapshot.supported,
             lifecycle_available: snapshot.lifecycle_available,
+            packet_io_available: snapshot.packet_io_available,
             running: snapshot.running,
             interface_name: snapshot.interface_name,
             address_cidr: snapshot.address_cidr,
@@ -389,8 +395,24 @@ pub trait TunDeviceController {
     fn stop(&self) -> Result<TunDeviceSnapshot, TunDeviceError>;
 }
 
+pub trait TunPacketIo {
+    fn read_packet(&mut self) -> Result<Option<Vec<u8>>, TunDeviceError>;
+    fn write_packet(&mut self, packet: &[u8]) -> Result<(), TunDeviceError>;
+}
+
+pub trait TunPacketIoController: TunDeviceController {
+    type PacketIo: TunPacketIo;
+
+    fn open_packet_io(&self, config: &TunDeviceConfig) -> Result<Self::PacketIo, TunDeviceError>;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeTunDeviceController {
+    platform: PlatformKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeTunPacketIo {
     platform: PlatformKind,
 }
 
@@ -409,6 +431,30 @@ impl NativeTunDeviceController {
 impl Default for NativeTunDeviceController {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl TunPacketIo for NativeTunPacketIo {
+    fn read_packet(&mut self) -> Result<Option<Vec<u8>>, TunDeviceError> {
+        Err(TunDeviceError::LifecycleUnavailable(self.platform.clone()))
+    }
+
+    fn write_packet(&mut self, _packet: &[u8]) -> Result<(), TunDeviceError> {
+        Err(TunDeviceError::LifecycleUnavailable(self.platform.clone()))
+    }
+}
+
+impl TunPacketIoController for NativeTunDeviceController {
+    type PacketIo = NativeTunPacketIo;
+
+    fn open_packet_io(&self, config: &TunDeviceConfig) -> Result<Self::PacketIo, TunDeviceError> {
+        config.validate()?;
+        match self.platform {
+            PlatformKind::Windows | PlatformKind::Android => {
+                Err(TunDeviceError::LifecycleUnavailable(self.platform.clone()))
+            }
+            ref platform => Err(TunDeviceError::UnsupportedPlatform(platform.clone())),
+        }
     }
 }
 
@@ -955,7 +1001,16 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
 
         assert!(snapshot.supported);
         assert!(!snapshot.lifecycle_available);
+        assert!(!snapshot.packet_io_available);
         assert!(!snapshot.running);
+        assert_eq!(
+            windows
+                .open_packet_io(
+                    &TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500).expect("valid config")
+                )
+                .expect_err("native packet I/O is not wired yet"),
+            TunDeviceError::LifecycleUnavailable(PlatformKind::Windows)
+        );
         assert_eq!(
             windows
                 .start(
@@ -981,6 +1036,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
 
         assert!(snapshot.supported);
         assert!(snapshot.lifecycle_available);
+        assert!(snapshot.packet_io_available);
         assert!(snapshot.running);
         assert_eq!(snapshot.interface_name.as_deref(), Some("keli-tun0"));
         assert_eq!(snapshot.address_cidr.as_deref(), Some("fd00::1/64"));
@@ -1003,6 +1059,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         assert!(!preflight.ready);
         assert!(preflight.status.supported);
         assert!(!preflight.status.lifecycle_available);
+        assert!(!preflight.status.packet_io_available);
         assert_eq!(
             preflight.reason.as_deref(),
             Some("TUN lifecycle backend is unavailable")
@@ -1018,6 +1075,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
             snapshot: Ok(TunDeviceSnapshot {
                 supported: true,
                 lifecycle_available: true,
+                packet_io_available: true,
                 running: false,
                 interface_name: None,
                 address_cidr: None,

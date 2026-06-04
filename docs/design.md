@@ -165,6 +165,9 @@ The first implementation target is deliberately small:
    errors.
    Loop events can also be summarized into diagnostic counters for processed,
    written, relayed, dropped, unsupported, idle, and packet-error outcomes.
+   The platform TUN boundary distinguishes lifecycle availability from packet
+   I/O availability, with a CLI adapter that can feed platform packet I/O into
+   the net-core TUN packet loop once a native backend exists.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

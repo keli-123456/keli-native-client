@@ -27,13 +27,13 @@ use keli_net_core::{
     DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy,
     DnsQuestionType, LocalInbound, OutboundConnection, OutboundRegistry, OutboundTarget,
     RelayOptions, RouteAction, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, Socks5Address,
-    Socks5Command, Socks5ReplyCode, SystemDnsResolver,
+    Socks5Command, Socks5ReplyCode, SystemDnsResolver, TunPacketDevice,
 };
 use keli_platform::{
     NativeSystemProxyController, NativeTunDeviceController, PlatformCapabilities,
     SystemProxyConfig, SystemProxyController, SystemProxySnapshot, SystemProxyStatus,
     TunDeviceConfig, TunDeviceController, TunDevicePreflight, TunDeviceReadiness,
-    TunDeviceSnapshot, TunDeviceStatus,
+    TunDeviceSnapshot, TunDeviceStatus, TunPacketIo,
 };
 use keli_protocol::{
     detect_subscription_input_format, parse_mihomo_outbound_profiles,
@@ -303,6 +303,33 @@ pub struct ManagedTunDeviceGuard<'a, C: TunDeviceController + ?Sized> {
     owns_device: bool,
 }
 
+#[derive(Debug)]
+pub struct PlatformTunPacketDevice<I: TunPacketIo> {
+    io: I,
+}
+
+impl<I: TunPacketIo> PlatformTunPacketDevice<I> {
+    pub fn new(io: I) -> Self {
+        Self { io }
+    }
+
+    pub fn into_inner(self) -> I {
+        self.io
+    }
+}
+
+impl<I: TunPacketIo> TunPacketDevice for PlatformTunPacketDevice<I> {
+    fn read_packet(&mut self) -> Result<Option<Vec<u8>>, String> {
+        self.io.read_packet().map_err(|error| error.to_string())
+    }
+
+    fn write_packet(&mut self, packet: &[u8]) -> Result<(), String> {
+        self.io
+            .write_packet(packet)
+            .map_err(|error| error.to_string())
+    }
+}
+
 impl<'a, C: TunDeviceController + ?Sized> ManagedTunDeviceGuard<'a, C> {
     pub fn config(&self) -> &TunDeviceConfig {
         &self.config
@@ -347,6 +374,7 @@ pub fn apply_tun_device_for_config<'a, C: TunDeviceController + ?Sized>(
                 snapshot: TunDeviceSnapshot {
                     supported: preflight.status.supported,
                     lifecycle_available: preflight.status.lifecycle_available,
+                    packet_io_available: preflight.status.packet_io_available,
                     running: preflight.status.running,
                     interface_name: preflight.status.interface_name,
                     address_cidr: preflight.status.address_cidr,
@@ -2207,9 +2235,10 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     writeln!(writer, "tun={}", report.tun)?;
     writeln!(
         writer,
-        "tun_device_supported={} lifecycle_available={} state={} interface={} address={} mtu={} dns_hijack={} error={}",
+        "tun_device_supported={} lifecycle_available={} packet_io_available={} state={} interface={} address={} mtu={} dns_hijack={} error={}",
         report.tun_device.supported,
         report.tun_device.lifecycle_available,
+        report.tun_device.packet_io_available,
         tun_device_state(&report.tun_device),
         report.tun_device.interface_name.as_deref().unwrap_or("-"),
         report.tun_device.address_cidr.as_deref().unwrap_or("-"),
@@ -2311,6 +2340,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         "tun_device": {
             "supported": report.tun_device.supported,
             "lifecycle_available": report.tun_device.lifecycle_available,
+            "packet_io_available": report.tun_device.packet_io_available,
             "running": report.tun_device.running,
             "interface_name": report.tun_device.interface_name.as_deref(),
             "address_cidr": report.tun_device.address_cidr.as_deref(),
@@ -2378,9 +2408,10 @@ fn write_tun_preflight_text_report(
     )?;
     writeln!(
         writer,
-        "device supported={} lifecycle_available={} state={} interface={} address={} mtu={} dns_hijack={} error={}",
+        "device supported={} lifecycle_available={} packet_io_available={} state={} interface={} address={} mtu={} dns_hijack={} error={}",
         preflight.status.supported,
         preflight.status.lifecycle_available,
+        preflight.status.packet_io_available,
         tun_device_state(&preflight.status),
         preflight.status.interface_name.as_deref().unwrap_or("-"),
         preflight.status.address_cidr.as_deref().unwrap_or("-"),
@@ -2425,6 +2456,7 @@ fn tun_preflight_json_value(preflight: &TunDevicePreflight) -> serde_json::Value
         "device": {
             "supported": preflight.status.supported,
             "lifecycle_available": preflight.status.lifecycle_available,
+            "packet_io_available": preflight.status.packet_io_available,
             "running": preflight.status.running,
             "state": tun_device_state(&preflight.status),
             "interface_name": preflight.status.interface_name.as_deref(),

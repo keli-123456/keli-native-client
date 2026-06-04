@@ -71,6 +71,9 @@ relay/drop/unsupported events, and continue processing after packet parse
 errors.
 Those loop events can be summarized into diagnostic counters for processed,
 written, relayed, dropped, unsupported, idle, and packet-error outcomes.
+The platform TUN boundary now also separates lifecycle availability from packet
+I/O availability, and the CLI has an adapter that can feed platform packet I/O
+into the net-core TUN packet loop.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 

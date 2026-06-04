@@ -8,6 +8,7 @@ fn doctor_report_lists_supported_outbounds() {
     assert!(output.contains("system_proxy_state="));
     assert!(output.contains("tun_device_supported="));
     assert!(output.contains("lifecycle_available="));
+    assert!(output.contains("packet_io_available="));
     assert!(output.contains("dns_leak_prevention_policy_available=true"));
     assert!(output.contains("dns_address_family_policy_available=true"));
     assert!(output.contains("dns_default_local_resolution_policy=allow-system"));
@@ -43,6 +44,7 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(report["tun"], true);
     assert_eq!(report["tun_device"]["supported"], true);
     assert_eq!(report["tun_device"]["lifecycle_available"], false);
+    assert_eq!(report["tun_device"]["packet_io_available"], false);
     assert_eq!(report["tun_device"]["running"], false);
     assert!(report["tun_device"]["interface_name"].is_null());
     assert_eq!(report["inbound"]["kind"], "mixed");

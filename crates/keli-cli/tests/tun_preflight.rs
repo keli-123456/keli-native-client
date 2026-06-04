@@ -1,10 +1,14 @@
 use std::cell::RefCell;
+use std::collections::VecDeque;
 
 use keli_cli::{
     apply_tun_device_for_config, run_with_optional_tun_device,
-    write_tun_preflight_report_with_controller, ProbeOutputFormat,
+    write_tun_preflight_report_with_controller, PlatformTunPacketDevice, ProbeOutputFormat,
 };
-use keli_platform::{TunDeviceConfig, TunDeviceController, TunDeviceError, TunDeviceSnapshot};
+use keli_net_core::TunPacketDevice;
+use keli_platform::{
+    TunDeviceConfig, TunDeviceController, TunDeviceError, TunDeviceSnapshot, TunPacketIo,
+};
 
 #[derive(Debug)]
 struct FakeTunDeviceController {
@@ -61,6 +65,7 @@ fn tun_preflight_text_reports_lifecycle_unavailable() {
     let controller = FakeTunDeviceController::new(TunDeviceSnapshot {
         supported: true,
         lifecycle_available: false,
+        packet_io_available: false,
         running: false,
         interface_name: None,
         address_cidr: None,
@@ -84,7 +89,9 @@ fn tun_preflight_text_reports_lifecycle_unavailable() {
     assert!(
         output.contains("config interface=keli-tun0 address=10.7.0.1/24 mtu=1500 dns_hijack=true")
     );
-    assert!(output.contains("device supported=true lifecycle_available=false state=stopped"));
+    assert!(output.contains(
+        "device supported=true lifecycle_available=false packet_io_available=false state=stopped"
+    ));
 }
 
 #[test]
@@ -125,6 +132,7 @@ fn managed_tun_guard_starts_and_stops_owned_device() {
     let stopped_snapshot = TunDeviceSnapshot {
         supported: true,
         lifecycle_available: true,
+        packet_io_available: true,
         running: false,
         interface_name: None,
         address_cidr: None,
@@ -190,6 +198,7 @@ fn managed_tun_guard_rejects_mismatched_start_snapshot() {
     let controller = FakeTunDeviceController::new(TunDeviceSnapshot {
         supported: true,
         lifecycle_available: true,
+        packet_io_available: true,
         running: false,
         interface_name: None,
         address_cidr: None,
@@ -212,6 +221,7 @@ fn optional_tun_wrapper_stops_owned_device_after_success() {
     let controller = FakeTunDeviceController::new(TunDeviceSnapshot {
         supported: true,
         lifecycle_available: true,
+        packet_io_available: true,
         running: false,
         interface_name: None,
         address_cidr: None,
@@ -222,6 +232,7 @@ fn optional_tun_wrapper_stops_owned_device_after_success() {
     .with_stop_result(TunDeviceSnapshot {
         supported: true,
         lifecycle_available: true,
+        packet_io_available: true,
         running: false,
         interface_name: None,
         address_cidr: None,
@@ -241,6 +252,7 @@ fn optional_tun_wrapper_stops_owned_device_after_run_failure() {
     let controller = FakeTunDeviceController::new(TunDeviceSnapshot {
         supported: true,
         lifecycle_available: true,
+        packet_io_available: true,
         running: false,
         interface_name: None,
         address_cidr: None,
@@ -251,6 +263,7 @@ fn optional_tun_wrapper_stops_owned_device_after_run_failure() {
     .with_stop_result(TunDeviceSnapshot {
         supported: true,
         lifecycle_available: true,
+        packet_io_available: true,
         running: false,
         interface_name: None,
         address_cidr: None,
@@ -266,4 +279,40 @@ fn optional_tun_wrapper_stops_owned_device_after_run_failure() {
     assert_eq!(error, "mixed listener failed");
     assert_eq!(controller.starts.borrow().len(), 1);
     assert_eq!(*controller.stops.borrow(), 1);
+}
+
+#[test]
+fn platform_tun_packet_device_adapts_packet_io_to_net_core_device() {
+    let fake_io = FakeTunPacketIo {
+        reads: VecDeque::from(vec![vec![1, 2, 3]]),
+        writes: Vec::new(),
+    };
+    let mut device = PlatformTunPacketDevice::new(fake_io);
+
+    assert_eq!(
+        device.read_packet().expect("read packet"),
+        Some(vec![1, 2, 3])
+    );
+    assert_eq!(device.read_packet().expect("read idle"), None);
+    device.write_packet(&[4, 5, 6]).expect("write packet");
+
+    let fake_io = device.into_inner();
+    assert_eq!(fake_io.writes, vec![vec![4, 5, 6]]);
+}
+
+#[derive(Debug)]
+struct FakeTunPacketIo {
+    reads: VecDeque<Vec<u8>>,
+    writes: Vec<Vec<u8>>,
+}
+
+impl TunPacketIo for FakeTunPacketIo {
+    fn read_packet(&mut self) -> Result<Option<Vec<u8>>, TunDeviceError> {
+        Ok(self.reads.pop_front())
+    }
+
+    fn write_packet(&mut self, packet: &[u8]) -> Result<(), TunDeviceError> {
+        self.writes.push(packet.to_vec());
+        Ok(())
+    }
 }

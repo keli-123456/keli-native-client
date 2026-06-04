@@ -90,6 +90,10 @@ proxies:
         report["tun_preflight"]["device"]["lifecycle_available"],
         false
     );
+    assert_eq!(
+        report["tun_preflight"]["device"]["packet_io_available"],
+        false
+    );
     assert_eq!(report["profile"]["status"], "ok");
     assert_eq!(report["profile"]["source_format"], "mihomo_yaml");
     assert_eq!(report["profile"]["supported_count"], 2);
