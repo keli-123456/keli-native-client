@@ -1,9 +1,9 @@
 use std::net::IpAddr;
 
 use keli_net_core::{
-    decide_tun_packet_route, parse_tun_packet_flow, RouteAction, RouteDestination, RouteEngine,
-    RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketError,
-    TunTransportProtocol,
+    decide_tun_packet_route, parse_tun_packet_flow, plan_tun_packet_relay, OutboundTarget,
+    RouteAction, RouteDestination, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, RouteTarget,
+    TunIpVersion, TunPacketError, TunPacketRelayAction, TunTransportProtocol,
 };
 
 #[test]
@@ -170,6 +170,101 @@ fn tun_port_rule_uses_destination_port() {
 
     assert_eq!(decision.action, RouteAction::Outbound("proxy".to_string()));
     assert_eq!(decision.matched_rule, Some("proxy-https".to_string()));
+}
+
+#[test]
+fn tun_direct_udp_route_builds_direct_udp_relay_plan() {
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "1.1.1.1",
+        &[0xd4, 0x31, 0x01, 0xbb, 0, 8, 0, 0],
+    );
+
+    let plan = plan_tun_packet_relay(&packet, &routes, false).expect("plan TUN relay");
+
+    assert_eq!(
+        plan.relay_action,
+        TunPacketRelayAction::DirectUdp {
+            target: OutboundTarget::new("1.1.1.1", 443)
+        }
+    );
+}
+
+#[test]
+fn tun_outbound_tcp_route_builds_tagged_tcp_relay_plan() {
+    let mut routes = RouteEngine::new(RouteAction::Direct);
+    routes.add_rule(RouteRule {
+        name: "proxy-https".to_string(),
+        matcher: RouteMatcher::PortExact(443),
+        action: RouteAction::Outbound("proxy".to_string()),
+    });
+    let packet = ipv4_packet(6, "10.7.0.2", "93.184.216.34", &[0xd4, 0x31, 0x01, 0xbb]);
+
+    let plan = plan_tun_packet_relay(&packet, &routes, false).expect("plan TUN relay");
+
+    assert_eq!(
+        plan.relay_action,
+        TunPacketRelayAction::OutboundTcp {
+            tag: "proxy".to_string(),
+            target: OutboundTarget::new("93.184.216.34", 443)
+        }
+    );
+    assert_eq!(plan.route.matched_rule, Some("proxy-https".to_string()));
+}
+
+#[test]
+fn tun_block_route_builds_drop_plan() {
+    let mut routes = RouteEngine::new(RouteAction::Direct);
+    routes.add_rule(RouteRule {
+        name: "block-lan".to_string(),
+        matcher: RouteMatcher::IpCidr(
+            RouteIpCidr::new("10.0.0.0".parse().expect("valid IP"), 8).expect("valid CIDR"),
+        ),
+        action: RouteAction::Block,
+    });
+    let packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "10.1.2.3",
+        &[0xd4, 0x31, 0x01, 0xbb, 0, 8, 0, 0],
+    );
+
+    let plan = plan_tun_packet_relay(&packet, &routes, false).expect("plan TUN relay");
+
+    assert_eq!(plan.relay_action, TunPacketRelayAction::Drop);
+}
+
+#[test]
+fn tun_dns_hijack_route_builds_hijack_plan() {
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "8.8.8.8",
+        &[0xd4, 0x31, 0x00, 0x35, 0, 8, 0, 0],
+    );
+
+    let plan = plan_tun_packet_relay(&packet, &routes, true).expect("plan TUN relay");
+
+    assert_eq!(plan.relay_action, TunPacketRelayAction::HijackDns);
+    assert!(plan.route.dns_hijacked);
+}
+
+#[test]
+fn tun_icmp_route_builds_unsupported_transport_plan() {
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let packet = ipv4_packet(1, "10.7.0.2", "10.7.0.1", &[8, 0, 0, 0]);
+
+    let plan = plan_tun_packet_relay(&packet, &routes, false).expect("plan TUN relay");
+
+    assert_eq!(
+        plan.relay_action,
+        TunPacketRelayAction::UnsupportedTransport {
+            protocol: TunTransportProtocol::Icmp
+        }
+    );
 }
 
 fn ipv4_packet(protocol: u8, source: &str, destination: &str, payload: &[u8]) -> Vec<u8> {

@@ -1,7 +1,7 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::{error::Error, fmt};
 
-use crate::{RouteAction, RouteDestination, RouteEngine, RouteTarget};
+use crate::{OutboundTarget, RouteAction, RouteDestination, RouteEngine, RouteTarget};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TunIpVersion {
@@ -58,6 +58,23 @@ pub struct TunPacketRouteDecision {
     pub dns_hijacked: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TunPacketRelayAction {
+    Drop,
+    HijackDns,
+    DirectTcp { target: OutboundTarget },
+    DirectUdp { target: OutboundTarget },
+    OutboundTcp { tag: String, target: OutboundTarget },
+    OutboundUdp { tag: String, target: OutboundTarget },
+    UnsupportedTransport { protocol: TunTransportProtocol },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunPacketRelayPlan {
+    pub route: TunPacketRouteDecision,
+    pub relay_action: TunPacketRelayAction,
+}
+
 impl TunPacketFlow {
     pub fn route_destination(&self) -> RouteDestination {
         RouteDestination::new(
@@ -74,6 +91,11 @@ impl TunPacketFlow {
     pub fn destination_socket_addr(&self) -> Option<SocketAddr> {
         self.destination_port
             .map(|port| SocketAddr::new(self.destination_ip, port))
+    }
+
+    pub fn destination_outbound_target(&self) -> Option<OutboundTarget> {
+        self.destination_port
+            .map(|port| OutboundTarget::new(self.destination_ip.to_string(), port))
     }
 
     pub fn is_dns_hijack_candidate(&self) -> bool {
@@ -188,6 +210,42 @@ pub fn decide_tun_packet_route(
         matched_rule: decision.matched_rule,
         dns_hijacked: false,
     })
+}
+
+pub fn plan_tun_packet_relay(
+    packet: &[u8],
+    routes: &RouteEngine,
+    dns_hijack_enabled: bool,
+) -> Result<TunPacketRelayPlan, TunPacketError> {
+    let route = decide_tun_packet_route(packet, routes, dns_hijack_enabled)?;
+    let relay_action = match route.action.clone() {
+        RouteAction::Block => TunPacketRelayAction::Drop,
+        RouteAction::HijackDns => TunPacketRelayAction::HijackDns,
+        RouteAction::Direct => tun_relay_action_for_transport(&route.flow, None),
+        RouteAction::Outbound(tag) => tun_relay_action_for_transport(&route.flow, Some(tag)),
+    };
+    Ok(TunPacketRelayPlan {
+        route,
+        relay_action,
+    })
+}
+
+fn tun_relay_action_for_transport(
+    flow: &TunPacketFlow,
+    outbound_tag: Option<String>,
+) -> TunPacketRelayAction {
+    let Some(target) = flow.destination_outbound_target() else {
+        return TunPacketRelayAction::UnsupportedTransport {
+            protocol: flow.protocol,
+        };
+    };
+    match (flow.protocol, outbound_tag) {
+        (TunTransportProtocol::Tcp, Some(tag)) => TunPacketRelayAction::OutboundTcp { tag, target },
+        (TunTransportProtocol::Udp, Some(tag)) => TunPacketRelayAction::OutboundUdp { tag, target },
+        (TunTransportProtocol::Tcp, None) => TunPacketRelayAction::DirectTcp { target },
+        (TunTransportProtocol::Udp, None) => TunPacketRelayAction::DirectUdp { target },
+        (protocol, _) => TunPacketRelayAction::UnsupportedTransport { protocol },
+    }
 }
 
 fn parse_ipv4_packet_flow(packet: &[u8]) -> Result<TunPacketFlow, TunPacketError> {

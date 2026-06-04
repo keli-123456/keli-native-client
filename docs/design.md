@@ -139,6 +139,9 @@ The first implementation target is deliberately small:
    Parsed TUN packets can now be evaluated against the same route engine, with
    optional UDP/53 DNS-hijack promotion, so a future TUN read loop can produce
    direct, block, outbound, or hijack decisions from packet bytes.
+   Those decisions now map to relay plans for drop, DNS hijack, direct TCP/UDP,
+   tagged outbound TCP/UDP, or unsupported transports, giving the future TUN
+   read loop an executable control surface instead of only parsed metadata.
 4. Keli panel integration: subscription fetch/update, user state, node
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,

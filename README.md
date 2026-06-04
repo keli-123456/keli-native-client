@@ -51,6 +51,8 @@ TUN data-plane preparation has started with raw IPv4/IPv6 packet flow parsing
 for TCP, UDP, ICMP, route destinations, and DNS-hijack candidate detection.
 Those parsed packets can also be evaluated through the shared route engine,
 including optional UDP/53 DNS hijack decisions for future TUN read loops.
+The resulting TUN decisions map to relay plans for drop, DNS hijack, direct
+TCP/UDP, tagged outbound TCP/UDP, and unsupported transports.
 
 ## Protocol Matrix
 
