@@ -1390,12 +1390,13 @@ pub fn probe_outbound_from_subscription_config_text_with_format(
         }
         Ok(RouteConnect::UnsupportedOutbound { tag, route_action }) => {
             report.route_action = route_action;
-            report.record_error(ConnectionErrorKind::UnsupportedOutbound);
+            let detail = format!("outbound route is not implemented: {tag}");
+            report.record_error_detail(ConnectionErrorKind::UnsupportedOutbound, detail.clone());
             write_probe_result(&mut writer, "error", &report, output)?;
-            return Err(format!("outbound route is not implemented: {tag}"));
+            return Err(detail);
         }
         Err(error) => {
-            report.record_error(ConnectionErrorKind::from_io(&error));
+            report.record_error_detail(ConnectionErrorKind::from_io(&error), error.to_string());
             write_probe_result(&mut writer, "error", &report, output)?;
             return Err(format!("probe connect failed: {error}"));
         }
@@ -1585,7 +1586,7 @@ fn probe_udp_outbound(
     let response = match response {
         Ok(response) => response,
         Err(error) => {
-            report.record_error(ConnectionErrorKind::from_io(&error));
+            report.record_error_detail(ConnectionErrorKind::from_io(&error), error.to_string());
             write_probe_result(&mut writer, "error", &report, output)?;
             return Err(format!("probe UDP relay failed: {error}"));
         }
@@ -1615,7 +1616,7 @@ fn probe_io_error(
     writer: &mut impl Write,
     output: ProbeOutputFormat,
 ) -> String {
-    report.record_error(ConnectionErrorKind::from_io(&error));
+    report.record_error_detail(ConnectionErrorKind::from_io(&error), error.to_string());
     let _ = write_probe_result(writer, "error", report, output);
     format!("probe relay failed: {error}")
 }
@@ -1646,6 +1647,7 @@ fn write_probe_result(
                 "upload_bytes": report.upload_bytes,
                 "download_bytes": report.download_bytes,
                 "error_kind": report.error_kind.map(ConnectionErrorKind::as_str),
+                "error_detail": report.error_detail.as_deref(),
             });
             writeln!(writer, "{value}").map_err(|error| error.to_string())
         }
@@ -1678,6 +1680,7 @@ fn write_smoke_result(
                 "upload_bytes": report.upload_bytes,
                 "download_bytes": report.download_bytes,
                 "error_kind": report.error_kind.map(ConnectionErrorKind::as_str),
+                "error_detail": report.error_detail.as_deref(),
             });
             writeln!(writer, "{value}").map_err(|error| error.to_string())
         }

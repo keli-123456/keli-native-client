@@ -60,6 +60,7 @@ pub struct ConnectionReport {
     pub upload_bytes: u64,
     pub download_bytes: u64,
     pub error_kind: Option<ConnectionErrorKind>,
+    pub error_detail: Option<String>,
 }
 
 impl ConnectionReport {
@@ -77,6 +78,7 @@ impl ConnectionReport {
             upload_bytes: 0,
             download_bytes: 0,
             error_kind: None,
+            error_detail: None,
         }
     }
 
@@ -100,9 +102,21 @@ impl ConnectionReport {
         self.error_kind = Some(error_kind);
     }
 
+    pub fn record_error_detail(
+        &mut self,
+        error_kind: ConnectionErrorKind,
+        detail: impl Into<String>,
+    ) {
+        self.record_error(error_kind);
+        let detail = detail.into();
+        if !detail.trim().is_empty() {
+            self.error_detail = Some(detail);
+        }
+    }
+
     pub fn summary_line(&self) -> String {
         format!(
-            "connection finished inbound={} target={}:{} route={:?} connect_ms={} first_byte_ms={} upload_bytes={} download_bytes={} error_kind={}",
+            "connection finished inbound={} target={}:{} route={:?} connect_ms={} first_byte_ms={} upload_bytes={} download_bytes={} error_kind={} error_detail={}",
             self.inbound,
             self.target.host,
             self.target.port,
@@ -111,7 +125,8 @@ impl ConnectionReport {
             optional_ms(self.first_byte_ms),
             self.upload_bytes,
             self.download_bytes,
-            self.error_kind.map(ConnectionErrorKind::as_str).unwrap_or("none")
+            self.error_kind.map(ConnectionErrorKind::as_str).unwrap_or("none"),
+            optional_detail(self.error_detail.as_deref())
         )
     }
 }
@@ -120,4 +135,16 @@ fn optional_ms(value: Option<u128>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "-".to_string())
+}
+
+fn optional_detail(value: Option<&str>) -> String {
+    let Some(value) = value else {
+        return "none".to_string();
+    };
+    let sanitized = value.split_whitespace().collect::<Vec<_>>().join("_");
+    if sanitized.is_empty() {
+        "none".to_string()
+    } else {
+        sanitized
+    }
 }

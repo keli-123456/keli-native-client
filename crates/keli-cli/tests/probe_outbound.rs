@@ -144,6 +144,48 @@ fn probe_udp_outbound_reports_successful_payload_round_trip() {
     ss_thread.join().expect("ss thread");
 }
 
+#[test]
+fn probe_udp_outbound_reports_unsupported_udp_detail() {
+    let config = r#"
+proxies:
+  - name: NAIVE-TLS
+    type: naive
+    server: 127.0.0.1
+    port: 443
+    username: user
+    password: pass
+    tls: true
+    sni: naive.example.com
+    skip-cert-verify: true
+"#;
+    let mut output = Vec::new();
+
+    let error = keli_cli::probe_outbound_from_subscription_config_text_with_format(
+        config,
+        Some("NAIVE-TLS".to_string()),
+        "example.com:53",
+        b"ping",
+        Some(b"pong"),
+        true,
+        Duration::from_millis(50),
+        ProbeOutputFormat::Json,
+        &mut output,
+    )
+    .expect_err("Naive UDP probe should be rejected before network dial");
+
+    assert!(error.contains("does not support UDP relay"));
+    let output: serde_json::Value = serde_json::from_slice(&output).expect("json output");
+    assert_eq!(output["status"], "error");
+    assert_eq!(output["inbound"], "probe-udp");
+    assert_eq!(output["route"], "outbound");
+    assert_eq!(output["outbound_tag"], "NAIVE-TLS");
+    assert_eq!(output["error_kind"], "unsupported_outbound");
+    assert!(output["error_detail"]
+        .as_str()
+        .expect("error detail")
+        .contains("does not support UDP relay"));
+}
+
 fn write_temp_profile_config(ss_port: u16) -> String {
     let name = format!(
         "keli-native-client-probe-{}.yaml",

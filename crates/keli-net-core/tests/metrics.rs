@@ -46,6 +46,24 @@ fn connection_report_formats_single_line_summary() {
 }
 
 #[test]
+fn connection_report_formats_error_detail_for_single_line_logs() {
+    let mut report = ConnectionReport::new(
+        "probe-udp",
+        OutboundTarget::new("example.com", 53),
+        RouteAction::Outbound("NAIVE-TLS".to_string()),
+    );
+    report.record_error_detail(
+        ConnectionErrorKind::UnsupportedOutbound,
+        "outbound tag does not support UDP relay yet: NAIVE-TLS",
+    );
+
+    let line = report.summary_line();
+
+    assert!(line.contains("error_kind=unsupported_outbound"));
+    assert!(line.contains("error_detail=outbound_tag_does_not_support_UDP_relay_yet:_NAIVE-TLS"));
+}
+
+#[test]
 fn classifies_common_io_errors() {
     assert_eq!(
         ConnectionErrorKind::from_io(&io::Error::new(io::ErrorKind::TimedOut, "timeout")),
