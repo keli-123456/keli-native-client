@@ -196,6 +196,17 @@ fn listen_mixed_once_uses_profile_config_for_anytls_http_connect() {
 }
 
 #[test]
+fn listen_mixed_once_uses_profile_config_for_anytls_socks5_udp_associate() {
+    let (anytls_port, anytls_thread) = spawn_anytls_udp_echo_server();
+    let profile_path = write_temp_anytls_profile_config(anytls_port);
+
+    run_profile_socks5_udp_associate_round_trip(&profile_path, "ANYTLS-READY");
+
+    anytls_thread.join().expect("anytls udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
 fn listen_mixed_once_uses_profile_config_for_naive_http_connect() {
     let (naive_port, naive_thread) = spawn_naive_h2_echo_server();
     let profile_path = write_temp_naive_profile_config(naive_port);
@@ -304,6 +315,17 @@ fn listen_mixed_once_uses_profile_config_for_vless_ws_socks5_udp_associate() {
     run_profile_socks5_udp_associate_round_trip(&profile_path, "VLESS-WS-READY");
 
     vless_thread.join().expect("vless ws udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_vmess_ws_socks5_udp_associate() {
+    let (vmess_port, vmess_thread) = spawn_vmess_ws_udp_echo_server();
+    let profile_path = write_temp_vmess_ws_profile_config(vmess_port);
+
+    run_profile_socks5_udp_associate_round_trip(&profile_path, "VMESS-WS-READY");
+
+    vmess_thread.join().expect("vmess ws udp thread");
     fs::remove_file(profile_path).ok();
 }
 
@@ -1285,6 +1307,34 @@ fn write_temp_vless_ws_profile_config(vless_port: u16) -> String {
     path.to_string_lossy().into_owned()
 }
 
+fn write_temp_vmess_ws_profile_config(vmess_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-vmess-ws-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: VMESS-WS-READY
+    type: vmess
+    server: 127.0.0.1
+    port: {vmess_port}
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    cipher: auto
+    network: ws
+    ws-opts:
+      path: /vmess
+      headers:
+        Host: edge.example
+"#
+    );
+    fs::write(&path, content).expect("write vmess ws profile config");
+    path.to_string_lossy().into_owned()
+}
+
 fn write_temp_trojan_httpupgrade_profile_config(trojan_port: u16) -> String {
     let name = format!(
         "keli-native-client-listen-mixed-trojan-httpupgrade-{}.yaml",
@@ -1740,6 +1790,38 @@ fn spawn_anytls_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
     (port, handle)
 }
 
+fn spawn_anytls_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind anytls udp server");
+    let port = listener.local_addr().expect("anytls udp addr").port();
+    let server_config = tls_server_config();
+    let handle = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept anytls udp tcp");
+        let connection = rustls::ServerConnection::new(server_config).expect("server tls");
+        let mut stream = rustls::StreamOwned::new(connection, stream);
+
+        assert_anytls_auth(&mut stream, "secret");
+        let (cmd, sid, settings) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid), (4, 0));
+        let settings = String::from_utf8(settings).expect("settings utf8");
+        assert!(settings.contains("v=2"));
+        assert!(settings.contains("client=keli-native-client/"));
+
+        let (cmd, sid, data) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid, data.len()), (1, 1, 0));
+
+        let (cmd, sid, target) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid), (2, 1));
+        assert_eq!(&target, b"\x03\x11udp-over-tcp.arpa\x00\x00");
+        write_anytls_frame(&mut stream, 7, 1, b"");
+
+        let (cmd, sid, packet) = read_anytls_frame(&mut stream);
+        assert_eq!((cmd, sid), (2, 1));
+        assert_eq!(&packet, b"\x01\x01\x7f\x00\x00\x01\x005\x00\x04ping");
+        write_anytls_frame(&mut stream, 2, 1, b"\x00\x04pong");
+    });
+    (port, handle)
+}
+
 fn spawn_naive_h2_echo_server() -> (u16, thread::JoinHandle<()>) {
     let (port_tx, port_rx) = mpsc::channel();
     let handle = thread::spawn(move || {
@@ -2042,6 +2124,58 @@ fn spawn_vless_ws_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
         }
         assert_eq!(&request_payload, b"\x00\x04ping");
         write_server_binary_frame(&mut stream, b"\x00\x04pong");
+    });
+    (port, handle)
+}
+
+fn spawn_vmess_ws_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vmess ws udp server");
+    let port = listener.local_addr().expect("vmess ws udp addr").port();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept vmess ws udp server");
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /vmess HTTP/1.1\r\n"));
+        assert!(request.contains("Host: edge.example\r\n"));
+        let key = header_value(&request, "Sec-WebSocket-Key").expect("client key");
+        let accept = websocket_accept_for_key(&key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .expect("write ws response");
+
+        let request_header = read_masked_client_frame(&mut stream);
+        let mut cursor = std::io::Cursor::new(request_header);
+        let request = read_vmess_aead_request(&mut cursor, uuid);
+        assert_eq!(request.target_host, "127.0.0.1");
+        assert_eq!(request.target_port, 53);
+        assert_eq!(request.command, 0x02);
+        assert_eq!(
+            request.option,
+            VMESS_OPTION_CHUNK_STREAM | VMESS_OPTION_CHUNK_MASKING
+        );
+        assert_eq!(request.security, VMESS_SECURITY_AES_128_GCM);
+
+        let mut response_header = Vec::new();
+        write_vmess_aead_response_header(&mut response_header, &request);
+        write_server_binary_frame(&mut stream, &response_header);
+
+        let mut request_chunk = read_masked_client_frame(&mut stream);
+        if request_chunk.len() == 2 {
+            request_chunk.extend(read_masked_client_frame(&mut stream));
+        }
+        let mut cursor = std::io::Cursor::new(request_chunk);
+        let payload = support::vmess::read_vmess_aes128_gcm_chunk(&mut cursor, &request);
+        assert_eq!(&payload, b"ping");
+
+        let mut response_chunk = Vec::new();
+        support::vmess::write_vmess_aes128_gcm_response_chunk(
+            &mut response_chunk,
+            &request,
+            b"pong",
+        );
+        write_server_binary_frame(&mut stream, &response_chunk);
     });
     (port, handle)
 }
