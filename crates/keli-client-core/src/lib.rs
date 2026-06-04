@@ -436,6 +436,11 @@ impl ClientRuntime {
         ));
     }
 
+    pub fn record_status_note(&mut self, note: impl Into<String>) {
+        self.events
+            .push(RuntimeEvent::new(self.status.clone(), Some(note.into())));
+    }
+
     fn fail(&mut self, error: ClientErrorKind) {
         self.active_plan = None;
         self.active_config = None;
@@ -811,6 +816,30 @@ proxies:
             .events()
             .last()
             .is_some_and(|event| matches!(event.status, RuntimeStatus::Failed(_))));
+    }
+
+    #[test]
+    fn runtime_can_record_status_note_without_changing_status() {
+        let mut runtime = ClientRuntime::default();
+        runtime
+            .start(RuntimeConfig::new(
+                ss_config("SS-READY"),
+                Some("SS-READY"),
+                "127.0.0.1:7890",
+            ))
+            .expect("runtime start");
+        let status = runtime.status().clone();
+        let generation = runtime.generation();
+
+        runtime.record_status_note("node health recorded: SS-READY=healthy");
+
+        assert_eq!(runtime.status(), &status);
+        assert_eq!(runtime.generation(), generation);
+        assert_eq!(
+            runtime.events().last().expect("event").note.as_deref(),
+            Some("node health recorded: SS-READY=healthy")
+        );
+        assert_eq!(runtime.events().last().expect("event").status, status);
     }
 
     #[test]

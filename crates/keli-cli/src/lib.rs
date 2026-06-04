@@ -375,6 +375,16 @@ pub enum ManagedNodeHealthState {
     Unhealthy,
 }
 
+impl ManagedNodeHealthState {
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Healthy => "healthy",
+            Self::Unhealthy => "unhealthy",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedNodeHealthStatus {
     pub tag: String,
@@ -672,7 +682,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
 
     pub fn record_node_health(&mut self, health: ManagedNodeHealthStatus) -> Result<(), String> {
         self.ensure_active_subscription_tag(&health.tag)?;
-        self.node_health.insert(health.tag.clone(), health);
+        self.set_node_health(health);
         Ok(())
     }
 
@@ -696,38 +706,42 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
 
         match result {
             Ok(report) => {
-                self.node_health.insert(
-                    options.outbound_tag.clone(),
-                    ManagedNodeHealthStatus {
-                        tag: options.outbound_tag,
-                        state: ManagedNodeHealthState::Healthy,
-                        tcp_available: Some(true),
-                        udp_available: options.udp_available,
-                        latency_ms: report.first_byte_ms.or(report.connect_ms),
-                        error_kind: None,
-                        error_detail: None,
-                        checked_at: Some(SystemTime::now()),
-                    },
-                );
+                self.set_node_health(ManagedNodeHealthStatus {
+                    tag: options.outbound_tag,
+                    state: ManagedNodeHealthState::Healthy,
+                    tcp_available: Some(true),
+                    udp_available: options.udp_available,
+                    latency_ms: report.first_byte_ms.or(report.connect_ms),
+                    error_kind: None,
+                    error_detail: None,
+                    checked_at: Some(SystemTime::now()),
+                });
                 Ok(())
             }
             Err(error) => {
-                self.node_health.insert(
-                    options.outbound_tag.clone(),
-                    ManagedNodeHealthStatus {
-                        tag: options.outbound_tag,
-                        state: ManagedNodeHealthState::Unhealthy,
-                        tcp_available: Some(false),
-                        udp_available: None,
-                        latency_ms: None,
-                        error_kind: Some(classify_managed_probe_error(&error)),
-                        error_detail: Some(error.clone()),
-                        checked_at: Some(SystemTime::now()),
-                    },
-                );
+                self.set_node_health(ManagedNodeHealthStatus {
+                    tag: options.outbound_tag,
+                    state: ManagedNodeHealthState::Unhealthy,
+                    tcp_available: Some(false),
+                    udp_available: None,
+                    latency_ms: None,
+                    error_kind: Some(classify_managed_probe_error(&error)),
+                    error_detail: Some(error.clone()),
+                    checked_at: Some(SystemTime::now()),
+                });
                 Err(error)
             }
         }
+    }
+
+    fn set_node_health(&mut self, health: ManagedNodeHealthStatus) {
+        let note = format!(
+            "node health recorded: {}={}",
+            health.tag,
+            health.state.label()
+        );
+        self.node_health.insert(health.tag.clone(), health);
+        self.state.record_status_note(note);
     }
 
     pub fn probe_all_node_health(

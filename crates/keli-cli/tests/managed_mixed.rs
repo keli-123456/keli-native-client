@@ -640,6 +640,13 @@ fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
         next.error_detail.as_deref(),
         Some("timeout to example target")
     );
+    assert_eq!(
+        status
+            .recent_events
+            .first()
+            .and_then(|event| event.note.as_deref()),
+        Some("node health recorded: SS-NEXT=unhealthy")
+    );
 
     let unsupported = core
         .record_node_health(ManagedNodeHealthStatus::healthy(
@@ -1019,6 +1026,13 @@ fn managed_mixed_controller_probe_node_health_records_success() {
     assert_eq!(health.error_kind, None);
     assert_eq!(health.error_detail, None);
     assert!(health.checked_at.is_some());
+    assert_eq!(
+        status
+            .recent_events
+            .first()
+            .and_then(|event| event.note.as_deref()),
+        Some("node health recorded: SS-READY=healthy")
+    );
 
     ss_thread.join().expect("ss tcp echo server");
     core.stop().expect("stop managed mixed controller");
@@ -1070,6 +1084,13 @@ fn managed_mixed_controller_probe_node_health_records_failure() {
         .error_detail
         .as_deref()
         .is_some_and(|detail| detail.contains("smoke response mismatch")));
+    assert_eq!(
+        status
+            .recent_events
+            .first()
+            .and_then(|event| event.note.as_deref()),
+        Some("node health recorded: SS-READY=unhealthy")
+    );
 
     ss_thread.join().expect("ss tcp echo server");
     core.stop().expect("stop managed mixed controller");
