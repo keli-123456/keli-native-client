@@ -13,10 +13,10 @@ use keli_net_core::{
     DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsLocalResolutionPolicy, HttpConnectOutbound,
     OutboundRegistry, OutboundTarget, ShadowsocksTcpOutbound, Socks5Address, Socks5TcpOutbound,
     SystemDnsResolver, TrojanHttpUpgradeOutbound, TrojanTcpOutbound, TrojanTlsHttpUpgradeOutbound,
-    TrojanTlsWsOutbound, TrojanWsOutbound, VlessHttpUpgradeOutbound, VlessTcpOutbound,
-    VlessTlsHttpUpgradeOutbound, VlessTlsWsOutbound, VlessWsOutbound, VmessBodySecurity,
-    VmessHttpUpgradeOutbound, VmessTcpOutbound, VmessTlsHttpUpgradeOutbound, VmessTlsTcpOutbound,
-    VmessTlsWsOutbound, VmessWsOutbound,
+    TrojanTlsTcpOutbound, TrojanTlsWsOutbound, TrojanWsOutbound, VlessHttpUpgradeOutbound,
+    VlessTcpOutbound, VlessTlsHttpUpgradeOutbound, VlessTlsTcpOutbound, VlessTlsWsOutbound,
+    VlessWsOutbound, VmessBodySecurity, VmessHttpUpgradeOutbound, VmessTcpOutbound,
+    VmessTlsHttpUpgradeOutbound, VmessTlsTcpOutbound, VmessTlsWsOutbound, VmessWsOutbound,
 };
 use keli_protocol::{Endpoint, OutboundProfile, ProxyProtocol, SecurityKind, TransportKind};
 use md5::{Digest as Md5Digest, Md5};
@@ -368,6 +368,72 @@ fn vless_tcp_udp_outbound_uses_injected_dns_policy_for_server() {
 
     assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
     assert!(error.to_string().contains("Ipv6Only"));
+}
+
+#[test]
+fn tls_tcp_outbounds_use_injected_dns_policy_for_server() {
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_tls_tcp(
+                "proxy",
+                TrojanTlsTcpOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "password",
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan TLS TCP server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_tls_tcp(
+                "proxy",
+                VlessTlsTcpOutbound::new(
+                    loopback_proxy_endpoint(),
+                    TEST_UUID,
+                    None,
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS TLS TCP server",
+    );
+}
+
+#[test]
+fn tls_tcp_udp_outbounds_use_injected_dns_policy_for_server() {
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_tls_tcp(
+                "proxy",
+                TrojanTlsTcpOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "password",
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan TLS TCP UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_tls_tcp(
+                "proxy",
+                VlessTlsTcpOutbound::new(
+                    loopback_proxy_endpoint(),
+                    TEST_UUID,
+                    None,
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS TLS TCP UDP server",
+    );
 }
 
 #[test]

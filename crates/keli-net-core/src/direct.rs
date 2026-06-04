@@ -1279,7 +1279,7 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.trojan_tcp_tags.get(tag) {
             outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.trojan_tls_tcp_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.trojan_ws_tags.get(tag) {
             outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.trojan_tls_ws_tags.get(tag) {
@@ -1301,7 +1301,7 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vless_tcp_tags.get(tag) {
             outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vless_tls_tcp_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vless_ws_tags.get(tag) {
             outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vless_tls_ws_tags.get(tag) {
@@ -1412,7 +1412,7 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vless_tcp_tags.get(tag) {
             outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vless_tls_tcp_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vless_ws_tags.get(tag) {
             outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vless_tls_ws_tags.get(tag) {
@@ -1434,7 +1434,7 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.trojan_tcp_tags.get(tag) {
             outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.trojan_tls_tcp_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.trojan_ws_tags.get(tag) {
             outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.trojan_tls_ws_tags.get(tag) {
@@ -4015,8 +4015,18 @@ impl TrojanTlsTcpOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let mut stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let header = encode_trojan_tcp_request_header(&self.password, &target)
@@ -4031,8 +4041,19 @@ impl TrojanTlsTcpOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
         send_trojan_udp_over_stream(stream, &self.password, target, payload, timeout)
     }
@@ -4749,8 +4770,18 @@ impl VlessTlsTcpOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let mut stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
@@ -4766,8 +4797,19 @@ impl VlessTlsTcpOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
         send_vless_udp_over_stream(
             stream,
