@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::str::FromStr;
 use std::sync::{mpsc, Arc};
 use std::thread;
@@ -17,6 +17,7 @@ use keli_cli::{run, CliCommand};
 use keli_net_core::{
     encode_socks5_udp_datagram, parse_socks5_udp_datagram, websocket_accept_for_key, Socks5Address,
 };
+use keli_protocol::Endpoint;
 use rcgen::generate_simple_self_signed;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use sha2::{Digest, Sha256};
@@ -273,6 +274,28 @@ fn listen_mixed_once_uses_profile_config_for_vless_ws_http_connect() {
     run_profile_http_connect_round_trip(&profile_path, "VLESS-WS-READY");
 
     vless_thread.join().expect("vless ws thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_hy2_http_connect() {
+    let (hy2_addr, hy2_thread) = spawn_hy2_echo_server();
+    let profile_path = write_temp_hy2_profile_config(hy2_addr.port());
+
+    run_profile_http_connect_round_trip(&profile_path, "HY2-READY");
+
+    hy2_thread.join().expect("hy2 thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_tuic_http_connect() {
+    let (tuic_addr, tuic_thread) = spawn_tuic_echo_server();
+    let profile_path = write_temp_tuic_profile_config(tuic_addr.port());
+
+    run_profile_http_connect_round_trip(&profile_path, "TUIC-READY");
+
+    tuic_thread.join().expect("tuic thread");
     fs::remove_file(profile_path).ok();
 }
 
@@ -846,6 +869,55 @@ fn write_temp_vless_ws_profile_config(vless_port: u16) -> String {
     path.to_string_lossy().into_owned()
 }
 
+fn write_temp_hy2_profile_config(hy2_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-hy2-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: HY2-READY
+    type: hy2
+    server: 127.0.0.1
+    port: {hy2_port}
+    password: secret
+    sni: localhost
+    skip-cert-verify: true
+"#
+    );
+    fs::write(&path, content).expect("write hy2 profile config");
+    path.to_string_lossy().into_owned()
+}
+
+fn write_temp_tuic_profile_config(tuic_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-tuic-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: TUIC-READY
+    type: tuic
+    server: 127.0.0.1
+    port: {tuic_port}
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    token: secret
+    sni: localhost
+    skip-cert-verify: true
+"#
+    );
+    fs::write(&path, content).expect("write tuic profile config");
+    path.to_string_lossy().into_owned()
+}
+
 fn spawn_shadowsocks_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind ss tcp server");
     let port = listener.local_addr().expect("ss tcp addr").port();
@@ -1145,6 +1217,122 @@ fn spawn_vless_ws_echo_server() -> (u16, thread::JoinHandle<()>) {
     (port, handle)
 }
 
+fn spawn_hy2_echo_server() -> (SocketAddr, thread::JoinHandle<()>) {
+    let (addr_tx, addr_rx) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build HY2 test runtime");
+        runtime.block_on(async move {
+            let endpoint = quinn::Endpoint::server(
+                hy2_h3_test_server_config(),
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            )
+            .expect("bind HY2 test server");
+            addr_tx
+                .send(endpoint.local_addr().expect("HY2 test server addr"))
+                .expect("send HY2 addr");
+            let incoming = endpoint.accept().await.expect("accept HY2 connection");
+            let connection = incoming.await.expect("HY2 QUIC connection");
+            let mut h3_connection: h3::server::Connection<h3_quinn::Connection, bytes::Bytes> =
+                h3::server::builder()
+                    .build(h3_quinn::Connection::new(connection.clone()))
+                    .await
+                    .expect("HY2 H3 server connection");
+            let resolver = h3_connection
+                .accept()
+                .await
+                .expect("accept HY2 auth")
+                .expect("HY2 auth request exists");
+            let (request, mut auth_stream) =
+                resolver.resolve_request().await.expect("resolve HY2 auth");
+            assert_eq!(request.headers()["Hysteria-Auth"], "secret");
+            auth_stream
+                .send_response(http::Response::builder().status(233).body(()).unwrap())
+                .await
+                .expect("send HY2 auth OK");
+            auth_stream.finish().await.expect("finish HY2 auth OK");
+            let (mut send, mut recv) = connection.accept_bi().await.expect("accept HY2 TCP");
+            let mut request = [0; 19];
+            recv.read_exact(&mut request)
+                .await
+                .expect("read HY2 TCP request");
+            assert_eq!(
+                request,
+                [
+                    0x44, 0x01, 0x0f, b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.', b'c', b'o',
+                    b'm', b':', b'4', b'4', b'3', 0x00,
+                ]
+            );
+            send.write_all(&[0x00, 0x00, 0x00])
+                .await
+                .expect("write HY2 TCP OK response");
+            let mut payload = [0; 4];
+            recv.read_exact(&mut payload)
+                .await
+                .expect("read HY2 payload");
+            assert_eq!(&payload, b"ping");
+            send.write_all(b"pong").await.expect("write HY2 response");
+            send.finish().expect("finish HY2 response stream");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        });
+    });
+    (addr_rx.recv().expect("receive HY2 addr"), handle)
+}
+
+fn spawn_tuic_echo_server() -> (SocketAddr, thread::JoinHandle<()>) {
+    let (addr_tx, addr_rx) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build TUIC test runtime");
+        runtime.block_on(async move {
+            let endpoint = quinn::Endpoint::server(
+                hy2_h3_test_server_config(),
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            )
+            .expect("bind TUIC test server");
+            addr_tx
+                .send(endpoint.local_addr().expect("TUIC test server addr"))
+                .expect("send TUIC addr");
+            let incoming = endpoint.accept().await.expect("accept TUIC connection");
+            let connection = incoming.await.expect("TUIC QUIC connection");
+            let mut auth_recv = connection.accept_uni().await.expect("accept TUIC auth");
+            let auth = auth_recv
+                .read_to_end(64)
+                .await
+                .expect("read TUIC auth command");
+            let expected_auth = keli_net_core::tuic_authenticate_command(
+                &connection,
+                "00112233-4455-6677-8899-aabbccddeeff",
+                "secret",
+            )
+            .expect("expected TUIC auth");
+            assert_eq!(auth, expected_auth);
+            let (mut send, mut recv) = connection.accept_bi().await.expect("accept TUIC TCP");
+            let expected_connect =
+                keli_protocol::encode_tuic_connect_command(&Endpoint::new("example.com", 443))
+                    .expect("expected TUIC connect");
+            let mut connect = vec![0; expected_connect.len()];
+            recv.read_exact(&mut connect)
+                .await
+                .expect("read TUIC connect command");
+            assert_eq!(connect, expected_connect);
+            let mut payload = [0; 4];
+            recv.read_exact(&mut payload)
+                .await
+                .expect("read TUIC payload");
+            assert_eq!(&payload, b"ping");
+            send.write_all(b"pong").await.expect("write TUIC response");
+            send.finish().expect("finish TUIC response stream");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        });
+    });
+    (addr_rx.recv().expect("receive TUIC addr"), handle)
+}
+
 fn spawn_socks5_tcp_proxy_echo_server() -> (u16, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind socks5 proxy");
     let port = listener.local_addr().expect("socks5 proxy addr").port();
@@ -1245,6 +1433,24 @@ fn h2_tls_server_config() -> Arc<rustls::ServerConfig> {
     let mut config = Arc::unwrap_or_clone(tls_server_config());
     config.alpn_protocols = vec![b"h2".to_vec()];
     Arc::new(config)
+}
+
+fn hy2_h3_test_server_config() -> quinn::ServerConfig {
+    let cert = generate_simple_self_signed(vec!["localhost".to_string()]).expect("cert");
+    let cert_der: CertificateDer<'static> = cert.cert.der().clone();
+    let key_der = PrivateKeyDer::Pkcs8(cert.signing_key.serialize_der().into());
+    let mut tls = rustls::ServerConfig::builder_with_provider(
+        rustls::crypto::ring::default_provider().into(),
+    )
+    .with_protocol_versions(&[&rustls::version::TLS13])
+    .expect("server protocol versions")
+    .with_no_client_auth()
+    .with_single_cert(vec![cert_der], key_der)
+    .expect("server config");
+    tls.alpn_protocols = vec![b"h3".to_vec()];
+    quinn::ServerConfig::with_crypto(Arc::new(
+        quinn::crypto::rustls::QuicServerConfig::try_from(tls).expect("quic server config"),
+    ))
 }
 
 fn assert_anytls_auth(stream: &mut impl Read, password: &str) {
