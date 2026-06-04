@@ -4,17 +4,18 @@ use std::time::Duration;
 
 use keli_net_core::{
     build_dns_error_response, build_dns_response, build_tun_dns_hijack_response,
-    build_tun_dns_response_packet, build_tun_tcp_reset_response_packet,
-    build_tun_tcp_response_packet, build_tun_tcp_syn_ack_response_packet, decide_tun_packet_route,
-    parse_tun_packet_flow, parse_tun_tcp_segment, parse_tun_udp_payload, plan_tun_dns_hijack,
-    plan_tun_packet_relay, process_tun_packet, relay_tun_direct_udp_packet, relay_tun_udp_packet,
-    run_tun_packet_loop, run_tun_packet_loop_summary, run_tun_packet_loop_with_udp_relay_summary,
-    DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver,
-    OutboundRegistry, OutboundTarget, RegistryTunUdpRelay, RouteAction, RouteDestination,
-    RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketDevice,
-    TunPacketError, TunPacketLoopEvent, TunPacketLoopSummary, TunPacketProcessAction,
-    TunPacketRelayAction, TunPacketRelayPlan, TunTcpFlags, TunTcpSessionKey, TunTcpSessionPhase,
-    TunTcpSessionTable, TunTransportProtocol, TunUdpRelay, TunUdpRelayError, UdpRelayResponse,
+    build_tun_dns_response_packet, build_tun_tcp_ack_response_packet,
+    build_tun_tcp_reset_response_packet, build_tun_tcp_response_packet,
+    build_tun_tcp_syn_ack_response_packet, decide_tun_packet_route, parse_tun_packet_flow,
+    parse_tun_tcp_segment, parse_tun_udp_payload, plan_tun_dns_hijack, plan_tun_packet_relay,
+    process_tun_packet, relay_tun_direct_udp_packet, relay_tun_udp_packet, run_tun_packet_loop,
+    run_tun_packet_loop_summary, run_tun_packet_loop_with_udp_relay_summary, DnsCache, DnsEngine,
+    DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, OutboundRegistry,
+    OutboundTarget, RegistryTunUdpRelay, RouteAction, RouteDestination, RouteEngine, RouteIpCidr,
+    RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketDevice, TunPacketError,
+    TunPacketLoopEvent, TunPacketLoopSummary, TunPacketProcessAction, TunPacketRelayAction,
+    TunPacketRelayPlan, TunTcpFlags, TunTcpSessionKey, TunTcpSessionPhase, TunTcpSessionTable,
+    TunTransportProtocol, TunUdpRelay, TunUdpRelayError, UdpRelayResponse,
 };
 
 #[test]
@@ -428,6 +429,164 @@ fn starts_tun_tcp_session_from_syn_and_establishes_on_matching_ack() {
         sessions.get(&key).expect("established session").phase,
         TunTcpSessionPhase::Established
     );
+}
+
+#[test]
+fn accepts_established_tun_tcp_client_payload_and_acknowledges_it() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let key = TunTcpSessionKey::from_flow(&syn.flow).expect("session key");
+    let mut sessions = TunTcpSessionTable::new();
+    sessions
+        .start_from_syn(&syn, 1000, 0x2000)
+        .expect("start TUN TCP session");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    sessions
+        .apply_ack(&ack)
+        .expect("apply session ACK")
+        .expect("session established");
+    let data_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+    );
+    let data = parse_tun_tcp_segment(&data_packet).expect("parse TCP data segment");
+
+    let frame = sessions
+        .accept_client_payload(&data)
+        .expect("accept TCP client payload")
+        .expect("payload frame");
+
+    assert_eq!(frame.sequence_number, 11);
+    assert_eq!(frame.acknowledgment_number, 16);
+    assert_eq!(frame.payload, b"GET /");
+    assert_eq!(
+        frame.session.client_next_sequence_number, 16,
+        "session should advance by payload length"
+    );
+    assert_eq!(
+        sessions
+            .get(&key)
+            .expect("stored session")
+            .client_next_sequence_number,
+        16
+    );
+    let response = parse_tun_tcp_segment(&frame.ack_packet).expect("parse payload ACK packet");
+    assert_eq!(response.flow.source_port, Some(443));
+    assert_eq!(response.flow.destination_port, Some(49152));
+    assert_eq!(response.sequence_number, 1001);
+    assert_eq!(response.acknowledgment_number, 16);
+    assert_eq!(response.flags.bits(), 0x0010);
+    assert!(response.flags.ack());
+    assert!(response.payload.is_empty());
+}
+
+#[test]
+fn ignores_tun_tcp_client_payload_before_established_or_out_of_order() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let key = TunTcpSessionKey::from_flow(&syn.flow).expect("session key");
+    let mut sessions = TunTcpSessionTable::new();
+    sessions
+        .start_from_syn(&syn, 1000, 0x2000)
+        .expect("start TUN TCP session");
+    let early_data_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"early"),
+    );
+    let early_data =
+        parse_tun_tcp_segment(&early_data_packet).expect("parse early TCP data segment");
+
+    assert!(sessions
+        .accept_client_payload(&early_data)
+        .expect("try early TCP payload")
+        .is_none());
+    assert_eq!(
+        sessions.get(&key).expect("stored session").phase,
+        TunTcpSessionPhase::SynReceived
+    );
+    assert_eq!(
+        sessions
+            .get(&key)
+            .expect("stored session")
+            .client_next_sequence_number,
+        11
+    );
+
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    sessions
+        .apply_ack(&ack)
+        .expect("apply session ACK")
+        .expect("session established");
+    let out_of_order_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 12, 1001, 0x0018, 0x4000, &[], b"late"),
+    );
+    let out_of_order =
+        parse_tun_tcp_segment(&out_of_order_packet).expect("parse out-of-order TCP segment");
+
+    assert!(sessions
+        .accept_client_payload(&out_of_order)
+        .expect("try out-of-order TCP payload")
+        .is_none());
+    assert_eq!(
+        sessions
+            .get(&key)
+            .expect("stored session")
+            .client_next_sequence_number,
+        11
+    );
+}
+
+#[test]
+fn builds_tun_tcp_ack_response_packet_with_swapped_flow() {
+    let request = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+    );
+    let request_segment = parse_tun_tcp_segment(&request).expect("parse request TCP segment");
+
+    let response_packet =
+        build_tun_tcp_ack_response_packet(&request_segment.flow, 1001, 16, 0x2000)
+            .expect("build TCP ACK response");
+    let response = parse_tun_tcp_segment(&response_packet).expect("parse TCP ACK response");
+
+    assert_eq!(response.flow.source_port, Some(443));
+    assert_eq!(response.flow.destination_port, Some(49152));
+    assert_eq!(response.sequence_number, 1001);
+    assert_eq!(response.acknowledgment_number, 16);
+    assert_eq!(response.flags.bits(), 0x0010);
+    assert_eq!(response.window_size, 0x2000);
+    assert!(response.payload.is_empty());
 }
 
 #[test]

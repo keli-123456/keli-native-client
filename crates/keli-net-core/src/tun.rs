@@ -133,6 +133,15 @@ pub struct TunTcpSessionRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunTcpClientPayloadFrame {
+    pub session: TunTcpSessionRecord,
+    pub sequence_number: u32,
+    pub acknowledgment_number: u32,
+    pub payload: Vec<u8>,
+    pub ack_packet: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TunTcpSynAckResponse {
     pub session: TunTcpSessionRecord,
     pub packet: Vec<u8>,
@@ -802,6 +811,41 @@ impl TunTcpSessionTable {
         Ok(None)
     }
 
+    pub fn accept_client_payload(
+        &mut self,
+        segment: &TunTcpSegment<'_>,
+    ) -> Result<Option<TunTcpClientPayloadFrame>, TunPacketError> {
+        let key = TunTcpSessionKey::from_flow(&segment.flow)?;
+        let Some(session) = self.sessions.get_mut(&key) else {
+            return Ok(None);
+        };
+        if session.phase != TunTcpSessionPhase::Established
+            || segment.payload.is_empty()
+            || !segment.flags.ack()
+            || segment.flags.syn()
+            || segment.flags.rst()
+            || segment.sequence_number != session.client_next_sequence_number
+            || segment.acknowledgment_number != session.server_next_sequence_number
+        {
+            return Ok(None);
+        }
+
+        session.client_next_sequence_number = tcp_segment_next_sequence_number(segment);
+        let ack_packet = build_tun_tcp_ack_response_packet(
+            &session.flow,
+            session.server_next_sequence_number,
+            session.client_next_sequence_number,
+            session.window_size,
+        )?;
+        Ok(Some(TunTcpClientPayloadFrame {
+            session: session.clone(),
+            sequence_number: segment.sequence_number,
+            acknowledgment_number: session.client_next_sequence_number,
+            payload: segment.payload.to_vec(),
+            ack_packet,
+        }))
+    }
+
     pub fn remove_on_close(
         &mut self,
         segment: &TunTcpSegment<'_>,
@@ -1234,6 +1278,22 @@ pub fn build_tun_tcp_syn_ack_response_packet(
         server_initial_sequence_number,
         tcp_segment_next_sequence_number(segment),
         TunTcpFlags::from_bits(0x0012),
+        window_size,
+        b"",
+    )
+}
+
+pub fn build_tun_tcp_ack_response_packet(
+    flow: &TunPacketFlow,
+    sequence_number: u32,
+    acknowledgment_number: u32,
+    window_size: u16,
+) -> Result<Vec<u8>, TunPacketError> {
+    build_tun_tcp_response_packet(
+        flow,
+        sequence_number,
+        acknowledgment_number,
+        TunTcpFlags::from_bits(0x0010),
         window_size,
         b"",
     )

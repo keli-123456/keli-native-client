@@ -117,6 +117,10 @@ The TCP/TUN path also has a lightweight session table that records initial SYN
 flows, builds SYN-ACK packets, marks sessions established on matching ACKs, and
 removes sessions on FIN/RST, giving the future user-space TCP relay a concrete
 state boundary.
+Established TUN TCP sessions can now accept in-order client payload segments,
+advance the client-side sequence cursor, and build empty ACK packets back to
+the TUN peer, creating the packet-level handoff point for a future TCP outbound
+stream relay.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 

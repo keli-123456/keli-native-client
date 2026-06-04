@@ -210,6 +210,10 @@ The first implementation target is deliberately small:
    SYN flows, builds SYN-ACK packets, marks sessions established on matching
    ACKs, and removes sessions on FIN/RST, giving the future user-space TCP
    relay a concrete state boundary before stream forwarding is attached.
+   Established sessions can accept in-order client payload segments, advance
+   the tracked client sequence number, and build ACK packets back to the TUN
+   peer, creating the packet-level handoff point that a future TCP outbound
+   stream relay can consume.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.
