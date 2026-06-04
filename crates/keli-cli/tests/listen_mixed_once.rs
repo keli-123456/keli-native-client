@@ -1,5 +1,5 @@
 use std::fs;
-use std::future::poll_fn;
+use std::future::{poll_fn, Future};
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::str::FromStr;
@@ -26,7 +26,11 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use sha2::{Digest, Sha256};
 use shadowsocks_crypto::kind::CipherKind;
 use shadowsocks_crypto::v1::{openssl_bytes_to_key, Cipher};
-use support::vmess::{read_vmess_aead_request, write_vmess_aead_response_header};
+use support::vmess::{
+    read_vmess_aead_request, read_vmess_aead_request_async, read_vmess_aes128_gcm_chunk_async,
+    write_vmess_aead_response_header, write_vmess_aead_response_header_async,
+    write_vmess_aes128_gcm_response_chunk_async,
+};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 const MIERU_NONCE_LEN: usize = 24;
@@ -498,6 +502,39 @@ fn listen_mixed_once_uses_profile_config_for_vmess_h2_socks5_udp_associate() {
     run_profile_socks5_udp_associate_round_trip(&profile_path, "VMESS-H2-READY");
 
     vmess_thread.join().expect("vmess h2 udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_trojan_quic_http_connect() {
+    let (trojan_port, trojan_thread) = spawn_trojan_quic_echo_server();
+    let profile_path = write_temp_trojan_quic_profile_config(trojan_port);
+
+    run_profile_http_connect_round_trip(&profile_path, "TROJAN-QUIC-READY");
+
+    trojan_thread.join().expect("trojan quic thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_vless_quic_http_connect() {
+    let (vless_port, vless_thread) = spawn_vless_quic_echo_server();
+    let profile_path = write_temp_vless_quic_profile_config(vless_port);
+
+    run_profile_http_connect_round_trip(&profile_path, "VLESS-QUIC-READY");
+
+    vless_thread.join().expect("vless quic thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_vmess_quic_http_connect() {
+    let (vmess_port, vmess_thread) = spawn_vmess_quic_echo_server();
+    let profile_path = write_temp_vmess_quic_profile_config(vmess_port);
+
+    run_profile_http_connect_round_trip(&profile_path, "VMESS-QUIC-READY");
+
+    vmess_thread.join().expect("vmess quic thread");
     fs::remove_file(profile_path).ok();
 }
 
@@ -1482,6 +1519,85 @@ fn write_temp_vmess_h2_profile_config(vmess_port: u16) -> String {
     path.to_string_lossy().into_owned()
 }
 
+fn write_temp_trojan_quic_profile_config(trojan_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-trojan-quic-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: TROJAN-QUIC-READY
+    type: trojan
+    server: 127.0.0.1
+    port: {trojan_port}
+    password: password
+    tls: true
+    servername: localhost
+    skip-cert-verify: true
+    network: quic
+"#
+    );
+    fs::write(&path, content).expect("write trojan quic profile config");
+    path.to_string_lossy().into_owned()
+}
+
+fn write_temp_vless_quic_profile_config(vless_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-vless-quic-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: VLESS-QUIC-READY
+    type: vless
+    server: 127.0.0.1
+    port: {vless_port}
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    tls: true
+    servername: localhost
+    skip-cert-verify: true
+    network: quic
+"#
+    );
+    fs::write(&path, content).expect("write vless quic profile config");
+    path.to_string_lossy().into_owned()
+}
+
+fn write_temp_vmess_quic_profile_config(vmess_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-vmess-quic-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: VMESS-QUIC-READY
+    type: vmess
+    server: 127.0.0.1
+    port: {vmess_port}
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    cipher: aes-128-gcm
+    tls: true
+    servername: localhost
+    skip-cert-verify: true
+    network: quic
+"#
+    );
+    fs::write(&path, content).expect("write vmess quic profile config");
+    path.to_string_lossy().into_owned()
+}
+
 fn write_temp_hy2_profile_config(hy2_port: u16) -> String {
     let name = format!(
         "keli-native-client-listen-mixed-hy2-{}.yaml",
@@ -2430,6 +2546,130 @@ fn spawn_vmess_h2_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
         },
     );
     (port, handle)
+}
+
+fn spawn_trojan_quic_echo_server() -> (u16, thread::JoinHandle<()>) {
+    spawn_legacy_quic_server(|mut send, mut recv| async move {
+        let expected = keli_protocol::encode_trojan_tcp_request_header(
+            "password",
+            &Endpoint::new("example.com", 443),
+        )
+        .expect("expected trojan quic request");
+        let mut request = vec![0; expected.len()];
+        recv.read_exact(&mut request)
+            .await
+            .expect("read trojan quic request");
+        assert_eq!(request, expected);
+        let mut payload = [0; 4];
+        recv.read_exact(&mut payload)
+            .await
+            .expect("read trojan quic payload");
+        assert_eq!(&payload, b"ping");
+        send.write_all(b"pong")
+            .await
+            .expect("write trojan quic response");
+        send.finish().expect("finish trojan quic stream");
+    })
+}
+
+fn spawn_vless_quic_echo_server() -> (u16, thread::JoinHandle<()>) {
+    spawn_legacy_quic_server(|mut send, mut recv| async move {
+        let expected = keli_protocol::encode_vless_tcp_request_header(
+            "00112233-4455-6677-8899-aabbccddeeff",
+            &Endpoint::new("example.com", 443),
+            None,
+        )
+        .expect("expected vless quic request");
+        let mut request = vec![0; expected.len()];
+        recv.read_exact(&mut request)
+            .await
+            .expect("read vless quic request");
+        assert_eq!(request, expected);
+        send.write_all(&[0x00, 0x00])
+            .await
+            .expect("write vless quic response header");
+        let mut payload = [0; 4];
+        recv.read_exact(&mut payload)
+            .await
+            .expect("read vless quic payload");
+        assert_eq!(&payload, b"ping");
+        send.write_all(b"pong")
+            .await
+            .expect("write vless quic response");
+        send.finish().expect("finish vless quic stream");
+    })
+}
+
+fn spawn_vmess_quic_echo_server() -> (u16, thread::JoinHandle<()>) {
+    spawn_legacy_quic_server(|mut send, mut recv| async move {
+        let request =
+            read_vmess_aead_request_async(&mut recv, "00112233-4455-6677-8899-aabbccddeeff").await;
+        assert_eq!(request.target_host, "example.com");
+        assert_eq!(request.target_port, 443);
+        assert_eq!(request.command, 0x01);
+        assert_eq!(request.security, VMESS_SECURITY_AES_128_GCM);
+
+        write_vmess_aead_response_header_async(&mut send, &request).await;
+        let payload = read_vmess_aes128_gcm_chunk_async(&mut recv, &request).await;
+        assert_eq!(&payload, b"ping");
+        write_vmess_aes128_gcm_response_chunk_async(&mut send, &request, b"pong").await;
+        send.finish().expect("finish vmess quic stream");
+    })
+}
+
+fn spawn_legacy_quic_server<F, Fut>(handler: F) -> (u16, thread::JoinHandle<()>)
+where
+    F: FnOnce(quinn::SendStream, quinn::RecvStream) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let (port_tx, port_rx) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async move {
+            let server_endpoint = quinn::Endpoint::server(
+                legacy_quic_test_server_config(),
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            )
+            .expect("bind local legacy quic server");
+            let server_addr = server_endpoint.local_addr().expect("legacy quic addr");
+            port_tx
+                .send(server_addr.port())
+                .expect("send legacy quic port");
+            let incoming = server_endpoint
+                .accept()
+                .await
+                .expect("server accepts legacy quic connection");
+            let connection = incoming.await.expect("server legacy quic connection");
+            let (send, recv) = connection
+                .accept_bi()
+                .await
+                .expect("accept legacy quic stream");
+            handler(send, recv).await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        });
+    });
+    let port = port_rx.recv().expect("receive legacy quic port");
+    (port, handle)
+}
+
+fn legacy_quic_test_server_config() -> quinn::ServerConfig {
+    let cert = generate_simple_self_signed(vec!["localhost".to_string()]).expect("cert");
+    let cert_der: CertificateDer<'static> = cert.cert.der().clone();
+    let key_der = PrivateKeyDer::Pkcs8(cert.signing_key.serialize_der().into());
+    let tls = rustls::ServerConfig::builder_with_provider(
+        rustls::crypto::ring::default_provider().into(),
+    )
+    .with_protocol_versions(&[&rustls::version::TLS13])
+    .expect("server protocol versions")
+    .with_no_client_auth()
+    .with_single_cert(vec![cert_der], key_der)
+    .expect("server config");
+    quinn::ServerConfig::with_crypto(Arc::new(
+        quinn::crypto::rustls::QuicServerConfig::try_from(tls).expect("legacy quic server config"),
+    ))
 }
 
 fn spawn_h2_server(
