@@ -137,6 +137,8 @@ pub struct TunPacketLoopSummary {
     pub dns_responses_written: usize,
     pub udp_relay_responses_written: usize,
     pub relay_packets: usize,
+    pub tcp_relay_plans: usize,
+    pub udp_relay_plans: usize,
     pub dropped_packets: usize,
     pub unsupported_packets: usize,
     pub packet_errors: usize,
@@ -283,8 +285,19 @@ impl TunPacketLoopSummary {
             TunPacketLoopEvent::WroteUdpRelayPacket { .. } => {
                 self.udp_relay_responses_written += 1;
             }
-            TunPacketLoopEvent::Relay(_) => {
+            TunPacketLoopEvent::Relay(plan) => {
                 self.relay_packets += 1;
+                match plan.relay_action {
+                    TunPacketRelayAction::DirectTcp { .. }
+                    | TunPacketRelayAction::OutboundTcp { .. } => {
+                        self.tcp_relay_plans += 1;
+                    }
+                    TunPacketRelayAction::DirectUdp { .. }
+                    | TunPacketRelayAction::OutboundUdp { .. } => {
+                        self.udp_relay_plans += 1;
+                    }
+                    _ => {}
+                }
             }
             TunPacketLoopEvent::Drop(_) => {
                 self.dropped_packets += 1;

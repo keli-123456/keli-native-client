@@ -375,6 +375,8 @@ fn tun_packet_loop_with_udp_relay_writes_direct_udp_response() {
     assert_eq!(summary.processed_packets(), 1);
     assert_eq!(summary.udp_relay_responses_written, 1);
     assert_eq!(summary.relay_packets, 0);
+    assert_eq!(summary.tcp_relay_plans, 0);
+    assert_eq!(summary.udp_relay_plans, 0);
     assert_eq!(summary.udp_relay_errors, 0);
     assert_eq!(
         relay.calls,
@@ -699,6 +701,7 @@ fn tun_packet_loop_summary_counts_event_outcomes() {
                 "1.1.1.1",
                 &udp_datagram(54323, 443, b"keli"),
             ),
+            ipv4_packet(6, "10.7.0.2", "1.1.1.3", &[0xc0, 0x01, 0x01, 0xbb]),
             ipv4_packet(
                 17,
                 "10.7.0.2",
@@ -727,14 +730,16 @@ fn tun_packet_loop_summary_counts_event_outcomes() {
     let routes = build_routes();
 
     let events =
-        run_tun_packet_loop(&mut device, &routes, true, &mut dns, 30, 6).expect("run TUN loop");
+        run_tun_packet_loop(&mut device, &routes, true, &mut dns, 30, 7).expect("run TUN loop");
     let summary = TunPacketLoopSummary::from_events(&events);
 
-    assert_eq!(events.len(), 6);
-    assert_eq!(summary.processed_packets(), 5);
+    assert_eq!(events.len(), 7);
+    assert_eq!(summary.processed_packets(), 6);
     assert_eq!(summary.idle_events, 1);
     assert_eq!(summary.dns_responses_written, 1);
-    assert_eq!(summary.relay_packets, 1);
+    assert_eq!(summary.relay_packets, 2);
+    assert_eq!(summary.tcp_relay_plans, 1);
+    assert_eq!(summary.udp_relay_plans, 1);
     assert_eq!(summary.dropped_packets, 1);
     assert_eq!(summary.unsupported_packets, 1);
     assert_eq!(summary.packet_errors, 1);
@@ -751,7 +756,7 @@ fn tun_packet_loop_summary_counts_event_outcomes() {
     let routes = build_routes();
 
     let summary_from_runner =
-        run_tun_packet_loop_summary(&mut device, &routes, true, &mut dns, 30, 6)
+        run_tun_packet_loop_summary(&mut device, &routes, true, &mut dns, 30, 7)
             .expect("run TUN summary loop");
 
     assert_eq!(summary_from_runner, summary);

@@ -193,6 +193,9 @@ The first implementation target is deliberately small:
    `listen-mixed --tun` and managed mixed sessions now surface that report to
    the caller and record a runtime status note with the TUN packet counters when
    the listener exits.
+   Those summaries split TCP relay plans from UDP relay plans, so UI and
+   support tooling can distinguish the executed UDP packet path from the
+   remaining TCP/TUN stream-stack boundary.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.
