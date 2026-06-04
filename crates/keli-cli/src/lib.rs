@@ -1813,6 +1813,17 @@ fn write_profile_check_report(
                     })
                 })
                 .collect();
+            let skipped_summary = skipped_summary_reports(&parsed.skipped);
+            let skipped_summary_json: Vec<_> = skipped_summary
+                .iter()
+                .map(|summary| {
+                    serde_json::json!({
+                        "reason": summary.reason,
+                        "count": summary.names.len(),
+                        "names": summary.names,
+                    })
+                })
+                .collect();
             let protocol_capabilities = protocol_capability_reports(&parsed.profiles);
             let protocol_capabilities_json: Vec<_> = protocol_capabilities
                 .iter()
@@ -1830,6 +1841,8 @@ fn write_profile_check_report(
                 "source_format": source_format,
                 "supported_count": parsed.profiles.len(),
                 "skipped_count": parsed.skipped.len(),
+                "skipped_summary_count": skipped_summary.len(),
+                "skipped_summary": skipped_summary_json,
                 "default_outbound": default_outbound,
                 "registry_error": registry_error,
                 "supported_tags": supported_tags,
@@ -1851,6 +1864,30 @@ struct ProtocolCapabilityReport {
     tcp_relay_supported: bool,
     udp_supported: bool,
     tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SkippedSummaryReport {
+    reason: String,
+    names: Vec<String>,
+}
+
+fn skipped_summary_reports(skipped: &[SkippedOutboundProfile]) -> Vec<SkippedSummaryReport> {
+    let mut summaries = Vec::<SkippedSummaryReport>::new();
+    for skipped in skipped {
+        if let Some(summary) = summaries
+            .iter_mut()
+            .find(|summary| summary.reason == skipped.reason)
+        {
+            summary.names.push(skipped.name.clone());
+            continue;
+        }
+        summaries.push(SkippedSummaryReport {
+            reason: skipped.reason.clone(),
+            names: vec![skipped.name.clone()],
+        });
+    }
+    summaries
 }
 
 fn udp_supported_tags(profiles: &[OutboundProfile]) -> Vec<&str> {

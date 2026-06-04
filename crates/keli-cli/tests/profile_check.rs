@@ -130,6 +130,50 @@ fn profile_check_json_reports_share_link_source_format() {
 }
 
 #[test]
+fn profile_check_json_groups_skipped_reasons() {
+    let config = r#"
+proxies:
+  - name: SS-READY
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+  - name: WG-ONE
+    type: wireguard
+    server: wg1.example.com
+    port: 51820
+    password: ignored
+  - name: WG-TWO
+    type: wireguard
+    server: wg2.example.com
+    port: 51820
+    password: ignored
+"#;
+    let mut output = Vec::new();
+
+    keli_cli::write_profile_check_report_from_subscription_config_text(
+        config,
+        ProbeOutputFormat::Json,
+        &mut output,
+    )
+    .expect("profile check");
+
+    let report: Value = serde_json::from_slice(&output).expect("json report");
+    assert_eq!(report["status"], "ok");
+    assert_eq!(report["supported_count"], 1);
+    assert_eq!(report["skipped_count"], 2);
+    assert_eq!(report["skipped_summary_count"], 1);
+    assert_eq!(
+        report["skipped_summary"][0]["reason"],
+        "unsupported protocol: wireguard"
+    );
+    assert_eq!(report["skipped_summary"][0]["count"], 2);
+    assert_eq!(report["skipped_summary"][0]["names"][0], "WG-ONE");
+    assert_eq!(report["skipped_summary"][0]["names"][1], "WG-TWO");
+}
+
+#[test]
 fn profile_check_json_reports_protocol_capability_matrix() {
     let config = r#"
 proxies:
