@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 use std::str::FromStr;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use aes::cipher::{BlockDecrypt, KeyInit};
 use aes_gcm::aead::{Aead, Payload};
@@ -50,6 +50,8 @@ const MIERU_DATA_CLIENT_TO_SERVER: u8 = 6;
 const MIERU_DATA_SERVER_TO_CLIENT: u8 = 7;
 const MIERU_STATUS_OK: u8 = 0;
 const MIERU_SOCKS_CONNECT_SUCCESS: [u8; 10] = [5, 0, 0, 1, 0, 0, 0, 0, 0, 0];
+const MIERU_UDP_MARKER_START: u8 = 0x00;
+const MIERU_UDP_MARKER_END: u8 = 0xff;
 
 #[test]
 fn registered_direct_outbound_connects_to_target() {
@@ -1539,6 +1541,80 @@ fn registry_from_mieru_tcp_profile_relays_over_mieru_tcp() {
     server.join().expect("server thread");
 }
 
+#[test]
+fn registry_from_mieru_tcp_profile_relays_udp_over_mieru_udp_associate() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind mieru udp server");
+    listener
+        .set_nonblocking(true)
+        .expect("nonblocking mieru udp listener");
+    let port = listener.local_addr().expect("mieru udp addr").port();
+    let registry = OutboundRegistry::from_profiles([OutboundProfile {
+        tag: "proxy".to_string(),
+        protocol: ProxyProtocol::Mieru,
+        endpoint: Endpoint::new("127.0.0.1", port),
+        transport: TransportKind::Tcp,
+        security: SecurityKind::None,
+        credential: "user:pass".to_string(),
+        cipher: None,
+        flow: None,
+    }])
+    .expect("profile registry");
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = accept_with_deadline_for_mieru_test(listener);
+        stream
+            .set_nonblocking(false)
+            .expect("blocking mieru stream");
+        let key = derive_mieru_key_for_test("user", "pass");
+        let mut read_nonce = None;
+        let open = read_mieru_segment_for_test(&mut stream, &key, &mut read_nonce);
+        assert_eq!(open.protocol_type, MIERU_OPEN_SESSION_REQUEST);
+        assert_eq!(open.payload, b"\x05\x03\x00\x01\x00\x00\x00\x00\x00\x00");
+
+        let mut writer =
+            MieruTestWriter::new(stream.try_clone().expect("clone"), key, open.session_id);
+        writer.write_segment(MIERU_OPEN_SESSION_RESPONSE, b"");
+        writer.write_segment(MIERU_DATA_SERVER_TO_CLIENT, &MIERU_SOCKS_CONNECT_SUCCESS);
+
+        let data = read_mieru_segment_for_test(&mut stream, &key, &mut read_nonce);
+        assert_eq!(data.protocol_type, MIERU_DATA_CLIENT_TO_SERVER);
+        let packet = decode_mieru_udp_frame_for_test(&data.payload);
+        let datagram = parse_socks5_udp_datagram(&packet).expect("parse mieru udp request");
+        assert_eq!(
+            datagram.address,
+            Socks5Address::Domain("example.com".to_string())
+        );
+        assert_eq!(datagram.port, 53);
+        assert_eq!(datagram.payload, b"ping");
+
+        let response = encode_socks5_udp_datagram(
+            &Socks5Address::Ipv4("127.0.0.1".parse().expect("response ip")),
+            53,
+            b"pong",
+        )
+        .expect("encode mieru udp response");
+        writer.write_segment(
+            MIERU_DATA_SERVER_TO_CLIENT,
+            &encode_mieru_udp_frame_for_test(&response),
+        );
+    });
+
+    let response = registry
+        .relay_udp_datagram(
+            "proxy",
+            &OutboundTarget::new("example.com", 53),
+            b"ping",
+            Duration::from_secs(1),
+        )
+        .expect("registered mieru outbound should relay UDP");
+
+    assert_eq!(
+        response.source,
+        "127.0.0.1:53".parse().expect("response source")
+    );
+    assert_eq!(response.payload, b"pong");
+    server.join().expect("server thread");
+}
+
 #[derive(Debug)]
 struct MieruTestSegment {
     protocol_type: u8,
@@ -1610,6 +1686,44 @@ fn read_mieru_segment_for_test(
         assert_ne!(read, 0, "mieru stream closed before segment");
         buffer.extend_from_slice(&temp[..read]);
     }
+}
+
+fn accept_with_deadline_for_mieru_test(
+    listener: std::net::TcpListener,
+) -> (std::net::TcpStream, std::net::SocketAddr) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match listener.accept() {
+            Ok(accepted) => return accepted,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                assert!(
+                    Instant::now() < deadline,
+                    "timed out waiting for mieru test client"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => panic!("accept mieru test client: {error}"),
+        }
+    }
+}
+
+fn encode_mieru_udp_frame_for_test(packet: &[u8]) -> Vec<u8> {
+    assert!(packet.len() <= u16::MAX as usize);
+    let mut output = Vec::with_capacity(packet.len() + 4);
+    output.push(MIERU_UDP_MARKER_START);
+    output.extend_from_slice(&(packet.len() as u16).to_be_bytes());
+    output.extend_from_slice(packet);
+    output.push(MIERU_UDP_MARKER_END);
+    output
+}
+
+fn decode_mieru_udp_frame_for_test(input: &[u8]) -> Vec<u8> {
+    assert!(input.len() >= 4);
+    assert_eq!(input[0], MIERU_UDP_MARKER_START);
+    let len = u16::from_be_bytes([input[1], input[2]]) as usize;
+    assert_eq!(input.len(), len + 4);
+    assert_eq!(input[input.len() - 1], MIERU_UDP_MARKER_END);
+    input[3..3 + len].to_vec()
 }
 
 fn try_read_mieru_segment_for_test(

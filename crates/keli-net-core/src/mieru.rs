@@ -10,7 +10,11 @@ use keli_protocol::Endpoint;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 
-use crate::direct::{DirectTcpConnector, OutboundConnection, OutboundTarget, OwnedRelayStream};
+use crate::direct::{
+    socks5_address_from_target, socks5_udp_source_addr, DirectTcpConnector, OutboundConnection,
+    OutboundTarget, OwnedRelayStream, UdpRelayResponse,
+};
+use crate::socks5::{encode_socks5_udp_datagram, parse_socks5_udp_datagram};
 
 const NONCE_LEN: usize = 24;
 const METADATA_LEN: usize = 32;
@@ -30,10 +34,13 @@ const ACK_SERVER_TO_CLIENT: u8 = 9;
 const STATUS_OK: u8 = 0;
 const SOCKS_VERSION: u8 = 5;
 const SOCKS_CMD_CONNECT: u8 = 1;
+const SOCKS_CMD_UDP_ASSOCIATE: u8 = 3;
 const SOCKS_CONNECT_SUCCESS: [u8; 10] = [SOCKS_VERSION, 0, 0, 1, 0, 0, 0, 0, 0, 0];
 const ATYP_IPV4: u8 = 1;
 const ATYP_DOMAIN: u8 = 3;
 const ATYP_IPV6: u8 = 4;
+const UDP_MARKER_START: u8 = 0x00;
+const UDP_MARKER_END: u8 = 0xff;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -80,6 +87,21 @@ impl MieruTcpOutbound {
         stream.inner.set_write_timeout(None)?;
         Ok(OutboundConnection::Owned(Box::new(stream)))
     }
+
+    pub fn relay_udp_datagram(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+    ) -> io::Result<UdpRelayResponse> {
+        let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
+        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        stream.set_read_timeout(Some(timeout))?;
+        stream.set_write_timeout(Some(timeout))?;
+        let mut stream = MieruTcpStream::udp_associate(stream, &self.username, &self.password)?;
+        stream.write_udp_datagram(target, payload)?;
+        stream.read_udp_datagram(timeout)
+    }
 }
 
 #[derive(Debug)]
@@ -102,6 +124,19 @@ impl MieruTcpStream {
         password: &str,
         target: &Endpoint,
     ) -> io::Result<Self> {
+        Self::open_session(inner, username, password, &socks_connect_request(target)?)
+    }
+
+    fn udp_associate(inner: TcpStream, username: &str, password: &str) -> io::Result<Self> {
+        Self::open_session(inner, username, password, &socks_udp_associate_request())
+    }
+
+    fn open_session(
+        inner: TcpStream,
+        username: &str,
+        password: &str,
+        request: &[u8],
+    ) -> io::Result<Self> {
         let key = derive_mieru_key(username, password, rounded_unix_time(now_unix_secs()));
         let mut write_nonce = [0; NONCE_LEN];
         rand::thread_rng().fill_bytes(&mut write_nonce);
@@ -118,8 +153,7 @@ impl MieruTcpStream {
             pending: VecDeque::new(),
             closed: false,
         };
-        let request = socks_connect_request(target)?;
-        stream.write_segment(OPEN_SESSION_REQUEST, &request)?;
+        stream.write_segment(OPEN_SESSION_REQUEST, request)?;
         let response = stream.read_next_segment()?;
         if response.metadata.protocol_type != OPEN_SESSION_RESPONSE
             || response.metadata.status_code != STATUS_OK
@@ -138,6 +172,24 @@ impl MieruTcpStream {
             ));
         }
         Ok(stream)
+    }
+
+    fn write_udp_datagram(&mut self, target: &OutboundTarget, payload: &[u8]) -> io::Result<()> {
+        let address = socks5_address_from_target(target)?;
+        let packet = encode_socks5_udp_datagram(&address, target.port, payload)
+            .map_err(socks5_error_to_io)?;
+        let frame = encode_udp_frame(&packet)?;
+        self.write_all(&frame)?;
+        self.flush()
+    }
+
+    fn read_udp_datagram(&mut self, timeout: Duration) -> io::Result<UdpRelayResponse> {
+        let packet = read_udp_frame(self)?;
+        let datagram = parse_socks5_udp_datagram(&packet).map_err(socks5_error_to_io)?;
+        Ok(UdpRelayResponse {
+            source: socks5_udp_source_addr(datagram.address, datagram.port, timeout)?,
+            payload: datagram.payload,
+        })
     }
 
     fn read_next_segment(&mut self) -> io::Result<MieruSegment> {
@@ -526,6 +578,78 @@ fn socks_connect_request(target: &Endpoint) -> io::Result<Vec<u8>> {
     }
     request.extend_from_slice(&target.port.to_be_bytes());
     Ok(request)
+}
+
+fn socks_udp_associate_request() -> Vec<u8> {
+    vec![
+        SOCKS_VERSION,
+        SOCKS_CMD_UDP_ASSOCIATE,
+        0,
+        ATYP_IPV4,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    ]
+}
+
+fn encode_udp_frame(packet: &[u8]) -> io::Result<Vec<u8>> {
+    let len = u16::try_from(packet.len()).map_err(|_| {
+        io::Error::new(io::ErrorKind::InvalidInput, "Mieru UDP packet is too large")
+    })?;
+    let mut output = Vec::with_capacity(packet.len() + 4);
+    output.push(UDP_MARKER_START);
+    output.extend_from_slice(&len.to_be_bytes());
+    output.extend_from_slice(packet);
+    output.push(UDP_MARKER_END);
+    Ok(output)
+}
+
+fn read_udp_frame(stream: &mut MieruTcpStream) -> io::Result<Vec<u8>> {
+    let mut buffer = Vec::new();
+    loop {
+        if let Some(frame) = take_udp_frame(&mut buffer)? {
+            return Ok(frame);
+        }
+        let mut temp = [0; 4096];
+        let read = stream.read(&mut temp)?;
+        if read == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Mieru UDP frame ended early",
+            ));
+        }
+        buffer.extend_from_slice(&temp[..read]);
+    }
+}
+
+fn take_udp_frame(buffer: &mut Vec<u8>) -> io::Result<Option<Vec<u8>>> {
+    while buffer.first().is_some_and(|byte| *byte != UDP_MARKER_START) {
+        buffer.remove(0);
+    }
+    if buffer.len() < 4 {
+        return Ok(None);
+    }
+    let len = u16::from_be_bytes([buffer[1], buffer[2]]) as usize;
+    let total = 1 + 2 + len + 1;
+    if buffer.len() < total {
+        return Ok(None);
+    }
+    if buffer[total - 1] != UDP_MARKER_END {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid Mieru UDP frame marker",
+        ));
+    }
+    let payload = buffer[3..3 + len].to_vec();
+    buffer.drain(..total);
+    Ok(Some(payload))
+}
+
+fn socks5_error_to_io(error: crate::Socks5Error) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, error)
 }
 
 fn encrypt_aead(key: &[u8; 32], nonce: &[u8; NONCE_LEN], plaintext: &[u8]) -> io::Result<Vec<u8>> {

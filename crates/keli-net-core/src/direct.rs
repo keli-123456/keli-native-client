@@ -1403,6 +1403,8 @@ impl OutboundRegistry {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.anytls_tls_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
+        } else if let Some(outbound) = self.mieru_tcp_tags.get(tag) {
+            outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.hy2_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.tuic_tags.get(tag) {
@@ -3337,7 +3339,7 @@ fn read_socks5_reply_endpoint(stream: &mut TcpStream, operation: &str) -> io::Re
     Ok(Endpoint::new(host, u16::from_be_bytes(port)))
 }
 
-fn socks5_address_from_target(target: &OutboundTarget) -> io::Result<Socks5Address> {
+pub(crate) fn socks5_address_from_target(target: &OutboundTarget) -> io::Result<Socks5Address> {
     let host = target.host.trim().trim_matches(['[', ']']);
     if let Ok(ip) = host.parse::<Ipv4Addr>() {
         Ok(Socks5Address::Ipv4(ip))
@@ -3384,7 +3386,7 @@ fn socks5_udp_relay_addr(
         })
 }
 
-fn socks5_udp_source_addr(
+pub(crate) fn socks5_udp_source_addr(
     address: Socks5Address,
     port: u16,
     timeout: Duration,
