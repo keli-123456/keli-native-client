@@ -16,9 +16,9 @@ use keli_net_core::{
 };
 use keli_platform::PlatformCapabilities;
 use keli_protocol::{
-    parse_mihomo_outbound_profiles, parse_subscription_outbound_profiles, Endpoint,
-    OutboundProfile, ParsedOutboundProfiles, ProxyProtocol, SecurityKind, SkippedOutboundProfile,
-    TransportKind,
+    detect_subscription_input_format, parse_mihomo_outbound_profiles,
+    parse_subscription_outbound_profiles, Endpoint, OutboundProfile, ParsedOutboundProfiles,
+    ProxyProtocol, SecurityKind, SkippedOutboundProfile, TransportKind,
 };
 
 const DEFAULT_FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -1692,6 +1692,7 @@ pub fn write_profile_check_report_from_subscription_config_text(
     output: ProbeOutputFormat,
     mut writer: impl Write,
 ) -> Result<(), String> {
+    let source_format = detect_subscription_input_format(config_text);
     let parsed = parse_subscription_outbound_profiles(config_text)
         .map_err(|error| format!("profile config parse failed: {error}"))?;
     let parsed = profiles_with_registry_supported_outbounds(parsed);
@@ -1702,7 +1703,15 @@ pub fn write_profile_check_report_from_subscription_config_text(
         "ok"
     };
 
-    write_profile_check_report(&mut writer, status, &parsed, default_outbound, None, output)?;
+    write_profile_check_report(
+        &mut writer,
+        status,
+        source_format.as_str(),
+        &parsed,
+        default_outbound,
+        None,
+        output,
+    )?;
 
     if parsed.profiles.is_empty() {
         return Err("profile config did not contain supported outbounds".to_string());
@@ -1730,6 +1739,7 @@ fn profiles_with_registry_supported_outbounds(
 fn write_profile_check_report(
     writer: &mut impl Write,
     status: &str,
+    source_format: &str,
     parsed: &keli_protocol::ParsedOutboundProfiles,
     default_outbound: Option<&str>,
     registry_error: Option<&str>,
@@ -1741,7 +1751,7 @@ fn write_profile_check_report(
             let protocol_capabilities = protocol_capability_reports(&parsed.profiles);
             writeln!(
                 writer,
-                "profile status={status} supported={} skipped={} default_outbound={} registry_error={} udp_supported={} protocol_capabilities={}",
+                "profile status={status} source_format={source_format} supported={} skipped={} default_outbound={} registry_error={} udp_supported={} protocol_capabilities={}",
                 parsed.profiles.len(),
                 parsed.skipped.len(),
                 default_outbound.unwrap_or("-"),
@@ -1817,6 +1827,7 @@ fn write_profile_check_report(
                 .collect();
             let value = serde_json::json!({
                 "status": status,
+                "source_format": source_format,
                 "supported_count": parsed.profiles.len(),
                 "skipped_count": parsed.skipped.len(),
                 "default_outbound": default_outbound,

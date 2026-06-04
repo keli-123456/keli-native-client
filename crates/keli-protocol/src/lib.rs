@@ -378,6 +378,21 @@ pub enum SubscriptionParseError {
     InvalidShare(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubscriptionInputFormat {
+    MihomoYaml,
+    ShareLinks,
+}
+
+impl SubscriptionInputFormat {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::MihomoYaml => "mihomo_yaml",
+            Self::ShareLinks => "share_links",
+        }
+    }
+}
+
 impl fmt::Display for SubscriptionParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -410,10 +425,17 @@ pub fn parse_mihomo_outbound_profiles(
 pub fn parse_subscription_outbound_profiles(
     input: &str,
 ) -> Result<ParsedOutboundProfiles, SubscriptionParseError> {
+    match detect_subscription_input_format(input) {
+        SubscriptionInputFormat::MihomoYaml => parse_mihomo_outbound_profiles(input),
+        SubscriptionInputFormat::ShareLinks => parse_share_outbound_profiles(input),
+    }
+}
+
+pub fn detect_subscription_input_format(input: &str) -> SubscriptionInputFormat {
     if looks_like_mihomo_yaml(input) {
-        parse_mihomo_outbound_profiles(input)
+        SubscriptionInputFormat::MihomoYaml
     } else {
-        parse_share_outbound_profiles(input)
+        SubscriptionInputFormat::ShareLinks
     }
 }
 

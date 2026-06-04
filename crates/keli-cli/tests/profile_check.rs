@@ -96,7 +96,7 @@ proxies:
 
     let output = String::from_utf8(output).expect("utf8 output");
     assert!(output.contains(
-        "profile status=ok supported=2 skipped=0 default_outbound=NAIVE-TLS registry_error=- udp_supported=1 protocol_capabilities=2"
+        "profile status=ok source_format=mihomo_yaml supported=2 skipped=0 default_outbound=NAIVE-TLS registry_error=- udp_supported=1 protocol_capabilities=2"
     ));
     assert!(output.contains(
         "profile capability protocol=Naive tcp_relay_supported=true udp_supported=false tags=NAIVE-TLS"
@@ -104,6 +104,29 @@ proxies:
     assert!(output.contains(
         "profile capability protocol=Mieru tcp_relay_supported=true udp_supported=true tags=MIERU-TCP"
     ));
+}
+
+#[test]
+fn profile_check_json_reports_share_link_source_format() {
+    let links = "ss://YWVzLTI1Ni1nY206c2VjcmV0@ss.example.com:8388#ss-ready";
+    let mut output = Vec::new();
+
+    keli_cli::write_profile_check_report_from_subscription_config_text(
+        links,
+        ProbeOutputFormat::Json,
+        &mut output,
+    )
+    .expect("profile check");
+
+    let report: Value = serde_json::from_slice(&output).expect("json report");
+    assert_eq!(report["status"], "ok");
+    assert_eq!(report["source_format"], "share_links");
+    assert_eq!(report["supported_count"], 1);
+    assert_eq!(report["protocol_capability_count"], 1);
+    assert_eq!(
+        protocol_capability(&report, "Shadowsocks")["udp_supported"],
+        true
+    );
 }
 
 #[test]
