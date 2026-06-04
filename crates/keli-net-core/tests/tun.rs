@@ -5,9 +5,9 @@ use keli_net_core::{
     build_dns_error_response, build_dns_response, build_tun_dns_hijack_response,
     build_tun_dns_response_packet, decide_tun_packet_route, parse_tun_packet_flow,
     parse_tun_udp_payload, plan_tun_dns_hijack, plan_tun_packet_relay, process_tun_packet,
-    relay_tun_direct_udp_packet, run_tun_packet_loop, run_tun_packet_loop_summary,
-    run_tun_packet_loop_with_udp_relay_summary, DnsCache, DnsEngine, DnsError,
-    DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, OutboundTarget, RouteAction,
+    relay_tun_direct_udp_packet, relay_tun_udp_packet, run_tun_packet_loop,
+    run_tun_packet_loop_summary, run_tun_packet_loop_with_udp_relay_summary, DnsCache, DnsEngine,
+    DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, OutboundTarget, RouteAction,
     RouteDestination, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion,
     TunPacketDevice, TunPacketError, TunPacketLoopEvent, TunPacketLoopSummary,
     TunPacketProcessAction, TunPacketRelayAction, TunPacketRelayPlan, TunTransportProtocol,
@@ -311,6 +311,40 @@ fn relays_tun_direct_udp_packet_and_wraps_response() {
 }
 
 #[test]
+fn relays_tun_outbound_udp_packet_with_tag_and_wraps_response() {
+    let routes = RouteEngine::new(RouteAction::Outbound("edge".to_string()));
+    let packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "1.1.1.1",
+        &udp_datagram(54321, 443, b"ping"),
+    );
+    let plan = plan_tun_packet_relay(&packet, &routes, true).expect("plan outbound UDP packet");
+    let mut relay = FakeTunUdpRelay::ok("1.1.1.1:443", b"pong");
+
+    let response =
+        relay_tun_udp_packet(&packet, plan.clone(), &mut relay).expect("relay outbound TUN UDP");
+
+    assert_eq!(response.plan, plan);
+    assert!(relay.calls.is_empty());
+    assert_eq!(
+        relay.outbound_calls,
+        vec![(
+            "edge".to_string(),
+            OutboundTarget::new("1.1.1.1", 443),
+            b"ping".to_vec()
+        )]
+    );
+    let udp = parse_tun_udp_payload(&response.packet).expect("parse relay response");
+    assert_eq!(
+        udp.flow.source_ip,
+        "1.1.1.1".parse::<IpAddr>().expect("valid IP")
+    );
+    assert_eq!(udp.flow.source_port, Some(443));
+    assert_eq!(udp.payload, b"pong");
+}
+
+#[test]
 fn tun_packet_loop_with_udp_relay_writes_direct_udp_response() {
     let packet = ipv4_packet(
         17,
@@ -344,6 +378,53 @@ fn tun_packet_loop_with_udp_relay_writes_direct_udp_response() {
     assert_eq!(
         relay.calls,
         vec![(OutboundTarget::new("1.1.1.1", 443), b"ping".to_vec())]
+    );
+    assert_eq!(device.writes.len(), 1);
+    assert_eq!(
+        parse_tun_udp_payload(&device.writes[0])
+            .expect("parse written response")
+            .payload,
+        b"pong"
+    );
+}
+
+#[test]
+fn tun_packet_loop_with_udp_relay_writes_outbound_udp_response() {
+    let packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "1.1.1.1",
+        &udp_datagram(54321, 443, b"ping"),
+    );
+    let routes = RouteEngine::new(RouteAction::Outbound("edge".to_string()));
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut device = FakeTunPacketDevice::new(vec![packet]);
+    let mut relay = FakeTunUdpRelay::ok("1.1.1.1:443", b"pong");
+
+    let summary = run_tun_packet_loop_with_udp_relay_summary(
+        &mut device,
+        &routes,
+        true,
+        &mut dns,
+        30,
+        1,
+        &mut relay,
+    )
+    .expect("run TUN loop with tagged UDP relay");
+
+    assert_eq!(summary.processed_packets(), 1);
+    assert_eq!(summary.udp_relay_responses_written, 1);
+    assert!(relay.calls.is_empty());
+    assert_eq!(
+        relay.outbound_calls,
+        vec![(
+            "edge".to_string(),
+            OutboundTarget::new("1.1.1.1", 443),
+            b"ping".to_vec()
+        )]
     );
     assert_eq!(device.writes.len(), 1);
     assert_eq!(
@@ -984,6 +1065,7 @@ impl TunPacketDevice for FakeTunPacketDevice {
 struct FakeTunUdpRelay {
     response: Result<UdpRelayResponse, String>,
     calls: Vec<(OutboundTarget, Vec<u8>)>,
+    outbound_calls: Vec<(String, OutboundTarget, Vec<u8>)>,
 }
 
 impl FakeTunUdpRelay {
@@ -994,6 +1076,7 @@ impl FakeTunUdpRelay {
                 payload: payload.to_vec(),
             }),
             calls: Vec::new(),
+            outbound_calls: Vec::new(),
         }
     }
 
@@ -1001,6 +1084,7 @@ impl FakeTunUdpRelay {
         Self {
             response: Err(error.to_string()),
             calls: Vec::new(),
+            outbound_calls: Vec::new(),
         }
     }
 }
@@ -1012,6 +1096,17 @@ impl TunUdpRelay for FakeTunUdpRelay {
         payload: &[u8],
     ) -> Result<UdpRelayResponse, String> {
         self.calls.push((target.clone(), payload.to_vec()));
+        self.response.clone()
+    }
+
+    fn relay_outbound_udp_datagram(
+        &mut self,
+        tag: &str,
+        target: &OutboundTarget,
+        payload: &[u8],
+    ) -> Result<UdpRelayResponse, String> {
+        self.outbound_calls
+            .push((tag.to_string(), target.clone(), payload.to_vec()));
         self.response.clone()
     }
 }

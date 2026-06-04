@@ -69,7 +69,7 @@ pub use tun::{
     build_tun_dns_hijack_response, build_tun_dns_response_packet, build_tun_udp_response_packet,
     decide_tun_packet_route, parse_tun_packet_flow, parse_tun_udp_payload, plan_tun_dns_hijack,
     plan_tun_packet_relay, process_tun_device_packet, process_tun_device_packet_with_udp_relay,
-    process_tun_packet, relay_tun_direct_udp_packet, run_tun_packet_loop,
+    process_tun_packet, relay_tun_direct_udp_packet, relay_tun_udp_packet, run_tun_packet_loop,
     run_tun_packet_loop_summary, run_tun_packet_loop_with_udp_relay_summary, TunDnsHijackPlan,
     TunDnsHijackResponse, TunIpVersion, TunPacketDevice, TunPacketError, TunPacketFlow,
     TunPacketLoopError, TunPacketLoopEvent, TunPacketLoopSummary, TunPacketProcessAction,

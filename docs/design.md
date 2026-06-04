@@ -173,6 +173,8 @@ The first implementation target is deliberately small:
    Direct UDP TUN relay can execute an injected UDP relay, wrap the relay
    payload back into a swapped TUN UDP response packet, and record relay errors
    without stopping the packet loop.
+   Tagged outbound UDP TUN relay uses the same response-packet path while
+   preserving the selected outbound tag for registered proxy UDP execution.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

@@ -82,6 +82,10 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][19],
+        "outbound-udp-relay"
+    );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][20],
         "relay-plan"
     );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");

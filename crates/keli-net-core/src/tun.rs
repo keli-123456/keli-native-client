@@ -183,6 +183,16 @@ pub trait TunUdpRelay {
         target: &OutboundTarget,
         payload: &[u8],
     ) -> Result<UdpRelayResponse, String>;
+
+    fn relay_outbound_udp_datagram(
+        &mut self,
+        tag: &str,
+        target: &OutboundTarget,
+        payload: &[u8],
+    ) -> Result<UdpRelayResponse, String> {
+        let _ = (target, payload);
+        Err(format!("outbound UDP relay is unsupported for tag: {tag}"))
+    }
 }
 
 impl fmt::Display for TunUdpRelayError {
@@ -621,8 +631,11 @@ where
             Ok(TunPacketLoopEvent::WrotePacket { response })
         }
         TunPacketProcessAction::Relay(plan) => {
-            if matches!(plan.relay_action, TunPacketRelayAction::DirectUdp { .. }) {
-                let response = match relay_tun_direct_udp_packet(&packet, plan, udp_relay) {
+            if matches!(
+                plan.relay_action,
+                TunPacketRelayAction::DirectUdp { .. } | TunPacketRelayAction::OutboundUdp { .. }
+            ) {
+                let response = match relay_tun_udp_packet(&packet, plan, udp_relay) {
                     Ok(response) => response,
                     Err(error) => return Ok(TunPacketLoopEvent::UdpRelayError(error)),
                 };
@@ -716,11 +729,19 @@ pub fn relay_tun_direct_udp_packet<U: TunUdpRelay>(
     plan: TunPacketRelayPlan,
     udp_relay: &mut U,
 ) -> Result<TunUdpRelayResponse, TunUdpRelayError> {
-    let TunPacketRelayAction::DirectUdp { target } = &plan.relay_action else {
+    if !matches!(plan.relay_action, TunPacketRelayAction::DirectUdp { .. }) {
         return Err(TunUdpRelayError::UnsupportedRelayAction(
             plan.relay_action.clone(),
         ));
-    };
+    }
+    relay_tun_udp_packet(packet, plan, udp_relay)
+}
+
+pub fn relay_tun_udp_packet<U: TunUdpRelay>(
+    packet: &[u8],
+    plan: TunPacketRelayPlan,
+    udp_relay: &mut U,
+) -> Result<TunUdpRelayResponse, TunUdpRelayError> {
     let udp = parse_tun_udp_payload(packet).map_err(TunUdpRelayError::Packet)?;
     if udp.flow != plan.route.flow {
         return Err(TunUdpRelayError::PlanFlowMismatch {
@@ -728,9 +749,18 @@ pub fn relay_tun_direct_udp_packet<U: TunUdpRelay>(
             plan_flow: plan.route.flow,
         });
     }
-    let relay_response = udp_relay
-        .relay_udp_datagram(target, udp.payload)
-        .map_err(TunUdpRelayError::Relay)?;
+    let relay_response = match &plan.relay_action {
+        TunPacketRelayAction::DirectUdp { target } => {
+            udp_relay.relay_udp_datagram(target, udp.payload)
+        }
+        TunPacketRelayAction::OutboundUdp { tag, target } => {
+            udp_relay.relay_outbound_udp_datagram(tag, target, udp.payload)
+        }
+        action => {
+            return Err(TunUdpRelayError::UnsupportedRelayAction(action.clone()));
+        }
+    }
+    .map_err(TunUdpRelayError::Relay)?;
     let packet = build_tun_udp_response_packet(&udp.flow, &relay_response.payload)
         .map_err(TunUdpRelayError::ResponsePacket)?;
     Ok(TunUdpRelayResponse {
