@@ -214,6 +214,9 @@ pub struct ManagedMixedStatusSnapshot {
     pub selected_outbound: Option<String>,
     pub generation: u64,
     pub event_count: usize,
+    pub recent_events: Vec<RuntimeEvent>,
+    pub last_error: Option<ClientErrorKind>,
+    pub system_proxy: Option<SystemProxyConfig>,
 }
 
 impl ManagedMixedStatusSnapshot {
@@ -224,7 +227,14 @@ impl ManagedMixedStatusSnapshot {
             selected_outbound: None,
             generation: 0,
             event_count: 0,
+            recent_events: Vec::new(),
+            last_error: None,
+            system_proxy: None,
         }
+    }
+
+    pub fn system_proxy_enabled(&self) -> bool {
+        self.system_proxy.is_some()
     }
 }
 
@@ -297,12 +307,25 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
 
 impl ManagedMixedStatusSnapshot {
     fn from_handle<C: SystemProxyController + ?Sized>(handle: &ManagedMixedHandle<'_, C>) -> Self {
+        let recent_events: Vec<RuntimeEvent> =
+            handle.events().iter().rev().take(5).cloned().collect();
+        let last_error = handle
+            .events()
+            .iter()
+            .rev()
+            .find_map(|event| match &event.status {
+                RuntimeStatus::Failed(error) => Some(error.clone()),
+                _ => None,
+            });
         Self {
             status: handle.status().clone(),
             listen_addr: Some(handle.listen_addr()),
             selected_outbound: handle.selected_outbound().map(str::to_string),
             generation: handle.generation(),
             event_count: handle.events().len(),
+            recent_events,
+            last_error,
+            system_proxy: handle.system_proxy_config().cloned(),
         }
     }
 }
@@ -326,6 +349,12 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
 
     pub fn events(&self) -> &[RuntimeEvent] {
         self.state.events()
+    }
+
+    pub fn system_proxy_config(&self) -> Option<&SystemProxyConfig> {
+        self.system_proxy_guard
+            .as_ref()
+            .map(ManagedSystemProxyGuard::config)
     }
 
     pub fn reload_from_subscription_config_text(

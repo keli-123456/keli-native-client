@@ -38,7 +38,9 @@ Current native-core progress includes a managed mixed inbound that can run in a
 background handle, stop cleanly, restore Windows system proxy state, and hot
 reload subscription config for subsequent connections while preserving the
 active runtime on reload failure. A managed controller API now wraps
-start/status/reload/stop for desktop or service integration.
+start/status/reload/stop for desktop or service integration, with status
+snapshots that include recent runtime events, last error, and managed system
+proxy details for support diagnostics.
 
 ## Protocol Matrix
 

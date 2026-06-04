@@ -299,7 +299,8 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
             ManagedMixedOptions {
                 listen: "127.0.0.1:0".to_string(),
                 outbound_tag: Some("SS-READY".to_string()),
-                system_proxy: false,
+                system_proxy: true,
+                system_proxy_bypass: vec!["localhost".to_string()],
                 ..ManagedMixedOptions::default()
             },
         )
@@ -310,6 +311,13 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
     assert!(started.listen_addr.is_some());
     assert_eq!(started.generation, 1);
     assert!(matches!(started.status, RuntimeStatus::Running { .. }));
+    assert!(started.system_proxy_enabled());
+    assert_eq!(
+        started.system_proxy.as_ref().map(|config| &config.bypass),
+        Some(&vec!["localhost".to_string()])
+    );
+    assert_eq!(started.last_error, None);
+    assert!(!started.recent_events.is_empty());
 
     let duplicate_start = core
         .start_from_subscription_config_text(
@@ -332,6 +340,8 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
 
     assert_eq!(reloaded.selected_outbound.as_deref(), Some("SS-NEXT"));
     assert_eq!(reloaded.generation, 2);
+    assert!(reloaded.event_count >= started.event_count);
+    assert!(reloaded.recent_events.len() <= 5);
     assert!(matches!(
         reloaded.status,
         RuntimeStatus::Running {
@@ -345,6 +355,8 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
     assert_eq!(stopped.status(), &RuntimeStatus::Stopped);
     assert!(!core.is_running());
     assert_eq!(core.status().status, RuntimeStatus::Stopped);
+    assert!(!core.status().system_proxy_enabled());
+    assert!(!platform_controller.restored.borrow().is_empty());
 }
 
 #[test]
@@ -360,6 +372,42 @@ fn managed_mixed_controller_rejects_reload_and_stop_before_start() {
     assert!(reload_error.contains("not running"));
     assert!(stop_error.contains("not running"));
     assert_eq!(core.status().status, RuntimeStatus::Stopped);
+}
+
+#[test]
+fn managed_mixed_controller_status_reports_reload_failure_detail() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    core.start_from_subscription_config_text(
+        ss_config(),
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-READY".to_string()),
+            ..ManagedMixedOptions::default()
+        },
+    )
+    .expect("start managed mixed controller");
+
+    let error = core
+        .reload_from_subscription_config_text(ss_config(), Some("MISSING".to_string()))
+        .expect_err("reload should reject unknown outbound");
+    let status = core.status();
+
+    assert!(error.contains("OutboundNotFound"));
+    assert_eq!(status.selected_outbound.as_deref(), Some("SS-READY"));
+    assert_eq!(status.generation, 1);
+    assert_eq!(
+        status.last_error,
+        Some(keli_client_core::ClientErrorKind::OutboundNotFound(
+            "MISSING".to_string()
+        ))
+    );
+    assert!(status
+        .recent_events
+        .iter()
+        .any(|event| matches!(event.status, RuntimeStatus::Failed(_))));
+
+    core.stop().expect("stop managed mixed controller");
 }
 
 #[test]
