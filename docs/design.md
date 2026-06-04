@@ -104,8 +104,9 @@ The first implementation target is deliberately small:
    options, reports the defaults in doctor output, and applies them to direct
    TCP/UDP routes, registered direct outbounds, and SOCKS5/HTTP proxy-server
    resolution. Core TCP outbounds for Trojan/VLESS/VMess plain/TLS TCP,
-   Shadowsocks, and Trojan/VLESS/VMess WebSocket, HTTPUpgrade, gRPC, and H2
-   transports also use the injected DNS policy for server resolution.
+   Shadowsocks, and Trojan/VLESS/VMess WebSocket, HTTPUpgrade, gRPC, H2, legacy
+   QUIC, AnyTLS, Naive, Mieru, HY2, and TUIC transports also use the injected
+   DNS policy for server resolution.
 4. Keli panel integration: subscription fetch/update, user state, node
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,

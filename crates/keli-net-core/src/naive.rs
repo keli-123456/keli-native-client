@@ -12,8 +12,8 @@ use tokio::task::JoinHandle;
 use tokio_rustls::TlsConnector;
 
 use crate::{
-    DirectTcpConnector, DnsCache, DnsEngine, OutboundConnection, OutboundTarget, OwnedRelayStream,
-    SystemDnsResolver,
+    DirectTcpConnector, DnsCache, DnsEngine, DnsResolver, OutboundConnection, OutboundTarget,
+    OwnedRelayStream, SystemDnsResolver,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,8 +44,18 @@ impl NaiveH2TcpOutbound {
         target: &OutboundTarget,
         timeout: std::time::Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: std::time::Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let stream = NaiveH2TcpStream::connect(
             stream,
@@ -86,9 +96,19 @@ impl NaiveH3QuicOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let target = Endpoint::new(target.host.clone(), target.port);
         let mut last_error = None;
-        for server_addr in self.resolve_server_addrs()? {
+        for server_addr in self.resolve_server_addrs_with_dns(dns)? {
             let bind_addr = quic_bind_addr_for(server_addr);
             match NaiveH3QuicStream::connect(
                 bind_addr,
@@ -114,8 +134,10 @@ impl NaiveH3QuicOutbound {
         }))
     }
 
-    fn resolve_server_addrs(&self) -> io::Result<Vec<SocketAddr>> {
-        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+    fn resolve_server_addrs_with_dns<R: DnsResolver>(
+        &self,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<Vec<SocketAddr>> {
         dns.resolve(&self.server.host, self.server.port)
             .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error))
             .map(|addresses| {

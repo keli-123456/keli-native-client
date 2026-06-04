@@ -21,7 +21,7 @@ pub use direct::{
     RelayOptions, RelayStats, ShadowsocksTcpOutbound, Socks5TcpOutbound, TlsTcpStream,
     TrojanGrpcOutbound, TrojanH2Outbound, TrojanHttpUpgradeOutbound, TrojanQuicOutbound,
     TrojanTcpOutbound, TrojanTlsGrpcOutbound, TrojanTlsH2Outbound, TrojanTlsHttpUpgradeOutbound,
-    TrojanTlsTcpOutbound, TrojanTlsWsOutbound, TrojanWsOutbound, UdpRelayResponse,
+    TrojanTlsTcpOutbound, TrojanTlsWsOutbound, TrojanWsOutbound, TuicOutbound, UdpRelayResponse,
     VlessGrpcOutbound, VlessH2Outbound, VlessHttpUpgradeOutbound, VlessQuicOutbound,
     VlessTcpOutbound, VlessTlsGrpcOutbound, VlessTlsH2Outbound, VlessTlsHttpUpgradeOutbound,
     VlessTlsTcpOutbound, VlessTlsWsOutbound, VlessWsOutbound, VmessBodySecurity, VmessGrpcOutbound,

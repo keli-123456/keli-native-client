@@ -10,16 +10,19 @@ use chacha20poly1305::{ChaCha20Poly1305, Nonce as ChachaNonce, XChaCha20Poly1305
 use hmac::{Hmac, Mac};
 use keli_net_core::{
     encode_socks5_udp_datagram, parse_socks5_udp_datagram, websocket_accept_for_key,
-    DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsLocalResolutionPolicy, HttpConnectOutbound,
-    OutboundRegistry, OutboundTarget, ShadowsocksTcpOutbound, Socks5Address, Socks5TcpOutbound,
-    SystemDnsResolver, TrojanGrpcOutbound, TrojanH2Outbound, TrojanHttpUpgradeOutbound,
+    AnyTlsTlsTcpOutbound, DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsLocalResolutionPolicy,
+    HttpConnectOutbound, Hy2Outbound, LegacyQuicTransportConfig, MieruTcpOutbound,
+    NaiveH2TcpOutbound, NaiveH3QuicOutbound, OutboundRegistry, OutboundTarget,
+    ShadowsocksTcpOutbound, Socks5Address, Socks5TcpOutbound, SystemDnsResolver,
+    TrojanGrpcOutbound, TrojanH2Outbound, TrojanHttpUpgradeOutbound, TrojanQuicOutbound,
     TrojanTcpOutbound, TrojanTlsGrpcOutbound, TrojanTlsH2Outbound, TrojanTlsHttpUpgradeOutbound,
-    TrojanTlsTcpOutbound, TrojanTlsWsOutbound, TrojanWsOutbound, VlessGrpcOutbound,
-    VlessH2Outbound, VlessHttpUpgradeOutbound, VlessTcpOutbound, VlessTlsGrpcOutbound,
-    VlessTlsH2Outbound, VlessTlsHttpUpgradeOutbound, VlessTlsTcpOutbound, VlessTlsWsOutbound,
-    VlessWsOutbound, VmessBodySecurity, VmessGrpcOutbound, VmessH2Outbound,
-    VmessHttpUpgradeOutbound, VmessTcpOutbound, VmessTlsGrpcOutbound, VmessTlsH2Outbound,
-    VmessTlsHttpUpgradeOutbound, VmessTlsTcpOutbound, VmessTlsWsOutbound, VmessWsOutbound,
+    TrojanTlsTcpOutbound, TrojanTlsWsOutbound, TrojanWsOutbound, TuicOutbound, VlessGrpcOutbound,
+    VlessH2Outbound, VlessHttpUpgradeOutbound, VlessQuicOutbound, VlessTcpOutbound,
+    VlessTlsGrpcOutbound, VlessTlsH2Outbound, VlessTlsHttpUpgradeOutbound, VlessTlsTcpOutbound,
+    VlessTlsWsOutbound, VlessWsOutbound, VmessBodySecurity, VmessGrpcOutbound, VmessH2Outbound,
+    VmessHttpUpgradeOutbound, VmessQuicOutbound, VmessTcpOutbound, VmessTlsGrpcOutbound,
+    VmessTlsH2Outbound, VmessTlsHttpUpgradeOutbound, VmessTlsTcpOutbound, VmessTlsWsOutbound,
+    VmessWsOutbound,
 };
 use keli_protocol::{Endpoint, OutboundProfile, ProxyProtocol, SecurityKind, TransportKind};
 use md5::{Digest as Md5Digest, Md5};
@@ -1337,6 +1340,229 @@ fn shadowsocks_udp_outbound_uses_injected_dns_policy_for_server() {
 
     assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
     assert!(error.to_string().contains("Ipv6Only"));
+}
+
+#[test]
+fn advanced_tcp_outbounds_use_injected_dns_policy_for_server() {
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_anytls_tls_tcp(
+                "proxy",
+                AnyTlsTlsTcpOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "password",
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 AnyTLS server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_naive_h2_tcp(
+                "proxy",
+                NaiveH2TcpOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "user:pass",
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Naive H2 server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_naive_h3_quic(
+                "proxy",
+                NaiveH3QuicOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "user:pass",
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Naive H3 server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_mieru_tcp(
+                "proxy",
+                MieruTcpOutbound::new(loopback_proxy_endpoint(), "user", "pass"),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Mieru server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_hy2(
+                "proxy",
+                Hy2Outbound::new(loopback_proxy_endpoint(), "secret", "edge.example", true),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 HY2 server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_tuic(
+                "proxy",
+                TuicOutbound::new(
+                    loopback_proxy_endpoint(),
+                    TEST_UUID,
+                    "password",
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 TUIC server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_quic(
+                "proxy",
+                TrojanQuicOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "password",
+                    "edge.example",
+                    true,
+                    LegacyQuicTransportConfig::default(),
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan QUIC server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_quic(
+                "proxy",
+                VlessQuicOutbound::new(
+                    loopback_proxy_endpoint(),
+                    TEST_UUID,
+                    None,
+                    "edge.example",
+                    true,
+                    LegacyQuicTransportConfig::default(),
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS QUIC server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_quic(
+                "proxy",
+                VmessQuicOutbound::new(
+                    loopback_proxy_endpoint(),
+                    TEST_UUID,
+                    "edge.example",
+                    true,
+                    LegacyQuicTransportConfig::default(),
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess QUIC server",
+    );
+}
+
+#[test]
+fn advanced_udp_outbounds_use_injected_dns_policy_for_server() {
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_anytls_tls_tcp(
+                "proxy",
+                AnyTlsTlsTcpOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "password",
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 AnyTLS UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_mieru_tcp(
+                "proxy",
+                MieruTcpOutbound::new(loopback_proxy_endpoint(), "user", "pass"),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Mieru UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_hy2(
+                "proxy",
+                Hy2Outbound::new(loopback_proxy_endpoint(), "secret", "edge.example", true),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 HY2 UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_tuic(
+                "proxy",
+                TuicOutbound::new(
+                    loopback_proxy_endpoint(),
+                    TEST_UUID,
+                    "password",
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 TUIC UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_quic(
+                "proxy",
+                TrojanQuicOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "password",
+                    "edge.example",
+                    true,
+                    LegacyQuicTransportConfig::default(),
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan QUIC UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_quic(
+                "proxy",
+                VlessQuicOutbound::new(
+                    loopback_proxy_endpoint(),
+                    TEST_UUID,
+                    None,
+                    "edge.example",
+                    true,
+                    LegacyQuicTransportConfig::default(),
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS QUIC UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_quic(
+                "proxy",
+                VmessQuicOutbound::new_with_security(
+                    loopback_proxy_endpoint(),
+                    TEST_UUID,
+                    "edge.example",
+                    true,
+                    LegacyQuicTransportConfig::default(),
+                    VmessBodySecurity::Aes128Gcm,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess QUIC UDP server",
+    );
 }
 
 #[test]

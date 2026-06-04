@@ -1297,7 +1297,7 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.trojan_tls_h2_tags.get(tag) {
             outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.trojan_quic_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vless_tcp_tags.get(tag) {
             outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vless_tls_tcp_tags.get(tag) {
@@ -1319,7 +1319,7 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vless_tls_h2_tags.get(tag) {
             outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vless_quic_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vmess_tcp_tags.get(tag) {
             outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vmess_tls_tcp_tags.get(tag) {
@@ -1341,21 +1341,21 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vmess_tls_h2_tags.get(tag) {
             outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vmess_quic_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.anytls_tls_tcp_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.naive_h2_tcp_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.naive_h3_quic_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.mieru_tcp_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.hy2_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.tuic_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else {
             Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -1408,7 +1408,7 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vmess_tls_h2_tags.get(tag) {
             outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vmess_quic_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vless_tcp_tags.get(tag) {
             outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vless_tls_tcp_tags.get(tag) {
@@ -1430,7 +1430,7 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vless_tls_h2_tags.get(tag) {
             outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vless_quic_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.trojan_tcp_tags.get(tag) {
             outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.trojan_tls_tcp_tags.get(tag) {
@@ -1452,17 +1452,17 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.trojan_tls_h2_tags.get(tag) {
             outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.trojan_quic_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
             outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.anytls_tls_tcp_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.mieru_tcp_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.hy2_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.tuic_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else {
             Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -2573,12 +2573,23 @@ impl VlessQuicOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let mut stream = connect_legacy_quic_stream(
             &self.server,
             &self.sni,
             self.skip_verify,
             &self.transport,
             timeout,
+            dns,
         )?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
@@ -2594,12 +2605,24 @@ impl VlessQuicOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let stream = connect_legacy_quic_stream(
             &self.server,
             &self.sni,
             self.skip_verify,
             &self.transport,
             timeout,
+            dns,
         )?;
         send_vless_udp_over_stream(
             stream,
@@ -3041,8 +3064,18 @@ impl AnyTlsTlsTcpOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let mut stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
         write_anytls_auth(&mut stream, &self.password)?;
         let mut anytls = AnyTlsTcpStream {
@@ -3065,8 +3098,19 @@ impl AnyTlsTlsTcpOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let mut stream = TlsTcpStream::connect(stream, &self.sni, self.skip_verify)?;
         write_anytls_auth(&mut stream, &self.password)?;
         let mut anytls = AnyTlsTcpStream {
@@ -3084,7 +3128,7 @@ impl AnyTlsTlsTcpOutbound {
         anytls.write_frame(ANYTLS_CMD_PSH, ANYTLS_STREAM_ID, &request)?;
         let response = read_anytls_uot_connect_response(&mut anytls)?;
         Ok(UdpRelayResponse {
-            source: outbound_target_socket_addr(target, timeout)?,
+            source: outbound_target_socket_addr_with_dns(target, dns)?,
             payload: response,
         })
     }
@@ -3129,9 +3173,19 @@ impl TuicOutbound {
         target: &OutboundTarget,
         _timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, _timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        _timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let target = Endpoint::new(target.host.clone(), target.port);
         let mut last_error = None;
-        for server_addr in self.resolve_server_addrs()? {
+        for server_addr in self.resolve_server_addrs_with_dns(dns)? {
             let bind_addr = hy2_bind_addr_for(server_addr);
             match crate::TuicBlockingTcpStream::connect(
                 bind_addr,
@@ -3163,11 +3217,22 @@ impl TuicOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let target = Endpoint::new(target.host.clone(), target.port);
         let associate_id = random_nonzero_u16();
         let packet_id = random_nonzero_u16();
         let mut last_error = None;
-        for server_addr in self.resolve_server_addrs()? {
+        for server_addr in self.resolve_server_addrs_with_dns(dns)? {
             let bind_addr = hy2_bind_addr_for(server_addr);
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(1)
@@ -3217,8 +3282,10 @@ impl TuicOutbound {
         }))
     }
 
-    fn resolve_server_addrs(&self) -> io::Result<Vec<SocketAddr>> {
-        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+    fn resolve_server_addrs_with_dns<R: DnsResolver>(
+        &self,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<Vec<SocketAddr>> {
         dns.resolve(&self.server.host, self.server.port)
             .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error))
             .map(|addresses| {
@@ -3302,9 +3369,19 @@ impl Hy2Outbound {
         target: &OutboundTarget,
         _timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, _timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        _timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let target = Endpoint::new(target.host.clone(), target.port);
         let mut last_error = None;
-        for server_addr in self.resolve_server_addrs()? {
+        for server_addr in self.resolve_server_addrs_with_dns(dns)? {
             let bind_addr = hy2_bind_addr_for(server_addr);
             match crate::Hy2BlockingTcpStream::connect(
                 bind_addr,
@@ -3338,11 +3415,22 @@ impl Hy2Outbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let target = Endpoint::new(target.host.clone(), target.port);
         let session_id = random_nonzero_u32();
         let packet_id = random_nonzero_u16();
         let mut last_error = None;
-        for server_addr in self.resolve_server_addrs()? {
+        for server_addr in self.resolve_server_addrs_with_dns(dns)? {
             let bind_addr = hy2_bind_addr_for(server_addr);
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(1)
@@ -3393,8 +3481,10 @@ impl Hy2Outbound {
         }))
     }
 
-    fn resolve_server_addrs(&self) -> io::Result<Vec<SocketAddr>> {
-        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+    fn resolve_server_addrs_with_dns<R: DnsResolver>(
+        &self,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<Vec<SocketAddr>> {
         dns.resolve(&self.server.host, self.server.port)
             .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error))
             .map(|addresses| {
@@ -3657,11 +3747,18 @@ fn outbound_target_socket_addr(
     target: &OutboundTarget,
     timeout: Duration,
 ) -> io::Result<SocketAddr> {
+    let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(timeout));
+    outbound_target_socket_addr_with_dns(target, &mut dns)
+}
+
+fn outbound_target_socket_addr_with_dns<R: DnsResolver>(
+    target: &OutboundTarget,
+    dns: &mut DnsEngine<R>,
+) -> io::Result<SocketAddr> {
     let host = target.host.trim().trim_matches(['[', ']']);
     if let Ok(ip) = host.parse::<IpAddr>() {
         return Ok(SocketAddr::new(ip, target.port));
     }
-    let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(timeout));
     dns.resolve(host, target.port)
         .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error))?
         .into_iter()
@@ -3968,15 +4065,16 @@ fn write_anytls_auth(stream: &mut impl Write, password: &str) -> io::Result<()> 
     stream.write_all(&padding)
 }
 
-fn connect_legacy_quic_stream(
+fn connect_legacy_quic_stream<R: DnsResolver>(
     server: &Endpoint,
     sni: &str,
     skip_verify: bool,
     transport: &crate::LegacyQuicTransportConfig,
     timeout: Duration,
+    dns: &mut DnsEngine<R>,
 ) -> io::Result<crate::LegacyQuicTcpStream> {
     let mut last_error = None;
-    for server_addr in resolve_endpoint_socket_addrs(server)? {
+    for server_addr in resolve_endpoint_socket_addrs_with_dns(server, dns)? {
         let bind_addr = hy2_bind_addr_for(server_addr);
         match crate::LegacyQuicTcpStream::connect(
             bind_addr,
@@ -3998,8 +4096,10 @@ fn connect_legacy_quic_stream(
     }))
 }
 
-fn resolve_endpoint_socket_addrs(endpoint: &Endpoint) -> io::Result<Vec<SocketAddr>> {
-    let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+fn resolve_endpoint_socket_addrs_with_dns<R: DnsResolver>(
+    endpoint: &Endpoint,
+    dns: &mut DnsEngine<R>,
+) -> io::Result<Vec<SocketAddr>> {
     dns.resolve(&endpoint.host, endpoint.port)
         .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error))
         .map(|addresses| {
@@ -4805,12 +4905,23 @@ impl TrojanQuicOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let mut stream = connect_legacy_quic_stream(
             &self.server,
             &self.sni,
             self.skip_verify,
             &self.transport,
             timeout,
+            dns,
         )?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let header = encode_trojan_tcp_request_header(&self.password, &target)
@@ -4825,12 +4936,24 @@ impl TrojanQuicOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let stream = connect_legacy_quic_stream(
             &self.server,
             &self.sni,
             self.skip_verify,
             &self.transport,
             timeout,
+            dns,
         )?;
         send_trojan_udp_over_stream(stream, &self.password, target, payload, timeout)
     }
@@ -6071,12 +6194,23 @@ impl VmessQuicOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let mut stream = connect_legacy_quic_stream(
             &self.server,
             &self.sni,
             self.skip_verify,
             &self.transport,
             timeout,
+            dns,
         )?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let request =
@@ -6091,12 +6225,24 @@ impl VmessQuicOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let stream = connect_legacy_quic_stream(
             &self.server,
             &self.sni,
             self.skip_verify,
             &self.transport,
             timeout,
+            dns,
         )?;
         send_vmess_udp_over_stream(stream, &self.uuid, self.security, target, payload, timeout)
     }
