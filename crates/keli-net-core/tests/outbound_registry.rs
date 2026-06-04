@@ -53,6 +53,7 @@ const MIERU_STATUS_OK: u8 = 0;
 const MIERU_SOCKS_CONNECT_SUCCESS: [u8; 10] = [5, 0, 0, 1, 0, 0, 0, 0, 0, 0];
 const MIERU_UDP_MARKER_START: u8 = 0x00;
 const MIERU_UDP_MARKER_END: u8 = 0xff;
+const TEST_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 
 fn ipv6_only_dns() -> DnsEngine<SystemDnsResolver> {
     DnsEngine::with_policies(
@@ -227,6 +228,141 @@ fn http_connect_outbound_uses_injected_dns_policy_for_proxy_server() {
             &mut dns,
         )
         .expect_err("IPv6-only DNS policy should reject IPv4 HTTP proxy server");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
+    assert!(error.to_string().contains("Ipv6Only"));
+}
+
+#[test]
+fn trojan_tcp_outbound_uses_injected_dns_policy_for_server() {
+    let mut registry = OutboundRegistry::new();
+    registry.add_trojan_tcp(
+        "proxy",
+        TrojanTcpOutbound::new(Endpoint::new("127.0.0.1", 443), "password"),
+    );
+    let mut dns = ipv6_only_dns();
+
+    let error = registry
+        .connect_with_dns(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+            &mut dns,
+        )
+        .expect_err("IPv6-only DNS policy should reject IPv4 Trojan server");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
+    assert!(error.to_string().contains("Ipv6Only"));
+}
+
+#[test]
+fn trojan_tcp_udp_outbound_uses_injected_dns_policy_for_server() {
+    let mut registry = OutboundRegistry::new();
+    registry.add_trojan_tcp(
+        "proxy",
+        TrojanTcpOutbound::new(Endpoint::new("127.0.0.1", 443), "password"),
+    );
+    let mut dns = ipv6_only_dns();
+
+    let error = registry
+        .relay_udp_datagram_with_dns(
+            "proxy",
+            &OutboundTarget::new("example.com", 53),
+            b"ping",
+            Duration::from_secs(1),
+            &mut dns,
+        )
+        .expect_err("IPv6-only DNS policy should reject IPv4 Trojan UDP server");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
+    assert!(error.to_string().contains("Ipv6Only"));
+}
+
+#[test]
+fn vless_tcp_outbound_uses_injected_dns_policy_for_server() {
+    let mut registry = OutboundRegistry::new();
+    registry.add_vless_tcp(
+        "proxy",
+        VlessTcpOutbound::new(Endpoint::new("127.0.0.1", 443), TEST_UUID, None),
+    );
+    let mut dns = ipv6_only_dns();
+
+    let error = registry
+        .connect_with_dns(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+            &mut dns,
+        )
+        .expect_err("IPv6-only DNS policy should reject IPv4 VLESS server");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
+    assert!(error.to_string().contains("Ipv6Only"));
+}
+
+#[test]
+fn vless_tcp_udp_outbound_uses_injected_dns_policy_for_server() {
+    let mut registry = OutboundRegistry::new();
+    registry.add_vless_tcp(
+        "proxy",
+        VlessTcpOutbound::new(Endpoint::new("127.0.0.1", 443), TEST_UUID, None),
+    );
+    let mut dns = ipv6_only_dns();
+
+    let error = registry
+        .relay_udp_datagram_with_dns(
+            "proxy",
+            &OutboundTarget::new("example.com", 53),
+            b"ping",
+            Duration::from_secs(1),
+            &mut dns,
+        )
+        .expect_err("IPv6-only DNS policy should reject IPv4 VLESS UDP server");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
+    assert!(error.to_string().contains("Ipv6Only"));
+}
+
+#[test]
+fn shadowsocks_tcp_outbound_uses_injected_dns_policy_for_server() {
+    let mut registry = OutboundRegistry::new();
+    registry.add_shadowsocks_tcp(
+        "proxy",
+        ShadowsocksTcpOutbound::new(Endpoint::new("127.0.0.1", 8388), "aes-256-gcm", "secret"),
+    );
+    let mut dns = ipv6_only_dns();
+
+    let error = registry
+        .connect_with_dns(
+            "proxy",
+            &OutboundTarget::new("example.com", 443),
+            Duration::from_secs(1),
+            &mut dns,
+        )
+        .expect_err("IPv6-only DNS policy should reject IPv4 Shadowsocks server");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
+    assert!(error.to_string().contains("Ipv6Only"));
+}
+
+#[test]
+fn shadowsocks_udp_outbound_uses_injected_dns_policy_for_server() {
+    let mut registry = OutboundRegistry::new();
+    registry.add_shadowsocks_tcp(
+        "proxy",
+        ShadowsocksTcpOutbound::new(Endpoint::new("127.0.0.1", 8388), "aes-256-gcm", "secret"),
+    );
+    let mut dns = ipv6_only_dns();
+
+    let error = registry
+        .relay_udp_datagram_with_dns(
+            "proxy",
+            &OutboundTarget::new("example.com", 53),
+            b"ping",
+            Duration::from_secs(1),
+            &mut dns,
+        )
+        .expect_err("IPv6-only DNS policy should reject IPv4 Shadowsocks UDP server");
 
     assert_eq!(error.kind(), std::io::ErrorKind::AddrNotAvailable);
     assert!(error.to_string().contains("Ipv6Only"));

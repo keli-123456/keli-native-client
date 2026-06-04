@@ -1277,7 +1277,7 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.http_connect_tags.get(tag) {
             outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.trojan_tcp_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.trojan_tls_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.trojan_ws_tags.get(tag) {
@@ -1299,7 +1299,7 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.trojan_quic_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tcp_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vless_tls_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_ws_tags.get(tag) {
@@ -1343,7 +1343,7 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vmess_quic_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.anytls_tls_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.naive_h2_tcp_tags.get(tag) {
@@ -1410,7 +1410,7 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vmess_quic_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vless_tcp_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vless_tls_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vless_ws_tags.get(tag) {
@@ -1432,7 +1432,7 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vless_quic_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.trojan_tcp_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.trojan_tls_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.trojan_ws_tags.get(tag) {
@@ -1454,7 +1454,7 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.trojan_quic_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.shadowsocks_tcp_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.anytls_tls_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.mieru_tcp_tags.get(tag) {
@@ -2465,8 +2465,18 @@ impl ShadowsocksTcpOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let mut stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let cipher_kind = shadowsocks_cipher_kind(&self.cipher)?;
         let key = shadowsocks_key(cipher_kind, &self.password);
         let mut salt = vec![0; cipher_kind.salt_len()];
@@ -2495,12 +2505,22 @@ impl ShadowsocksTcpOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let cipher_kind = shadowsocks_cipher_kind(&self.cipher)?;
         let key = shadowsocks_key(cipher_kind, &self.password);
         let target = Endpoint::new(target.host.clone(), target.port);
         let packet = shadowsocks_encrypt_udp_packet(cipher_kind, &key, &target, payload)?;
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
         let addresses = dns
             .resolve(&server.host, server.port)
             .map_err(|error| io::Error::new(io::ErrorKind::AddrNotAvailable, error))?
@@ -3841,8 +3861,18 @@ impl TrojanTcpOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let mut stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let header = encode_trojan_tcp_request_header(&self.password, &target)
             .map_err(protocol_encoding_to_io)?;
@@ -3856,8 +3886,19 @@ impl TrojanTcpOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         send_trojan_udp_over_stream(stream, &self.password, target, payload, timeout)
     }
 }
@@ -4459,8 +4500,18 @@ impl VlessTcpOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let mut stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let target = Endpoint::new(target.host.clone(), target.port);
         let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
             .map_err(protocol_encoding_to_io)?;
@@ -4475,8 +4526,19 @@ impl VlessTcpOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         send_vless_udp_over_stream(
             stream,
             &self.uuid,
