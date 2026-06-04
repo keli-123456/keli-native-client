@@ -999,6 +999,85 @@ async fn registry_from_vless_quic_profile_relays_over_legacy_quic_stream() {
 }
 
 #[tokio::test]
+async fn registry_from_vless_quic_profile_relays_udp_over_legacy_quic_stream() {
+    let server_endpoint = quinn::Endpoint::server(
+        legacy_quic_test_server_config(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    )
+    .expect("bind local vless quic udp server");
+    let server_addr = server_endpoint.local_addr().expect("server local addr");
+    let server = tokio::spawn(async move {
+        let incoming = server_endpoint
+            .accept()
+            .await
+            .expect("server accepts connection");
+        let connection = incoming.await.expect("server QUIC connection");
+        let (mut send, mut recv) = connection
+            .accept_bi()
+            .await
+            .expect("accept VLESS QUIC UDP stream");
+        let expected = keli_protocol::encode_vless_udp_request_header(
+            VLESS_UUID,
+            &keli_protocol::Endpoint::new("localhost", 53),
+        )
+        .expect("expected VLESS UDP request");
+        let mut request = vec![0; expected.len()];
+        recv.read_exact(&mut request)
+            .await
+            .expect("read VLESS QUIC UDP request");
+        assert_eq!(request, expected);
+        send.write_all(&[0x00, 0x00])
+            .await
+            .expect("write VLESS response header");
+        let mut request_payload = [0; 6];
+        recv.read_exact(&mut request_payload)
+            .await
+            .expect("read VLESS UDP payload");
+        assert_eq!(&request_payload, b"\x00\x04ping");
+        send.write_all(b"\x00\x04pong")
+            .await
+            .expect("write VLESS UDP response payload");
+        send.finish()
+            .expect("finish VLESS QUIC UDP response stream");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    });
+    let client = tokio::task::spawn_blocking(move || {
+        let registry =
+            keli_net_core::OutboundRegistry::from_profiles([keli_protocol::OutboundProfile {
+                tag: "vless-quic".to_string(),
+                protocol: keli_protocol::ProxyProtocol::Vless,
+                endpoint: keli_protocol::Endpoint::new("127.0.0.1", server_addr.port()),
+                transport: keli_protocol::TransportKind::Quic {
+                    security: None,
+                    key: None,
+                    header_type: None,
+                },
+                security: keli_protocol::SecurityKind::Tls {
+                    sni: Some("localhost".to_string()),
+                    skip_verify: true,
+                },
+                credential: VLESS_UUID.to_string(),
+                cipher: None,
+                flow: None,
+            }])
+            .expect("build VLESS QUIC registry");
+        registry
+            .relay_udp_datagram(
+                "vless-quic",
+                &keli_net_core::OutboundTarget::new("localhost", 53),
+                b"ping",
+                Duration::from_secs(2),
+            )
+            .expect("relay VLESS QUIC UDP datagram")
+    });
+
+    let response = client.await.expect("client task");
+    assert_eq!(response.source.port(), 53);
+    assert_eq!(response.payload, b"pong");
+    server.await.expect("server task");
+}
+
+#[tokio::test]
 async fn registry_from_trojan_quic_profile_relays_over_legacy_quic_stream() {
     let server_endpoint = quinn::Endpoint::server(
         legacy_quic_test_server_config(),
