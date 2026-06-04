@@ -322,6 +322,36 @@ fn listen_mixed_once_uses_profile_config_for_tuic_http_connect() {
 }
 
 #[test]
+fn listen_mixed_once_uses_profile_config_for_hy2_socks5_udp_associate() {
+    let (hy2_addr, hy2_thread) = spawn_hy2_udp_echo_server();
+    let profile_path = write_temp_hy2_profile_config(hy2_addr.port());
+
+    run_profile_socks5_udp_associate_round_trip_to(
+        &profile_path,
+        "HY2-READY",
+        Socks5Address::Domain("example.com".to_string()),
+    );
+
+    hy2_thread.join().expect("hy2 udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_tuic_socks5_udp_associate() {
+    let (tuic_addr, tuic_thread) = spawn_tuic_udp_echo_server();
+    let profile_path = write_temp_tuic_profile_config(tuic_addr.port());
+
+    run_profile_socks5_udp_associate_round_trip_to(
+        &profile_path,
+        "TUIC-READY",
+        Socks5Address::Domain("example.com".to_string()),
+    );
+
+    tuic_thread.join().expect("tuic udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
 fn listen_mixed_once_uses_profile_config_for_remote_socks5_http_connect() {
     let (socks_port, socks_thread) = spawn_socks5_tcp_proxy_echo_server();
     let profile_path = write_temp_socks5_profile_config(socks_port);
@@ -650,6 +680,18 @@ fn run_profile_http_connect_round_trip(profile_path: &str, outbound_tag: &str) {
 }
 
 fn run_profile_socks5_udp_associate_round_trip(profile_path: &str, outbound_tag: &str) {
+    run_profile_socks5_udp_associate_round_trip_to(
+        profile_path,
+        outbound_tag,
+        Socks5Address::Ipv4(Ipv4Addr::LOCALHOST),
+    );
+}
+
+fn run_profile_socks5_udp_associate_round_trip_to(
+    profile_path: &str,
+    outbound_tag: &str,
+    target_address: Socks5Address,
+) {
     let listen = free_local_addr();
     let run_listen = listen.clone();
     let run_profile_path = profile_path.to_string();
@@ -690,8 +732,7 @@ fn run_profile_socks5_udp_associate_round_trip(profile_path: &str, outbound_tag:
         .set_read_timeout(Some(Duration::from_secs(2)))
         .expect("udp timeout");
     let request =
-        encode_socks5_udp_datagram(&Socks5Address::Ipv4(Ipv4Addr::LOCALHOST), 53, b"ping")
-            .expect("encode socks5 udp");
+        encode_socks5_udp_datagram(&target_address, 53, b"ping").expect("encode socks5 udp");
     udp_client
         .send_to(&request, ("127.0.0.1", relay_port))
         .expect("send udp request");
@@ -1488,6 +1529,116 @@ fn spawn_tuic_echo_server() -> (SocketAddr, thread::JoinHandle<()>) {
         });
     });
     (addr_rx.recv().expect("receive TUIC addr"), handle)
+}
+
+fn spawn_hy2_udp_echo_server() -> (SocketAddr, thread::JoinHandle<()>) {
+    let (addr_tx, addr_rx) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build HY2 UDP test runtime");
+        runtime.block_on(async move {
+            let endpoint = quinn::Endpoint::server(
+                hy2_h3_test_server_config(),
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            )
+            .expect("bind HY2 UDP test server");
+            addr_tx
+                .send(endpoint.local_addr().expect("HY2 UDP test server addr"))
+                .expect("send HY2 UDP addr");
+            let incoming = endpoint.accept().await.expect("accept HY2 connection");
+            let connection = incoming.await.expect("HY2 QUIC connection");
+            let mut h3_connection: h3::server::Connection<h3_quinn::Connection, bytes::Bytes> =
+                h3::server::builder()
+                    .build(h3_quinn::Connection::new(connection.clone()))
+                    .await
+                    .expect("HY2 H3 server connection");
+            let resolver = h3_connection
+                .accept()
+                .await
+                .expect("accept HY2 auth")
+                .expect("HY2 auth request exists");
+            let (request, mut auth_stream) =
+                resolver.resolve_request().await.expect("resolve HY2 auth");
+            assert_eq!(request.headers()["Hysteria-Auth"], "secret");
+            auth_stream
+                .send_response(http::Response::builder().status(233).body(()).unwrap())
+                .await
+                .expect("send HY2 auth OK");
+            auth_stream.finish().await.expect("finish HY2 auth OK");
+
+            let message = keli_net_core::hy2_read_udp_datagram(&connection)
+                .await
+                .expect("read HY2 UDP request");
+            assert_eq!(message.address, Endpoint::new("example.com", 53));
+            assert_eq!(message.payload, b"ping");
+            keli_net_core::hy2_send_udp_datagram(
+                &connection,
+                message.session_id,
+                message.packet_id,
+                message.fragment_id,
+                message.fragment_count,
+                &Endpoint::new("127.0.0.1", 53),
+                b"pong",
+            )
+            .expect("send HY2 UDP response");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        });
+    });
+    (addr_rx.recv().expect("receive HY2 UDP addr"), handle)
+}
+
+fn spawn_tuic_udp_echo_server() -> (SocketAddr, thread::JoinHandle<()>) {
+    let (addr_tx, addr_rx) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build TUIC UDP test runtime");
+        runtime.block_on(async move {
+            let endpoint = quinn::Endpoint::server(
+                hy2_h3_test_server_config(),
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            )
+            .expect("bind TUIC UDP test server");
+            addr_tx
+                .send(endpoint.local_addr().expect("TUIC UDP test server addr"))
+                .expect("send TUIC UDP addr");
+            let incoming = endpoint.accept().await.expect("accept TUIC connection");
+            let connection = incoming.await.expect("TUIC QUIC connection");
+            let mut auth_recv = connection.accept_uni().await.expect("accept TUIC auth");
+            let auth = auth_recv
+                .read_to_end(64)
+                .await
+                .expect("read TUIC auth command");
+            let expected_auth = keli_net_core::tuic_authenticate_command(
+                &connection,
+                "00112233-4455-6677-8899-aabbccddeeff",
+                "secret",
+            )
+            .expect("expected TUIC auth");
+            assert_eq!(auth, expected_auth);
+
+            let packet = keli_net_core::tuic_read_packet_datagram(&connection)
+                .await
+                .expect("read TUIC UDP request");
+            assert_eq!(packet.source, Endpoint::new("example.com", 53));
+            assert_eq!(packet.payload, b"ping");
+            keli_net_core::tuic_send_packet_datagram(
+                &connection,
+                packet.associate_id,
+                packet.packet_id,
+                packet.fragment_total,
+                packet.fragment_id,
+                &Endpoint::new("127.0.0.1", 53),
+                b"pong",
+            )
+            .expect("send TUIC UDP response");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        });
+    });
+    (addr_rx.recv().expect("receive TUIC UDP addr"), handle)
 }
 
 fn spawn_socks5_tcp_proxy_echo_server() -> (u16, thread::JoinHandle<()>) {
