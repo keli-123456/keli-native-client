@@ -1762,6 +1762,12 @@ fn write_profile_check_report(
                 .iter()
                 .map(|profile| profile.tag.as_str())
                 .collect();
+            let udp_supported_tags: Vec<&str> = parsed
+                .profiles
+                .iter()
+                .filter(|profile| profile_supports_udp(profile))
+                .map(|profile| profile.tag.as_str())
+                .collect();
             let supported: Vec<_> = parsed
                 .profiles
                 .iter()
@@ -1773,6 +1779,7 @@ fn write_profile_check_report(
                         "security": format!("{:?}", profile.security),
                         "server": profile.endpoint.host.as_str(),
                         "port": profile.endpoint.port,
+                        "udp_supported": profile_supports_udp(profile),
                     })
                 })
                 .collect();
@@ -1793,12 +1800,18 @@ fn write_profile_check_report(
                 "default_outbound": default_outbound,
                 "registry_error": registry_error,
                 "supported_tags": supported_tags,
+                "udp_supported_count": udp_supported_tags.len(),
+                "udp_supported_tags": udp_supported_tags,
                 "supported": supported,
                 "skipped": skipped,
             });
             writeln!(writer, "{value}").map_err(|error| error.to_string())
         }
     }
+}
+
+fn profile_supports_udp(profile: &OutboundProfile) -> bool {
+    !matches!(profile.protocol, ProxyProtocol::Http | ProxyProtocol::Naive)
 }
 
 fn mixed_runtime_from_parsed_profiles(
