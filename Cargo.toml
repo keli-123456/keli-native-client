@@ -11,7 +11,7 @@ members = [
 [workspace.package]
 edition = "2021"
 license = "Proprietary"
-version = "0.1.156"
+version = "0.1.157"
 
 [workspace.dependencies]
 keli-client-core = { path = "crates/keli-client-core" }

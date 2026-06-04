@@ -216,8 +216,18 @@ impl Socks5TcpOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let mut stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         socks5_connect_proxy(&mut stream, target, &self.credential)?;
         Ok(OutboundConnection::Tcp(stream))
     }
@@ -228,8 +238,19 @@ impl Socks5TcpOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let mut control = DirectTcpConnector::connect(&server, timeout)?;
+        let mut control = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let control_peer = control.peer_addr()?;
         let relay = socks5_udp_associate_proxy(&mut control, &self.credential)?;
         let relay = socks5_udp_relay_addr(relay, control_peer, timeout)?;
@@ -272,8 +293,18 @@ impl HttpConnectOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let mut stream = DirectTcpConnector::connect(&server, timeout)?;
+        let mut stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         http_connect_proxy(&mut stream, target, &self.credential)?;
         Ok(OutboundConnection::Tcp(stream))
     }
@@ -1242,9 +1273,9 @@ impl OutboundRegistry {
         if self.direct_tags.contains(tag) {
             DirectTcpConnector::connect_with_dns(target, timeout, dns).map(OutboundConnection::Tcp)
         } else if let Some(outbound) = self.socks5_tcp_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.http_connect_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.trojan_tcp_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.trojan_tls_tcp_tags.get(tag) {
@@ -1355,7 +1386,7 @@ impl OutboundRegistry {
         if self.direct_tags.contains(tag) {
             DirectUdpConnector::relay_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.socks5_tcp_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vmess_tcp_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vmess_tls_tcp_tags.get(tag) {
