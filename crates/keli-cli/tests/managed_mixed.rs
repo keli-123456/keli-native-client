@@ -11,7 +11,8 @@ use keli_cli::{
     ManagedNodeProbeSweepOptions, MixedDnsOptions, SmokeInboundKind,
 };
 use keli_client_core::{
-    PanelAccountState, PanelRiskControlState, PanelState, PanelUserState, RuntimeStatus,
+    ClientErrorKind, PanelAccountState, PanelRiskControlState, PanelState, PanelUserState,
+    RuntimeStatus,
 };
 use keli_net_core::{ConnectionErrorKind, DnsAddressFamilyPolicy, DnsLocalResolutionPolicy};
 use keli_platform::{
@@ -549,6 +550,108 @@ fn managed_mixed_controller_records_panel_state_across_runtime() {
     let cleared = core.clear_panel_state();
     assert_eq!(cleared.status, RuntimeStatus::Stopped);
     assert_eq!(cleared.panel_state, None);
+}
+
+#[test]
+fn managed_mixed_controller_blocks_traffic_actions_when_panel_restricted() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    let restricted_panel = PanelState::new(
+        PanelUserState {
+            account_state: PanelAccountState::Limited,
+            used_bytes: Some(1024),
+            total_bytes: Some(1024),
+            expires_at: None,
+        },
+        PanelRiskControlState::Restricted,
+    );
+
+    core.record_panel_state(restricted_panel.clone());
+    let start_error = core
+        .start_from_subscription_config_text(
+            ss_config(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect_err("restricted panel should block start");
+    assert!(start_error.contains("PanelTrafficRestricted"));
+    assert!(!core.is_running());
+    assert_eq!(core.status().panel_state, Some(restricted_panel.clone()));
+
+    core.clear_panel_state();
+    core.start_from_subscription_config_text(
+        ss_config(),
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-READY".to_string()),
+            ..ManagedMixedOptions::default()
+        },
+    )
+    .expect("start managed mixed controller");
+    core.record_panel_state(restricted_panel);
+
+    let reload_error = core
+        .reload_from_subscription_config_text(ss_config(), Some("SS-READY".to_string()))
+        .expect_err("restricted panel should block reload");
+    assert!(reload_error.contains("PanelTrafficRestricted"));
+    let status = core.status();
+    assert_eq!(
+        status.last_error,
+        Some(ClientErrorKind::PanelTrafficRestricted {
+            account_state: "limited".to_string(),
+            risk_control: "restricted".to_string()
+        })
+    );
+    assert!(matches!(status.status, RuntimeStatus::Running { .. }));
+    assert!(status
+        .recent_events
+        .iter()
+        .any(|event| { event.note.as_deref() == Some("panel traffic restricted") }));
+
+    let probe_error = core
+        .probe_node_health(ManagedNodeProbeOptions {
+            outbound_tag: "SS-READY".to_string(),
+            target: "127.0.0.1:1".to_string(),
+            payload: Vec::new(),
+            expect: Vec::new(),
+            inbound: SmokeInboundKind::Socks5,
+            first_byte_timeout: Duration::from_millis(20),
+            udp_available: None,
+        })
+        .expect_err("restricted panel should block probe");
+    assert!(probe_error.contains("PanelTrafficRestricted"));
+    assert!(core
+        .probe_all_node_health(ManagedNodeProbeSweepOptions {
+            target: "127.0.0.1:1".to_string(),
+            payload: Vec::new(),
+            expect: Vec::new(),
+            inbound: SmokeInboundKind::Socks5,
+            first_byte_timeout: Duration::from_millis(20),
+            udp_available: None,
+        })
+        .expect_err("restricted panel should block probe all")
+        .contains("PanelTrafficRestricted"));
+    assert!(core
+        .probe_all_node_health_and_apply_recommended(ManagedNodeProbeSweepOptions {
+            target: "127.0.0.1:1".to_string(),
+            payload: Vec::new(),
+            expect: Vec::new(),
+            inbound: SmokeInboundKind::Socks5,
+            first_byte_timeout: Duration::from_millis(20),
+            udp_available: None,
+        })
+        .expect_err("restricted panel should block probe all and apply")
+        .contains("PanelTrafficRestricted"));
+    assert!(core
+        .apply_recommended_outbound()
+        .expect_err("restricted panel should block apply recommended")
+        .contains("PanelTrafficRestricted"));
+
+    core.clear_panel_state();
+    core.stop().expect("stop managed mixed controller");
 }
 
 #[test]

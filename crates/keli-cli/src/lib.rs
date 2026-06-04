@@ -592,6 +592,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         if self.handle.is_some() {
             return Err("managed mixed core is already running".to_string());
         }
+        self.ensure_panel_allows_traffic()?;
 
         let session = ManagedMixedSession::start_from_subscription_config_text(
             config_text,
@@ -607,6 +608,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         config_text: &str,
         outbound_tag: Option<String>,
     ) -> Result<ManagedMixedStatusSnapshot, String> {
+        self.ensure_panel_allows_traffic()?;
         {
             let handle = self
                 .handle
@@ -635,6 +637,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         &mut self,
         options: ManagedNodeProbeOptions,
     ) -> Result<ManagedMixedStatusSnapshot, String> {
+        self.ensure_panel_allows_traffic()?;
         {
             let handle = self
                 .handle
@@ -649,6 +652,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         &mut self,
         options: ManagedNodeProbeSweepOptions,
     ) -> Result<ManagedMixedStatusSnapshot, String> {
+        self.ensure_panel_allows_traffic()?;
         {
             let handle = self
                 .handle
@@ -663,6 +667,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         &mut self,
         options: ManagedNodeProbeSweepOptions,
     ) -> Result<ManagedMixedStatusSnapshot, String> {
+        self.ensure_panel_allows_traffic()?;
         {
             let handle = self
                 .handle
@@ -675,6 +680,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
     }
 
     pub fn apply_recommended_outbound(&mut self) -> Result<ManagedMixedStatusSnapshot, String> {
+        self.ensure_panel_allows_traffic()?;
         {
             let handle = self
                 .handle
@@ -699,6 +705,22 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         }
         self.panel_state = None;
         self.status()
+    }
+
+    fn ensure_panel_allows_traffic(&mut self) -> Result<(), String> {
+        let Some(error) = self
+            .panel_state
+            .as_ref()
+            .and_then(PanelState::traffic_restriction_error)
+        else {
+            return Ok(());
+        };
+        if let Some(handle) = self.handle.as_mut() {
+            handle.record_panel_traffic_restricted(error.clone());
+        }
+        Err(format!(
+            "managed mixed core traffic restricted by panel: {error:?}"
+        ))
     }
 
     pub fn stop(&mut self) -> Result<ClientRuntime, String> {
@@ -785,6 +807,11 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
 
     fn record_panel_state_cleared(&mut self) {
         self.state.record_status_note("panel state cleared");
+    }
+
+    fn record_panel_traffic_restricted(&mut self, error: ClientErrorKind) {
+        self.state
+            .record_control_rejected(error, "panel traffic restricted");
     }
 
     pub fn record_node_health(&mut self, health: ManagedNodeHealthStatus) -> Result<(), String> {

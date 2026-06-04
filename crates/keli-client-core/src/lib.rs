@@ -31,6 +31,10 @@ pub enum ClientErrorKind {
     RouteNoOutbound,
     NoSupportedOutbounds,
     OutboundNotFound(String),
+    PanelTrafficRestricted {
+        account_state: String,
+        risk_control: String,
+    },
     ConfigInvalid(String),
 }
 
@@ -292,6 +296,14 @@ impl PanelState {
                 self.risk_control,
                 PanelRiskControlState::Restricted | PanelRiskControlState::Blocked
             )
+    }
+
+    pub fn traffic_restriction_error(&self) -> Option<ClientErrorKind> {
+        self.should_restrict_traffic()
+            .then(|| ClientErrorKind::PanelTrafficRestricted {
+                account_state: self.user.account_state.label().to_string(),
+                risk_control: self.risk_control.label().to_string(),
+            })
     }
 }
 
@@ -606,6 +618,11 @@ impl ClientRuntime {
         ));
     }
 
+    pub fn record_control_rejected(&mut self, error: ClientErrorKind, note: impl Into<String>) {
+        self.events
+            .push(RuntimeEvent::new(RuntimeStatus::Failed(error), Some(note)));
+    }
+
     pub fn record_status_note(&mut self, note: impl Into<String>) {
         self.events
             .push(RuntimeEvent::new(self.status.clone(), Some(note.into())));
@@ -754,6 +771,13 @@ proxies:
         );
         assert!(quota_limited.user.quota_exhausted());
         assert!(quota_limited.should_restrict_traffic());
+        assert_eq!(
+            quota_limited.traffic_restriction_error(),
+            Some(ClientErrorKind::PanelTrafficRestricted {
+                account_state: "limited".to_string(),
+                risk_control: "clear".to_string()
+            })
+        );
 
         let expired = PanelState::new(
             PanelUserState {
@@ -769,6 +793,13 @@ proxies:
         let restricted = PanelState::new(active_user, PanelRiskControlState::Restricted)
             .with_support_note("risk-control restricted by panel");
         assert!(restricted.should_restrict_traffic());
+        assert_eq!(
+            restricted.traffic_restriction_error(),
+            Some(ClientErrorKind::PanelTrafficRestricted {
+                account_state: "active".to_string(),
+                risk_control: "restricted".to_string()
+            })
+        );
         assert_eq!(
             restricted.support_note.as_deref(),
             Some("risk-control restricted by panel")

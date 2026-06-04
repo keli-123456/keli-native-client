@@ -131,6 +131,10 @@ subscription.
 Managed status snapshots also carry panel user and risk-control state, including
 traffic quota fields, expiry state, risk-control state, support notes, and a
 core-side `should_restrict_traffic` decision for UI takeover and support flows.
+When that decision is restrictive, the managed controller rejects
+traffic-affecting actions such as start, reload, health probes, and recommended
+node switching with a structured panel-restriction error while preserving the
+active runtime state for inspection and recovery.
 Support bundles include doctor output and redacted subscription diagnostics,
 including supported tags, default outbound, UDP-capable tags, protocol
 capability groups, skipped-profile summaries, and per-node protocol/transport
