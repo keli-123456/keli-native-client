@@ -12,11 +12,13 @@ use keli_net_core::{
     encode_socks5_udp_datagram, parse_socks5_udp_datagram, websocket_accept_for_key,
     DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsLocalResolutionPolicy, HttpConnectOutbound,
     OutboundRegistry, OutboundTarget, ShadowsocksTcpOutbound, Socks5Address, Socks5TcpOutbound,
-    SystemDnsResolver, TrojanHttpUpgradeOutbound, TrojanTcpOutbound, TrojanTlsHttpUpgradeOutbound,
-    TrojanTlsTcpOutbound, TrojanTlsWsOutbound, TrojanWsOutbound, VlessHttpUpgradeOutbound,
-    VlessTcpOutbound, VlessTlsHttpUpgradeOutbound, VlessTlsTcpOutbound, VlessTlsWsOutbound,
-    VlessWsOutbound, VmessBodySecurity, VmessHttpUpgradeOutbound, VmessTcpOutbound,
-    VmessTlsHttpUpgradeOutbound, VmessTlsTcpOutbound, VmessTlsWsOutbound, VmessWsOutbound,
+    SystemDnsResolver, TrojanGrpcOutbound, TrojanHttpUpgradeOutbound, TrojanTcpOutbound,
+    TrojanTlsGrpcOutbound, TrojanTlsHttpUpgradeOutbound, TrojanTlsTcpOutbound, TrojanTlsWsOutbound,
+    TrojanWsOutbound, VlessGrpcOutbound, VlessHttpUpgradeOutbound, VlessTcpOutbound,
+    VlessTlsGrpcOutbound, VlessTlsHttpUpgradeOutbound, VlessTlsTcpOutbound, VlessTlsWsOutbound,
+    VlessWsOutbound, VmessBodySecurity, VmessGrpcOutbound, VmessHttpUpgradeOutbound,
+    VmessTcpOutbound, VmessTlsGrpcOutbound, VmessTlsHttpUpgradeOutbound, VmessTlsTcpOutbound,
+    VmessTlsWsOutbound, VmessWsOutbound,
 };
 use keli_protocol::{Endpoint, OutboundProfile, ProxyProtocol, SecurityKind, TransportKind};
 use md5::{Digest as Md5Digest, Md5};
@@ -907,6 +909,204 @@ fn websocket_and_httpupgrade_udp_outbounds_use_injected_dns_policy_for_server() 
             )
         }),
         "IPv6-only DNS policy should reject IPv4 VMess TLS HTTPUpgrade UDP server",
+    );
+}
+
+#[test]
+fn grpc_tcp_outbounds_use_injected_dns_policy_for_server() {
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_grpc(
+                "proxy",
+                TrojanGrpcOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    Some("svc".to_string()),
+                    "password",
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan gRPC server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_tls_grpc(
+                "proxy",
+                TrojanTlsGrpcOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    Some("svc".to_string()),
+                    "password",
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan TLS gRPC server",
+    );
+
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_grpc(
+                "proxy",
+                VlessGrpcOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    Some("svc".to_string()),
+                    TEST_UUID,
+                    None,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS gRPC server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_tls_grpc(
+                "proxy",
+                VlessTlsGrpcOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    Some("svc".to_string()),
+                    TEST_UUID,
+                    None,
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS TLS gRPC server",
+    );
+
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_grpc(
+                "proxy",
+                VmessGrpcOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    Some("svc".to_string()),
+                    TEST_UUID,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess gRPC server",
+    );
+    assert_registered_tcp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_tls_grpc(
+                "proxy",
+                VmessTlsGrpcOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    Some("svc".to_string()),
+                    TEST_UUID,
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess TLS gRPC server",
+    );
+}
+
+#[test]
+fn grpc_udp_outbounds_use_injected_dns_policy_for_server() {
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_grpc(
+                "proxy",
+                TrojanGrpcOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    Some("svc".to_string()),
+                    "password",
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan gRPC UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_trojan_tls_grpc(
+                "proxy",
+                TrojanTlsGrpcOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    Some("svc".to_string()),
+                    "password",
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 Trojan TLS gRPC UDP server",
+    );
+
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_grpc(
+                "proxy",
+                VlessGrpcOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    Some("svc".to_string()),
+                    TEST_UUID,
+                    None,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS gRPC UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vless_tls_grpc(
+                "proxy",
+                VlessTlsGrpcOutbound::new(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    Some("svc".to_string()),
+                    TEST_UUID,
+                    None,
+                    "edge.example",
+                    true,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VLESS TLS gRPC UDP server",
+    );
+
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_grpc(
+                "proxy",
+                VmessGrpcOutbound::new_with_security(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    Some("svc".to_string()),
+                    TEST_UUID,
+                    VmessBodySecurity::Aes128Gcm,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess gRPC UDP server",
+    );
+    assert_registered_udp_uses_injected_dns_policy(
+        registry_with(|registry| {
+            registry.add_vmess_tls_grpc(
+                "proxy",
+                VmessTlsGrpcOutbound::new_with_security(
+                    loopback_proxy_endpoint(),
+                    "edge.example",
+                    Some("svc".to_string()),
+                    TEST_UUID,
+                    "edge.example",
+                    true,
+                    VmessBodySecurity::Aes128Gcm,
+                ),
+            )
+        }),
+        "IPv6-only DNS policy should reject IPv4 VMess TLS gRPC UDP server",
     );
 }
 

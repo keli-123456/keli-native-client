@@ -1289,9 +1289,9 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.trojan_tls_httpupgrade_tags.get(tag) {
             outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.trojan_grpc_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.trojan_tls_grpc_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.trojan_h2_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.trojan_tls_h2_tags.get(tag) {
@@ -1311,9 +1311,9 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vless_tls_httpupgrade_tags.get(tag) {
             outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vless_grpc_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vless_tls_grpc_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vless_h2_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vless_tls_h2_tags.get(tag) {
@@ -1333,9 +1333,9 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vmess_tls_httpupgrade_tags.get(tag) {
             outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vmess_grpc_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vmess_tls_grpc_tags.get(tag) {
-            outbound.connect(target, timeout)
+            outbound.connect_with_dns(target, timeout, dns)
         } else if let Some(outbound) = self.vmess_h2_tags.get(tag) {
             outbound.connect(target, timeout)
         } else if let Some(outbound) = self.vmess_tls_h2_tags.get(tag) {
@@ -1400,9 +1400,9 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vmess_tls_httpupgrade_tags.get(tag) {
             outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vmess_grpc_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vmess_tls_grpc_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vmess_h2_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vmess_tls_h2_tags.get(tag) {
@@ -1422,9 +1422,9 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.vless_tls_httpupgrade_tags.get(tag) {
             outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vless_grpc_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vless_tls_grpc_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.vless_h2_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.vless_tls_h2_tags.get(tag) {
@@ -1444,9 +1444,9 @@ impl OutboundRegistry {
         } else if let Some(outbound) = self.trojan_tls_httpupgrade_tags.get(tag) {
             outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.trojan_grpc_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.trojan_tls_grpc_tags.get(tag) {
-            outbound.relay_udp_datagram(target, payload, timeout)
+            outbound.relay_udp_datagram_with_dns(target, payload, timeout, dns)
         } else if let Some(outbound) = self.trojan_h2_tags.get(tag) {
             outbound.relay_udp_datagram(target, payload, timeout)
         } else if let Some(outbound) = self.trojan_tls_h2_tags.get(tag) {
@@ -2200,8 +2200,18 @@ impl VlessGrpcOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let mut stream =
             crate::GrpcTcpStream::connect_plain(stream, &self.host, self.service_name.as_deref())?;
         let target = Endpoint::new(target.host.clone(), target.port);
@@ -2218,8 +2228,19 @@ impl VlessGrpcOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let stream =
             crate::GrpcTcpStream::connect_plain(stream, &self.host, self.service_name.as_deref())?;
         send_vless_udp_over_stream(
@@ -2270,8 +2291,18 @@ impl VlessTlsGrpcOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let mut stream = crate::GrpcTcpStream::connect_tls(
             stream,
             &self.sni,
@@ -2293,8 +2324,19 @@ impl VlessTlsGrpcOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let stream = crate::GrpcTcpStream::connect_tls(
             stream,
             &self.sni,
@@ -4392,8 +4434,18 @@ impl TrojanGrpcOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let mut stream =
             crate::GrpcTcpStream::connect_plain(stream, &self.host, self.service_name.as_deref())?;
         let target = Endpoint::new(target.host.clone(), target.port);
@@ -4409,8 +4461,19 @@ impl TrojanGrpcOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let stream =
             crate::GrpcTcpStream::connect_plain(stream, &self.host, self.service_name.as_deref())?;
         send_trojan_udp_over_stream(stream, &self.password, target, payload, timeout)
@@ -4451,8 +4514,18 @@ impl TrojanTlsGrpcOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let mut stream = crate::GrpcTcpStream::connect_tls(
             stream,
             &self.sni,
@@ -4473,8 +4546,19 @@ impl TrojanTlsGrpcOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let stream = crate::GrpcTcpStream::connect_tls(
             stream,
             &self.sni,
@@ -5498,8 +5582,18 @@ impl VmessGrpcOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let mut stream =
             crate::GrpcTcpStream::connect_plain(stream, &self.host, self.service_name.as_deref())?;
         let target = Endpoint::new(target.host.clone(), target.port);
@@ -5515,8 +5609,19 @@ impl VmessGrpcOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let stream =
             crate::GrpcTcpStream::connect_plain(stream, &self.host, self.service_name.as_deref())?;
         send_vmess_udp_over_stream(stream, &self.uuid, self.security, target, payload, timeout)
@@ -5579,8 +5684,18 @@ impl VmessTlsGrpcOutbound {
         target: &OutboundTarget,
         timeout: Duration,
     ) -> io::Result<OutboundConnection> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.connect_with_dns(target, timeout, &mut dns)
+    }
+
+    pub fn connect_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<OutboundConnection> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let mut stream = crate::GrpcTcpStream::connect_tls(
             stream,
             &self.sni,
@@ -5601,8 +5716,19 @@ impl VmessTlsGrpcOutbound {
         payload: &[u8],
         timeout: Duration,
     ) -> io::Result<UdpRelayResponse> {
+        let mut dns = DnsEngine::new(SystemDnsResolver, DnsCache::new(Duration::from_secs(60)));
+        self.relay_udp_datagram_with_dns(target, payload, timeout, &mut dns)
+    }
+
+    pub fn relay_udp_datagram_with_dns<R: DnsResolver>(
+        &self,
+        target: &OutboundTarget,
+        payload: &[u8],
+        timeout: Duration,
+        dns: &mut DnsEngine<R>,
+    ) -> io::Result<UdpRelayResponse> {
         let server = OutboundTarget::new(self.server.host.clone(), self.server.port);
-        let stream = DirectTcpConnector::connect(&server, timeout)?;
+        let stream = DirectTcpConnector::connect_with_dns(&server, timeout, dns)?;
         let stream = crate::GrpcTcpStream::connect_tls(
             stream,
             &self.sni,
