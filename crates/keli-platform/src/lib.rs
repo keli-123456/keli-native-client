@@ -282,6 +282,107 @@ impl TunDeviceStatus {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TunDeviceReadiness {
+    Ready,
+    AlreadyRunning,
+    RunningConflict,
+    LifecycleUnavailable,
+    Unsupported,
+    InvalidConfig,
+    SnapshotFailed,
+}
+
+impl TunDeviceReadiness {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::AlreadyRunning => "already-running",
+            Self::RunningConflict => "running-conflict",
+            Self::LifecycleUnavailable => "lifecycle-unavailable",
+            Self::Unsupported => "unsupported",
+            Self::InvalidConfig => "invalid-config",
+            Self::SnapshotFailed => "snapshot-failed",
+        }
+    }
+
+    pub fn is_ready(&self) -> bool {
+        matches!(self, Self::Ready | Self::AlreadyRunning)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunDevicePreflight {
+    pub config: TunDeviceConfig,
+    pub status: TunDeviceStatus,
+    pub readiness: TunDeviceReadiness,
+    pub ready: bool,
+    pub reason: Option<String>,
+}
+
+impl TunDevicePreflight {
+    pub fn check<C: TunDeviceController + ?Sized>(controller: &C, config: TunDeviceConfig) -> Self {
+        if let Err(error) = config.validate() {
+            return Self::from_parts(
+                config,
+                TunDeviceStatus::from_snapshot(
+                    TunDeviceSnapshot::unsupported(),
+                    Some(error.clone()),
+                ),
+                TunDeviceReadiness::InvalidConfig,
+                Some(error.to_string()),
+            );
+        }
+
+        match controller.snapshot() {
+            Ok(snapshot) => {
+                let readiness = tun_readiness_from_snapshot(&snapshot, &config);
+                let reason = tun_readiness_reason(&readiness, &snapshot, None);
+                Self::from_parts(
+                    config,
+                    TunDeviceStatus::from_snapshot(snapshot, None),
+                    readiness,
+                    reason,
+                )
+            }
+            Err(TunDeviceError::UnsupportedPlatform(platform)) => {
+                let error = TunDeviceError::UnsupportedPlatform(platform);
+                Self::from_parts(
+                    config,
+                    TunDeviceStatus::from_snapshot(TunDeviceSnapshot::unsupported(), None),
+                    TunDeviceReadiness::Unsupported,
+                    Some(error.to_string()),
+                )
+            }
+            Err(error) => Self::from_parts(
+                config,
+                TunDeviceStatus::from_snapshot(
+                    TunDeviceSnapshot::unsupported(),
+                    Some(error.clone()),
+                ),
+                TunDeviceReadiness::SnapshotFailed,
+                Some(error.to_string()),
+            ),
+        }
+    }
+
+    fn from_parts(
+        config: TunDeviceConfig,
+        status: TunDeviceStatus,
+        readiness: TunDeviceReadiness,
+        reason: Option<String>,
+    ) -> Self {
+        let ready = readiness.is_ready();
+        Self {
+            config,
+            status,
+            readiness,
+            ready,
+            reason,
+        }
+    }
+}
+
 pub trait TunDeviceController {
     fn snapshot(&self) -> Result<TunDeviceSnapshot, TunDeviceError>;
     fn start(&self, config: &TunDeviceConfig) -> Result<TunDeviceSnapshot, TunDeviceError>;
@@ -521,6 +622,65 @@ fn validate_tun_mtu(mtu: u16) -> Result<(), TunDeviceError> {
     Ok(())
 }
 
+fn tun_readiness_from_snapshot(
+    snapshot: &TunDeviceSnapshot,
+    config: &TunDeviceConfig,
+) -> TunDeviceReadiness {
+    if !snapshot.supported {
+        return TunDeviceReadiness::Unsupported;
+    }
+    if !snapshot.lifecycle_available {
+        return TunDeviceReadiness::LifecycleUnavailable;
+    }
+    if snapshot.running {
+        if tun_snapshot_matches_config(snapshot, config) {
+            TunDeviceReadiness::AlreadyRunning
+        } else {
+            TunDeviceReadiness::RunningConflict
+        }
+    } else {
+        TunDeviceReadiness::Ready
+    }
+}
+
+fn tun_snapshot_matches_config(snapshot: &TunDeviceSnapshot, config: &TunDeviceConfig) -> bool {
+    snapshot.interface_name.as_deref() == Some(config.interface_name.as_str())
+        && snapshot.address_cidr.as_deref() == Some(config.address_cidr.as_str())
+        && snapshot.mtu == Some(config.mtu)
+        && snapshot.dns_hijack == Some(config.dns_hijack)
+}
+
+fn tun_readiness_reason(
+    readiness: &TunDeviceReadiness,
+    snapshot: &TunDeviceSnapshot,
+    error: Option<&TunDeviceError>,
+) -> Option<String> {
+    match readiness {
+        TunDeviceReadiness::Ready => None,
+        TunDeviceReadiness::AlreadyRunning => {
+            Some("TUN device is already running with the requested config".to_string())
+        }
+        TunDeviceReadiness::RunningConflict => Some(format!(
+            "TUN device is already running with interface={}, address={}, mtu={}, dns_hijack={}",
+            snapshot.interface_name.as_deref().unwrap_or("-"),
+            snapshot.address_cidr.as_deref().unwrap_or("-"),
+            snapshot
+                .mtu
+                .map_or_else(|| "-".to_string(), |mtu| mtu.to_string()),
+            snapshot
+                .dns_hijack
+                .map_or_else(|| "-".to_string(), |dns_hijack| dns_hijack.to_string())
+        )),
+        TunDeviceReadiness::LifecycleUnavailable => {
+            Some("TUN lifecycle backend is unavailable".to_string())
+        }
+        TunDeviceReadiness::Unsupported => Some("TUN is unsupported on this platform".to_string()),
+        TunDeviceReadiness::InvalidConfig | TunDeviceReadiness::SnapshotFailed => {
+            error.map(ToString::to_string)
+        }
+    }
+}
+
 fn windows_system_proxy_snapshot() -> Result<SystemProxySnapshot, SystemProxyError> {
     Ok(SystemProxySnapshot {
         proxy_enable: windows_query_registry_dword("ProxyEnable")?,
@@ -656,6 +816,25 @@ fn parse_reg_dword(value: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug)]
+    struct StaticTunController {
+        snapshot: Result<TunDeviceSnapshot, TunDeviceError>,
+    }
+
+    impl TunDeviceController for StaticTunController {
+        fn snapshot(&self) -> Result<TunDeviceSnapshot, TunDeviceError> {
+            self.snapshot.clone()
+        }
+
+        fn start(&self, _config: &TunDeviceConfig) -> Result<TunDeviceSnapshot, TunDeviceError> {
+            self.snapshot()
+        }
+
+        fn stop(&self) -> Result<TunDeviceSnapshot, TunDeviceError> {
+            self.snapshot()
+        }
+    }
 
     #[test]
     fn detected_capabilities_match_known_platform_shape() {
@@ -807,5 +986,93 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         assert_eq!(snapshot.address_cidr.as_deref(), Some("fd00::1/64"));
         assert_eq!(snapshot.mtu, Some(1400));
         assert_eq!(snapshot.dns_hijack, Some(true));
+    }
+
+    #[test]
+    fn tun_preflight_reports_lifecycle_unavailable_boundary() {
+        let config =
+            TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500).expect("valid TUN config");
+        let controller = NativeTunDeviceController::for_platform(PlatformKind::Windows);
+
+        let preflight = TunDevicePreflight::check(&controller, config);
+
+        assert_eq!(
+            preflight.readiness,
+            TunDeviceReadiness::LifecycleUnavailable
+        );
+        assert!(!preflight.ready);
+        assert!(preflight.status.supported);
+        assert!(!preflight.status.lifecycle_available);
+        assert_eq!(
+            preflight.reason.as_deref(),
+            Some("TUN lifecycle backend is unavailable")
+        );
+    }
+
+    #[test]
+    fn tun_preflight_distinguishes_ready_running_and_conflict() {
+        let config = TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500)
+            .expect("valid TUN config")
+            .with_dns_hijack(true);
+        let ready_controller = StaticTunController {
+            snapshot: Ok(TunDeviceSnapshot {
+                supported: true,
+                lifecycle_available: true,
+                running: false,
+                interface_name: None,
+                address_cidr: None,
+                mtu: None,
+                dns_hijack: None,
+            }),
+        };
+
+        let preflight = TunDevicePreflight::check(&ready_controller, config.clone());
+
+        assert_eq!(preflight.readiness, TunDeviceReadiness::Ready);
+        assert!(preflight.ready);
+        assert_eq!(preflight.reason, None);
+
+        let running_controller = StaticTunController {
+            snapshot: Ok(TunDeviceSnapshot::running(&config)),
+        };
+        let preflight = TunDevicePreflight::check(&running_controller, config.clone());
+
+        assert_eq!(preflight.readiness, TunDeviceReadiness::AlreadyRunning);
+        assert!(preflight.ready);
+
+        let conflicting_config =
+            TunDeviceConfig::new("keli-other0", "10.8.0.1/24", 1500).expect("valid TUN config");
+        let preflight = TunDevicePreflight::check(&running_controller, conflicting_config);
+
+        assert_eq!(preflight.readiness, TunDeviceReadiness::RunningConflict);
+        assert!(!preflight.ready);
+        assert!(preflight
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("interface=keli-tun0")));
+    }
+
+    #[test]
+    fn tun_preflight_revalidates_public_config_fields() {
+        let config = TunDeviceConfig {
+            interface_name: "bad tun".to_string(),
+            address_cidr: "10.7.0.1/24".to_string(),
+            mtu: 1500,
+            dns_hijack: false,
+        };
+        let controller = StaticTunController {
+            snapshot: Ok(TunDeviceSnapshot::running(
+                &TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500).expect("valid TUN config"),
+            )),
+        };
+
+        let preflight = TunDevicePreflight::check(&controller, config);
+
+        assert_eq!(preflight.readiness, TunDeviceReadiness::InvalidConfig);
+        assert!(!preflight.ready);
+        assert!(preflight
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("invalid TUN interface name")));
     }
 }

@@ -28,8 +28,9 @@ use keli_net_core::{
     Socks5Address, Socks5Command, Socks5ReplyCode, SystemDnsResolver,
 };
 use keli_platform::{
-    NativeSystemProxyController, PlatformCapabilities, SystemProxyConfig, SystemProxyController,
-    SystemProxySnapshot, SystemProxyStatus, TunDeviceStatus,
+    NativeSystemProxyController, NativeTunDeviceController, PlatformCapabilities,
+    SystemProxyConfig, SystemProxyController, SystemProxySnapshot, SystemProxyStatus,
+    TunDeviceConfig, TunDeviceController, TunDevicePreflight, TunDeviceStatus,
 };
 use keli_protocol::{
     detect_subscription_input_format, parse_mihomo_outbound_profiles,
@@ -51,6 +52,10 @@ const SUPPORTED_PROTOCOL_CAPABILITIES: &str =
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
     Doctor {
+        output: ProbeOutputFormat,
+    },
+    TunPreflight {
+        config: TunDeviceConfig,
         output: ProbeOutputFormat,
     },
     Version,
@@ -1218,6 +1223,7 @@ pub fn parse_cli_command(
             output: ProbeOutputFormat::Text,
         }),
         Some("doctor") => parse_doctor(args),
+        Some("tun-preflight") => parse_tun_preflight(args),
         Some("version") => Ok(CliCommand::Version),
         Some("listen-mixed") => parse_listen_mixed(args),
         Some("probe-outbound") => parse_probe_outbound(args),
@@ -1233,6 +1239,12 @@ pub fn run(command: CliCommand) -> Result<(), String> {
         CliCommand::Doctor { output } => {
             print_doctor(output);
             Ok(())
+        }
+        CliCommand::TunPreflight { config, output } => {
+            let controller = NativeTunDeviceController::new();
+            let mut stdout = io::stdout();
+            write_tun_preflight_report_with_controller(&mut stdout, output, config, &controller)
+                .map_err(|error| format!("write TUN preflight report: {error}"))
         }
         CliCommand::Version => {
             println!("keli-cli {}", env!("CARGO_PKG_VERSION"));
@@ -1369,9 +1381,13 @@ pub fn run(command: CliCommand) -> Result<(), String> {
 pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
-        "usage: keli-cli [doctor|version|listen-mixed|probe-outbound|smoke-mixed|profile-check|support-bundle]"
+        "usage: keli-cli [doctor|tun-preflight|version|listen-mixed|probe-outbound|smoke-mixed|profile-check|support-bundle]"
     )?;
     writeln!(writer, "       keli-cli doctor [--format text|json]")?;
+    writeln!(
+        writer,
+        "       keli-cli tun-preflight [--interface keli-tun0] [--address 10.7.0.1/24] [--mtu 1500] [--dns-hijack] [--format text|json]"
+    )?;
     writeln!(
         writer,
         "       keli-cli listen-mixed [--listen 127.0.0.1:7890] [--once] [--profile-config subscription.yaml] [--outbound-tag proxy] [--first-byte-timeout-ms 30000] [--idle-timeout-ms 300000] [--dns-local-policy allow-system|prevent-public-leak] [--dns-address-family dual-stack|ipv4-only|ipv6-only]"
@@ -1415,6 +1431,50 @@ fn parse_doctor(args: impl Iterator<Item = String>) -> Result<CliCommand, String
     }
 
     Ok(CliCommand::Doctor { output })
+}
+
+fn parse_tun_preflight(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
+    let mut interface_name = "keli-tun0".to_string();
+    let mut address_cidr = "10.7.0.1/24".to_string();
+    let mut mtu = 1500;
+    let mut dns_hijack = false;
+    let mut output = ProbeOutputFormat::Text;
+    let mut args = args.peekable();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--interface" | "--interface-name" => {
+                interface_name = args
+                    .next()
+                    .ok_or_else(|| "--interface requires a TUN interface name".to_string())?;
+            }
+            "--address" | "--address-cidr" => {
+                address_cidr = args
+                    .next()
+                    .ok_or_else(|| "--address requires an IP CIDR".to_string())?;
+            }
+            "--mtu" => {
+                mtu = args
+                    .next()
+                    .ok_or_else(|| "--mtu requires a value".to_string())?
+                    .parse::<u16>()
+                    .map_err(|_| "--mtu must be a non-zero u16 value".to_string())?;
+            }
+            "--dns-hijack" => dns_hijack = true,
+            "--format" => {
+                output = parse_probe_output_format(
+                    args.next()
+                        .ok_or_else(|| "--format requires text or json".to_string())?,
+                )?;
+            }
+            other => return Err(format!("unknown tun-preflight option: {other}")),
+        }
+    }
+
+    let config = TunDeviceConfig::new(interface_name, address_cidr, mtu)
+        .map_err(|error| format!("invalid TUN preflight config: {error}"))?
+        .with_dns_hijack(dns_hijack);
+    Ok(CliCommand::TunPreflight { config, output })
 }
 
 fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
@@ -1879,13 +1939,7 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
         "tun_device_supported={} lifecycle_available={} state={} interface={} address={} mtu={} dns_hijack={} error={}",
         report.tun_device.supported,
         report.tun_device.lifecycle_available,
-        if report.tun_device.running {
-            "running"
-        } else if report.tun_device.supported {
-            "stopped"
-        } else {
-            "unsupported"
-        },
+        tun_device_state(&report.tun_device),
         report.tun_device.interface_name.as_deref().unwrap_or("-"),
         report.tun_device.address_cidr.as_deref().unwrap_or("-"),
         report
@@ -2004,6 +2058,109 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         "sample_profile_valid": report.sample_profile_valid,
         "initial_phase": &report.initial_phase,
     })
+}
+
+pub fn write_tun_preflight_report_with_controller<C: TunDeviceController + ?Sized>(
+    mut writer: impl Write,
+    output: ProbeOutputFormat,
+    config: TunDeviceConfig,
+    controller: &C,
+) -> io::Result<()> {
+    let preflight = TunDevicePreflight::check(controller, config);
+    match output {
+        ProbeOutputFormat::Text => write_tun_preflight_text_report(&mut writer, &preflight),
+        ProbeOutputFormat::Json => write_tun_preflight_json_report(&mut writer, &preflight),
+    }
+}
+
+fn write_tun_preflight_text_report(
+    mut writer: impl Write,
+    preflight: &TunDevicePreflight,
+) -> io::Result<()> {
+    writeln!(writer, "keli-native-client tun-preflight")?;
+    writeln!(writer, "status={}", preflight.readiness.label())?;
+    writeln!(writer, "ready={}", preflight.ready)?;
+    writeln!(
+        writer,
+        "reason={}",
+        preflight.reason.as_deref().unwrap_or("-")
+    )?;
+    writeln!(
+        writer,
+        "config interface={} address={} mtu={} dns_hijack={}",
+        preflight.config.interface_name,
+        preflight.config.address_cidr,
+        preflight.config.mtu,
+        preflight.config.dns_hijack
+    )?;
+    writeln!(
+        writer,
+        "device supported={} lifecycle_available={} state={} interface={} address={} mtu={} dns_hijack={} error={}",
+        preflight.status.supported,
+        preflight.status.lifecycle_available,
+        tun_device_state(&preflight.status),
+        preflight.status.interface_name.as_deref().unwrap_or("-"),
+        preflight.status.address_cidr.as_deref().unwrap_or("-"),
+        preflight
+            .status
+            .mtu
+            .map(|mtu| mtu.to_string())
+            .as_deref()
+            .unwrap_or("-"),
+        preflight
+            .status
+            .dns_hijack
+            .map(|dns_hijack| dns_hijack.to_string())
+            .as_deref()
+            .unwrap_or("-"),
+        preflight.status.error.as_deref().unwrap_or("-")
+    )?;
+    Ok(())
+}
+
+fn write_tun_preflight_json_report(
+    mut writer: impl Write,
+    preflight: &TunDevicePreflight,
+) -> io::Result<()> {
+    let value = tun_preflight_json_value(preflight);
+    serde_json::to_writer_pretty(&mut writer, &value).map_err(io::Error::other)?;
+    writeln!(writer)?;
+    Ok(())
+}
+
+fn tun_preflight_json_value(preflight: &TunDevicePreflight) -> serde_json::Value {
+    serde_json::json!({
+        "status": preflight.readiness.label(),
+        "ready": preflight.ready,
+        "reason": preflight.reason.as_deref(),
+        "config": {
+            "interface_name": &preflight.config.interface_name,
+            "address_cidr": &preflight.config.address_cidr,
+            "mtu": preflight.config.mtu,
+            "dns_hijack": preflight.config.dns_hijack,
+        },
+        "device": {
+            "supported": preflight.status.supported,
+            "lifecycle_available": preflight.status.lifecycle_available,
+            "running": preflight.status.running,
+            "state": tun_device_state(&preflight.status),
+            "interface_name": preflight.status.interface_name.as_deref(),
+            "address_cidr": preflight.status.address_cidr.as_deref(),
+            "mtu": preflight.status.mtu,
+            "dns_hijack": preflight.status.dns_hijack,
+            "error": preflight.status.error.as_deref(),
+        },
+    })
+}
+
+fn tun_device_state(status: &TunDeviceStatus) -> &'static str {
+    if status.running {
+        "running"
+    } else if status.supported {
+        "stopped"
+    } else {
+        "unsupported"
+    }
 }
 
 pub fn write_support_bundle_report(

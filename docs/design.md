@@ -111,6 +111,10 @@ The first implementation target is deliberately small:
    config validation, support/lifecycle/running state, and doctor diagnostics so
    UI flows can distinguish platform support from an installed native TUN
    backend.
+   The CLI also exposes a no-side-effect `tun-preflight` command backed by the
+   same platform model, allowing UI/service automation to validate the intended
+   TUN config and distinguish ready, already-running, conflict, unsupported, and
+   lifecycle-unavailable states before a native backend is wired in.
 4. Keli panel integration: subscription fetch/update, user state, node
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,

@@ -4,6 +4,7 @@ use keli_cli::{
     parse_cli_command, CliCommand, MixedDnsOptions, ProbeOutputFormat, SmokeInboundKind,
 };
 use keli_net_core::{DnsAddressFamilyPolicy, DnsLocalResolutionPolicy};
+use keli_platform::TunDeviceConfig;
 
 #[test]
 fn defaults_to_doctor_text_command() {
@@ -25,6 +26,33 @@ fn parses_doctor_json_command() {
         command,
         CliCommand::Doctor {
             output: ProbeOutputFormat::Json
+        }
+    );
+}
+
+#[test]
+fn parses_tun_preflight_json_command() {
+    let command = parse_cli_command([
+        "tun-preflight",
+        "--interface",
+        "keli-main0",
+        "--address",
+        "10.9.0.1/24",
+        "--mtu",
+        "1400",
+        "--dns-hijack",
+        "--format",
+        "json",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::TunPreflight {
+            config: TunDeviceConfig::new("keli-main0", "10.9.0.1/24", 1400)
+                .expect("valid TUN config")
+                .with_dns_hijack(true),
+            output: ProbeOutputFormat::Json,
         }
     );
 }
