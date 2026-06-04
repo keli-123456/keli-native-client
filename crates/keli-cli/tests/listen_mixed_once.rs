@@ -1,5 +1,6 @@
 use std::fs;
-use std::io::{Read, Write};
+use std::future::poll_fn;
+use std::io::{self, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::str::FromStr;
 use std::sync::{mpsc, Arc};
@@ -12,7 +13,9 @@ use base64::Engine;
 use bytes::Bytes;
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+use h2::RecvStream;
 use hmac::{Hmac, Mac};
+use http::{HeaderMap, Request, Response, StatusCode};
 use keli_cli::{run, CliCommand};
 use keli_net_core::{
     encode_socks5_udp_datagram, parse_socks5_udp_datagram, websocket_accept_for_key, Socks5Address,
@@ -24,6 +27,7 @@ use sha2::{Digest, Sha256};
 use shadowsocks_crypto::kind::CipherKind;
 use shadowsocks_crypto::v1::{openssl_bytes_to_key, Cipher};
 use support::vmess::{read_vmess_aead_request, write_vmess_aead_response_header};
+use tokio::io::{AsyncRead, AsyncWrite};
 
 const MIERU_NONCE_LEN: usize = 24;
 const MIERU_METADATA_LEN: usize = 32;
@@ -362,6 +366,39 @@ fn listen_mixed_once_uses_profile_config_for_vmess_httpupgrade_socks5_udp_associ
     run_profile_socks5_udp_associate_round_trip(&profile_path, "VMESS-HU-READY");
 
     vmess_thread.join().expect("vmess httpupgrade udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_trojan_grpc_http_connect() {
+    let (trojan_port, trojan_thread) = spawn_trojan_grpc_echo_server();
+    let profile_path = write_temp_trojan_grpc_profile_config(trojan_port);
+
+    run_profile_http_connect_round_trip(&profile_path, "TROJAN-GRPC-READY");
+
+    trojan_thread.join().expect("trojan grpc thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_vless_grpc_http_connect() {
+    let (vless_port, vless_thread) = spawn_vless_grpc_echo_server();
+    let profile_path = write_temp_vless_grpc_profile_config(vless_port);
+
+    run_profile_http_connect_round_trip(&profile_path, "VLESS-GRPC-READY");
+
+    vless_thread.join().expect("vless grpc thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_vmess_grpc_http_connect() {
+    let (vmess_port, vmess_thread) = spawn_vmess_grpc_echo_server();
+    let profile_path = write_temp_vmess_grpc_profile_config(vmess_port);
+
+    run_profile_http_connect_round_trip(&profile_path, "VMESS-GRPC-READY");
+
+    vmess_thread.join().expect("vmess grpc thread");
     fs::remove_file(profile_path).ok();
 }
 
@@ -1186,6 +1223,83 @@ fn write_temp_vmess_httpupgrade_udp_profile_config(vmess_port: u16) -> String {
     path.to_string_lossy().into_owned()
 }
 
+fn write_temp_trojan_grpc_profile_config(trojan_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-trojan-grpc-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: TROJAN-GRPC-READY
+    type: trojan
+    server: 127.0.0.1
+    port: {trojan_port}
+    password: password
+    tls: false
+    network: grpc
+    grpc-opts:
+      grpc-service-name: GunService
+"#
+    );
+    fs::write(&path, content).expect("write trojan grpc profile config");
+    path.to_string_lossy().into_owned()
+}
+
+fn write_temp_vless_grpc_profile_config(vless_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-vless-grpc-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: VLESS-GRPC-READY
+    type: vless
+    server: 127.0.0.1
+    port: {vless_port}
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    network: grpc
+    grpc-opts:
+      grpc-service-name: GunService
+"#
+    );
+    fs::write(&path, content).expect("write vless grpc profile config");
+    path.to_string_lossy().into_owned()
+}
+
+fn write_temp_vmess_grpc_profile_config(vmess_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-vmess-grpc-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: VMESS-GRPC-READY
+    type: vmess
+    server: 127.0.0.1
+    port: {vmess_port}
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    cipher: aes-128-gcm
+    network: grpc
+    grpc-opts:
+      grpc-service-name: GunService
+"#
+    );
+    fs::write(&path, content).expect("write vmess grpc profile config");
+    path.to_string_lossy().into_owned()
+}
+
 fn write_temp_hy2_profile_config(hy2_port: u16) -> String {
     let name = format!(
         "keli-native-client-listen-mixed-hy2-{}.yaml",
@@ -1818,6 +1932,368 @@ fn spawn_vmess_httpupgrade_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
         support::vmess::write_vmess_aes128_gcm_response_chunk(&mut stream, &request, b"pong");
     });
     (port, handle)
+}
+
+fn spawn_trojan_grpc_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind trojan grpc server");
+    let port = listener.local_addr().expect("trojan grpc addr").port();
+    let handle = spawn_grpc_server(listener, "/GunService/Tun", |mut stream| {
+        let mut trojan_header = [0; 76];
+        stream
+            .read_exact(&mut trojan_header)
+            .expect("read trojan grpc header");
+        assert_eq!(
+            &trojan_header[..],
+            b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x01\x03\x0bexample.com\x01\xbb\r\n"
+        );
+        let mut payload = [0; 4];
+        stream
+            .read_exact(&mut payload)
+            .expect("read trojan grpc payload");
+        assert_eq!(&payload, b"ping");
+        stream
+            .write_all(b"pong")
+            .expect("write trojan grpc response");
+    });
+    (port, handle)
+}
+
+fn spawn_vless_grpc_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vless grpc server");
+    let port = listener.local_addr().expect("vless grpc addr").port();
+    let handle = spawn_grpc_server(listener, "/GunService/Tun", |mut stream| {
+        let mut vless_header = [0; 34];
+        stream
+            .read_exact(&mut vless_header)
+            .expect("read vless grpc header");
+        assert_eq!(
+            &vless_header[..],
+            &[
+                0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
+                0xdd, 0xee, 0xff, 0x00, 0x01, 0x01, 0xbb, 0x02, 0x0b, b'e', b'x', b'a', b'm', b'p',
+                b'l', b'e', b'.', b'c', b'o', b'm',
+            ]
+        );
+        stream
+            .write_all(&[0x00, 0x00])
+            .expect("write vless grpc response header");
+        let mut payload = [0; 4];
+        stream
+            .read_exact(&mut payload)
+            .expect("read vless grpc payload");
+        assert_eq!(&payload, b"ping");
+        stream
+            .write_all(b"pong")
+            .expect("write vless grpc response");
+    });
+    (port, handle)
+}
+
+fn spawn_vmess_grpc_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vmess grpc server");
+    let port = listener.local_addr().expect("vmess grpc addr").port();
+    let handle = spawn_grpc_server(listener, "/GunService/Tun", move |mut stream| {
+        let request = read_vmess_aead_request(&mut stream, uuid);
+        assert_eq!(request.target_host, "example.com");
+        assert_eq!(request.target_port, 443);
+        assert_eq!(request.command, 0x01);
+        assert_eq!(request.security, VMESS_SECURITY_AES_128_GCM);
+
+        write_vmess_aead_response_header(&mut stream, &request);
+        let payload = support::vmess::read_vmess_aes128_gcm_chunk(&mut stream, &request);
+        assert_eq!(&payload, b"ping");
+        support::vmess::write_vmess_aes128_gcm_response_chunk(&mut stream, &request, b"pong");
+    });
+    (port, handle)
+}
+
+fn spawn_grpc_server(
+    listener: TcpListener,
+    expected_path: &'static str,
+    handler: impl FnOnce(GrpcTestStream) + Send + 'static,
+) -> thread::JoinHandle<()> {
+    listener
+        .set_nonblocking(true)
+        .expect("listener nonblocking");
+    thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async move {
+            let listener = tokio::net::TcpListener::from_std(listener).expect("tokio listener");
+            let (stream, _) = listener.accept().await.expect("accept grpc tcp");
+            serve_grpc_h2_connection(stream, expected_path, handler).await;
+        });
+    })
+}
+
+async fn serve_grpc_h2_connection<S>(
+    stream: S,
+    expected_path: &'static str,
+    handler: impl FnOnce(GrpcTestStream) + Send + 'static,
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let mut connection = h2::server::handshake(stream).await.expect("h2 handshake");
+    let (done_tx, mut done_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let mut handler = Some(handler);
+    loop {
+        tokio::select! {
+            request = connection.accept() => {
+                let Some(request) = request else {
+                    break;
+                };
+                let (request, respond) = request.expect("valid h2 request");
+                let handler = handler.take().expect("single grpc request handler");
+                let done_tx = done_tx.clone();
+                tokio::spawn(async move {
+                    serve_grpc_request(request, respond, expected_path, handler).await;
+                    let _ = done_tx.send(());
+                });
+            }
+            _ = done_rx.recv() => break,
+        }
+    }
+}
+
+async fn serve_grpc_request(
+    request: Request<RecvStream>,
+    mut respond: h2::server::SendResponse<Bytes>,
+    expected_path: &str,
+    handler: impl FnOnce(GrpcTestStream) + Send + 'static,
+) {
+    assert_eq!(request.method(), http::Method::POST);
+    assert_eq!(request.uri().path(), expected_path);
+    assert_eq!(
+        request
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("application/grpc")
+    );
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/grpc")
+        .body(())
+        .expect("grpc response");
+    let mut send = respond
+        .send_response(response, false)
+        .expect("send response");
+    let (input_tx, input_rx) = mpsc::channel();
+    let (output_tx, mut output_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+    let mut body = request.into_body();
+    let read_task = tokio::spawn(async move {
+        let mut buffer = Vec::new();
+        while let Some(chunk) = body.data().await {
+            let chunk = chunk.expect("read grpc body");
+            let len = chunk.len();
+            buffer.extend_from_slice(&chunk);
+            let _ = body.flow_control().release_capacity(len);
+            while let Some(payload) = take_grpc_payload(&mut buffer).expect("grpc payload") {
+                if input_tx.send(payload).is_err() {
+                    return;
+                }
+            }
+        }
+    });
+    let write_task = tokio::spawn(async move {
+        while let Some(payload) = output_rx.recv().await {
+            send_h2_data(&mut send, Bytes::from(encode_grpc_hunk(&payload)), false)
+                .await
+                .expect("write grpc hunk");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let mut trailers = HeaderMap::new();
+        trailers.insert("grpc-status", "0".parse().expect("grpc-status"));
+        send.send_trailers(trailers).expect("write grpc trailers");
+    });
+    tokio::task::spawn_blocking(move || handler(GrpcTestStream::new(input_rx, output_tx)))
+        .await
+        .expect("handler task");
+    write_task.await.expect("write task");
+    read_task.abort();
+}
+
+struct GrpcTestStream {
+    input_rx: mpsc::Receiver<Vec<u8>>,
+    output_tx: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+    buffer: Vec<u8>,
+}
+
+impl GrpcTestStream {
+    fn new(
+        input_rx: mpsc::Receiver<Vec<u8>>,
+        output_tx: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+    ) -> Self {
+        Self {
+            input_rx,
+            output_tx,
+            buffer: Vec::new(),
+        }
+    }
+}
+
+impl Read for GrpcTestStream {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        while self.buffer.is_empty() {
+            self.buffer = self
+                .input_rx
+                .recv()
+                .map_err(|_| io::Error::new(io::ErrorKind::UnexpectedEof, "grpc input closed"))?;
+        }
+        let len = output.len().min(self.buffer.len());
+        output[..len].copy_from_slice(&self.buffer[..len]);
+        self.buffer.drain(..len);
+        Ok(len)
+    }
+}
+
+impl Write for GrpcTestStream {
+    fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+        self.output_tx
+            .send(input.to_vec())
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "grpc output closed"))?;
+        Ok(input.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn encode_grpc_hunk(payload: &[u8]) -> Vec<u8> {
+    let mut message = Vec::with_capacity(2 + payload.len());
+    message.push(0x0a);
+    encode_varint(payload.len() as u64, &mut message);
+    message.extend_from_slice(payload);
+    let mut output = Vec::with_capacity(5 + message.len());
+    output.push(0);
+    output.extend_from_slice(&(message.len() as u32).to_be_bytes());
+    output.extend_from_slice(&message);
+    output
+}
+
+async fn send_h2_data(
+    send: &mut h2::SendStream<Bytes>,
+    mut data: Bytes,
+    end_stream: bool,
+) -> io::Result<()> {
+    if data.is_empty() {
+        return send
+            .send_data(data, end_stream)
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()));
+    }
+    while !data.is_empty() {
+        send.reserve_capacity(data.len());
+        let capacity = loop {
+            match poll_fn(|cx| send.poll_capacity(cx)).await {
+                Some(Ok(capacity)) if capacity > 0 => break capacity,
+                Some(Ok(_)) => continue,
+                Some(Err(error)) => {
+                    return Err(io::Error::new(io::ErrorKind::Other, error.to_string()));
+                }
+                None => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "stream closed before capacity",
+                    ));
+                }
+            }
+        };
+        let chunk_len = capacity.min(data.len());
+        let chunk = data.split_to(chunk_len);
+        let chunk_ends_stream = end_stream && data.is_empty();
+        send.send_data(chunk, chunk_ends_stream)
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
+    }
+    Ok(())
+}
+
+fn take_grpc_payload(buffer: &mut Vec<u8>) -> io::Result<Option<Vec<u8>>> {
+    if buffer.len() < 5 {
+        return Ok(None);
+    }
+    if buffer[0] != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "compressed grpc messages are not supported",
+        ));
+    }
+    let len = u32::from_be_bytes([buffer[1], buffer[2], buffer[3], buffer[4]]) as usize;
+    if buffer.len() < 5 + len {
+        return Ok(None);
+    }
+    let message = buffer[5..5 + len].to_vec();
+    buffer.drain(..5 + len);
+    decode_hunk_message(&message).map(Some)
+}
+
+fn decode_hunk_message(message: &[u8]) -> io::Result<Vec<u8>> {
+    let mut cursor = 0usize;
+    let mut data = None;
+    while cursor < message.len() {
+        let key = decode_varint(message, &mut cursor)?;
+        let field = key >> 3;
+        let wire = key & 0x07;
+        match (field, wire) {
+            (1, 2) => {
+                let len = decode_varint(message, &mut cursor)? as usize;
+                if cursor + len > message.len() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "truncated hunk data",
+                    ));
+                }
+                data = Some(message[cursor..cursor + len].to_vec());
+                cursor += len;
+            }
+            (_, 0) => {
+                let _ = decode_varint(message, &mut cursor)?;
+            }
+            (_, 2) => {
+                let len = decode_varint(message, &mut cursor)? as usize;
+                if cursor + len > message.len() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "truncated hunk field",
+                    ));
+                }
+                cursor += len;
+            }
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "unsupported hunk wire type",
+                ));
+            }
+        }
+    }
+    Ok(data.unwrap_or_default())
+}
+
+fn encode_varint(mut value: u64, output: &mut Vec<u8>) {
+    while value >= 0x80 {
+        output.push((value as u8) | 0x80);
+        value >>= 7;
+    }
+    output.push(value as u8);
+}
+
+fn decode_varint(input: &[u8], cursor: &mut usize) -> io::Result<u64> {
+    let mut value = 0u64;
+    let mut shift = 0u32;
+    while *cursor < input.len() && shift < 64 {
+        let byte = input[*cursor];
+        *cursor += 1;
+        value |= u64::from(byte & 0x7f) << shift;
+        if byte & 0x80 == 0 {
+            return Ok(value);
+        }
+        shift += 7;
+    }
+    Err(io::Error::new(io::ErrorKind::InvalidData, "invalid varint"))
 }
 
 fn write_server_binary_frame(stream: &mut impl Write, payload: &[u8]) {
