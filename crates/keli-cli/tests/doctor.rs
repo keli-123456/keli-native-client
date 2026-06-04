@@ -16,7 +16,7 @@ fn doctor_report_lists_supported_outbounds() {
         "route_rule_capabilities=domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range"
     ));
     assert!(output.contains(
-        "tun_packet_pipeline_capabilities=ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,relay-plan"
+        "tun_packet_pipeline_capabilities=ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,udp-response-packet,dns-response-packet,relay-plan"
     ));
     assert!(output.contains(
         "supported_outbounds=direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic"
@@ -55,7 +55,15 @@ fn doctor_json_report_is_machine_readable() {
         report["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
-    assert_eq!(report["tun_packet_pipeline_capabilities"][9], "relay-plan");
+    assert_eq!(
+        report["tun_packet_pipeline_capabilities"][9],
+        "udp-response-packet"
+    );
+    assert_eq!(
+        report["tun_packet_pipeline_capabilities"][10],
+        "dns-response-packet"
+    );
+    assert_eq!(report["tun_packet_pipeline_capabilities"][11], "relay-plan");
     assert_eq!(report["dns_engine"]["resolver"], "system_resolver");
     assert_eq!(report["dns_engine"]["cache_ttl_seconds"], 60);
     assert_eq!(

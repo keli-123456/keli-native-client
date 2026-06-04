@@ -55,6 +55,8 @@ The resulting TUN decisions map to relay plans for drop, DNS hijack, direct
 TCP/UDP, tagged outbound TCP/UDP, and unsupported transports.
 TUN UDP payload extraction and DNS hijack query planning now parse the DNS
 wire question and swap response endpoints for the future TUN write path.
+TUN DNS responses can also be wrapped into IPv4/IPv6 UDP packets with swapped
+flow addresses and checksums for that future write path.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 

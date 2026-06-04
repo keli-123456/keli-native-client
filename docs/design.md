@@ -145,6 +145,9 @@ The first implementation target is deliberately small:
    TUN UDP payload extraction and DNS hijack query planning now parse DNS wire
    questions from UDP/53 packets and swap response endpoints for the future TUN
    write path.
+   The same path can wrap DNS responses into IPv4/IPv6 UDP response packets
+   with swapped flow addresses and checksums, giving the future TUN write loop
+   concrete packet bytes to emit.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

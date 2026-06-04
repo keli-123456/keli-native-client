@@ -1,6 +1,7 @@
 use std::net::IpAddr;
 
 use keli_net_core::{
+    build_dns_error_response, build_dns_response, build_tun_dns_response_packet,
     decide_tun_packet_route, parse_tun_packet_flow, parse_tun_udp_payload, plan_tun_dns_hijack,
     plan_tun_packet_relay, DnsQuestionType, OutboundTarget, RouteAction, RouteDestination,
     RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketError,
@@ -81,6 +82,66 @@ fn tun_dns_hijack_plan_rejects_non_dns_udp_destination() {
             destination_port: Some(443)
         }
     );
+}
+
+#[test]
+fn builds_ipv4_tun_dns_response_packet_with_swapped_flow() {
+    let query = dns_query(0x1234, "example.com", 1);
+    let packet = ipv4_packet(17, "10.7.0.2", "8.8.8.8", &udp_datagram(54321, 53, &query));
+    let plan = plan_tun_dns_hijack(&packet).expect("plan TUN DNS hijack");
+    let response_payload = build_dns_response(
+        &plan.question,
+        &[IpAddr::V4("203.0.113.7".parse().expect("valid IP"))],
+        60,
+    );
+
+    let response_packet =
+        build_tun_dns_response_packet(&plan, &response_payload).expect("build TUN DNS response");
+    let response = parse_tun_udp_payload(&response_packet).expect("parse response packet");
+
+    assert_eq!(
+        response.flow.source_ip,
+        "8.8.8.8".parse::<IpAddr>().expect("valid IP")
+    );
+    assert_eq!(
+        response.flow.destination_ip,
+        "10.7.0.2".parse::<IpAddr>().expect("valid IP")
+    );
+    assert_eq!(response.flow.source_port, Some(53));
+    assert_eq!(response.flow.destination_port, Some(54321));
+    assert_eq!(response.payload, response_payload.as_slice());
+    assert_ne!(&response_packet[10..12], &[0, 0]);
+    assert_ne!(&response_packet[26..28], &[0, 0]);
+}
+
+#[test]
+fn builds_ipv6_tun_dns_response_packet_with_udp_checksum() {
+    let query = dns_query(0x9876, "example.com", 28);
+    let packet = ipv6_packet(
+        17,
+        "fd00::2",
+        "2001:4860:4860::8888",
+        &udp_datagram(54000, 53, &query),
+    );
+    let plan = plan_tun_dns_hijack(&packet).expect("plan IPv6 TUN DNS hijack");
+    let response_payload = build_dns_error_response(&plan.question, 3);
+
+    let response_packet =
+        build_tun_dns_response_packet(&plan, &response_payload).expect("build IPv6 DNS response");
+    let response = parse_tun_udp_payload(&response_packet).expect("parse IPv6 response packet");
+
+    assert_eq!(
+        response.flow.source_ip,
+        "2001:4860:4860::8888".parse::<IpAddr>().expect("valid IP")
+    );
+    assert_eq!(
+        response.flow.destination_ip,
+        "fd00::2".parse::<IpAddr>().expect("valid IP")
+    );
+    assert_eq!(response.flow.source_port, Some(53));
+    assert_eq!(response.flow.destination_port, Some(54000));
+    assert_eq!(response.payload, response_payload.as_slice());
+    assert_ne!(&response_packet[46..48], &[0, 0]);
 }
 
 #[test]
