@@ -501,6 +501,21 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         Ok(self.status())
     }
 
+    pub fn probe_all_node_health_and_apply_recommended(
+        &mut self,
+        options: ManagedNodeProbeSweepOptions,
+    ) -> Result<ManagedMixedStatusSnapshot, String> {
+        {
+            let handle = self
+                .handle
+                .as_mut()
+                .ok_or_else(|| "managed mixed core is not running".to_string())?;
+            handle.probe_all_node_health(options)?;
+            handle.apply_recommended_outbound()?;
+        }
+        Ok(self.status())
+    }
+
     pub fn apply_recommended_outbound(&mut self) -> Result<ManagedMixedStatusSnapshot, String> {
         {
             let handle = self
@@ -664,6 +679,14 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
             });
         }
         Ok(())
+    }
+
+    pub fn probe_all_node_health_and_apply_recommended(
+        &mut self,
+        options: ManagedNodeProbeSweepOptions,
+    ) -> Result<(), String> {
+        self.probe_all_node_health(options)?;
+        self.apply_recommended_outbound()
     }
 
     pub fn apply_recommended_outbound(&mut self) -> Result<(), String> {

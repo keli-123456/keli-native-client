@@ -809,6 +809,51 @@ fn managed_mixed_controller_probe_all_node_health_records_each_supported_node() 
 }
 
 #[test]
+fn managed_mixed_controller_probe_all_node_health_can_apply_recommended_outbound() {
+    let (ready_port, ss_thread) = spawn_shadowsocks_tcp_echo_server();
+    let closed_port = unused_tcp_port();
+    let config = mixed_subscription_for_ports(ready_port, closed_port);
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    let started = core
+        .start_from_subscription_config_text(
+            &config,
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-NEXT".to_string()),
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+
+    let switched = core
+        .probe_all_node_health_and_apply_recommended(ManagedNodeProbeSweepOptions {
+            target: "example.com:443".to_string(),
+            payload: b"ping".to_vec(),
+            expect: b"pong".to_vec(),
+            inbound: SmokeInboundKind::HttpConnect,
+            first_byte_timeout: Duration::from_secs(2),
+            udp_available: None,
+        })
+        .expect("probe all node health and apply recommendation");
+    let subscription = switched.subscription.as_ref().expect("subscription status");
+    let ready = subscription
+        .health_for("SS-READY")
+        .expect("SS-READY health");
+    let next = subscription.health_for("SS-NEXT").expect("SS-NEXT health");
+
+    assert_eq!(switched.selected_outbound.as_deref(), Some("SS-READY"));
+    assert_eq!(switched.generation, started.generation + 1);
+    assert_eq!(subscription.selected_outbound, "SS-READY");
+    assert_eq!(subscription.recommended_outbound, "SS-READY");
+    assert_eq!(ready.state, ManagedNodeHealthState::Healthy);
+    assert_eq!(next.state, ManagedNodeHealthState::Unhealthy);
+
+    ss_thread.join().expect("ss tcp echo server");
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
 fn managed_mixed_controller_probe_node_health_records_success() {
     let (ss_port, ss_thread) = spawn_shadowsocks_tcp_echo_server();
     let config = ss_config_for_port(ss_port);
@@ -945,6 +990,19 @@ fn managed_mixed_controller_rejects_node_health_before_start() {
         .expect_err("probing all health should require running core");
 
     assert!(probe_all_error.contains("not running"));
+
+    let probe_all_apply_error = core
+        .probe_all_node_health_and_apply_recommended(ManagedNodeProbeSweepOptions {
+            target: "example.com:443".to_string(),
+            payload: b"ping".to_vec(),
+            expect: b"pong".to_vec(),
+            inbound: SmokeInboundKind::HttpConnect,
+            first_byte_timeout: Duration::from_secs(1),
+            udp_available: None,
+        })
+        .expect_err("probing all health and applying recommendation should require running core");
+
+    assert!(probe_all_apply_error.contains("not running"));
 
     let apply_error = core
         .apply_recommended_outbound()
