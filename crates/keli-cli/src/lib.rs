@@ -162,6 +162,17 @@ impl Default for ManagedMixedOptions {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedNodeProbeOptions {
+    pub outbound_tag: String,
+    pub target: String,
+    pub payload: Vec<u8>,
+    pub expect: Vec<u8>,
+    pub inbound: SmokeInboundKind,
+    pub first_byte_timeout: Duration,
+    pub udp_available: Option<bool>,
+}
+
 #[derive(Debug)]
 pub struct ManagedSystemProxyGuard<'a, C: SystemProxyController + ?Sized> {
     controller: &'a C,
@@ -428,6 +439,20 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         Ok(self.status())
     }
 
+    pub fn probe_node_health(
+        &mut self,
+        options: ManagedNodeProbeOptions,
+    ) -> Result<ManagedMixedStatusSnapshot, String> {
+        {
+            let handle = self
+                .handle
+                .as_mut()
+                .ok_or_else(|| "managed mixed core is not running".to_string())?;
+            handle.probe_node_health(options)?;
+        }
+        Ok(self.status())
+    }
+
     pub fn stop(&mut self) -> Result<ClientRuntime, String> {
         let handle = self
             .handle
@@ -497,22 +522,78 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
     }
 
     pub fn record_node_health(&mut self, health: ManagedNodeHealthStatus) -> Result<(), String> {
+        self.ensure_active_subscription_tag(&health.tag)?;
+        self.node_health.insert(health.tag.clone(), health);
+        Ok(())
+    }
+
+    pub fn probe_node_health(&mut self, options: ManagedNodeProbeOptions) -> Result<(), String> {
+        self.ensure_active_subscription_tag(&options.outbound_tag)?;
+        let config_text = self
+            .state
+            .active_config()
+            .ok_or_else(|| "managed mixed core has no active subscription".to_string())?
+            .config_text()
+            .to_string();
+        let result = smoke_mixed_connect_from_subscription_config_text(
+            &config_text,
+            Some(options.outbound_tag.clone()),
+            &options.target,
+            &options.payload,
+            &options.expect,
+            options.inbound,
+            options.first_byte_timeout,
+        );
+
+        match result {
+            Ok(report) => {
+                self.node_health.insert(
+                    options.outbound_tag.clone(),
+                    ManagedNodeHealthStatus {
+                        tag: options.outbound_tag,
+                        state: ManagedNodeHealthState::Healthy,
+                        tcp_available: Some(true),
+                        udp_available: options.udp_available,
+                        latency_ms: report.first_byte_ms.or(report.connect_ms),
+                        error_kind: None,
+                        error_detail: None,
+                    },
+                );
+                Ok(())
+            }
+            Err(error) => {
+                self.node_health.insert(
+                    options.outbound_tag.clone(),
+                    ManagedNodeHealthStatus {
+                        tag: options.outbound_tag,
+                        state: ManagedNodeHealthState::Unhealthy,
+                        tcp_available: Some(false),
+                        udp_available: None,
+                        latency_ms: None,
+                        error_kind: Some(classify_managed_probe_error(&error)),
+                        error_detail: Some(error.clone()),
+                    },
+                );
+                Err(error)
+            }
+        }
+    }
+
+    fn ensure_active_subscription_tag(&self, tag: &str) -> Result<(), String> {
         let Some(plan) = self.state.active_plan() else {
             return Err("managed mixed core has no active subscription".to_string());
         };
-        if !plan
+        if plan
             .preflight()
             .supported_tags()
             .iter()
-            .any(|tag| tag == &health.tag)
+            .any(|supported| supported == tag)
         {
-            return Err(format!(
-                "node health tag is not in active subscription: {}",
-                health.tag
-            ));
+            return Ok(());
         }
-        self.node_health.insert(health.tag.clone(), health);
-        Ok(())
+        Err(format!(
+            "node health tag is not in active subscription: {tag}"
+        ))
     }
 
     pub fn reload_from_subscription_config_text(
@@ -603,6 +684,27 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
                 Err(format!("{serve_error}; {restore_error}"))
             }
         }
+    }
+}
+
+fn classify_managed_probe_error(error: &str) -> ConnectionErrorKind {
+    let error = error.to_ascii_lowercase();
+    if error.contains("refused") {
+        ConnectionErrorKind::TcpConnectionRefused
+    } else if error.contains("timeout") || error.contains("timed out") {
+        if error.contains("connect") {
+            ConnectionErrorKind::TcpConnectTimeout
+        } else {
+            ConnectionErrorKind::FirstByteTimeout
+        }
+    } else if error.contains("unsupported") || error.contains("outboundnotfound") {
+        ConnectionErrorKind::UnsupportedOutbound
+    } else if error.contains("dns") || error.contains("resolve") {
+        ConnectionErrorKind::DnsResolveFailed
+    } else if error.contains("mismatch") || error.contains("invalid") {
+        ConnectionErrorKind::ProtocolError
+    } else {
+        ConnectionErrorKind::RelayIo
     }
 }
 

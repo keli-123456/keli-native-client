@@ -1,15 +1,22 @@
 use std::cell::RefCell;
-use std::net::TcpListener;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::str::FromStr;
+use std::thread;
+use std::time::Duration;
 
 use keli_cli::{
     apply_system_proxy_for_listener, ManagedMixedController, ManagedMixedOptions,
-    ManagedMixedSession, ManagedNodeHealthState, ManagedNodeHealthStatus,
+    ManagedMixedSession, ManagedNodeHealthState, ManagedNodeHealthStatus, ManagedNodeProbeOptions,
+    SmokeInboundKind,
 };
 use keli_client_core::RuntimeStatus;
 use keli_net_core::ConnectionErrorKind;
 use keli_platform::{
     SystemProxyConfig, SystemProxyController, SystemProxyError, SystemProxySnapshot,
 };
+use shadowsocks_crypto::kind::CipherKind;
+use shadowsocks_crypto::v1::{openssl_bytes_to_key, Cipher};
 
 fn ss_config() -> &'static str {
     r#"
@@ -31,6 +38,20 @@ proxies:
     type: ss
     server: ss.example.com
     port: 8388
+    cipher: aes-256-gcm
+    password: secret
+"#
+    )
+}
+
+fn ss_config_for_port(port: u16) -> String {
+    format!(
+        r#"
+proxies:
+  - name: SS-READY
+    type: ss
+    server: 127.0.0.1
+    port: {port}
     cipher: aes-256-gcm
     password: secret
 "#
@@ -581,6 +602,101 @@ fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
 }
 
 #[test]
+fn managed_mixed_controller_probe_node_health_records_success() {
+    let (ss_port, ss_thread) = spawn_shadowsocks_tcp_echo_server();
+    let config = ss_config_for_port(ss_port);
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    core.start_from_subscription_config_text(
+        &config,
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-READY".to_string()),
+            ..ManagedMixedOptions::default()
+        },
+    )
+    .expect("start managed mixed controller");
+
+    let status = core
+        .probe_node_health(ManagedNodeProbeOptions {
+            outbound_tag: "SS-READY".to_string(),
+            target: "example.com:443".to_string(),
+            payload: b"ping".to_vec(),
+            expect: b"pong".to_vec(),
+            inbound: SmokeInboundKind::HttpConnect,
+            first_byte_timeout: Duration::from_secs(2),
+            udp_available: None,
+        })
+        .expect("probe node health");
+    let health = status
+        .subscription
+        .as_ref()
+        .expect("subscription status")
+        .health_for("SS-READY")
+        .expect("SS-READY health");
+
+    assert_eq!(health.state, ManagedNodeHealthState::Healthy);
+    assert_eq!(health.tcp_available, Some(true));
+    assert_eq!(health.udp_available, None);
+    assert!(health.latency_ms.is_some());
+    assert_eq!(health.error_kind, None);
+    assert_eq!(health.error_detail, None);
+
+    ss_thread.join().expect("ss tcp echo server");
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_controller_probe_node_health_records_failure() {
+    let (ss_port, ss_thread) = spawn_shadowsocks_tcp_echo_server();
+    let config = ss_config_for_port(ss_port);
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    core.start_from_subscription_config_text(
+        &config,
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-READY".to_string()),
+            ..ManagedMixedOptions::default()
+        },
+    )
+    .expect("start managed mixed controller");
+
+    let error = core
+        .probe_node_health(ManagedNodeProbeOptions {
+            outbound_tag: "SS-READY".to_string(),
+            target: "example.com:443".to_string(),
+            payload: b"ping".to_vec(),
+            expect: b"nope".to_vec(),
+            inbound: SmokeInboundKind::HttpConnect,
+            first_byte_timeout: Duration::from_secs(2),
+            udp_available: Some(false),
+        })
+        .expect_err("probe should fail on mismatched response");
+    let status = core.status();
+    let health = status
+        .subscription
+        .as_ref()
+        .expect("subscription status")
+        .health_for("SS-READY")
+        .expect("SS-READY health");
+
+    assert!(error.contains("smoke response mismatch"));
+    assert_eq!(health.state, ManagedNodeHealthState::Unhealthy);
+    assert_eq!(health.tcp_available, Some(false));
+    assert_eq!(health.udp_available, None);
+    assert_eq!(health.latency_ms, None);
+    assert_eq!(health.error_kind, Some(ConnectionErrorKind::ProtocolError));
+    assert!(health
+        .error_detail
+        .as_deref()
+        .is_some_and(|detail| detail.contains("smoke response mismatch")));
+
+    ss_thread.join().expect("ss tcp echo server");
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
 fn managed_mixed_controller_rejects_node_health_before_start() {
     let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
     let mut core = ManagedMixedController::new(&platform_controller);
@@ -595,6 +711,20 @@ fn managed_mixed_controller_rejects_node_health_before_start() {
         .expect_err("recording health should require running core");
 
     assert!(error.contains("not running"));
+
+    let probe_error = core
+        .probe_node_health(ManagedNodeProbeOptions {
+            outbound_tag: "SS-READY".to_string(),
+            target: "example.com:443".to_string(),
+            payload: b"ping".to_vec(),
+            expect: b"pong".to_vec(),
+            inbound: SmokeInboundKind::HttpConnect,
+            first_byte_timeout: Duration::from_secs(1),
+            udp_available: None,
+        })
+        .expect_err("probing health should require running core");
+
+    assert!(probe_error.contains("not running"));
 }
 
 #[test]
@@ -620,4 +750,69 @@ fn managed_mixed_session_can_run_without_system_proxy() {
     assert_eq!(state.status(), &RuntimeStatus::Stopped);
     assert!(controller.applied.borrow().is_empty());
     assert!(controller.restored.borrow().is_empty());
+}
+
+fn spawn_shadowsocks_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind ss tcp server");
+    let port = listener.local_addr().expect("ss tcp addr").port();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept ss tcp server");
+        let kind = CipherKind::from_str("aes-256-gcm").expect("cipher");
+        let key = shadowsocks_key(kind, "secret");
+
+        let mut client_salt = vec![0; kind.salt_len()];
+        stream
+            .read_exact(&mut client_salt)
+            .expect("read client salt");
+        let mut client_cipher = Cipher::new(kind, &key, &client_salt);
+        let request_header = read_ss_chunk(&mut stream, &mut client_cipher);
+        assert_eq!(request_header, b"\x03\x0bexample.com\x01\xbb");
+        let payload = read_ss_chunk(&mut stream, &mut client_cipher);
+        assert_eq!(&payload, b"ping");
+
+        let server_salt = vec![7; kind.salt_len()];
+        stream.write_all(&server_salt).expect("write server salt");
+        let mut server_cipher = Cipher::new(kind, &key, &server_salt);
+        write_ss_chunk(&mut stream, &mut server_cipher, b"pong");
+    });
+    (port, handle)
+}
+
+fn shadowsocks_key(kind: CipherKind, password: &str) -> Vec<u8> {
+    let mut key = vec![0; kind.key_len()];
+    openssl_bytes_to_key(password.as_bytes(), &mut key);
+    key
+}
+
+fn read_ss_chunk(stream: &mut TcpStream, cipher: &mut Cipher) -> Vec<u8> {
+    let mut encrypted_len = vec![0; 2 + cipher.tag_len()];
+    stream
+        .read_exact(&mut encrypted_len)
+        .expect("read encrypted ss chunk length");
+    assert!(cipher.decrypt_packet(&mut encrypted_len));
+    encrypted_len.truncate(2);
+    let len = u16::from_be_bytes([encrypted_len[0], encrypted_len[1]]) as usize;
+    let mut encrypted_payload = vec![0; len + cipher.tag_len()];
+    stream
+        .read_exact(&mut encrypted_payload)
+        .expect("read encrypted ss chunk payload");
+    assert!(cipher.decrypt_packet(&mut encrypted_payload));
+    encrypted_payload.truncate(len);
+    encrypted_payload
+}
+
+fn write_ss_chunk(stream: &mut TcpStream, cipher: &mut Cipher, payload: &[u8]) {
+    let tag_len = cipher.tag_len();
+    let mut encrypted_len = vec![0; 2 + tag_len];
+    encrypted_len[..2].copy_from_slice(&(payload.len() as u16).to_be_bytes());
+    cipher.encrypt_packet(&mut encrypted_len);
+    stream
+        .write_all(&encrypted_len)
+        .expect("write encrypted ss chunk length");
+    let mut encrypted_payload = vec![0; payload.len() + tag_len];
+    encrypted_payload[..payload.len()].copy_from_slice(payload);
+    cipher.encrypt_packet(&mut encrypted_payload);
+    stream
+        .write_all(&encrypted_payload)
+        .expect("write encrypted ss chunk payload");
 }
