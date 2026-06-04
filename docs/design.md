@@ -148,6 +148,8 @@ The first implementation target is deliberately small:
    The same path can wrap DNS responses into IPv4/IPv6 UDP response packets
    with swapped flow addresses and checksums, giving the future TUN write loop
    concrete packet bytes to emit.
+   A TUN DNS hijack helper now drives those packets through the DNS engine,
+   including unsupported-question handling and DNS policy NXDOMAIN outcomes.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

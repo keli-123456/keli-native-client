@@ -1,11 +1,13 @@
 use std::net::IpAddr;
+use std::time::Duration;
 
 use keli_net_core::{
-    build_dns_error_response, build_dns_response, build_tun_dns_response_packet,
-    decide_tun_packet_route, parse_tun_packet_flow, parse_tun_udp_payload, plan_tun_dns_hijack,
-    plan_tun_packet_relay, DnsQuestionType, OutboundTarget, RouteAction, RouteDestination,
-    RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketError,
-    TunPacketRelayAction, TunTransportProtocol,
+    build_dns_error_response, build_dns_response, build_tun_dns_hijack_response,
+    build_tun_dns_response_packet, decide_tun_packet_route, parse_tun_packet_flow,
+    parse_tun_udp_payload, plan_tun_dns_hijack, plan_tun_packet_relay, DnsCache, DnsEngine,
+    DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, OutboundTarget, RouteAction,
+    RouteDestination, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion,
+    TunPacketError, TunPacketRelayAction, TunTransportProtocol,
 };
 
 #[test]
@@ -142,6 +144,75 @@ fn builds_ipv6_tun_dns_response_packet_with_udp_checksum() {
     assert_eq!(response.flow.destination_port, Some(54000));
     assert_eq!(response.payload, response_payload.as_slice());
     assert_ne!(&response_packet[46..48], &[0, 0]);
+}
+
+#[test]
+fn builds_tun_dns_hijack_response_packet_from_dns_engine() {
+    let packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "8.8.8.8",
+        &udp_datagram(54321, 53, &dns_query(0x1234, "example.com", 1)),
+    );
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+
+    let response =
+        build_tun_dns_hijack_response(&packet, &mut dns, 30).expect("build DNS response");
+    let udp = parse_tun_udp_payload(&response.packet).expect("parse response packet");
+
+    assert_eq!(response.rcode, 0);
+    assert_eq!(response.plan.question.name, "example.com");
+    assert_eq!(udp.payload, response.dns_payload.as_slice());
+    assert!(udp
+        .payload
+        .windows(4)
+        .any(|window| window == [203, 0, 113, 7]));
+}
+
+#[test]
+fn tun_dns_hijack_response_returns_notimp_for_unsupported_question_type() {
+    let packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "8.8.8.8",
+        &udp_datagram(54321, 53, &dns_query(0x9876, "example.com", 16)),
+    );
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+
+    let response =
+        build_tun_dns_hijack_response(&packet, &mut dns, 30).expect("build DNS response");
+    let udp = parse_tun_udp_payload(&response.packet).expect("parse response packet");
+
+    assert_eq!(response.rcode, 4);
+    assert_eq!(dns_rcode(udp.payload), 4);
+}
+
+#[test]
+fn tun_dns_hijack_response_returns_nxdomain_when_local_resolution_is_blocked() {
+    let packet = ipv4_packet(
+        17,
+        "10.7.0.2",
+        "8.8.8.8",
+        &udp_datagram(54321, 53, &dns_query(0x5678, "blocked.example", 1)),
+    );
+    let mut dns = DnsEngine::with_policy(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+        DnsLocalResolutionPolicy::PreventPublicLeak,
+    );
+
+    let response =
+        build_tun_dns_hijack_response(&packet, &mut dns, 30).expect("build blocked DNS response");
+    let udp = parse_tun_udp_payload(&response.packet).expect("parse blocked response packet");
+
+    assert_eq!(response.rcode, 3);
+    assert_eq!(dns_rcode(udp.payload), 3);
 }
 
 #[test]
@@ -423,6 +494,27 @@ fn dns_query(id: u16, name: &str, qtype: u16) -> Vec<u8> {
     query.extend_from_slice(&qtype.to_be_bytes());
     query.extend_from_slice(&1u16.to_be_bytes());
     query
+}
+
+fn dns_rcode(payload: &[u8]) -> u8 {
+    payload[3] & 0x0f
+}
+
+#[derive(Clone)]
+struct StaticResolver {
+    ips: Vec<IpAddr>,
+}
+
+impl StaticResolver {
+    fn new(ips: Vec<IpAddr>) -> Self {
+        Self { ips }
+    }
+}
+
+impl DnsResolver for StaticResolver {
+    fn resolve(&self, _host: &str) -> Result<Vec<IpAddr>, DnsError> {
+        Ok(self.ips.clone())
+    }
 }
 
 fn ipv6_packet(protocol: u8, source: &str, destination: &str, payload: &[u8]) -> Vec<u8> {

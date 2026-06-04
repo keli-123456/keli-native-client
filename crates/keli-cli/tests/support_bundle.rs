@@ -45,11 +45,15 @@ proxies:
         "dns-query-plan"
     );
     assert_eq!(
-        report["doctor"]["tun_packet_pipeline_capabilities"][10],
-        "dns-response-packet"
+        report["doctor"]["tun_packet_pipeline_capabilities"][9],
+        "dns-engine-response"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][11],
+        "dns-response-packet"
+    );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][12],
         "relay-plan"
     );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");

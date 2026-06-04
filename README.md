@@ -57,6 +57,8 @@ TUN UDP payload extraction and DNS hijack query planning now parse the DNS
 wire question and swap response endpoints for the future TUN write path.
 TUN DNS responses can also be wrapped into IPv4/IPv6 UDP packets with swapped
 flow addresses and checksums for that future write path.
+TUN DNS hijack now has a core helper that resolves through the DNS engine,
+applies DNS policy outcomes, and returns the final response packet.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 

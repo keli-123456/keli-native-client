@@ -1,7 +1,10 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::{error::Error, fmt};
 
-use crate::dns::{parse_dns_query, DnsWireError, DnsWireQuestion};
+use crate::dns::{
+    build_dns_error_response, build_dns_response, parse_dns_query, DnsEngine, DnsError,
+    DnsQuestionType, DnsResolver, DnsWireError, DnsWireQuestion,
+};
 use crate::{OutboundTarget, RouteAction, RouteDestination, RouteEngine, RouteTarget};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,6 +93,14 @@ pub struct TunDnsHijackPlan {
     pub response_destination: SocketAddr,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunDnsHijackResponse {
+    pub plan: TunDnsHijackPlan,
+    pub dns_payload: Vec<u8>,
+    pub packet: Vec<u8>,
+    pub rcode: u8,
+}
+
 impl TunPacketFlow {
     pub fn route_destination(&self) -> RouteDestination {
         RouteDestination::new(
@@ -167,6 +178,7 @@ pub enum TunPacketError {
         payload_len: usize,
         max_payload_len: usize,
     },
+    DnsResolve(DnsError),
     DnsWire(DnsWireError),
 }
 
@@ -251,6 +263,7 @@ impl fmt::Display for TunPacketError {
                 f,
                 "TUN {ip_version:?} UDP response payload length {payload_len} exceeds max {max_payload_len}"
             ),
+            Self::DnsResolve(error) => write!(f, "failed to resolve TUN DNS query: {error}"),
             Self::DnsWire(error) => write!(f, "failed to parse TUN DNS query: {error}"),
         }
     }
@@ -259,6 +272,7 @@ impl fmt::Display for TunPacketError {
 impl Error for TunPacketError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::DnsResolve(error) => Some(error),
             Self::DnsWire(error) => Some(error),
             _ => None,
         }
@@ -339,6 +353,22 @@ pub fn build_tun_dns_response_packet(
     build_tun_udp_response_packet(&plan.flow, payload)
 }
 
+pub fn build_tun_dns_hijack_response<R: DnsResolver>(
+    packet: &[u8],
+    dns: &mut DnsEngine<R>,
+    ttl_seconds: u32,
+) -> Result<TunDnsHijackResponse, TunPacketError> {
+    let plan = plan_tun_dns_hijack(packet)?;
+    let (dns_payload, rcode) = build_tun_dns_hijack_payload(&plan, dns, ttl_seconds)?;
+    let packet = build_tun_dns_response_packet(&plan, &dns_payload)?;
+    Ok(TunDnsHijackResponse {
+        plan,
+        dns_payload,
+        packet,
+        rcode,
+    })
+}
+
 pub fn build_tun_udp_response_packet(
     flow: &TunPacketFlow,
     payload: &[u8],
@@ -395,6 +425,29 @@ pub fn build_tun_udp_response_packet(
             source_ip: flow.source_ip,
             destination_ip: flow.destination_ip,
         }),
+    }
+}
+
+fn build_tun_dns_hijack_payload<R: DnsResolver>(
+    plan: &TunDnsHijackPlan,
+    dns: &mut DnsEngine<R>,
+    ttl_seconds: u32,
+) -> Result<(Vec<u8>, u8), TunPacketError> {
+    if matches!(plan.question.question_type, DnsQuestionType::Unsupported(_)) {
+        return Ok((build_dns_error_response(&plan.question, 4), 4));
+    }
+    match dns.resolve(&plan.question.name, 0) {
+        Ok(addresses) => {
+            let ips = addresses
+                .into_iter()
+                .map(|address| address.ip)
+                .collect::<Vec<_>>();
+            Ok((build_dns_response(&plan.question, &ips, ttl_seconds), 0))
+        }
+        Err(DnsError::LocalResolutionBlocked { .. })
+        | Err(DnsError::AddressFamilyFiltered { .. })
+        | Err(DnsError::NoRecords(_)) => Ok((build_dns_error_response(&plan.question, 3), 3)),
+        Err(error) => Err(TunPacketError::DnsResolve(error)),
     }
 }
 
