@@ -350,6 +350,341 @@ proxies:
     assert_eq!(protocol_capability(&report, "Http")["udp_supported"], false);
 }
 
+#[test]
+fn profile_check_json_keeps_full_core_protocol_transport_matrix_supported() {
+    let config = r#"
+proxies:
+  - name: TROJAN-TCP
+    type: trojan
+    server: trojan.example.com
+    port: 443
+    password: password
+    sni: sni.example.com
+  - name: TROJAN-WS
+    type: trojan
+    server: trojan.example.com
+    port: 443
+    password: password
+    sni: sni.example.com
+    network: ws
+    ws-opts:
+      path: /answer
+      headers:
+        Host: host.example.com
+  - name: TROJAN-HTTPUPGRADE
+    type: trojan
+    server: trojan.example.com
+    port: 443
+    password: password
+    sni: sni.example.com
+    network: httpupgrade
+    httpupgrade-opts:
+      path: /upgrade
+      host: host.example.com
+  - name: TROJAN-GRPC
+    type: trojan
+    server: trojan.example.com
+    port: 443
+    password: password
+    sni: sni.example.com
+    network: grpc
+    grpc-opts:
+      grpc-service-name: GunService
+  - name: TROJAN-H2
+    type: trojan
+    server: trojan.example.com
+    port: 443
+    password: password
+    sni: sni.example.com
+    network: h2
+    h2-opts:
+      path: /h2
+      host:
+        - host.example.com
+  - name: TROJAN-QUIC
+    type: trojan
+    server: trojan.example.com
+    port: 443
+    password: password
+    sni: sni.example.com
+    network: quic
+    quic-opts:
+      security: aes-128-gcm
+      key: secret
+      header: none
+  - name: VLESS-TCP
+    type: vless
+    server: vless.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    tls: true
+    servername: sni.example.com
+  - name: VLESS-WS
+    type: vless
+    server: vless.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    tls: true
+    servername: sni.example.com
+    network: ws
+    ws-opts:
+      path: /vless
+      headers:
+        Host: host.example.com
+  - name: VLESS-HTTPUPGRADE
+    type: vless
+    server: vless.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    tls: true
+    servername: sni.example.com
+    network: httpupgrade
+    httpupgrade-opts:
+      path: /upgrade
+      host: host.example.com
+  - name: VLESS-GRPC
+    type: vless
+    server: vless.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    tls: true
+    servername: sni.example.com
+    network: grpc
+    grpc-opts:
+      grpc-service-name: GunService
+  - name: VLESS-H2
+    type: vless
+    server: vless.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    tls: true
+    servername: sni.example.com
+    network: h2
+    h2-opts:
+      path: /h2
+      host:
+        - host.example.com
+  - name: VLESS-QUIC
+    type: vless
+    server: vless.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    tls: true
+    servername: sni.example.com
+    network: quic
+    quic-opts:
+      security: aes-128-gcm
+      key: secret
+      header: none
+  - name: VMESS-TCP
+    type: vmess
+    server: vmess.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    alterId: 0
+    cipher: auto
+  - name: VMESS-WS
+    type: vmess
+    server: vmess.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    alterId: 0
+    cipher: auto
+    tls: true
+    servername: sni.example.com
+    network: ws
+    ws-opts:
+      path: /vmess
+      headers:
+        Host: host.example.com
+  - name: VMESS-HTTPUPGRADE
+    type: vmess
+    server: vmess.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    alterId: 0
+    cipher: auto
+    tls: true
+    servername: sni.example.com
+    network: httpupgrade
+    httpupgrade-opts:
+      path: /upgrade
+      host: host.example.com
+  - name: VMESS-GRPC
+    type: vmess
+    server: vmess.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    alterId: 0
+    cipher: auto
+    tls: true
+    servername: sni.example.com
+    network: grpc
+    grpc-opts:
+      grpc-service-name: GunService
+  - name: VMESS-H2
+    type: vmess
+    server: vmess.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    alterId: 0
+    cipher: auto
+    tls: true
+    servername: sni.example.com
+    network: h2
+    h2-opts:
+      path: /h2
+      host:
+        - host.example.com
+  - name: VMESS-QUIC
+    type: vmess
+    server: vmess.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    alterId: 0
+    cipher: auto
+    tls: true
+    servername: sni.example.com
+    network: quic
+    quic-opts:
+      security: aes-128-gcm
+      key: secret
+      header: none
+  - name: SS-AEAD
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: chacha20-ietf-poly1305
+    password: secret
+  - name: ANYTLS
+    type: anytls
+    server: anytls.example.com
+    port: 443
+    password: secret
+    sni: sni.example.com
+    skip-cert-verify: true
+  - name: NAIVE-H2
+    type: naive
+    server: naive.example.com
+    port: 443
+    username: user
+    password: pass
+    tls: true
+    sni: edge.example.com
+  - name: MIERU-TCP
+    type: mieru
+    server: mieru.example.com
+    port-range: 30000-30002
+    username: user
+    password: pass
+    transport: TCP
+    udp: true
+  - name: HY2
+    type: hy2
+    server: hy2.example.com
+    port: 443
+    password: secret
+    sni: sni.example.com
+    skip-cert-verify: true
+  - name: TUIC
+    type: tuic
+    server: tuic.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    token: secret
+  - name: SOCKS5
+    type: socks5
+    server: socks.example.com
+    port: 1080
+    username: user
+    password: pass
+  - name: HTTP
+    type: http
+    server: http.example.com
+    port: 8080
+    username: user
+    password: pass
+"#;
+    let mut output = Vec::new();
+
+    keli_cli::write_profile_check_report_from_subscription_config_text(
+        config,
+        ProbeOutputFormat::Json,
+        &mut output,
+    )
+    .expect("profile check");
+
+    let report: Value = serde_json::from_slice(&output).expect("json report");
+    assert_eq!(report["status"], "ok");
+    assert_eq!(report["source_format"], "mihomo_yaml");
+    assert_eq!(report["supported_count"], 26);
+    assert_eq!(report["skipped_count"], 0);
+    assert_eq!(report["udp_supported_count"], 24);
+    assert_eq!(report["protocol_capability_count"], 11);
+
+    let supported_tags = report["supported_tags"]
+        .as_array()
+        .expect("supported tags")
+        .iter()
+        .map(|tag| tag.as_str().expect("supported tag string"))
+        .collect::<Vec<_>>();
+    for expected in [
+        "TROJAN-TCP",
+        "TROJAN-WS",
+        "TROJAN-HTTPUPGRADE",
+        "TROJAN-GRPC",
+        "TROJAN-H2",
+        "TROJAN-QUIC",
+        "VLESS-TCP",
+        "VLESS-WS",
+        "VLESS-HTTPUPGRADE",
+        "VLESS-GRPC",
+        "VLESS-H2",
+        "VLESS-QUIC",
+        "VMESS-TCP",
+        "VMESS-WS",
+        "VMESS-HTTPUPGRADE",
+        "VMESS-GRPC",
+        "VMESS-H2",
+        "VMESS-QUIC",
+        "SS-AEAD",
+        "ANYTLS",
+        "NAIVE-H2",
+        "MIERU-TCP",
+        "HY2",
+        "TUIC",
+        "SOCKS5",
+        "HTTP",
+    ] {
+        assert!(
+            supported_tags.contains(&expected),
+            "missing supported tag {expected}"
+        );
+    }
+
+    for protocol in ["Trojan", "Vless", "Vmess"] {
+        let capability = protocol_capability(&report, protocol);
+        assert_eq!(capability["udp_supported"], true);
+        assert_eq!(capability["tags"].as_array().expect("tags").len(), 6);
+    }
+    for protocol in ["Shadowsocks", "AnyTls", "Mieru", "Hy2", "Tuic", "Socks"] {
+        assert_eq!(
+            protocol_capability(&report, protocol)["udp_supported"],
+            true
+        );
+    }
+    for protocol in ["Naive", "Http"] {
+        assert_eq!(
+            protocol_capability(&report, protocol)["tcp_relay_supported"],
+            true
+        );
+        assert_eq!(
+            protocol_capability(&report, protocol)["udp_supported"],
+            false
+        );
+    }
+}
+
 fn protocol_capability<'a>(report: &'a Value, protocol: &str) -> &'a Value {
     report["protocol_capabilities"]
         .as_array()
