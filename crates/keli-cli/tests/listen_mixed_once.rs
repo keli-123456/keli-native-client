@@ -63,6 +63,52 @@ fn listen_mixed_once_uses_profile_config_for_socks5_connect() {
 }
 
 #[test]
+fn listen_mixed_once_uses_profile_config_for_http_connect() {
+    let (ss_port, ss_thread) = spawn_shadowsocks_tcp_echo_server();
+    let profile_path = write_temp_profile_config(ss_port);
+    let listen = free_local_addr();
+    let run_listen = listen.clone();
+    let run_profile_path = profile_path.clone();
+    let server_thread = thread::spawn(move || {
+        run(CliCommand::ListenMixed {
+            listen: run_listen,
+            once: true,
+            block_domains: Vec::new(),
+            profile_config: Some(run_profile_path),
+            outbound_tag: Some("SS-READY".to_string()),
+            first_byte_timeout: Duration::from_secs(2),
+            idle_timeout: Duration::from_secs(2),
+        })
+        .expect("run listen-mixed once");
+    });
+
+    let mut client = connect_with_retry(&listen);
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("client timeout");
+    client
+        .write_all(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
+        .expect("write http connect");
+
+    let mut connect_response = Vec::new();
+    read_until_header_end(&mut client, &mut connect_response);
+    assert_eq!(
+        connect_response,
+        b"HTTP/1.1 200 Connection Established\r\n\r\n"
+    );
+
+    client.write_all(b"ping").expect("write ping");
+    let mut response = [0; 4];
+    client.read_exact(&mut response).expect("read pong");
+    assert_eq!(&response, b"pong");
+    client.shutdown(Shutdown::Both).ok();
+
+    server_thread.join().expect("listen thread");
+    ss_thread.join().expect("ss thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
 fn listen_mixed_once_uses_profile_config_for_socks5_udp_associate() {
     let (ss_port, ss_thread) = spawn_shadowsocks_udp_echo_server();
     let profile_path = write_temp_profile_config(ss_port);
@@ -127,6 +173,14 @@ fn listen_mixed_once_uses_profile_config_for_socks5_udp_associate() {
     server_thread.join().expect("listen thread");
     ss_thread.join().expect("ss thread");
     fs::remove_file(profile_path).ok();
+}
+
+fn read_until_header_end(stream: &mut TcpStream, output: &mut Vec<u8>) {
+    let mut byte = [0; 1];
+    while !output.ends_with(b"\r\n\r\n") {
+        stream.read_exact(&mut byte).expect("read response byte");
+        output.push(byte[0]);
+    }
 }
 
 fn free_local_addr() -> String {
