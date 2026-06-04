@@ -469,6 +469,39 @@ fn listen_mixed_once_uses_profile_config_for_vmess_h2_http_connect() {
 }
 
 #[test]
+fn listen_mixed_once_uses_profile_config_for_trojan_h2_socks5_udp_associate() {
+    let (trojan_port, trojan_thread) = spawn_trojan_h2_udp_echo_server();
+    let profile_path = write_temp_trojan_h2_profile_config(trojan_port);
+
+    run_profile_socks5_udp_associate_round_trip(&profile_path, "TROJAN-H2-READY");
+
+    trojan_thread.join().expect("trojan h2 udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_vless_h2_socks5_udp_associate() {
+    let (vless_port, vless_thread) = spawn_vless_h2_udp_echo_server();
+    let profile_path = write_temp_vless_h2_profile_config(vless_port);
+
+    run_profile_socks5_udp_associate_round_trip(&profile_path, "VLESS-H2-READY");
+
+    vless_thread.join().expect("vless h2 udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_vmess_h2_socks5_udp_associate() {
+    let (vmess_port, vmess_thread) = spawn_vmess_h2_udp_echo_server();
+    let profile_path = write_temp_vmess_h2_profile_config(vmess_port);
+
+    run_profile_socks5_udp_associate_round_trip(&profile_path, "VMESS-H2-READY");
+
+    vmess_thread.join().expect("vmess h2 udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
 fn listen_mixed_once_uses_profile_config_for_hy2_http_connect() {
     let (hy2_addr, hy2_thread) = spawn_hy2_echo_server();
     let profile_path = write_temp_hy2_profile_config(hy2_addr.port());
@@ -2302,6 +2335,92 @@ fn spawn_vmess_h2_echo_server() -> (u16, thread::JoinHandle<()>) {
             assert_eq!(request.target_host, "example.com");
             assert_eq!(request.target_port, 443);
             assert_eq!(request.command, 0x01);
+            assert_eq!(request.security, VMESS_SECURITY_AES_128_GCM);
+
+            write_vmess_aead_response_header(&mut stream, &request);
+            let payload = support::vmess::read_vmess_aes128_gcm_chunk(&mut stream, &request);
+            assert_eq!(&payload, b"ping");
+            support::vmess::write_vmess_aes128_gcm_response_chunk(&mut stream, &request, b"pong");
+        },
+    );
+    (port, handle)
+}
+
+fn spawn_trojan_h2_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind trojan h2 udp server");
+    let port = listener.local_addr().expect("trojan h2 udp addr").port();
+    let handle = spawn_h2_server(
+        listener,
+        "/trojan-h2",
+        Some("trojan-h2.example"),
+        |mut stream| {
+            let mut trojan_header = [0; 68];
+            stream
+                .read_exact(&mut trojan_header)
+                .expect("read trojan h2 udp associate header");
+            assert_eq!(
+                &trojan_header[..],
+                b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x03\x01\x7f\x00\x00\x01\x005\r\n"
+            );
+            let mut request_payload = [0; 15];
+            stream
+                .read_exact(&mut request_payload)
+                .expect("read trojan h2 udp packet");
+            assert_eq!(
+                &request_payload,
+                b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\nping"
+            );
+            stream
+                .write_all(b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\npong")
+                .expect("write trojan h2 udp response packet");
+        },
+    );
+    (port, handle)
+}
+
+fn spawn_vless_h2_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vless h2 udp server");
+    let port = listener.local_addr().expect("vless h2 udp addr").port();
+    let handle = spawn_h2_server(listener, "/h2", Some("h2.example"), |mut stream| {
+        let mut vless_header = [0; 26];
+        stream
+            .read_exact(&mut vless_header)
+            .expect("read vless h2 udp header");
+        assert_eq!(
+            vless_header,
+            [
+                0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
+                0xdd, 0xee, 0xff, 0x00, 0x02, 0x00, 0x35, 0x01, 0x7f, 0x00, 0x00, 0x01,
+            ]
+        );
+        stream
+            .write_all(&[0x00, 0x00])
+            .expect("write vless h2 udp response header");
+        let mut request_payload = [0; 6];
+        stream
+            .read_exact(&mut request_payload)
+            .expect("read vless h2 udp payload");
+        assert_eq!(&request_payload, b"\x00\x04ping");
+        stream
+            .write_all(b"\x00\x04pong")
+            .expect("write vless h2 udp response payload");
+    });
+    (port, handle)
+}
+
+fn spawn_vmess_h2_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vmess h2 udp server");
+    let port = listener.local_addr().expect("vmess h2 udp addr").port();
+    let handle = spawn_h2_server(
+        listener,
+        "/vmess-h2",
+        Some("vmess-h2.example"),
+        move |mut stream| {
+            let request = read_vmess_aead_request(&mut stream, uuid);
+            assert_eq!(request.target_host, "127.0.0.1");
+            assert_eq!(request.target_port, 53);
+            assert_eq!(request.command, 0x02);
             assert_eq!(request.security, VMESS_SECURITY_AES_128_GCM);
 
             write_vmess_aead_response_header(&mut stream, &request);
