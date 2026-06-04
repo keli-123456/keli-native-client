@@ -15,6 +15,19 @@ proxies:
     server: wg.example.com
     port: 51820
     password: ignored
+  - name: VLESS-EDGE
+    type: vless
+    server: vless.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    network: ws
+    tls: true
+    skip-cert-verify: true
+    servername: private-sni.example.com
+    ws-opts:
+      path: /private-ws-path
+      headers:
+        Host: private-host.example.com
 "#;
     let mut output = Vec::new();
 
@@ -28,9 +41,22 @@ proxies:
     assert_eq!(report["doctor"]["platform"], "Windows");
     assert_eq!(report["profile"]["status"], "ok");
     assert_eq!(report["profile"]["source_format"], "mihomo_yaml");
-    assert_eq!(report["profile"]["supported_count"], 1);
+    assert_eq!(report["profile"]["supported_count"], 2);
     assert_eq!(report["profile"]["skipped_count"], 1);
     assert_eq!(report["profile"]["supported_tags"][0], "SS-READY");
+    assert_eq!(report["profile"]["supported_tags"][1], "VLESS-EDGE");
+    assert_eq!(report["profile"]["supported"][0]["tag"], "SS-READY");
+    assert_eq!(report["profile"]["supported"][0]["protocol"], "Shadowsocks");
+    assert_eq!(report["profile"]["supported"][0]["transport"], "tcp");
+    assert_eq!(report["profile"]["supported"][0]["security"], "none");
+    assert_eq!(report["profile"]["supported"][0]["udp_supported"], true);
+    assert!(report["profile"]["supported"][0]["tls_skip_verify"].is_null());
+    assert_eq!(report["profile"]["supported"][1]["tag"], "VLESS-EDGE");
+    assert_eq!(report["profile"]["supported"][1]["protocol"], "Vless");
+    assert_eq!(report["profile"]["supported"][1]["transport"], "ws");
+    assert_eq!(report["profile"]["supported"][1]["security"], "tls");
+    assert_eq!(report["profile"]["supported"][1]["udp_supported"], true);
+    assert_eq!(report["profile"]["supported"][1]["tls_skip_verify"], true);
     assert_eq!(
         report["profile"]["skipped_summary"][0]["reason"],
         "unsupported protocol: wireguard"
@@ -39,8 +65,13 @@ proxies:
 
     let output = String::from_utf8(output).expect("support bundle utf8");
     assert!(!output.contains("secret"));
+    assert!(!output.contains("00112233-4455-6677-8899-aabbccddeeff"));
     assert!(!output.contains("ss.example.com"));
     assert!(!output.contains("wg.example.com"));
+    assert!(!output.contains("vless.example.com"));
+    assert!(!output.contains("private-sni.example.com"));
+    assert!(!output.contains("private-host.example.com"));
+    assert!(!output.contains("/private-ws-path"));
 }
 
 #[test]

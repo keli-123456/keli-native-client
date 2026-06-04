@@ -127,3 +127,7 @@ Health records support unknown/healthy/unhealthy states, latency, TCP/UDP
 availability, failure reasons, and runtime events for UI listeners;
 subscription reload prunes health entries that no longer belong to the active
 subscription.
+Support bundles include doctor output and redacted subscription diagnostics,
+including supported tags, default outbound, UDP-capable tags, protocol
+capability groups, skipped-profile summaries, and per-node protocol/transport
+capability entries without credentials, endpoints, path, host, or SNI fields.
