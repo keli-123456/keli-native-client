@@ -122,7 +122,8 @@ level listener handle internal to the managed core path. Its status snapshot
 includes recent runtime events, the last failure reason, current generation,
 selected outbound, listener address, managed system proxy config, and
 subscription node status including supported tags, skipped entries, default
-outbound, selected outbound, node health, and health-summary switch readiness.
+outbound, selected outbound, redacted per-node protocol/transport/security
+capabilities, node health, and health-summary switch readiness.
 Health records support unknown/healthy/unhealthy states, latency, TCP/UDP
 availability, failure reasons, and runtime events for UI listeners;
 subscription reload prunes health entries that no longer belong to the active

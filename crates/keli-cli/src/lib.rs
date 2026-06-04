@@ -14,7 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use keli_client_core::{
     build_connection_plan, ClientErrorKind, ClientRuntime, ConnectionPhase, ConnectionPlan,
-    RuntimeConfig, RuntimeEvent, RuntimeStatus, SkippedProfileSummary,
+    RuntimeConfig, RuntimeEvent, RuntimeStatus, SkippedProfileSummary, SubscriptionNodeCapability,
 };
 use keli_net_core::{
     encode_socks5_udp_datagram, http_connect_bad_request_response, http_connect_success_response,
@@ -305,6 +305,7 @@ pub struct ManagedMixedStatusSnapshot {
 pub struct ManagedSubscriptionStatus {
     pub usable: bool,
     pub supported_tags: Vec<String>,
+    pub supported: Vec<SubscriptionNodeCapability>,
     pub skipped: Vec<SkippedProfileSummary>,
     pub default_outbound: Option<String>,
     pub selected_outbound: String,
@@ -320,6 +321,7 @@ impl ManagedSubscriptionStatus {
     ) -> Self {
         let preflight = plan.preflight();
         let supported_tags = preflight.supported_tags().to_vec();
+        let supported = preflight.supported().to_vec();
         let node_health = supported_tags
             .iter()
             .map(|tag| {
@@ -340,6 +342,7 @@ impl ManagedSubscriptionStatus {
         Self {
             usable: preflight.is_usable(),
             supported_tags,
+            supported,
             skipped: preflight.skipped().to_vec(),
             default_outbound: preflight.default_outbound().map(str::to_string),
             selected_outbound,
@@ -350,7 +353,7 @@ impl ManagedSubscriptionStatus {
     }
 
     pub fn supported_count(&self) -> usize {
-        self.supported_tags.len()
+        self.supported.len()
     }
 
     pub fn skipped_count(&self) -> usize {
@@ -359,6 +362,12 @@ impl ManagedSubscriptionStatus {
 
     pub fn health_for(&self, tag: &str) -> Option<&ManagedNodeHealthStatus> {
         self.node_health.iter().find(|health| health.tag == tag)
+    }
+
+    pub fn capability_for(&self, tag: &str) -> Option<&SubscriptionNodeCapability> {
+        self.supported
+            .iter()
+            .find(|capability| capability.tag == tag)
     }
 }
 

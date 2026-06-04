@@ -1,6 +1,9 @@
 use std::time::SystemTime;
 
-use keli_protocol::parse_subscription_outbound_profiles;
+use keli_protocol::{
+    parse_subscription_outbound_profiles, OutboundProfile, ProxyProtocol, SecurityKind,
+    TransportKind,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectionPhase {
@@ -110,13 +113,14 @@ impl SessionState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubscriptionPreflightReport {
     supported_tags: Vec<String>,
+    supported: Vec<SubscriptionNodeCapability>,
     skipped: Vec<SkippedProfileSummary>,
     default_outbound: Option<String>,
 }
 
 impl SubscriptionPreflightReport {
     pub fn supported_count(&self) -> usize {
-        self.supported_tags.len()
+        self.supported.len()
     }
 
     pub fn skipped_count(&self) -> usize {
@@ -129,6 +133,10 @@ impl SubscriptionPreflightReport {
 
     pub fn supported_tags(&self) -> &[String] {
         &self.supported_tags
+    }
+
+    pub fn supported(&self) -> &[SubscriptionNodeCapability] {
+        &self.supported
     }
 
     pub fn skipped(&self) -> &[SkippedProfileSummary] {
@@ -154,6 +162,29 @@ impl SubscriptionPreflightReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionNodeCapability {
+    pub tag: String,
+    pub protocol: String,
+    pub transport: String,
+    pub security: String,
+    pub tls_skip_verify: Option<bool>,
+    pub udp_supported: bool,
+}
+
+impl SubscriptionNodeCapability {
+    fn from_profile(profile: &OutboundProfile) -> Self {
+        Self {
+            tag: profile.tag.clone(),
+            protocol: format!("{:?}", profile.protocol),
+            transport: transport_label(&profile.transport).to_string(),
+            security: security_label(&profile.security).to_string(),
+            tls_skip_verify: tls_skip_verify(&profile.security),
+            udp_supported: profile_supports_udp(profile),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkippedProfileSummary {
     pub name: String,
     pub reason: String,
@@ -164,8 +195,12 @@ pub fn preflight_subscription_config(
 ) -> Result<SubscriptionPreflightReport, ClientErrorKind> {
     let parsed = parse_subscription_outbound_profiles(config_text)
         .map_err(|error| ClientErrorKind::ConfigInvalid(error.to_string()))?;
-    let supported_tags: Vec<String> = parsed
+    let supported: Vec<SubscriptionNodeCapability> = parsed
         .profiles
+        .iter()
+        .map(SubscriptionNodeCapability::from_profile)
+        .collect();
+    let supported_tags: Vec<String> = supported
         .iter()
         .map(|profile| profile.tag.clone())
         .collect();
@@ -180,9 +215,39 @@ pub fn preflight_subscription_config(
         .collect();
     Ok(SubscriptionPreflightReport {
         supported_tags,
+        supported,
         skipped,
         default_outbound,
     })
+}
+
+fn profile_supports_udp(profile: &OutboundProfile) -> bool {
+    !matches!(profile.protocol, ProxyProtocol::Http | ProxyProtocol::Naive)
+}
+
+fn transport_label(transport: &TransportKind) -> &'static str {
+    match transport {
+        TransportKind::Tcp => "tcp",
+        TransportKind::WebSocket { .. } => "ws",
+        TransportKind::HttpUpgrade { .. } => "httpupgrade",
+        TransportKind::Http2 { .. } => "h2",
+        TransportKind::Grpc { .. } => "grpc",
+        TransportKind::Quic { .. } => "quic",
+    }
+}
+
+fn security_label(security: &SecurityKind) -> &'static str {
+    match security {
+        SecurityKind::None => "none",
+        SecurityKind::Tls { .. } => "tls",
+    }
+}
+
+fn tls_skip_verify(security: &SecurityKind) -> Option<bool> {
+    match security {
+        SecurityKind::None => None,
+        SecurityKind::Tls { skip_verify, .. } => Some(*skip_verify),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -517,6 +582,13 @@ proxies:
     server: vmess.example.com
     port: 443
     uuid: 00112233-4455-6677-8899-aabbccddeeff
+    tls: true
+    servername: private-sni.example.com
+    network: ws
+    ws-opts:
+      path: /private-vmess-path
+      headers:
+        Host: private-host.example.com
 "#;
 
         let report = preflight_subscription_config(config).expect("preflight");
@@ -529,6 +601,26 @@ proxies:
             report.supported_tags(),
             &["SS-READY".to_string(), "VMESS-OLD".to_string()]
         );
+        assert_eq!(report.supported()[0].tag, "SS-READY");
+        assert_eq!(report.supported()[0].protocol, "Shadowsocks");
+        assert_eq!(report.supported()[0].transport, "tcp");
+        assert_eq!(report.supported()[0].security, "none");
+        assert_eq!(report.supported()[0].tls_skip_verify, None);
+        assert!(report.supported()[0].udp_supported);
+        assert_eq!(report.supported()[1].tag, "VMESS-OLD");
+        assert_eq!(report.supported()[1].protocol, "Vmess");
+        assert_eq!(report.supported()[1].transport, "ws");
+        assert_eq!(report.supported()[1].security, "tls");
+        assert_eq!(report.supported()[1].tls_skip_verify, Some(false));
+        assert!(report.supported()[1].udp_supported);
+        let debug = format!("{report:?}");
+        assert!(!debug.contains("secret"));
+        assert!(!debug.contains("00112233-4455-6677-8899-aabbccddeeff"));
+        assert!(!debug.contains("ss.example.com"));
+        assert!(!debug.contains("vmess.example.com"));
+        assert!(!debug.contains("private-sni.example.com"));
+        assert!(!debug.contains("private-host.example.com"));
+        assert!(!debug.contains("/private-vmess-path"));
     }
 
     #[test]

@@ -101,6 +101,36 @@ proxies:
 "#
 }
 
+fn mixed_subscription_with_capability_variants() -> &'static str {
+    r#"
+proxies:
+  - name: SS-READY
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+  - name: VLESS-EDGE
+    type: vless
+    server: vless.example.com
+    port: 443
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    network: ws
+    tls: true
+    skip-cert-verify: true
+    servername: private-sni.example.com
+    ws-opts:
+      path: /private-vless-path
+      headers:
+        Host: private-host.example.com
+  - name: WG-SKIPPED
+    type: wireguard
+    server: wg.example.com
+    port: 51820
+    password: ignored
+"#
+}
+
 #[derive(Debug)]
 struct FakeSystemProxyController {
     snapshot: SystemProxySnapshot,
@@ -488,6 +518,60 @@ fn managed_mixed_controller_status_reports_reload_failure_detail() {
         .recent_events
         .iter()
         .any(|event| matches!(event.status, RuntimeStatus::Failed(_))));
+
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_controller_status_reports_redacted_node_capabilities() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+
+    let started = core
+        .start_from_subscription_config_text(
+            mixed_subscription_with_capability_variants(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+    let subscription = started.subscription.as_ref().expect("subscription status");
+
+    assert_eq!(subscription.supported_count(), 2);
+    assert_eq!(
+        subscription.supported_tags,
+        vec!["SS-READY".to_string(), "VLESS-EDGE".to_string()]
+    );
+    let ss = subscription
+        .capability_for("SS-READY")
+        .expect("SS-READY capability");
+    assert_eq!(ss.protocol, "Shadowsocks");
+    assert_eq!(ss.transport, "tcp");
+    assert_eq!(ss.security, "none");
+    assert_eq!(ss.tls_skip_verify, None);
+    assert!(ss.udp_supported);
+
+    let vless = subscription
+        .capability_for("VLESS-EDGE")
+        .expect("VLESS-EDGE capability");
+    assert_eq!(vless.protocol, "Vless");
+    assert_eq!(vless.transport, "ws");
+    assert_eq!(vless.security, "tls");
+    assert_eq!(vless.tls_skip_verify, Some(true));
+    assert!(vless.udp_supported);
+    assert!(subscription.capability_for("WG-SKIPPED").is_none());
+
+    let debug = format!("{subscription:?}");
+    assert!(!debug.contains("secret"));
+    assert!(!debug.contains("00112233-4455-6677-8899-aabbccddeeff"));
+    assert!(!debug.contains("ss.example.com"));
+    assert!(!debug.contains("vless.example.com"));
+    assert!(!debug.contains("wg.example.com"));
+    assert!(!debug.contains("private-sni.example.com"));
+    assert!(!debug.contains("private-host.example.com"));
+    assert!(!debug.contains("/private-vless-path"));
 
     core.stop().expect("stop managed mixed controller");
 }
