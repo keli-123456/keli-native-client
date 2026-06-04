@@ -186,6 +186,9 @@ The first implementation target is deliberately small:
    The background runtime wrapper can also return a managed TUN packet-loop
    report with summary counters, and it stops owned TUN devices if packet I/O
    fails to open before the listener starts.
+   `listen-mixed --tun` and managed mixed sessions now surface that report to
+   the caller and record a runtime status note with the TUN packet counters when
+   the listener exits.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

@@ -65,7 +65,7 @@ const SUPPORTED_PROTOCOL_CAPABILITIES: &str =
 const ROUTE_RULE_CAPABILITIES: &str =
     "domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
-    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,relay-plan";
+    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,relay-plan";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
@@ -321,6 +321,23 @@ pub struct ManagedTunPacketLoopReport {
     pub stop_snapshot: TunDeviceSnapshot,
     pub owns_device: bool,
     pub summary: TunPacketLoopSummary,
+}
+
+pub fn managed_tun_runtime_report_note(report: &ManagedTunPacketLoopReport) -> String {
+    format!(
+        "managed TUN runtime stopped interface={} owns_device={} processed={} idle={} dns_responses={} udp_responses={} relay_plans={} drops={} unsupported={} packet_errors={} udp_relay_errors={}",
+        report.config.interface_name,
+        report.owns_device,
+        report.summary.processed_packets(),
+        report.summary.idle_events,
+        report.summary.dns_responses_written,
+        report.summary.udp_relay_responses_written,
+        report.summary.relay_packets,
+        report.summary.dropped_packets,
+        report.summary.unsupported_packets,
+        report.summary.packet_errors,
+        report.summary.udp_relay_errors,
+    )
 }
 
 impl<I: TunPacketIo> PlatformTunPacketDevice<I> {
@@ -1796,11 +1813,25 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
     }
 
     pub fn serve_with_optional_tun_controller<T>(
-        mut self,
+        self,
         once: bool,
         tun_controller: &T,
         tun_device: Option<TunDeviceConfig>,
     ) -> Result<ClientRuntime, String>
+    where
+        T: TunPacketIoController + ?Sized,
+        T::PacketIo: Send + 'static,
+    {
+        self.serve_with_optional_tun_controller_report(once, tun_controller, tun_device)
+            .map(|(state, _)| state)
+    }
+
+    pub fn serve_with_optional_tun_controller_report<T>(
+        mut self,
+        once: bool,
+        tun_controller: &T,
+        tun_device: Option<TunDeviceConfig>,
+    ) -> Result<(ClientRuntime, Option<ManagedTunPacketLoopReport>), String>
     where
         T: TunPacketIoController + ?Sized,
         T::PacketIo: Send + 'static,
@@ -1810,7 +1841,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
             .take()
             .expect("managed mixed listener is present");
         let runtime = self.runtime.clone();
-        let serve_result = run_with_optional_tun_runtime_background(
+        let serve_result = run_with_optional_tun_runtime_background_report(
             tun_controller,
             tun_device,
             &runtime,
@@ -1824,9 +1855,14 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
         let stop_result = self.stop();
 
         match (serve_result, stop_result) {
-            (Ok(()), Ok(state)) => Ok(state),
+            (Ok(((), tun_report)), Ok(mut state)) => {
+                if let Some(report) = tun_report.as_ref() {
+                    state.record_status_note(managed_tun_runtime_report_note(report));
+                }
+                Ok((state, tun_report))
+            }
             (Err(serve_error), Ok(_)) => Err(serve_error),
-            (Ok(()), Err(restore_error)) => Err(restore_error),
+            (Ok(((), _)), Err(restore_error)) => Err(restore_error),
             (Err(serve_error), Err(restore_error)) => {
                 Err(format!("{serve_error}; {restore_error}"))
             }
@@ -1944,13 +1980,19 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                     },
                     &controller,
                 )?;
-                return session
-                    .serve_with_optional_tun_controller(once, &tun_controller, tun_device)
-                    .map(|_| ());
+                let (_, tun_report) = session.serve_with_optional_tun_controller_report(
+                    once,
+                    &tun_controller,
+                    tun_device,
+                )?;
+                if let Some(report) = tun_report.as_ref() {
+                    println!("{}", managed_tun_runtime_report_note(report));
+                }
+                return Ok(());
             }
 
             let runtime = mixed_runtime_from_cli(block_domains, relay_options, dns_options);
-            listen_mixed_with_optional_tun_controller(
+            let tun_report = listen_mixed_with_optional_tun_controller_report(
                 &listen,
                 once,
                 &runtime,
@@ -1959,7 +2001,11 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 system_proxy_bypass,
                 &tun_controller,
                 tun_device,
-            )
+            )?;
+            if let Some(report) = tun_report.as_ref() {
+                println!("{}", managed_tun_runtime_report_note(report));
+            }
+            Ok(())
         }
         CliCommand::ProbeOutbound {
             profile_config,
@@ -3165,7 +3211,35 @@ where
     T: TunPacketIoController + ?Sized,
     T::PacketIo: Send + 'static,
 {
-    run_with_optional_tun_runtime_background(
+    listen_mixed_with_optional_tun_controller_report(
+        listen,
+        once,
+        runtime,
+        system_proxy_controller,
+        system_proxy,
+        bypass,
+        tun_controller,
+        tun_device,
+    )
+    .map(|_| ())
+}
+
+pub fn listen_mixed_with_optional_tun_controller_report<C, T>(
+    listen: &str,
+    once: bool,
+    runtime: &MixedProxyRuntime,
+    system_proxy_controller: &C,
+    system_proxy: bool,
+    bypass: Vec<String>,
+    tun_controller: &T,
+    tun_device: Option<TunDeviceConfig>,
+) -> Result<Option<ManagedTunPacketLoopReport>, String>
+where
+    C: SystemProxyController + ?Sized,
+    T: TunPacketIoController + ?Sized,
+    T::PacketIo: Send + 'static,
+{
+    run_with_optional_tun_runtime_background_report(
         tun_controller,
         tun_device,
         runtime,
@@ -3186,6 +3260,7 @@ where
             }
         },
     )
+    .map(|(_, report)| report)
 }
 
 pub fn apply_system_proxy_for_listener<'a, C: SystemProxyController + ?Sized>(
