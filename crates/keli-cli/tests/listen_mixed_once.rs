@@ -297,6 +297,17 @@ fn listen_mixed_once_uses_profile_config_for_vless_ws_http_connect() {
 }
 
 #[test]
+fn listen_mixed_once_uses_profile_config_for_vmess_ws_http_connect() {
+    let (vmess_port, vmess_thread) = spawn_vmess_ws_echo_server();
+    let profile_path = write_temp_vmess_ws_profile_config(vmess_port);
+
+    run_profile_http_connect_round_trip(&profile_path, "VMESS-WS-READY");
+
+    vmess_thread.join().expect("vmess ws thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
 fn listen_mixed_once_uses_profile_config_for_trojan_ws_socks5_udp_associate() {
     let (trojan_port, trojan_thread) = spawn_trojan_ws_udp_echo_server();
     let profile_path = write_temp_trojan_ws_profile_config(trojan_port);
@@ -2057,6 +2068,54 @@ fn spawn_vless_ws_echo_server() -> (u16, thread::JoinHandle<()>) {
         let payload = read_masked_client_frame(&mut stream);
         assert_eq!(&payload, b"ping");
         stream.write_all(b"\x82\x04pong").expect("write pong frame");
+    });
+    (port, handle)
+}
+
+fn spawn_vmess_ws_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vmess ws server");
+    let port = listener.local_addr().expect("vmess ws addr").port();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept vmess ws server");
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /vmess HTTP/1.1\r\n"));
+        assert!(request.contains("Host: edge.example\r\n"));
+        let key = header_value(&request, "Sec-WebSocket-Key").expect("client key");
+        let accept = websocket_accept_for_key(&key);
+        write!(
+            stream,
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+        )
+        .expect("write ws response");
+
+        let request_header = read_masked_client_frame(&mut stream);
+        let mut cursor = std::io::Cursor::new(request_header);
+        let request = read_vmess_aead_request(&mut cursor, uuid);
+        assert_eq!(request.target_host, "example.com");
+        assert_eq!(request.target_port, 443);
+        assert_eq!(request.command, 0x01);
+        assert_eq!(request.security, VMESS_SECURITY_AES_128_GCM);
+
+        let mut response_header = Vec::new();
+        write_vmess_aead_response_header(&mut response_header, &request);
+        write_server_binary_frame(&mut stream, &response_header);
+
+        let mut request_chunk = read_masked_client_frame(&mut stream);
+        if request_chunk.len() == 2 {
+            request_chunk.extend(read_masked_client_frame(&mut stream));
+        }
+        let mut cursor = std::io::Cursor::new(request_chunk);
+        let payload = support::vmess::read_vmess_aes128_gcm_chunk(&mut cursor, &request);
+        assert_eq!(&payload, b"ping");
+
+        let mut response_chunk = Vec::new();
+        support::vmess::write_vmess_aes128_gcm_response_chunk(
+            &mut response_chunk,
+            &request,
+            b"pong",
+        );
+        write_server_binary_frame(&mut stream, &response_chunk);
     });
     (port, handle)
 }
