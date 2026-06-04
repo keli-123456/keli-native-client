@@ -318,7 +318,10 @@ impl fmt::Display for ProtocolValidationError {
             Self::MissingTls => write!(f, "TLS is required for this profile"),
             Self::InvalidUuid => write!(f, "proxy credential must be a UUID"),
             Self::InvalidVmessTransport => {
-                write!(f, "VMess currently supports TCP/WS with optional TLS")
+                write!(
+                    f,
+                    "VMess supports TCP/WS/HTTPUpgrade/gRPC/H2/QUIC with optional TLS"
+                )
             }
             Self::InvalidNaiveCredential => {
                 write!(f, "Naive credential must be formatted as username:password")
@@ -345,7 +348,10 @@ impl fmt::Display for ProtocolValidationError {
             Self::MissingShadowsocksCipher => write!(f, "Shadowsocks cipher is required"),
             Self::InvalidShadowsocksCipher => write!(f, "Shadowsocks cipher is unsupported"),
             Self::InvalidShadowsocksTransport => {
-                write!(f, "Shadowsocks currently supports TCP without TLS")
+                write!(
+                    f,
+                    "Shadowsocks requires TCP transport without TLS; UDP relay is supported with AEAD ciphers"
+                )
             }
             Self::InvalidAnyTlsTransport => write!(f, "AnyTLS requires TCP transport with TLS"),
             Self::InvalidSocksTransport => {
@@ -2122,6 +2128,18 @@ mod tests {
         assert_eq!(
             profile.validate(),
             Err(ProtocolValidationError::InvalidHy2Transport)
+        );
+    }
+
+    #[test]
+    fn validation_error_messages_describe_current_transport_support() {
+        assert_eq!(
+            ProtocolValidationError::InvalidVmessTransport.to_string(),
+            "VMess supports TCP/WS/HTTPUpgrade/gRPC/H2/QUIC with optional TLS"
+        );
+        assert_eq!(
+            ProtocolValidationError::InvalidShadowsocksTransport.to_string(),
+            "Shadowsocks requires TCP transport without TLS; UDP relay is supported with AEAD ciphers"
         );
     }
 
