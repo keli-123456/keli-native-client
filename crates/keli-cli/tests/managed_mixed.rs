@@ -543,20 +543,14 @@ fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
         .expect("start managed mixed controller");
     let subscription = started.subscription.as_ref().expect("subscription status");
 
-    assert_eq!(
-        subscription
-            .health_for("SS-READY")
-            .expect("SS-READY health")
-            .state,
-        ManagedNodeHealthState::Unknown
-    );
-    assert_eq!(
-        subscription
-            .health_for("SS-NEXT")
-            .expect("SS-NEXT health")
-            .state,
-        ManagedNodeHealthState::Unknown
-    );
+    let ready = subscription
+        .health_for("SS-READY")
+        .expect("SS-READY health");
+    let next = subscription.health_for("SS-NEXT").expect("SS-NEXT health");
+    assert_eq!(ready.state, ManagedNodeHealthState::Unknown);
+    assert_eq!(ready.checked_at, None);
+    assert_eq!(next.state, ManagedNodeHealthState::Unknown);
+    assert_eq!(next.checked_at, None);
 
     core.record_node_health(ManagedNodeHealthStatus::healthy(
         "SS-READY",
@@ -582,7 +576,9 @@ fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
     assert_eq!(ready.latency_ms, Some(42));
     assert_eq!(ready.tcp_available, Some(true));
     assert_eq!(ready.udp_available, Some(true));
+    assert!(ready.checked_at.is_some());
     assert_eq!(next.state, ManagedNodeHealthState::Unhealthy);
+    assert!(next.checked_at.is_some());
     assert_eq!(subscription.recommended_outbound, "SS-READY");
     assert_eq!(
         next.error_kind,
@@ -799,8 +795,10 @@ fn managed_mixed_controller_probe_all_node_health_records_each_supported_node() 
     assert_eq!(ready.state, ManagedNodeHealthState::Healthy);
     assert_eq!(ready.tcp_available, Some(true));
     assert!(ready.latency_ms.is_some());
+    assert!(ready.checked_at.is_some());
     assert_eq!(next.state, ManagedNodeHealthState::Unhealthy);
     assert_eq!(next.tcp_available, Some(false));
+    assert!(next.checked_at.is_some());
     assert!(next.error_kind.is_some());
     assert!(next.error_detail.is_some());
 
@@ -847,7 +845,9 @@ fn managed_mixed_controller_probe_all_node_health_can_apply_recommended_outbound
     assert_eq!(subscription.selected_outbound, "SS-READY");
     assert_eq!(subscription.recommended_outbound, "SS-READY");
     assert_eq!(ready.state, ManagedNodeHealthState::Healthy);
+    assert!(ready.checked_at.is_some());
     assert_eq!(next.state, ManagedNodeHealthState::Unhealthy);
+    assert!(next.checked_at.is_some());
 
     ss_thread.join().expect("ss tcp echo server");
     core.stop().expect("stop managed mixed controller");
@@ -893,6 +893,7 @@ fn managed_mixed_controller_probe_node_health_records_success() {
     assert!(health.latency_ms.is_some());
     assert_eq!(health.error_kind, None);
     assert_eq!(health.error_detail, None);
+    assert!(health.checked_at.is_some());
 
     ss_thread.join().expect("ss tcp echo server");
     core.stop().expect("stop managed mixed controller");
@@ -939,6 +940,7 @@ fn managed_mixed_controller_probe_node_health_records_failure() {
     assert_eq!(health.udp_available, None);
     assert_eq!(health.latency_ms, None);
     assert_eq!(health.error_kind, Some(ConnectionErrorKind::ProtocolError));
+    assert!(health.checked_at.is_some());
     assert!(health
         .error_detail
         .as_deref()

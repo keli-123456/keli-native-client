@@ -10,7 +10,7 @@ use std::sync::{
     Arc, RwLock,
 };
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use keli_client_core::{
     build_connection_plan, ClientErrorKind, ClientRuntime, ConnectionPhase, ConnectionPlan,
@@ -313,6 +313,7 @@ pub struct ManagedNodeHealthStatus {
     pub latency_ms: Option<u128>,
     pub error_kind: Option<ConnectionErrorKind>,
     pub error_detail: Option<String>,
+    pub checked_at: Option<SystemTime>,
 }
 
 impl ManagedNodeHealthStatus {
@@ -325,6 +326,7 @@ impl ManagedNodeHealthStatus {
             latency_ms: None,
             error_kind: None,
             error_detail: None,
+            checked_at: None,
         }
     }
 
@@ -342,6 +344,7 @@ impl ManagedNodeHealthStatus {
             latency_ms,
             error_kind: None,
             error_detail: None,
+            checked_at: Some(SystemTime::now()),
         }
     }
 
@@ -358,6 +361,7 @@ impl ManagedNodeHealthStatus {
             latency_ms: None,
             error_kind: Some(error_kind),
             error_detail,
+            checked_at: Some(SystemTime::now()),
         }
     }
 }
@@ -631,6 +635,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
                         latency_ms: report.first_byte_ms.or(report.connect_ms),
                         error_kind: None,
                         error_detail: None,
+                        checked_at: Some(SystemTime::now()),
                     },
                 );
                 Ok(())
@@ -646,6 +651,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
                         latency_ms: None,
                         error_kind: Some(classify_managed_probe_error(&error)),
                         error_detail: Some(error.clone()),
+                        checked_at: Some(SystemTime::now()),
                     },
                 );
                 Err(error)
