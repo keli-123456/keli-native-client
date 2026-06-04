@@ -333,6 +333,39 @@ fn listen_mixed_once_uses_profile_config_for_vmess_httpupgrade_http_connect() {
 }
 
 #[test]
+fn listen_mixed_once_uses_profile_config_for_trojan_httpupgrade_socks5_udp_associate() {
+    let (trojan_port, trojan_thread) = spawn_trojan_httpupgrade_udp_echo_server();
+    let profile_path = write_temp_trojan_httpupgrade_profile_config(trojan_port);
+
+    run_profile_socks5_udp_associate_round_trip(&profile_path, "TROJAN-HU-READY");
+
+    trojan_thread.join().expect("trojan httpupgrade udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_vless_httpupgrade_socks5_udp_associate() {
+    let (vless_port, vless_thread) = spawn_vless_httpupgrade_udp_echo_server();
+    let profile_path = write_temp_vless_httpupgrade_profile_config(vless_port);
+
+    run_profile_socks5_udp_associate_round_trip(&profile_path, "VLESS-HU-READY");
+
+    vless_thread.join().expect("vless httpupgrade udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
+fn listen_mixed_once_uses_profile_config_for_vmess_httpupgrade_socks5_udp_associate() {
+    let (vmess_port, vmess_thread) = spawn_vmess_httpupgrade_udp_echo_server();
+    let profile_path = write_temp_vmess_httpupgrade_udp_profile_config(vmess_port);
+
+    run_profile_socks5_udp_associate_round_trip(&profile_path, "VMESS-HU-READY");
+
+    vmess_thread.join().expect("vmess httpupgrade udp thread");
+    fs::remove_file(profile_path).ok();
+}
+
+#[test]
 fn listen_mixed_once_uses_profile_config_for_hy2_http_connect() {
     let (hy2_addr, hy2_thread) = spawn_hy2_echo_server();
     let profile_path = write_temp_hy2_profile_config(hy2_addr.port());
@@ -1126,6 +1159,33 @@ fn write_temp_vmess_httpupgrade_profile_config(vmess_port: u16) -> String {
     path.to_string_lossy().into_owned()
 }
 
+fn write_temp_vmess_httpupgrade_udp_profile_config(vmess_port: u16) -> String {
+    let name = format!(
+        "keli-native-client-listen-mixed-vmess-httpupgrade-udp-{}.yaml",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    );
+    let path = std::env::temp_dir().join(name);
+    let content = format!(
+        r#"proxies:
+  - name: VMESS-HU-READY
+    type: vmess
+    server: 127.0.0.1
+    port: {vmess_port}
+    uuid: 00112233-4455-6677-8899-aabbccddeeff
+    cipher: auto
+    network: httpupgrade
+    httpupgrade-opts:
+      path: /vmess-upgrade
+      host: edge.example
+"#
+    );
+    fs::write(&path, content).expect("write vmess httpupgrade udp profile config");
+    path.to_string_lossy().into_owned()
+}
+
 fn write_temp_hy2_profile_config(hy2_port: u16) -> String {
     let name = format!(
         "keli-native-client-listen-mixed-hy2-{}.yaml",
@@ -1640,6 +1700,122 @@ fn spawn_vmess_httpupgrade_echo_server() -> (u16, thread::JoinHandle<()>) {
             .expect("read vmess httpupgrade payload");
         assert_eq!(&payload, b"ping");
         stream.write_all(b"pong").expect("write vmess response");
+    });
+    (port, handle)
+}
+
+fn spawn_trojan_httpupgrade_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind trojan httpupgrade udp server");
+    let port = listener
+        .local_addr()
+        .expect("trojan httpupgrade udp addr")
+        .port();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener
+            .accept()
+            .expect("accept trojan httpupgrade udp server");
+        let request = read_http_request(&mut stream);
+        assert_httpupgrade_request(&request, "/trojan-upgrade", "edge.example");
+        stream
+            .write_all(httpupgrade_response().as_bytes())
+            .expect("write httpupgrade response");
+
+        let mut trojan_header = [0; 68];
+        stream
+            .read_exact(&mut trojan_header)
+            .expect("read trojan udp associate header");
+        assert_eq!(
+            &trojan_header[..],
+            b"d63dc919e201d7bc4c825630d2cf25fdc93d4b2f0d46706d29038d01\r\n\x03\x01\x7f\x00\x00\x01\x005\r\n"
+        );
+        let mut request_payload = [0; 15];
+        stream
+            .read_exact(&mut request_payload)
+            .expect("read trojan udp packet");
+        assert_eq!(
+            &request_payload,
+            b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\nping"
+        );
+        stream
+            .write_all(b"\x01\x7f\x00\x00\x01\x005\x00\x04\r\npong")
+            .expect("write trojan udp response packet");
+    });
+    (port, handle)
+}
+
+fn spawn_vless_httpupgrade_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vless httpupgrade udp server");
+    let port = listener
+        .local_addr()
+        .expect("vless httpupgrade udp addr")
+        .port();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener
+            .accept()
+            .expect("accept vless httpupgrade udp server");
+        let request = read_http_request(&mut stream);
+        assert_httpupgrade_request(&request, "/vless-upgrade", "edge.example");
+        stream
+            .write_all(httpupgrade_response().as_bytes())
+            .expect("write httpupgrade response");
+
+        let mut vless_header = [0; 26];
+        stream
+            .read_exact(&mut vless_header)
+            .expect("read vless udp request header");
+        assert_eq!(
+            vless_header,
+            [
+                0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc,
+                0xdd, 0xee, 0xff, 0x00, 0x02, 0x00, 0x35, 0x01, 0x7f, 0x00, 0x00, 0x01,
+            ]
+        );
+        stream
+            .write_all(&[0x00, 0x00])
+            .expect("write vless response header");
+        let mut request_payload = [0; 6];
+        stream
+            .read_exact(&mut request_payload)
+            .expect("read vless udp payload");
+        assert_eq!(&request_payload, b"\x00\x04ping");
+        stream
+            .write_all(b"\x00\x04pong")
+            .expect("write vless udp response payload");
+    });
+    (port, handle)
+}
+
+fn spawn_vmess_httpupgrade_udp_echo_server() -> (u16, thread::JoinHandle<()>) {
+    let uuid = "00112233-4455-6677-8899-aabbccddeeff";
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind vmess httpupgrade udp server");
+    let port = listener
+        .local_addr()
+        .expect("vmess httpupgrade udp addr")
+        .port();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener
+            .accept()
+            .expect("accept vmess httpupgrade udp server");
+        let request = read_http_request(&mut stream);
+        assert_httpupgrade_request(&request, "/vmess-upgrade", "edge.example");
+        stream
+            .write_all(httpupgrade_response().as_bytes())
+            .expect("write httpupgrade response");
+
+        let request = read_vmess_aead_request(&mut stream, uuid);
+        assert_eq!(request.target_host, "127.0.0.1");
+        assert_eq!(request.target_port, 53);
+        assert_eq!(request.command, 0x02);
+        assert_eq!(
+            request.option,
+            VMESS_OPTION_CHUNK_STREAM | VMESS_OPTION_CHUNK_MASKING
+        );
+        assert_eq!(request.security, VMESS_SECURITY_AES_128_GCM);
+
+        write_vmess_aead_response_header(&mut stream, &request);
+        let payload = support::vmess::read_vmess_aes128_gcm_chunk(&mut stream, &request);
+        assert_eq!(&payload, b"ping");
+        support::vmess::write_vmess_aes128_gcm_response_chunk(&mut stream, &request, b"pong");
     });
     (port, handle)
 }
