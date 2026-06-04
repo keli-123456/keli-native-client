@@ -173,6 +173,16 @@ pub struct ManagedNodeProbeOptions {
     pub udp_available: Option<bool>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedNodeProbeSweepOptions {
+    pub target: String,
+    pub payload: Vec<u8>,
+    pub expect: Vec<u8>,
+    pub inbound: SmokeInboundKind,
+    pub first_byte_timeout: Duration,
+    pub udp_available: Option<bool>,
+}
+
 #[derive(Debug)]
 pub struct ManagedSystemProxyGuard<'a, C: SystemProxyController + ?Sized> {
     controller: &'a C,
@@ -477,6 +487,20 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         Ok(self.status())
     }
 
+    pub fn probe_all_node_health(
+        &mut self,
+        options: ManagedNodeProbeSweepOptions,
+    ) -> Result<ManagedMixedStatusSnapshot, String> {
+        {
+            let handle = self
+                .handle
+                .as_mut()
+                .ok_or_else(|| "managed mixed core is not running".to_string())?;
+            handle.probe_all_node_health(options)?;
+        }
+        Ok(self.status())
+    }
+
     pub fn apply_recommended_outbound(&mut self) -> Result<ManagedMixedStatusSnapshot, String> {
         {
             let handle = self
@@ -612,6 +636,34 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
                 Err(error)
             }
         }
+    }
+
+    pub fn probe_all_node_health(
+        &mut self,
+        options: ManagedNodeProbeSweepOptions,
+    ) -> Result<(), String> {
+        let tags = self
+            .state
+            .active_plan()
+            .ok_or_else(|| "managed mixed core has no active subscription".to_string())?
+            .preflight()
+            .supported_tags()
+            .to_vec();
+        if tags.is_empty() {
+            return Err("managed mixed core has no supported subscription nodes".to_string());
+        }
+        for outbound_tag in tags {
+            let _ = self.probe_node_health(ManagedNodeProbeOptions {
+                outbound_tag,
+                target: options.target.clone(),
+                payload: options.payload.clone(),
+                expect: options.expect.clone(),
+                inbound: options.inbound,
+                first_byte_timeout: options.first_byte_timeout,
+                udp_available: options.udp_available,
+            });
+        }
+        Ok(())
     }
 
     pub fn apply_recommended_outbound(&mut self) -> Result<(), String> {

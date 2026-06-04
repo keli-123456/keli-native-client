@@ -8,7 +8,7 @@ use std::time::Duration;
 use keli_cli::{
     apply_system_proxy_for_listener, ManagedMixedController, ManagedMixedOptions,
     ManagedMixedSession, ManagedNodeHealthState, ManagedNodeHealthStatus, ManagedNodeProbeOptions,
-    SmokeInboundKind,
+    ManagedNodeProbeSweepOptions, SmokeInboundKind,
 };
 use keli_client_core::RuntimeStatus;
 use keli_net_core::ConnectionErrorKind;
@@ -52,6 +52,26 @@ proxies:
     type: ss
     server: 127.0.0.1
     port: {port}
+    cipher: aes-256-gcm
+    password: secret
+"#
+    )
+}
+
+fn mixed_subscription_for_ports(ready_port: u16, next_port: u16) -> String {
+    format!(
+        r#"
+proxies:
+  - name: SS-READY
+    type: ss
+    server: 127.0.0.1
+    port: {ready_port}
+    cipher: aes-256-gcm
+    password: secret
+  - name: SS-NEXT
+    type: ss
+    server: 127.0.0.1
+    port: {next_port}
     cipher: aes-256-gcm
     password: secret
 "#
@@ -742,6 +762,53 @@ fn managed_mixed_controller_applies_recommended_outbound() {
 }
 
 #[test]
+fn managed_mixed_controller_probe_all_node_health_records_each_supported_node() {
+    let (ready_port, ss_thread) = spawn_shadowsocks_tcp_echo_server();
+    let closed_port = unused_tcp_port();
+    let config = mixed_subscription_for_ports(ready_port, closed_port);
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    core.start_from_subscription_config_text(
+        &config,
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-NEXT".to_string()),
+            ..ManagedMixedOptions::default()
+        },
+    )
+    .expect("start managed mixed controller");
+
+    let status = core
+        .probe_all_node_health(ManagedNodeProbeSweepOptions {
+            target: "example.com:443".to_string(),
+            payload: b"ping".to_vec(),
+            expect: b"pong".to_vec(),
+            inbound: SmokeInboundKind::HttpConnect,
+            first_byte_timeout: Duration::from_secs(2),
+            udp_available: None,
+        })
+        .expect("probe all node health");
+    let subscription = status.subscription.as_ref().expect("subscription status");
+    let ready = subscription
+        .health_for("SS-READY")
+        .expect("SS-READY health");
+    let next = subscription.health_for("SS-NEXT").expect("SS-NEXT health");
+
+    assert_eq!(subscription.selected_outbound, "SS-NEXT");
+    assert_eq!(subscription.recommended_outbound, "SS-READY");
+    assert_eq!(ready.state, ManagedNodeHealthState::Healthy);
+    assert_eq!(ready.tcp_available, Some(true));
+    assert!(ready.latency_ms.is_some());
+    assert_eq!(next.state, ManagedNodeHealthState::Unhealthy);
+    assert_eq!(next.tcp_available, Some(false));
+    assert!(next.error_kind.is_some());
+    assert!(next.error_detail.is_some());
+
+    ss_thread.join().expect("ss tcp echo server");
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
 fn managed_mixed_controller_probe_node_health_records_success() {
     let (ss_port, ss_thread) = spawn_shadowsocks_tcp_echo_server();
     let config = ss_config_for_port(ss_port);
@@ -866,6 +933,19 @@ fn managed_mixed_controller_rejects_node_health_before_start() {
 
     assert!(probe_error.contains("not running"));
 
+    let probe_all_error = core
+        .probe_all_node_health(ManagedNodeProbeSweepOptions {
+            target: "example.com:443".to_string(),
+            payload: b"ping".to_vec(),
+            expect: b"pong".to_vec(),
+            inbound: SmokeInboundKind::HttpConnect,
+            first_byte_timeout: Duration::from_secs(1),
+            udp_available: None,
+        })
+        .expect_err("probing all health should require running core");
+
+    assert!(probe_all_error.contains("not running"));
+
     let apply_error = core
         .apply_recommended_outbound()
         .expect_err("applying recommendation should require running core");
@@ -922,6 +1002,11 @@ fn spawn_shadowsocks_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
         write_ss_chunk(&mut stream, &mut server_cipher, b"pong");
     });
     (port, handle)
+}
+
+fn unused_tcp_port() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind unused tcp port");
+    listener.local_addr().expect("unused tcp addr").port()
 }
 
 fn shadowsocks_key(kind: CipherKind, password: &str) -> Vec<u8> {
