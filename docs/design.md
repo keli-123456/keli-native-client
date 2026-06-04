@@ -101,3 +101,9 @@ The first implementation target is deliberately small:
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,
    crash recovery, UI-facing APIs, packaging hooks, and support bundle export.
+
+The managed mixed runtime now supports a background handle with runtime status,
+generation tracking, event history, explicit stop, system proxy restoration, and
+subscription hot reload. Reload success advances generation and replaces the
+runtime used for new connections; reload rejection records a failure event
+without dropping the active plan.

@@ -429,6 +429,13 @@ impl ClientRuntime {
         self.fail(error);
     }
 
+    pub fn record_reload_rejected(&mut self, error: ClientErrorKind) {
+        self.events.push(RuntimeEvent::new(
+            RuntimeStatus::Failed(error),
+            Some("runtime reload rejected"),
+        ));
+    }
+
     fn fail(&mut self, error: ClientErrorKind) {
         self.active_plan = None;
         self.active_config = None;
@@ -769,6 +776,41 @@ proxies:
             .events()
             .iter()
             .any(|event| matches!(event.status, RuntimeStatus::Failed(_))));
+    }
+
+    #[test]
+    fn runtime_can_record_reload_rejection_without_dropping_active_plan() {
+        let mut runtime = ClientRuntime::default();
+        runtime
+            .start(RuntimeConfig::new(
+                ss_config("SS-READY"),
+                Some("SS-READY"),
+                "127.0.0.1:7890",
+            ))
+            .expect("runtime start");
+        let generation = runtime.generation();
+
+        runtime.record_reload_rejected(ClientErrorKind::ConfigInvalid(
+            "registry build failed".to_string(),
+        ));
+
+        assert_eq!(runtime.generation(), generation);
+        assert_eq!(
+            runtime.status(),
+            &RuntimeStatus::Running {
+                generation,
+                selected_outbound: "SS-READY".to_string(),
+                listen: "127.0.0.1:7890".to_string()
+            }
+        );
+        assert_eq!(
+            runtime.active_plan().unwrap().selected_outbound(),
+            "SS-READY"
+        );
+        assert!(runtime
+            .events()
+            .last()
+            .is_some_and(|event| matches!(event.status, RuntimeStatus::Failed(_))));
     }
 
     #[test]

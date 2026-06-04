@@ -34,6 +34,11 @@ The work advances through these gates:
 5. Interop, soak, packaging, and UI-facing APIs that make the core safe as the
    default Keli client runtime.
 
+Current native-core progress includes a managed mixed inbound that can run in a
+background handle, stop cleanly, restore Windows system proxy state, and hot
+reload subscription config for subsequent connections while preserving the
+active runtime on reload failure.
+
 ## Protocol Matrix
 
 The client protocol set is aligned with `keli-core-rs/src/protocol.rs`.

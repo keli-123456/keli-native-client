@@ -19,6 +19,20 @@ proxies:
 "#
 }
 
+fn ss_config_with_tag(tag: &str) -> String {
+    format!(
+        r#"
+proxies:
+  - name: {tag}
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+"#
+    )
+}
+
 #[derive(Debug)]
 struct FakeSystemProxyController {
     snapshot: SystemProxySnapshot,
@@ -174,6 +188,98 @@ fn managed_mixed_background_handle_stops_listener_and_restores_proxy() {
 
     assert_eq!(state.status(), &RuntimeStatus::Stopped);
     assert_eq!(controller.restored.borrow().as_slice(), &[snapshot]);
+}
+
+#[test]
+fn managed_mixed_background_handle_reloads_to_new_subscription() {
+    let controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let session = ManagedMixedSession::start_from_subscription_config_text(
+        ss_config(),
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-READY".to_string()),
+            system_proxy: false,
+            ..ManagedMixedOptions::default()
+        },
+        &controller,
+    )
+    .expect("start managed mixed session");
+    let mut handle = session
+        .spawn_background()
+        .expect("spawn managed mixed background listener");
+    let initial_generation = handle.generation();
+
+    handle
+        .reload_from_subscription_config_text(
+            &ss_config_with_tag("SS-NEXT"),
+            Some("SS-NEXT".to_string()),
+        )
+        .expect("reload managed mixed background listener");
+
+    assert_eq!(handle.selected_outbound(), Some("SS-NEXT"));
+    assert_eq!(handle.generation(), initial_generation + 1);
+    assert!(matches!(
+        handle.status(),
+        RuntimeStatus::Running {
+            selected_outbound,
+            ..
+        } if selected_outbound == "SS-NEXT"
+    ));
+    assert!(handle.events().iter().any(|event| {
+        event
+            .note
+            .as_deref()
+            .is_some_and(|note| note == "runtime reload applied")
+    }));
+
+    let state = handle
+        .stop()
+        .expect("stop managed mixed background listener");
+    assert_eq!(state.status(), &RuntimeStatus::Stopped);
+}
+
+#[test]
+fn managed_mixed_background_reload_failure_preserves_active_runtime() {
+    let controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let session = ManagedMixedSession::start_from_subscription_config_text(
+        ss_config(),
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-READY".to_string()),
+            system_proxy: false,
+            ..ManagedMixedOptions::default()
+        },
+        &controller,
+    )
+    .expect("start managed mixed session");
+    let mut handle = session
+        .spawn_background()
+        .expect("spawn managed mixed background listener");
+    let initial_generation = handle.generation();
+
+    let error = handle
+        .reload_from_subscription_config_text(ss_config(), Some("MISSING".to_string()))
+        .expect_err("reload should reject unknown outbound");
+
+    assert!(error.contains("OutboundNotFound"));
+    assert_eq!(handle.selected_outbound(), Some("SS-READY"));
+    assert_eq!(handle.generation(), initial_generation);
+    assert!(matches!(
+        handle.status(),
+        RuntimeStatus::Running {
+            selected_outbound,
+            ..
+        } if selected_outbound == "SS-READY"
+    ));
+    assert!(handle
+        .events()
+        .last()
+        .is_some_and(|event| matches!(event.status, RuntimeStatus::Failed(_))));
+
+    let state = handle
+        .stop()
+        .expect("stop managed mixed background listener");
+    assert_eq!(state.status(), &RuntimeStatus::Stopped);
 }
 
 #[test]

@@ -6,14 +6,14 @@ use std::net::{
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, RwLock,
 };
 use std::thread;
 use std::time::{Duration, Instant};
 
 use keli_client_core::{
     build_connection_plan, ClientErrorKind, ClientRuntime, ConnectionPhase, RuntimeConfig,
-    RuntimeStatus,
+    RuntimeEvent, RuntimeStatus,
 };
 use keli_net_core::{
     encode_socks5_udp_datagram, http_connect_bad_request_response, http_connect_success_response,
@@ -189,6 +189,8 @@ pub struct ManagedMixedSession<'a, C: SystemProxyController + ?Sized> {
     listener: Option<TcpListener>,
     listen_addr: SocketAddr,
     runtime: MixedProxyRuntime,
+    block_domains: Vec<String>,
+    relay_options: RelayOptions,
     system_proxy_guard: Option<ManagedSystemProxyGuard<'a, C>>,
 }
 
@@ -197,6 +199,9 @@ pub struct ManagedMixedHandle<'a, C: SystemProxyController + ?Sized> {
     state: ClientRuntime,
     listen_addr: SocketAddr,
     selected_outbound: Option<String>,
+    runtime: Arc<RwLock<MixedProxyRuntime>>,
+    block_domains: Vec<String>,
+    relay_options: RelayOptions,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<io::Result<()>>>,
     system_proxy_guard: Option<ManagedSystemProxyGuard<'a, C>>,
@@ -213,6 +218,59 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
 
     pub fn selected_outbound(&self) -> Option<&str> {
         self.selected_outbound.as_deref()
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.state.generation()
+    }
+
+    pub fn events(&self) -> &[RuntimeEvent] {
+        self.state.events()
+    }
+
+    pub fn reload_from_subscription_config_text(
+        &mut self,
+        config_text: &str,
+        outbound_tag: Option<String>,
+    ) -> Result<(), String> {
+        let listen = self.listen_addr.to_string();
+        let config = RuntimeConfig::new(config_text, outbound_tag.clone(), listen.clone());
+        let plan = match build_connection_plan(config_text, outbound_tag.as_deref(), listen.clone())
+        {
+            Ok(plan) => plan,
+            Err(error) => {
+                let _ = self.state.reload(config);
+                return Err(format!("runtime reload failed: {error:?}"));
+            }
+        };
+        let selected_outbound = plan.selected_outbound().to_string();
+        let next_runtime = match mixed_runtime_from_subscription_config_text(
+            config_text,
+            self.block_domains.clone(),
+            self.relay_options,
+            Some(selected_outbound.clone()),
+        ) {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                self.state
+                    .record_reload_rejected(ClientErrorKind::ConfigInvalid(error.clone()));
+                return Err(format!("runtime reload failed: {error}"));
+            }
+        };
+
+        {
+            let mut runtime = self
+                .runtime
+                .write()
+                .map_err(|_| "managed mixed runtime lock poisoned".to_string())?;
+            *runtime = next_runtime;
+        }
+
+        self.state
+            .reload(config)
+            .map_err(|error| format!("runtime reload failed: {error:?}"))?;
+        self.selected_outbound = Some(selected_outbound);
+        Ok(())
     }
 
     pub fn stop(mut self) -> Result<ClientRuntime, String> {
@@ -259,6 +317,8 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
             .local_addr()
             .map_err(|error| format!("read mixed listener address: {error}"))?;
         let listen = listen_addr.to_string();
+        let block_domains = options.block_domains;
+        let relay_options = options.relay_options;
         let mut state = ClientRuntime::default();
         let selected_outbound = match state.start(RuntimeConfig::new(
             config_text,
@@ -270,8 +330,8 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
         };
         let runtime = match mixed_runtime_from_subscription_config_text(
             config_text,
-            options.block_domains,
-            options.relay_options,
+            block_domains.clone(),
+            relay_options,
             Some(selected_outbound),
         ) {
             Ok(runtime) => runtime,
@@ -302,6 +362,8 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
             listener: Some(listener),
             listen_addr,
             runtime,
+            block_domains,
+            relay_options,
             system_proxy_guard,
         })
     }
@@ -347,16 +409,21 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
             .take()
             .expect("managed mixed listener is present");
         let selected_outbound = self.selected_outbound().map(str::to_string);
-        let runtime = self.runtime;
+        let runtime = Arc::new(RwLock::new(self.runtime));
+        let thread_runtime = Arc::clone(&runtime);
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
-        let thread =
-            thread::spawn(move || serve_mixed_listener_until(listener, runtime, thread_stop));
+        let thread = thread::spawn(move || {
+            serve_mixed_listener_until(listener, thread_runtime, thread_stop)
+        });
 
         Ok(ManagedMixedHandle {
             state: self.state,
             listen_addr: self.listen_addr,
             selected_outbound,
+            runtime,
+            block_domains: self.block_domains,
+            relay_options: self.relay_options,
             stop,
             thread: Some(thread),
             system_proxy_guard: self.system_proxy_guard,
@@ -911,13 +978,17 @@ fn serve_mixed_listener(
 
 fn serve_mixed_listener_until(
     listener: TcpListener,
-    runtime: MixedProxyRuntime,
+    runtime: Arc<RwLock<MixedProxyRuntime>>,
     stop: Arc<AtomicBool>,
 ) -> io::Result<()> {
     listener.set_nonblocking(true)?;
     while !stop.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((mut stream, _)) => {
+                let runtime = runtime
+                    .read()
+                    .map_err(|_| io::Error::other("mixed runtime lock poisoned"))?
+                    .clone();
                 if let Err(error) = handle_mixed_connection_with_routes(&mut stream, &runtime) {
                     eprintln!("mixed inbound failed: {error}");
                 }
