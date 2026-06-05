@@ -47,7 +47,8 @@ The managed background listener dispatches accepted TCP connections to workers,
 so one long-lived mixed client no longer blocks subsequent connections.
 That worker fan-out is bounded and records connection-limit rejections in
 managed connection metrics, including cumulative rejection and error-kind counts
-for long-running resource protection. `listen-mixed`
+plus last connection, success, and failure timestamps for long-running resource
+protection. `listen-mixed`
 can tune this cap with `--max-connection-workers`, and managed status reports
 active/peak workers, active/peak client connections, and remaining worker slots for
 saturation diagnostics. Managed shutdown closes active mixed client streams and

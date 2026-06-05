@@ -630,6 +630,12 @@ fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
             count: 1,
         }]
     );
+    assert!(status.connection_metrics.last_connection_at.is_some());
+    assert!(status.connection_metrics.last_success_at.is_none());
+    assert_eq!(
+        status.connection_metrics.last_failure_at,
+        status.connection_metrics.last_connection_at
+    );
     assert_eq!(status.connection_metrics.retained_connection_count, 1);
     assert_eq!(
         status.connection_metrics.connection_history_limit,
@@ -656,6 +662,17 @@ fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
     assert_eq!(
         value["connection_metrics"]["error_kind_counts"]["route_blocked"],
         1
+    );
+    assert!(value["connection_metrics"]["last_connection_at_unix_ms"]
+        .as_u64()
+        .is_some());
+    assert_eq!(
+        value["connection_metrics"]["last_success_at_unix_ms"],
+        Value::Null
+    );
+    assert_eq!(
+        value["connection_metrics"]["last_failure_at_unix_ms"],
+        value["connection_metrics"]["last_connection_at_unix_ms"]
     );
     assert_eq!(
         value["connection_metrics"]["recent_connections"][0]["target"]["host"],
@@ -688,6 +705,10 @@ fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
             error_kind: ConnectionErrorKind::RouteBlocked,
             count: 1,
         }]
+    );
+    assert_eq!(
+        reloaded.connection_metrics.last_failure_at,
+        status.connection_metrics.last_failure_at
     );
     assert_eq!(reloaded.connection_metrics.retained_connection_count, 1);
 
@@ -902,6 +923,12 @@ fn managed_mixed_background_listener_rejects_connections_above_worker_limit() {
             count: 1,
         }]
     );
+    assert!(status.connection_metrics.last_connection_at.is_some());
+    assert!(status.connection_metrics.last_success_at.is_none());
+    assert_eq!(
+        status.connection_metrics.last_failure_at,
+        status.connection_metrics.last_connection_at
+    );
     let report = status
         .connection_metrics
         .recent_connections
@@ -929,6 +956,9 @@ fn managed_mixed_background_listener_rejects_connections_above_worker_limit() {
         value["connection_metrics"]["error_kind_counts"]["connection_limit_reached"],
         1
     );
+    assert!(value["connection_metrics"]["last_failure_at_unix_ms"]
+        .as_u64()
+        .is_some());
     assert_eq!(
         value["connection_metrics"]["recent_connections"][0]["error_kind"],
         "connection_limit_reached"
@@ -1009,6 +1039,18 @@ fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
     assert!(value["connection_metrics"]["error_kind_counts"]
         .as_object()
         .is_some_and(|counts| counts.is_empty()));
+    assert_eq!(
+        value["connection_metrics"]["last_connection_at_unix_ms"],
+        Value::Null
+    );
+    assert_eq!(
+        value["connection_metrics"]["last_success_at_unix_ms"],
+        Value::Null
+    );
+    assert_eq!(
+        value["connection_metrics"]["last_failure_at_unix_ms"],
+        Value::Null
+    );
     assert_eq!(
         value["connection_metrics"]["connection_history_limit"],
         MANAGED_CONNECTION_REPORT_HISTORY_LIMIT

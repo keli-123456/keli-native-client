@@ -371,7 +371,8 @@ listener dispatches accepted TCP connections to workers so one long-lived mixed
 client no longer blocks subsequent connections. That worker fan-out is bounded
 and records connection-limit rejections in managed connection metrics, including
 a cumulative rejection count and per-error-kind counts for long-running
-resource protection, and `listen-mixed --max-connection-workers` lets clients
+resource protection. The same metrics include last connection, success, and
+failure timestamps, and `listen-mixed --max-connection-workers` lets clients
 tune the cap. Its status snapshot reports active/peak workers and
 active/peak client connections plus remaining worker slots, so clients can detect
 saturation before rejections. Managed shutdown closes active mixed client

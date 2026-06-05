@@ -217,6 +217,9 @@ pub struct ConnectionMetricsSnapshot {
     pub failure_count: u64,
     pub connection_limit_rejection_count: u64,
     pub error_kind_counts: Vec<ConnectionErrorKindCount>,
+    pub last_connection_at: Option<SystemTime>,
+    pub last_success_at: Option<SystemTime>,
+    pub last_failure_at: Option<SystemTime>,
     pub retained_connection_count: usize,
     pub connection_history_limit: usize,
     pub recent_connections: Vec<ConnectionReport>,
@@ -236,6 +239,9 @@ impl Default for ConnectionMetricsSnapshot {
             failure_count: 0,
             connection_limit_rejection_count: 0,
             error_kind_counts: Vec::new(),
+            last_connection_at: None,
+            last_success_at: None,
+            last_failure_at: None,
             retained_connection_count: 0,
             connection_history_limit: MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
             recent_connections: Vec::new(),
@@ -250,6 +256,9 @@ struct ConnectionMetricsState {
     failure_count: u64,
     connection_limit_rejection_count: u64,
     error_kind_counts: Vec<ConnectionErrorKindCount>,
+    last_connection_at: Option<SystemTime>,
+    last_success_at: Option<SystemTime>,
+    last_failure_at: Option<SystemTime>,
     recent_connections: Vec<ConnectionReport>,
 }
 
@@ -271,9 +280,12 @@ impl ConnectionMetrics {
         let Ok(mut state) = self.inner.lock() else {
             return;
         };
+        let recorded_at = SystemTime::now();
+        state.last_connection_at = Some(recorded_at);
         state.total_connection_count = state.total_connection_count.saturating_add(1);
         if let Some(error_kind) = report.error_kind {
             state.failure_count = state.failure_count.saturating_add(1);
+            state.last_failure_at = Some(recorded_at);
             if let Some(entry) = state
                 .error_kind_counts
                 .iter_mut()
@@ -292,6 +304,7 @@ impl ConnectionMetrics {
             }
         } else {
             state.success_count = state.success_count.saturating_add(1);
+            state.last_success_at = Some(recorded_at);
         }
         state.recent_connections.push(report.clone());
         if state.recent_connections.len() > self.history_limit {
@@ -321,6 +334,9 @@ impl ConnectionMetrics {
             failure_count: state.failure_count,
             connection_limit_rejection_count: state.connection_limit_rejection_count,
             error_kind_counts,
+            last_connection_at: state.last_connection_at,
+            last_success_at: state.last_success_at,
+            last_failure_at: state.last_failure_at,
             retained_connection_count: recent_connections.len(),
             connection_history_limit: self.history_limit,
             recent_connections,
@@ -2110,6 +2126,9 @@ fn connection_metrics_json_value(metrics: &ConnectionMetricsSnapshot) -> serde_j
         "failure_count": metrics.failure_count,
         "connection_limit_rejection_count": metrics.connection_limit_rejection_count,
         "error_kind_counts": error_kind_counts,
+        "last_connection_at_unix_ms": metrics.last_connection_at.map(system_time_unix_ms),
+        "last_success_at_unix_ms": metrics.last_success_at.map(system_time_unix_ms),
+        "last_failure_at_unix_ms": metrics.last_failure_at.map(system_time_unix_ms),
         "retained_connection_count": metrics.retained_connection_count,
         "connection_history_limit": metrics.connection_history_limit,
         "recent_connections": metrics
