@@ -197,6 +197,20 @@ fn wait_for_connection_count<C: SystemProxyController + ?Sized>(
     core.status()
 }
 
+fn wait_for_active_connection_workers<C: SystemProxyController + ?Sized>(
+    core: &ManagedMixedController<'_, C>,
+    expected_count: usize,
+) -> ManagedMixedStatusSnapshot {
+    for _ in 0..80 {
+        let status = core.status();
+        if status.active_connection_workers == expected_count {
+            return status;
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    core.status()
+}
+
 #[derive(Debug)]
 struct FakeSystemProxyController {
     snapshot: SystemProxySnapshot,
@@ -499,6 +513,11 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
         started.max_connection_workers,
         DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS
     );
+    assert_eq!(started.active_connection_workers, 0);
+    assert_eq!(
+        started.available_connection_worker_slots,
+        DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS
+    );
     assert_eq!(
         started.system_proxy.as_ref().map(|config| &config.bypass),
         Some(&vec!["localhost".to_string()])
@@ -538,6 +557,11 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
         reloaded.max_connection_workers,
         DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS
     );
+    assert_eq!(reloaded.active_connection_workers, 0);
+    assert_eq!(
+        reloaded.available_connection_worker_slots,
+        DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS
+    );
     assert!(reloaded.event_count >= started.event_count);
     assert!(reloaded.recent_events.len() <= MANAGED_MIXED_RECENT_EVENT_LIMIT);
     assert!(matches!(
@@ -555,6 +579,7 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
     assert_eq!(core.status().status, RuntimeStatus::Stopped);
     assert!(core.status().started_at.is_none());
     assert!(core.status().uptime.is_none());
+    assert_eq!(core.status().active_connection_workers, 0);
     assert!(!core.status().system_proxy_enabled());
     assert!(!platform_controller.restored.borrow().is_empty());
 }
@@ -645,6 +670,13 @@ fn managed_mixed_background_listener_handles_next_connection_while_one_waits() {
     let listen_addr = started.listen_addr.expect("managed listener addr");
 
     let stalled_client = open_socks5_handshake(listen_addr);
+    let busy = wait_for_active_connection_workers(&core, 1);
+    assert_eq!(busy.active_connection_workers, 1);
+    assert_eq!(
+        busy.available_connection_worker_slots,
+        DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS - 1
+    );
+
     request_blocked_socks5_domain(listen_addr, "blocked.example.com", 443);
 
     let status = core.status();
@@ -660,6 +692,12 @@ fn managed_mixed_background_listener_handles_next_connection_while_one_waits() {
     );
 
     drop(stalled_client);
+    let drained = wait_for_active_connection_workers(&core, 0);
+    assert_eq!(drained.active_connection_workers, 0);
+    assert_eq!(
+        drained.available_connection_worker_slots,
+        DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS
+    );
     core.stop().expect("stop managed mixed controller");
 }
 
@@ -681,10 +719,16 @@ fn managed_mixed_background_listener_rejects_connections_above_worker_limit() {
     let listen_addr = started.listen_addr.expect("managed listener addr");
 
     let stalled_client = open_socks5_handshake(listen_addr);
+    let busy = wait_for_active_connection_workers(&core, 1);
+    assert_eq!(busy.max_connection_workers, 1);
+    assert_eq!(busy.active_connection_workers, 1);
+    assert_eq!(busy.available_connection_worker_slots, 0);
     attempt_rejected_socks5_hello(listen_addr);
 
     let status = wait_for_connection_count(&core, 1);
     assert_eq!(status.max_connection_workers, 1);
+    assert_eq!(status.active_connection_workers, 1);
+    assert_eq!(status.available_connection_worker_slots, 0);
     assert_eq!(status.connection_metrics.total_connection_count, 1);
     assert_eq!(status.connection_metrics.failure_count, 1);
     let report = status
@@ -701,12 +745,17 @@ fn managed_mixed_background_listener_rejects_connections_above_worker_limit() {
 
     let value = managed_mixed_status_json_value(&status);
     assert_eq!(value["max_connection_workers"], 1);
+    assert_eq!(value["active_connection_workers"], 1);
+    assert_eq!(value["available_connection_worker_slots"], 0);
     assert_eq!(
         value["connection_metrics"]["recent_connections"][0]["error_kind"],
         "connection_limit_reached"
     );
 
     drop(stalled_client);
+    let drained = wait_for_active_connection_workers(&core, 0);
+    assert_eq!(drained.active_connection_workers, 0);
+    assert_eq!(drained.available_connection_worker_slots, 1);
     core.stop().expect("stop managed mixed controller");
 }
 
@@ -798,6 +847,11 @@ fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
     assert_eq!(value["tun_tcp_max_active_sessions"], 17);
     assert_eq!(
         value["max_connection_workers"],
+        DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS
+    );
+    assert_eq!(value["active_connection_workers"], 0);
+    assert_eq!(
+        value["available_connection_worker_slots"],
         DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS
     );
     assert_eq!(value["system_proxy"]["bypass"][0], "localhost");
@@ -986,6 +1040,8 @@ fn managed_mixed_status_json_includes_tun_runtime_diagnostic() {
         dns_options: MixedDnsOptions::default(),
         tun_tcp_max_active_sessions: 17,
         max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+        active_connection_workers: 0,
+        available_connection_worker_slots: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
         panel_state: None,
     };
 

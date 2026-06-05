@@ -6,7 +6,7 @@ use std::net::{
     UdpSocket,
 };
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc, Mutex, RwLock,
 };
 use std::thread;
@@ -301,6 +301,42 @@ impl Default for ConnectionMetrics {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ConnectionWorkerGauge {
+    active: Arc<AtomicUsize>,
+}
+
+impl ConnectionWorkerGauge {
+    pub fn active(&self) -> usize {
+        self.active.load(Ordering::SeqCst)
+    }
+
+    fn start_worker(&self) -> ConnectionWorkerLease {
+        self.active.fetch_add(1, Ordering::SeqCst);
+        ConnectionWorkerLease {
+            gauge: self.clone(),
+        }
+    }
+
+    fn finish_worker(&self) {
+        let _ = self
+            .active
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |active| {
+                Some(active.saturating_sub(1))
+            });
+    }
+}
+
+struct ConnectionWorkerLease {
+    gauge: ConnectionWorkerGauge,
+}
+
+impl Drop for ConnectionWorkerLease {
+    fn drop(&mut self) {
+        self.gauge.finish_worker();
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MixedProxyRuntime {
     pub routes: RouteEngine,
@@ -310,6 +346,7 @@ pub struct MixedProxyRuntime {
     pub tun_tcp_max_active_sessions: usize,
     pub connection_metrics: ConnectionMetrics,
     pub max_connection_workers: usize,
+    pub connection_worker_gauge: ConnectionWorkerGauge,
 }
 
 impl MixedProxyRuntime {
@@ -322,6 +359,7 @@ impl MixedProxyRuntime {
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             connection_metrics: ConnectionMetrics::default(),
             max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+            connection_worker_gauge: ConnectionWorkerGauge::default(),
         }
     }
 
@@ -334,6 +372,7 @@ impl MixedProxyRuntime {
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             connection_metrics: ConnectionMetrics::default(),
             max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+            connection_worker_gauge: ConnectionWorkerGauge::default(),
         }
     }
 
@@ -343,6 +382,16 @@ impl MixedProxyRuntime {
 
     pub fn connection_metrics_snapshot(&self) -> ConnectionMetricsSnapshot {
         self.connection_metrics.snapshot()
+    }
+
+    pub fn active_connection_workers(&self) -> usize {
+        self.connection_worker_gauge.active()
+    }
+
+    pub fn available_connection_worker_slots(&self) -> usize {
+        self.max_connection_workers
+            .max(1)
+            .saturating_sub(self.active_connection_workers())
     }
 }
 
@@ -1275,6 +1324,8 @@ pub struct ManagedMixedStatusSnapshot {
     pub dns_options: MixedDnsOptions,
     pub tun_tcp_max_active_sessions: usize,
     pub max_connection_workers: usize,
+    pub active_connection_workers: usize,
+    pub available_connection_worker_slots: usize,
     pub panel_state: Option<PanelState>,
 }
 
@@ -1531,6 +1582,8 @@ impl ManagedMixedStatusSnapshot {
             dns_options: MixedDnsOptions::default(),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+            active_connection_workers: 0,
+            available_connection_worker_slots: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             panel_state,
         }
     }
@@ -1564,6 +1617,8 @@ pub fn managed_mixed_status_json_value(status: &ManagedMixedStatusSnapshot) -> s
         "dns_options": mixed_dns_options_json_value(status.dns_options),
         "tun_tcp_max_active_sessions": status.tun_tcp_max_active_sessions,
         "max_connection_workers": status.max_connection_workers,
+        "active_connection_workers": status.active_connection_workers,
+        "available_connection_worker_slots": status.available_connection_worker_slots,
         "panel_state": status.panel_state.as_ref().map(panel_state_json_value),
     })
 }
@@ -2097,6 +2152,8 @@ impl ManagedMixedStatusSnapshot {
             dns_options: handle.dns_options,
             tun_tcp_max_active_sessions: handle.tun_tcp_max_active_sessions,
             max_connection_workers: handle.max_connection_workers(),
+            active_connection_workers: handle.active_connection_workers(),
+            available_connection_worker_slots: handle.available_connection_worker_slots(),
             panel_state,
         }
     }
@@ -2138,6 +2195,20 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
         self.runtime
             .read()
             .map(|runtime| runtime.max_connection_workers)
+            .unwrap_or(DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS)
+    }
+
+    pub fn active_connection_workers(&self) -> usize {
+        self.runtime
+            .read()
+            .map(|runtime| runtime.active_connection_workers())
+            .unwrap_or(0)
+    }
+
+    pub fn available_connection_worker_slots(&self) -> usize {
+        self.runtime
+            .read()
+            .map(|runtime| runtime.available_connection_worker_slots())
             .unwrap_or(DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS)
     }
 
@@ -2365,6 +2436,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
                 .map_err(|_| "managed mixed runtime lock poisoned".to_string())?;
             next_runtime.connection_metrics = runtime.connection_metrics.clone();
             next_runtime.max_connection_workers = runtime.max_connection_workers;
+            next_runtime.connection_worker_gauge = runtime.connection_worker_gauge.clone();
             *runtime = next_runtime;
         }
 
@@ -3957,7 +4029,9 @@ fn serve_mixed_listener_until(
                     record_mixed_connection_worker_limit_rejection(stream, &runtime);
                     continue;
                 }
+                let worker_lease = runtime.connection_worker_gauge.start_worker();
                 workers.push(thread::spawn(move || {
+                    let _worker_lease = worker_lease;
                     if let Err(error) = handle_mixed_connection_with_routes(&mut stream, &runtime) {
                         eprintln!("mixed inbound failed: {error}");
                     }
@@ -5653,6 +5727,7 @@ fn mixed_runtime_from_parsed_profiles(
         tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
         connection_metrics: ConnectionMetrics::default(),
         max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+        connection_worker_gauge: ConnectionWorkerGauge::default(),
     })
 }
 
@@ -5669,6 +5744,7 @@ fn mixed_runtime_from_cli(
         tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
         connection_metrics: ConnectionMetrics::default(),
         max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+        connection_worker_gauge: ConnectionWorkerGauge::default(),
     }
 }
 

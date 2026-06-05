@@ -47,7 +47,8 @@ The managed background listener dispatches accepted TCP connections to workers,
 so one long-lived mixed client no longer blocks subsequent connections.
 That worker fan-out is bounded and records connection-limit rejections in
 managed connection metrics for long-running resource protection. `listen-mixed`
-can tune this cap with `--max-connection-workers`.
+can tune this cap with `--max-connection-workers`, and managed status reports
+active workers plus remaining worker slots for saturation diagnostics.
 The route engine now also has destination-aware keyword, CIDR, and port
 matching, and the mixed TCP/UDP paths use that richer decision surface.
 The CLI/runtime route setup exposes domain, CIDR, exact-port, and port-range
