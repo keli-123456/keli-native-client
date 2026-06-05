@@ -1918,7 +1918,7 @@ impl TunTcpSessionTable {
         };
         if session.phase != TunTcpSessionPhase::Established
             || segment.sequence_number != session.client_next_sequence_number
-            || segment.acknowledgment_number != session.server_next_sequence_number
+            || !tcp_segment_acknowledges_known_server_sequence(segment, session)
         {
             return Ok(None);
         }
@@ -1969,7 +1969,7 @@ impl TunTcpSessionTable {
         };
         if session.phase != TunTcpSessionPhase::Established
             || segment.sequence_number != session.client_next_sequence_number
-            || segment.acknowledgment_number != session.server_next_sequence_number
+            || !tcp_segment_acknowledges_known_server_sequence(segment, session)
         {
             return Ok(None);
         }

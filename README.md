@@ -171,6 +171,8 @@ server-payload-after-client-FIN half-close path against real local TCP servers.
 Client-initiated FIN ACKs keep the TCP session open for server payload and
 server FIN responses while duplicate client FINs re-send the ACK instead of
 being treated as unknown sessions.
+Client FIN also accepts stale but known server ACKs, keeping unacknowledged
+server payload available for retransmission after the client write side closes.
 A TCP session relay device-loop entrypoint now reads TUN packets, routes direct
 or tagged TCP relay plans into that step runner, writes response packets back
 to the device, and records TCP session events, written packets, and relay

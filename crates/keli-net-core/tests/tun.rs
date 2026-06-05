@@ -2217,6 +2217,169 @@ fn closes_tun_tcp_session_with_fin_payload_after_writing_payload_once() {
 }
 
 #[test]
+fn acknowledges_client_fin_with_stale_known_server_ack_and_retransmits_unacked_payload() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    let fin_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0011, 0x4000, &[], b""),
+    );
+    let fin = parse_tun_tcp_segment(&fin_packet).expect("parse FIN segment");
+    let stale_ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 12, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let stale_ack = parse_tun_tcp_segment(&stale_ack_packet).expect("parse stale ACK segment");
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::default();
+
+    process_tun_tcp_session_segment(&mut sessions, &syn, &mut relay, 1000, 0x2000)
+        .expect("process SYN step");
+    process_tun_tcp_session_segment(&mut sessions, &ack, &mut relay, 1000, 0x2000)
+        .expect("process ACK step");
+    sessions
+        .send_server_payload(&syn.flow, b"HTTP/1.1")
+        .expect("send server payload")
+        .expect("server payload frame");
+
+    let fin_step = process_tun_tcp_session_segment(&mut sessions, &fin, &mut relay, 1000, 0x2000)
+        .expect("process stale-ACK client FIN");
+
+    let TunTcpSessionStep::ClientFinAck {
+        response,
+        server_response,
+        server_close,
+    } = fin_step
+    else {
+        panic!("expected client FIN ACK step");
+    };
+    assert_eq!(response.sequence_number, 1009);
+    assert_eq!(response.acknowledgment_number, 12);
+    assert!(server_response.is_none());
+    assert!(server_close.is_none());
+    assert_eq!(relay.client_write_shutdown_sessions.len(), 1);
+    assert!(relay.closed_sessions.is_empty());
+
+    let retransmit_step =
+        process_tun_tcp_session_segment(&mut sessions, &stale_ack, &mut relay, 1000, 0x2000)
+            .expect("process stale ACK after client FIN");
+
+    let TunTcpSessionStep::ServerPayloadRetransmission { response } = retransmit_step else {
+        panic!("expected server payload retransmission");
+    };
+    assert_eq!(response.sequence_number, 1001);
+    assert_eq!(response.acknowledgment_number, 12);
+    assert_eq!(response.payload, b"HTTP/1.1");
+    assert_eq!(
+        sessions
+            .get(&response.session.key)
+            .expect("stored half-closed session")
+            .phase,
+        TunTcpSessionPhase::ClientFinReceived
+    );
+}
+
+#[test]
+fn acknowledges_fin_payload_with_stale_known_server_ack_and_retransmits_unacked_payload() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    let fin_payload_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0019, 0x4000, &[], b"POST"),
+    );
+    let fin_payload =
+        parse_tun_tcp_segment(&fin_payload_packet).expect("parse FIN payload segment");
+    let stale_ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let stale_ack = parse_tun_tcp_segment(&stale_ack_packet).expect("parse stale ACK segment");
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::default();
+
+    process_tun_tcp_session_segment(&mut sessions, &syn, &mut relay, 1000, 0x2000)
+        .expect("process SYN step");
+    process_tun_tcp_session_segment(&mut sessions, &ack, &mut relay, 1000, 0x2000)
+        .expect("process ACK step");
+    sessions
+        .send_server_payload(&syn.flow, b"HTTP/1.1")
+        .expect("send server payload")
+        .expect("server payload frame");
+
+    let fin_payload_step =
+        process_tun_tcp_session_segment(&mut sessions, &fin_payload, &mut relay, 1000, 0x2000)
+            .expect("process stale-ACK FIN payload");
+
+    let TunTcpSessionStep::ClientPayloadClosed {
+        frame,
+        response,
+        server_response,
+        server_close,
+    } = fin_payload_step
+    else {
+        panic!("expected FIN payload close step");
+    };
+    assert_eq!(frame.payload, b"POST");
+    assert_eq!(response.sequence_number, 1009);
+    assert_eq!(response.acknowledgment_number, 16);
+    assert_eq!(relay.client_payloads, vec![b"POST".to_vec()]);
+    assert_eq!(relay.client_write_shutdown_sessions.len(), 1);
+    assert!(relay.closed_sessions.is_empty());
+    assert!(server_response.is_none());
+    assert!(server_close.is_none());
+
+    let retransmit_step =
+        process_tun_tcp_session_segment(&mut sessions, &stale_ack, &mut relay, 1000, 0x2000)
+            .expect("process stale ACK after FIN payload");
+
+    let TunTcpSessionStep::ServerPayloadRetransmission { response } = retransmit_step else {
+        panic!("expected server payload retransmission");
+    };
+    assert_eq!(response.sequence_number, 1001);
+    assert_eq!(response.acknowledgment_number, 16);
+    assert_eq!(response.payload, b"HTTP/1.1");
+    assert_eq!(
+        sessions
+            .get(&response.session.key)
+            .expect("stored half-closed session")
+            .phase,
+        TunTcpSessionPhase::ClientFinReceived
+    );
+}
+
+#[test]
 fn resets_unknown_tun_tcp_session_segments_without_notifying_relay() {
     let data_packet = ipv4_packet(
         6,
@@ -2327,14 +2490,6 @@ fn ignores_unexpected_established_tun_tcp_close_step_without_notifying_relay() {
         &tcp_segment(49152, 443, 16, 1000, 0x0014, 0x4000, &[], b""),
     );
     let wrong_ack = parse_tun_tcp_segment(&wrong_ack_packet).expect("parse wrong-ack RST");
-    let stale_server_ack_fin_packet = ipv4_packet(
-        6,
-        "10.7.0.2",
-        "93.184.216.34",
-        &tcp_segment(49152, 443, 16, 1001, 0x0011, 0x4000, &[], b""),
-    );
-    let stale_server_ack_fin =
-        parse_tun_tcp_segment(&stale_server_ack_fin_packet).expect("parse stale-ack FIN");
     let stale_server_ack_rst_packet = ipv4_packet(
         6,
         "10.7.0.2",
@@ -2354,17 +2509,6 @@ fn ignores_unexpected_established_tun_tcp_close_step_without_notifying_relay() {
         process_tun_tcp_session_segment(&mut sessions, &wrong_ack, &mut relay, 1000, 0x2000)
             .expect("process wrong ACK RST");
     assert!(matches!(wrong_ack_step, TunTcpSessionStep::Noop));
-    assert_eq!(sessions.len(), 1);
-    assert!(relay.closed_sessions.is_empty());
-    let stale_fin_step = process_tun_tcp_session_segment(
-        &mut sessions,
-        &stale_server_ack_fin,
-        &mut relay,
-        1000,
-        0x2000,
-    )
-    .expect("process stale server ACK FIN");
-    assert!(matches!(stale_fin_step, TunTcpSessionStep::Noop));
     assert_eq!(sessions.len(), 1);
     assert!(relay.closed_sessions.is_empty());
     let stale_rst_step = process_tun_tcp_session_segment(
