@@ -405,7 +405,10 @@ readiness/reason labels plus structured probe-sweep diagnostics.
 Health records support unknown/healthy/unhealthy states, latency, TCP/UDP
 availability, failure reasons, and runtime events for UI listeners; managed node
 probes can optionally verify UDP availability through the real outbound UDP
-relay path after TCP health succeeds.
+relay path after TCP health succeeds. Node recommendations now prefer
+confirmed UDP-capable healthy nodes before using latency as the tie-breaker, and
+the health summary reports UDP available, unavailable, and unknown counts for
+UI/support inspection.
 subscription reload prunes health entries that no longer belong to the active
 subscription.
 Managed status snapshots also carry panel user and risk-control state, including

@@ -1331,6 +1331,26 @@ fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
         1
     );
     assert_eq!(
+        value["subscription"]["health_summary"]["udp_available_count"],
+        1
+    );
+    assert_eq!(
+        value["subscription"]["health_summary"]["udp_unavailable_count"],
+        0
+    );
+    assert_eq!(
+        value["subscription"]["health_summary"]["udp_unknown_count"],
+        1
+    );
+    assert_eq!(
+        value["subscription"]["health_summary"]["selected_udp_available"],
+        true
+    );
+    assert_eq!(
+        value["subscription"]["health_summary"]["recommended_udp_available"],
+        true
+    );
+    assert_eq!(
         value["subscription"]["health_summary"]["selected_outbound_healthy"],
         true
     );
@@ -2025,10 +2045,15 @@ fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
     assert_eq!(subscription.health_summary.unknown_count, 2);
     assert_eq!(subscription.health_summary.checked_count, 0);
     assert_eq!(subscription.health_summary.unchecked_count, 2);
+    assert_eq!(subscription.health_summary.udp_available_count, 0);
+    assert_eq!(subscription.health_summary.udp_unavailable_count, 0);
+    assert_eq!(subscription.health_summary.udp_unknown_count, 2);
     assert_eq!(
         subscription.health_summary.selected_state,
         Some(ManagedNodeHealthState::Unknown)
     );
+    assert_eq!(subscription.health_summary.selected_udp_available, None);
+    assert_eq!(subscription.health_summary.recommended_udp_available, None);
     assert!(!subscription.health_summary.selected_outbound_healthy);
     assert!(!subscription.health_summary.recommended_outbound_healthy);
     assert!(!subscription.health_summary.recommended_switch_ready);
@@ -2071,6 +2096,9 @@ fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
     assert_eq!(subscription.health_summary.unknown_count, 0);
     assert_eq!(subscription.health_summary.checked_count, 2);
     assert_eq!(subscription.health_summary.unchecked_count, 0);
+    assert_eq!(subscription.health_summary.udp_available_count, 1);
+    assert_eq!(subscription.health_summary.udp_unavailable_count, 1);
+    assert_eq!(subscription.health_summary.udp_unknown_count, 0);
     assert!(subscription.health_summary.last_checked_at.is_some());
     assert_eq!(
         subscription.health_summary.selected_state,
@@ -2079,6 +2107,14 @@ fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
     assert_eq!(
         subscription.health_summary.recommended_state,
         Some(ManagedNodeHealthState::Healthy)
+    );
+    assert_eq!(
+        subscription.health_summary.selected_udp_available,
+        Some(true)
+    );
+    assert_eq!(
+        subscription.health_summary.recommended_udp_available,
+        Some(true)
     );
     assert!(subscription.health_summary.recommended_is_selected);
     assert!(!subscription.health_summary.switch_recommended);
@@ -2134,6 +2170,9 @@ fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
         ManagedNodeHealthState::Healthy
     );
     assert_eq!(subscription.recommended_outbound, "SS-READY");
+    assert_eq!(subscription.health_summary.udp_available_count, 1);
+    assert_eq!(subscription.health_summary.udp_unavailable_count, 0);
+    assert_eq!(subscription.health_summary.udp_unknown_count, 0);
     assert_eq!(
         subscription.health_summary.selected_state,
         Some(ManagedNodeHealthState::Healthy)
@@ -2179,7 +2218,7 @@ fn managed_mixed_controller_recommends_fastest_healthy_node() {
             "SS-NEXT",
             Some(30),
             true,
-            false,
+            true,
         ))
         .expect("record faster health");
     let subscription = status.subscription.as_ref().expect("subscription status");
@@ -2274,6 +2313,71 @@ fn managed_mixed_controller_recommends_fastest_healthy_node() {
 }
 
 #[test]
+fn managed_mixed_controller_prefers_udp_available_recommendation() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+
+    core.start_from_subscription_config_text(
+        mixed_subscription_with_skipped_proxy(),
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-READY".to_string()),
+            ..ManagedMixedOptions::default()
+        },
+    )
+    .expect("start managed mixed controller");
+
+    core.record_node_health(ManagedNodeHealthStatus::healthy(
+        "SS-READY",
+        Some(20),
+        true,
+        false,
+    ))
+    .expect("record selected TCP-only health");
+    let status = core
+        .record_node_health(ManagedNodeHealthStatus::healthy(
+            "SS-NEXT",
+            Some(200),
+            true,
+            true,
+        ))
+        .expect("record UDP-capable health");
+    let subscription = status.subscription.as_ref().expect("subscription status");
+
+    assert_eq!(subscription.selected_outbound, "SS-READY");
+    assert_eq!(subscription.recommended_outbound, "SS-NEXT");
+    assert_eq!(subscription.health_summary.udp_available_count, 1);
+    assert_eq!(subscription.health_summary.udp_unavailable_count, 1);
+    assert_eq!(subscription.health_summary.udp_unknown_count, 0);
+    assert_eq!(
+        subscription.health_summary.selected_udp_available,
+        Some(false)
+    );
+    assert_eq!(
+        subscription.health_summary.recommended_udp_available,
+        Some(true)
+    );
+    assert!(!subscription.health_summary.recommended_is_selected);
+    assert!(subscription.health_summary.recommended_switch_ready);
+    assert_eq!(
+        subscription.health_summary.recommended_switch_reason,
+        ManagedRecommendedSwitchReason::Ready
+    );
+
+    let json = managed_mixed_status_json_value(&status);
+    assert_eq!(
+        json["subscription"]["health_summary"]["selected_udp_available"],
+        false
+    );
+    assert_eq!(
+        json["subscription"]["health_summary"]["recommended_udp_available"],
+        true
+    );
+
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
 fn managed_mixed_controller_applies_recommended_outbound() {
     let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
     let mut core = ManagedMixedController::new(&platform_controller);
@@ -2302,7 +2406,7 @@ fn managed_mixed_controller_applies_recommended_outbound() {
             "SS-NEXT",
             Some(25),
             true,
-            false,
+            true,
         ))
         .expect("record recommended health");
     let subscription = status.subscription.as_ref().expect("subscription status");

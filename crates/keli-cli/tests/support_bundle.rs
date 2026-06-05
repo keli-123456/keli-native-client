@@ -128,7 +128,11 @@ proxies:
         "node-health-udp-probe"
     );
     assert_eq!(
-        report["doctor"]["managed_status_schema_capabilities"][24],
+        report["doctor"]["managed_status_schema_capabilities"][21],
+        "node-health-udp-aware-recommendation"
+    );
+    assert_eq!(
+        report["doctor"]["managed_status_schema_capabilities"][25],
         "panel-state"
     );
     assert_eq!(

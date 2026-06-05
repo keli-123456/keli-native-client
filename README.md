@@ -46,7 +46,10 @@ health records for latency, TCP/UDP availability, failure reasons, and probe
 coverage counts plus recommendation switch readiness, reason labels, and
 structured sweep diagnostics. Managed node probes can also run an optional real
 UDP outbound probe after TCP health succeeds, so UDP availability no longer has
-to be injected by callers.
+to be injected by callers. Health recommendations are UDP-aware: among healthy
+TCP-capable nodes, confirmed UDP-capable nodes are preferred before latency is
+used as the tie-breaker, and the status summary exposes UDP availability counts
+for UI/support decisions.
 The managed background listener dispatches accepted TCP connections to workers,
 so one long-lived mixed client no longer blocks subsequent connections.
 That worker fan-out is bounded and records connection-limit rejections in
