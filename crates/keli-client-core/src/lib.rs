@@ -537,6 +537,7 @@ pub struct RuntimeManagedMixedStopDrainDiagnostic {
     pub workers_before_shutdown: usize,
     pub workers_drained: usize,
     pub workers_remaining: usize,
+    pub drain_elapsed_ms: u64,
     pub drain_timeout_ms: u64,
     pub timed_out: bool,
 }

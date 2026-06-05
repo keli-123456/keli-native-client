@@ -770,6 +770,7 @@ fn managed_mixed_background_stop_closes_active_connections() {
     assert!(drain_note.starts_with(
         "managed mixed stop drain active_connections_shutdown=1 workers_before_shutdown=1"
     ));
+    assert!(drain_note.contains("drain_elapsed_ms="));
     assert!(drain_note.contains("drain_timeout_ms=500"));
     let RuntimeDiagnostic::ManagedMixedStopDrain(diagnostic) = drain_event
         .diagnostic
@@ -785,6 +786,8 @@ fn managed_mixed_background_stop_closes_active_connections() {
         diagnostic.workers_before_shutdown
     );
     assert!(diagnostic.workers_remaining <= diagnostic.workers_before_shutdown);
+    assert!(diagnostic.drain_elapsed_ms <= stop_started.elapsed().as_millis() as u64);
+    assert!(diagnostic.drain_elapsed_ms <= diagnostic.drain_timeout_ms + 1000);
     assert_eq!(diagnostic.drain_timeout_ms, 500);
     assert_eq!(diagnostic.timed_out, diagnostic.workers_remaining > 0);
 
@@ -1210,6 +1213,7 @@ fn managed_mixed_status_json_includes_stop_drain_diagnostic() {
             workers_before_shutdown: 3,
             workers_drained: 2,
             workers_remaining: 1,
+            drain_elapsed_ms: 47,
             drain_timeout_ms: 500,
             timed_out: true,
         });
@@ -1259,6 +1263,7 @@ fn managed_mixed_status_json_includes_stop_drain_diagnostic() {
     assert_eq!(diagnostic["workers_before_shutdown"], 3);
     assert_eq!(diagnostic["workers_drained"], 2);
     assert_eq!(diagnostic["workers_remaining"], 1);
+    assert_eq!(diagnostic["drain_elapsed_ms"], 47);
     assert_eq!(diagnostic["drain_timeout_ms"], 500);
     assert_eq!(diagnostic["timed_out"], true);
 }

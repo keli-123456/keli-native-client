@@ -720,11 +720,12 @@ pub fn managed_mixed_stop_drain_note(
     diagnostic: &RuntimeManagedMixedStopDrainDiagnostic,
 ) -> String {
     format!(
-        "managed mixed stop drain active_connections_shutdown={} workers_before_shutdown={} workers_drained={} workers_remaining={} drain_timeout_ms={} timed_out={}",
+        "managed mixed stop drain active_connections_shutdown={} workers_before_shutdown={} workers_drained={} workers_remaining={} drain_elapsed_ms={} drain_timeout_ms={} timed_out={}",
         diagnostic.active_connections_shutdown,
         diagnostic.workers_before_shutdown,
         diagnostic.workers_drained,
         diagnostic.workers_remaining,
+        diagnostic.drain_elapsed_ms,
         diagnostic.drain_timeout_ms,
         diagnostic.timed_out,
     )
@@ -1914,6 +1915,7 @@ fn runtime_diagnostic_json_value(diagnostic: &RuntimeDiagnostic) -> serde_json::
             "workers_before_shutdown": diagnostic.workers_before_shutdown,
             "workers_drained": diagnostic.workers_drained,
             "workers_remaining": diagnostic.workers_remaining,
+            "drain_elapsed_ms": diagnostic.drain_elapsed_ms,
             "drain_timeout_ms": diagnostic.drain_timeout_ms,
             "timed_out": diagnostic.timed_out,
         }),
@@ -4299,7 +4301,7 @@ fn serve_mixed_listener_until(
     let workers_before_shutdown = workers.len();
     let active_connections_shutdown = shutdown_active_mixed_connections(&runtime)?;
     reap_finished_mixed_connection_workers(&mut workers);
-    let workers_remaining =
+    let (workers_remaining, drain_elapsed) =
         drain_mixed_connection_workers(&mut workers, MANAGED_CONNECTION_DRAIN_TIMEOUT);
     let workers_drained = workers_before_shutdown.saturating_sub(workers_remaining);
     Ok(RuntimeManagedMixedStopDrainDiagnostic {
@@ -4307,6 +4309,7 @@ fn serve_mixed_listener_until(
         workers_before_shutdown,
         workers_drained,
         workers_remaining,
+        drain_elapsed_ms: duration_millis(drain_elapsed),
         drain_timeout_ms: duration_millis(MANAGED_CONNECTION_DRAIN_TIMEOUT),
         timed_out: workers_remaining > 0,
     })
@@ -4352,7 +4355,7 @@ fn reap_finished_mixed_connection_workers(workers: &mut Vec<thread::JoinHandle<(
 fn drain_mixed_connection_workers(
     workers: &mut Vec<thread::JoinHandle<()>>,
     timeout: Duration,
-) -> usize {
+) -> (usize, Duration) {
     let started = Instant::now();
     while !workers.is_empty() && started.elapsed() < timeout {
         reap_finished_mixed_connection_workers(workers);
@@ -4366,7 +4369,7 @@ fn drain_mixed_connection_workers(
             workers.len()
         );
     }
-    workers.len()
+    (workers.len(), started.elapsed())
 }
 
 pub fn listen_mixed_with_system_proxy_controller<C: SystemProxyController + ?Sized>(
