@@ -277,9 +277,9 @@ so entry-side issues remain visible after per-connection reports rotate out.
 The managed TUN runtime uses a combined UDP/TCP relay loop, so it can keep the
 registry-backed UDP path while also exercising registry-backed TCP sessions.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
-capability sets plus managed connection metric schema support and runtime
-event, managed status, connection report, managed connection worker, and TUN
-TCP session resource limits for support and UI integration.
+capability sets plus managed status and connection metric schema support,
+runtime event, connection report, managed connection worker, and TUN TCP
+session resource limits for support and UI integration.
 
 ## Protocol Matrix
 

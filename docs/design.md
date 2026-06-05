@@ -356,8 +356,8 @@ The first implementation target is deliberately small:
    registry-backed UDP execution path remains active while direct and tagged
    TCP sessions can be exercised through the shared outbound registry.
    Doctor and support-bundle output report the route-rule and TUN packet
-   pipeline capability sets plus runtime event, managed status, connection
-   report, managed connection metric schema, managed connection worker, and
+   pipeline capability sets plus managed status schema, connection metric
+   schema, runtime event, connection report, managed connection worker, and
    TUN TCP session resource limits so UI and support tooling can see this
    data-plane readiness without inspecting code.
 4. Keli panel integration: subscription fetch/update, user state, node

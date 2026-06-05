@@ -83,6 +83,18 @@ proxies:
         "history-limit"
     );
     assert_eq!(
+        report["doctor"]["managed_status_schema_capabilities"][0],
+        "runtime-status"
+    );
+    assert_eq!(
+        report["doctor"]["managed_status_schema_capabilities"][10],
+        "runtime-event-diagnostics"
+    );
+    assert_eq!(
+        report["doctor"]["managed_status_schema_capabilities"][18],
+        "panel-state"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
