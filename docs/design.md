@@ -229,6 +229,9 @@ The first implementation target is deliberately small:
    outbound TCP streams, writes accepted client payloads into those streams,
    reads server payloads back, and packetizes them into TUN TCP response
    packets.
+   Established TCP sessions can also poll additional server payload on
+   follow-up client ACKs, allowing split upstream responses to continue flowing
+   back to TUN after the first response packet.
    Managed TUN packet loops now use a combined UDP/TCP relay path so the
    registry-backed UDP execution path remains active while direct and tagged
    TCP sessions can be exercised through the shared outbound registry.

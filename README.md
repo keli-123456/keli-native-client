@@ -135,6 +135,9 @@ errors in loop summaries.
 Registry-backed TUN TCP session relay now opens real direct or tagged outbound
 TCP streams, writes accepted client payload bytes into those streams, reads
 server payload bytes back, and packetizes them into TUN TCP response packets.
+Established TCP sessions can also poll additional server payload on follow-up
+client ACKs, so split upstream responses can continue flowing back to TUN after
+the first response packet.
 The managed TUN runtime uses a combined UDP/TCP relay loop, so it can keep the
 registry-backed UDP path while also exercising registry-backed TCP sessions.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline

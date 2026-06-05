@@ -811,6 +811,65 @@ fn processes_tun_tcp_session_steps_with_relay_callbacks_and_response_packets() {
 }
 
 #[test]
+fn polls_tun_tcp_server_payload_on_followup_ack() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    let data_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+    );
+    let data = parse_tun_tcp_segment(&data_packet).expect("parse TCP data segment");
+    let followup_ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1009, 0x0010, 0x4000, &[], b""),
+    );
+    let followup_ack =
+        parse_tun_tcp_segment(&followup_ack_packet).expect("parse follow-up ACK segment");
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay =
+        FakeTunTcpSessionRelay::with_server_payloads(vec![b"HTTP/1.1".to_vec(), b" body".to_vec()]);
+
+    process_tun_tcp_session_segment(&mut sessions, &syn, &mut relay, 1000, 0x2000)
+        .expect("process SYN step");
+    process_tun_tcp_session_segment(&mut sessions, &ack, &mut relay, 1000, 0x2000)
+        .expect("process ACK step");
+    process_tun_tcp_session_segment(&mut sessions, &data, &mut relay, 1000, 0x2000)
+        .expect("process data step");
+
+    let server_step =
+        process_tun_tcp_session_segment(&mut sessions, &followup_ack, &mut relay, 1000, 0x2000)
+            .expect("process follow-up ACK step");
+
+    assert_eq!(server_step.response_packets().len(), 1);
+    let TunTcpSessionStep::ServerPayload { response } = server_step else {
+        panic!("expected server payload step");
+    };
+    assert_eq!(response.sequence_number, 1009);
+    assert_eq!(response.acknowledgment_number, 16);
+    assert_eq!(response.payload, b" body");
+    let packet = parse_tun_tcp_segment(&response.packet).expect("parse server payload packet");
+    assert_eq!(packet.sequence_number, 1009);
+    assert_eq!(packet.acknowledgment_number, 16);
+    assert_eq!(packet.payload, b" body");
+}
+
+#[test]
 fn closes_tun_tcp_session_step_and_notifies_relay() {
     let syn_packet = ipv4_packet(
         6,
@@ -1513,6 +1572,90 @@ fn registry_tun_tcp_session_relay_relays_tagged_direct_outbound_tcp_stream_paylo
     let server_payload =
         parse_tun_tcp_segment(&device.writes[2]).expect("parse TCP server payload packet");
     assert_eq!(server_payload.payload, b"HTTP/1.1");
+    assert!(relay.is_empty());
+    assert!(sessions.is_empty());
+    tcp_server.join().expect("tcp response server");
+}
+
+#[test]
+fn registry_tun_tcp_session_relay_polls_followup_server_payload_after_ack() {
+    let first_chunk = b"HTTP/1.1";
+    let second_chunk = b" body";
+    let server_response = b"HTTP/1.1 body";
+    let (tcp_port, tcp_server) = spawn_tcp_response_server(b"GET /", server_response);
+    let mut packets = tcp_session_packets(
+        "127.0.0.1",
+        tcp_port,
+        1000,
+        b"GET /",
+        first_chunk.len() + second_chunk.len(),
+    );
+    let rst = packets.pop().expect("RST packet");
+    packets.push(ipv4_packet(
+        6,
+        "10.7.0.2",
+        "127.0.0.1",
+        &tcp_segment(
+            49152,
+            tcp_port,
+            16,
+            1001 + first_chunk.len() as u32,
+            0x0010,
+            0x4000,
+            &[],
+            b"",
+        ),
+    ));
+    packets.push(rst);
+    let routes = RouteEngine::new(RouteAction::Outbound("edge".to_string()));
+    let mut registry = OutboundRegistry::new();
+    registry.add_direct("edge");
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut relay_dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut relay =
+        RegistryTunTcpSessionRelay::new(&registry, &mut relay_dns, Duration::from_secs(1))
+            .with_read_buffer_size(first_chunk.len());
+    let mut sessions = TunTcpSessionTable::new();
+    let mut device = FakeTunPacketDevice::new(packets);
+
+    let summary = run_tun_packet_loop_with_tcp_session_relay_summary(
+        &mut device,
+        &routes,
+        true,
+        &mut dns,
+        30,
+        5,
+        &mut sessions,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("run TUN loop with split registry TCP response");
+
+    assert_eq!(summary.processed_packets(), 5);
+    assert_eq!(summary.tcp_session_events, 5);
+    assert_eq!(summary.tcp_session_packets_written, 4);
+    assert_eq!(summary.tcp_session_errors, 0);
+    assert_eq!(device.writes.len(), 4);
+    let first_payload =
+        parse_tun_tcp_segment(&device.writes[2]).expect("parse first server payload packet");
+    assert_eq!(first_payload.sequence_number, 1001);
+    assert_eq!(first_payload.acknowledgment_number, 16);
+    assert_eq!(first_payload.payload, first_chunk);
+    let second_payload =
+        parse_tun_tcp_segment(&device.writes[3]).expect("parse second server payload packet");
+    assert_eq!(
+        second_payload.sequence_number,
+        1001 + first_chunk.len() as u32
+    );
+    assert_eq!(second_payload.acknowledgment_number, 16);
+    assert_eq!(second_payload.payload, second_chunk);
     assert!(relay.is_empty());
     assert!(sessions.is_empty());
     tcp_server.join().expect("tcp response server");
