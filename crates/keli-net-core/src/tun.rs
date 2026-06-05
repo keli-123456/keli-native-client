@@ -1258,7 +1258,7 @@ impl TunTcpSessionTable {
             || segment.flags.syn()
             || segment.flags.rst()
             || segment.sequence_number != session.client_next_sequence_number
-            || segment.acknowledgment_number != session.server_next_sequence_number
+            || !tcp_segment_acknowledges_known_server_sequence(segment, session)
         {
             return Ok(None);
         }
@@ -1297,7 +1297,7 @@ impl TunTcpSessionTable {
             || segment.flags.fin()
             || segment.sequence_number >= session.client_next_sequence_number
             || segment_next_sequence_number <= session.client_next_sequence_number
-            || segment.acknowledgment_number > session.server_next_sequence_number
+            || !tcp_segment_acknowledges_known_server_sequence(segment, session)
         {
             return Ok(None);
         }
@@ -1342,7 +1342,7 @@ impl TunTcpSessionTable {
             || segment.flags.fin()
             || segment.sequence_number >= session.client_next_sequence_number
             || segment_next_sequence_number > session.client_next_sequence_number
-            || segment.acknowledgment_number > session.server_next_sequence_number
+            || !tcp_segment_acknowledges_known_server_sequence(segment, session)
         {
             return Ok(None);
         }
@@ -1378,7 +1378,7 @@ impl TunTcpSessionTable {
             || segment.flags.rst()
             || segment.flags.fin()
             || segment.sequence_number <= session.client_next_sequence_number
-            || segment.acknowledgment_number > session.server_next_sequence_number
+            || !tcp_segment_acknowledges_known_server_sequence(segment, session)
         {
             return Ok(None);
         }
@@ -2663,6 +2663,20 @@ fn tcp_reset_sequence_number(segment: &TunTcpSegment<'_>) -> u32 {
 
 fn tcp_reset_acknowledgment_number(segment: &TunTcpSegment<'_>) -> u32 {
     tcp_segment_next_sequence_number(segment)
+}
+
+fn tcp_segment_acknowledges_known_server_sequence(
+    segment: &TunTcpSegment<'_>,
+    session: &TunTcpSessionRecord,
+) -> bool {
+    let acknowledged_syn = session.server_initial_sequence_number.wrapping_add(1);
+    if acknowledged_syn <= session.server_next_sequence_number {
+        segment.acknowledgment_number >= acknowledged_syn
+            && segment.acknowledgment_number <= session.server_next_sequence_number
+    } else {
+        segment.acknowledgment_number >= acknowledged_syn
+            || segment.acknowledgment_number <= session.server_next_sequence_number
+    }
 }
 
 fn tcp_segment_next_sequence_number(segment: &TunTcpSegment<'_>) -> u32 {

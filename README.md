@@ -130,6 +130,9 @@ bytes into the outbound stream.
 Partially overlapping client payload retransmits now trim the already accepted
 prefix, write only the new suffix into the outbound stream, and ACK the
 advanced client cursor.
+In-order client payload can also carry a stale but known server ACK while
+server bytes are still in flight, so duplex traffic does not stall waiting for
+the client to acknowledge every packetized server byte first.
 The same session boundary can packetize server-side payload bytes with PSH+ACK,
 advance the server-side sequence cursor, and return swapped IPv4/IPv6 TCP
 packets that the eventual stream runner can write back to TUN.
