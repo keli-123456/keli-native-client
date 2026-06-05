@@ -86,7 +86,7 @@ const MANAGED_STATUS_SCHEMA_CAPABILITIES: &str =
 const SUBSCRIPTION_FETCH_CAPABILITIES: &str =
     "http,https,timeout,max-bytes,redacted-source,profile-check-summary";
 const SUBSCRIPTION_UPDATE_CAPABILITIES: &str =
-    "current-config,new-config,current-outbound,tag-diff,selected-preservation,default-fallback,redacted-profile-summary,managed-reload-plan";
+    "current-config,new-config,current-outbound,tag-diff,selected-preservation,default-fallback,redacted-profile-summary,managed-reload-plan,managed-url-reload";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
     "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic";
 
@@ -1648,6 +1648,92 @@ pub struct ManagedSubscriptionUpdateOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedSubscriptionUrlUpdateOutcome {
+    pub fetch: ManagedSubscriptionUrlFetchOutcome,
+    pub update: Option<SubscriptionUpdateReport>,
+    pub status: ManagedMixedStatusSnapshot,
+    pub applied: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedSubscriptionUrlFetchOutcome {
+    pub ok: bool,
+    pub source: Option<ManagedSubscriptionUrlSource>,
+    pub http_status: Option<u16>,
+    pub body_bytes: Option<usize>,
+    pub elapsed: Option<Duration>,
+    pub error_kind: Option<String>,
+    pub error_detail: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedSubscriptionUrlSource {
+    pub scheme: String,
+    pub host: String,
+    pub port: u16,
+    pub default_port: bool,
+    pub path_present: bool,
+    pub query_present: bool,
+}
+
+impl ManagedSubscriptionUrlFetchOutcome {
+    fn from_response(response: &SubscriptionFetchResponse) -> Self {
+        Self {
+            ok: true,
+            source: Some(ManagedSubscriptionUrlSource::from_fetch_source(
+                &response.source,
+            )),
+            http_status: Some(response.status_code),
+            body_bytes: Some(response.body_bytes),
+            elapsed: Some(response.elapsed),
+            error_kind: None,
+            error_detail: None,
+        }
+    }
+
+    fn from_error(error: &SubscriptionFetchError) -> Self {
+        Self {
+            ok: false,
+            source: error
+                .source
+                .as_ref()
+                .map(ManagedSubscriptionUrlSource::from_fetch_source),
+            http_status: None,
+            body_bytes: None,
+            elapsed: None,
+            error_kind: Some(error.kind.label().to_string()),
+            error_detail: Some(error.detail.clone()),
+        }
+    }
+}
+
+impl ManagedSubscriptionUrlSource {
+    fn from_fetch_source(source: &SubscriptionFetchSource) -> Self {
+        Self {
+            scheme: source.scheme.clone(),
+            host: source.host.clone(),
+            port: source.port,
+            default_port: source.default_port,
+            path_present: source.path_present,
+            query_present: source.query_present,
+        }
+    }
+
+    fn label(&self) -> String {
+        format!(
+            "{}://{}:{} default_port={} path_present={} query_present={}",
+            self.scheme,
+            self.host,
+            self.port,
+            self.default_port,
+            self.path_present,
+            self.query_present
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedSubscriptionStatus {
     pub usable: bool,
     pub supported_tags: Vec<String>,
@@ -2098,6 +2184,56 @@ pub fn managed_mixed_status_json_value(status: &ManagedMixedStatusSnapshot) -> s
         "peak_client_connections": status.peak_client_connections,
         "available_connection_worker_slots": status.available_connection_worker_slots,
         "panel_state": status.panel_state.as_ref().map(panel_state_json_value),
+    })
+}
+
+pub fn managed_subscription_url_update_outcome_json_value(
+    outcome: &ManagedSubscriptionUrlUpdateOutcome,
+) -> serde_json::Value {
+    serde_json::json!({
+        "status": if outcome.applied { "ok" } else { "error" },
+        "kind": "keli_managed_subscription_url_update",
+        "applied": outcome.applied,
+        "error": outcome.error.as_deref(),
+        "fetch": managed_subscription_url_fetch_outcome_json_value(&outcome.fetch),
+        "update": outcome.update.as_ref().map(subscription_update_json_value),
+        "runtime_status": managed_mixed_status_json_value(&outcome.status),
+        "redaction": {
+            "source_url": "scheme-host-port-flags-only",
+            "profile_config_text": "omitted",
+            "credentials": "omitted",
+            "server_endpoints": "omitted",
+        },
+    })
+}
+
+fn managed_subscription_url_fetch_outcome_json_value(
+    fetch: &ManagedSubscriptionUrlFetchOutcome,
+) -> serde_json::Value {
+    serde_json::json!({
+        "status": if fetch.ok { "ok" } else { "error" },
+        "source": fetch
+            .source
+            .as_ref()
+            .map(managed_subscription_url_source_json_value),
+        "http_status": fetch.http_status,
+        "body_bytes": fetch.body_bytes,
+        "elapsed_ms": fetch.elapsed.map(duration_millis),
+        "error_kind": fetch.error_kind.as_deref(),
+        "error_detail": fetch.error_detail.as_deref(),
+    })
+}
+
+fn managed_subscription_url_source_json_value(
+    source: &ManagedSubscriptionUrlSource,
+) -> serde_json::Value {
+    serde_json::json!({
+        "scheme": &source.scheme,
+        "host": &source.host,
+        "port": source.port,
+        "default_port": source.default_port,
+        "path_present": source.path_present,
+        "query_present": source.query_present,
     })
 }
 
@@ -2622,6 +2758,52 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         })
     }
 
+    pub fn reload_from_subscription_url_with_update_plan(
+        &mut self,
+        url: &str,
+        timeout: Duration,
+        max_bytes: usize,
+    ) -> Result<ManagedSubscriptionUrlUpdateOutcome, String> {
+        self.ensure_panel_allows_traffic()?;
+        if self.handle.is_none() {
+            return Err("managed mixed core is not running".to_string());
+        }
+
+        let fetch_result =
+            fetch_subscription_config_text(&subscription_fetch_options(url, timeout, max_bytes));
+        match fetch_result {
+            Ok(response) => {
+                let fetch = ManagedSubscriptionUrlFetchOutcome::from_response(&response);
+                let update =
+                    self.reload_from_subscription_config_text_with_update_plan(&response.body)?;
+                Ok(ManagedSubscriptionUrlUpdateOutcome {
+                    fetch,
+                    update: Some(update.report),
+                    status: update.status,
+                    applied: update.applied,
+                    error: update.error,
+                })
+            }
+            Err(error) => {
+                let fetch = ManagedSubscriptionUrlFetchOutcome::from_error(&error);
+                let error_message = format!(
+                    "subscription URL fetch failed: {}",
+                    fetch.error_kind.as_deref().unwrap_or("unknown")
+                );
+                if let Some(handle) = self.handle.as_mut() {
+                    handle.record_subscription_url_fetch_rejected(&fetch, &error_message);
+                }
+                Ok(ManagedSubscriptionUrlUpdateOutcome {
+                    fetch,
+                    update: None,
+                    status: self.status(),
+                    applied: false,
+                    error: Some(error_message),
+                })
+            }
+        }
+    }
+
     pub fn record_node_health(
         &mut self,
         health: ManagedNodeHealthStatus,
@@ -2898,6 +3080,24 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
     fn record_panel_traffic_restricted(&mut self, error: ClientErrorKind) {
         self.state
             .record_control_rejected(error, "panel traffic restricted");
+    }
+
+    fn record_subscription_url_fetch_rejected(
+        &mut self,
+        fetch: &ManagedSubscriptionUrlFetchOutcome,
+        error_message: &str,
+    ) {
+        self.state
+            .record_reload_rejected(ClientErrorKind::ConfigInvalid(error_message.to_string()));
+        self.state.record_status_note(format!(
+            "subscription URL update rejected: fetch_status=error error_kind={} source={}",
+            fetch.error_kind.as_deref().unwrap_or("unknown"),
+            fetch
+                .source
+                .as_ref()
+                .map(ManagedSubscriptionUrlSource::label)
+                .unwrap_or_else(|| "-".to_string())
+        ));
     }
 
     pub fn record_node_health(&mut self, health: ManagedNodeHealthStatus) -> Result<(), String> {
@@ -4955,12 +5155,7 @@ pub fn write_subscription_fetch_report_from_url(
     max_bytes: usize,
     mut writer: impl Write,
 ) -> Result<(), String> {
-    let options = SubscriptionFetchOptions {
-        url: url.to_string(),
-        timeout,
-        max_bytes,
-        user_agent: format!("keli-native-client/{}", env!("CARGO_PKG_VERSION")),
-    };
+    let options = subscription_fetch_options(url, timeout, max_bytes);
     let report = subscription_fetch_report_value(fetch_subscription_config_text(&options));
 
     match output {
@@ -4970,6 +5165,19 @@ pub fn write_subscription_fetch_report_from_url(
                 .map_err(|error| error.to_string())?;
             writeln!(writer).map_err(|error| error.to_string())
         }
+    }
+}
+
+fn subscription_fetch_options(
+    url: &str,
+    timeout: Duration,
+    max_bytes: usize,
+) -> SubscriptionFetchOptions {
+    SubscriptionFetchOptions {
+        url: url.to_string(),
+        timeout,
+        max_bytes,
+        user_agent: format!("keli-native-client/{}", env!("CARGO_PKG_VERSION")),
     }
 }
 

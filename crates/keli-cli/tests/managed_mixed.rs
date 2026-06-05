@@ -7,14 +7,14 @@ use std::time::{Duration, Instant, SystemTime};
 
 use keli_cli::{
     apply_system_proxy_for_listener, managed_mixed_status_json_value,
-    write_managed_mixed_status_json_report, ConnectionErrorKindCount, ConnectionInboundCount,
-    ConnectionMetrics, ConnectionMetricsSnapshot, ConnectionRouteActionCount,
-    ManagedMixedController, ManagedMixedOptions, ManagedMixedSession, ManagedMixedStatusSnapshot,
-    ManagedNodeHealthState, ManagedNodeHealthStatus, ManagedNodeProbeOptions,
-    ManagedNodeProbeSweepOptions, ManagedNodeUdpProbeOptions, ManagedRecommendedSwitchReason,
-    MixedDnsOptions, SmokeInboundKind, DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
-    MANAGED_CONNECTION_REPORT_HISTORY_LIMIT, MANAGED_MIXED_RECENT_EVENT_LIMIT,
-    MANAGED_MIXED_STATUS_SCHEMA_VERSION,
+    managed_subscription_url_update_outcome_json_value, write_managed_mixed_status_json_report,
+    ConnectionErrorKindCount, ConnectionInboundCount, ConnectionMetrics, ConnectionMetricsSnapshot,
+    ConnectionRouteActionCount, ManagedMixedController, ManagedMixedOptions, ManagedMixedSession,
+    ManagedMixedStatusSnapshot, ManagedNodeHealthState, ManagedNodeHealthStatus,
+    ManagedNodeProbeOptions, ManagedNodeProbeSweepOptions, ManagedNodeUdpProbeOptions,
+    ManagedRecommendedSwitchReason, MixedDnsOptions, SmokeInboundKind,
+    DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
+    MANAGED_MIXED_RECENT_EVENT_LIMIT, MANAGED_MIXED_STATUS_SCHEMA_VERSION,
 };
 use keli_client_core::{
     ClientErrorKind, PanelAccountState, PanelRiskControlState, PanelState, PanelUserState,
@@ -231,6 +231,42 @@ fn wait_for_active_connection_workers<C: SystemProxyController + ?Sized>(
         thread::sleep(Duration::from_millis(25));
     }
     core.status()
+}
+
+fn spawn_subscription_http_server(
+    status_code: u16,
+    reason: &str,
+    body: String,
+) -> (String, thread::JoinHandle<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind subscription HTTP server");
+    let port = listener
+        .local_addr()
+        .expect("subscription server addr")
+        .port();
+    let url = format!("http://127.0.0.1:{port}/panel/private/sub?token=super-secret-token");
+    let reason = reason.to_string();
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept subscription fetch");
+        let mut request = Vec::new();
+        let mut byte = [0; 1];
+        while stream.read(&mut byte).expect("read subscription request") != 0 {
+            request.push(byte[0]);
+            if request.ends_with(b"\r\n\r\n") {
+                break;
+            }
+        }
+        let request = String::from_utf8(request).expect("subscription request utf8");
+        let response = format!(
+            "HTTP/1.1 {status_code} {reason}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream
+            .write_all(response.as_bytes())
+            .expect("write subscription response");
+        request.lines().next().unwrap_or_default().to_string()
+    });
+    (url, handle)
 }
 
 #[test]
@@ -937,7 +973,7 @@ proxies:
     assert!(matches!(
         outcome.status.status,
         RuntimeStatus::Running {
-            selected_outbound,
+            ref selected_outbound,
             ..
         } if selected_outbound == "SS-READY"
     ));
@@ -946,6 +982,184 @@ proxies:
             note.starts_with("subscription update rejected: no supported outbounds")
         })
     }));
+
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_controller_updates_from_subscription_url_and_redacts_source() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    core.start_from_subscription_config_text(
+        &ss_config_with_tags(&["SS-OLD", "SS-STAY"]),
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-STAY".to_string()),
+            ..ManagedMixedOptions::default()
+        },
+    )
+    .expect("start managed mixed controller");
+    let (url, request_thread) =
+        spawn_subscription_http_server(200, "OK", ss_config_with_tags(&["SS-STAY", "SS-NEW"]));
+
+    let outcome = core
+        .reload_from_subscription_url_with_update_plan(&url, Duration::from_secs(2), 4096)
+        .expect("subscription URL update");
+    let request_line = request_thread.join().expect("subscription request");
+
+    assert_eq!(
+        request_line,
+        "GET /panel/private/sub?token=super-secret-token HTTP/1.1"
+    );
+    assert!(outcome.applied);
+    assert_eq!(outcome.error, None);
+    assert!(outcome.fetch.ok);
+    assert_eq!(outcome.fetch.http_status, Some(200));
+    assert!(outcome.fetch.body_bytes.is_some_and(|bytes| bytes > 0));
+    let source = outcome.fetch.source.as_ref().expect("fetch source");
+    assert_eq!(source.scheme, "http");
+    assert_eq!(source.host, "127.0.0.1");
+    assert!(source.path_present);
+    assert!(source.query_present);
+    let update = outcome.update.as_ref().expect("update report");
+    assert_eq!(
+        update.reason,
+        SubscriptionUpdateReason::SelectedOutboundPreserved
+    );
+    assert_eq!(update.planned_selected_outbound.as_deref(), Some("SS-STAY"));
+    assert_eq!(outcome.status.selected_outbound.as_deref(), Some("SS-STAY"));
+    assert_eq!(outcome.status.generation, 2);
+
+    let value = managed_subscription_url_update_outcome_json_value(&outcome);
+    assert_eq!(value["status"], "ok");
+    assert_eq!(value["fetch"]["status"], "ok");
+    assert_eq!(value["fetch"]["source"]["path_present"], true);
+    assert_eq!(value["fetch"]["source"]["query_present"], true);
+    assert_eq!(value["update"]["reason"], "selected-outbound-preserved");
+    assert_eq!(
+        value["runtime_status"]["subscription"]["selected_outbound"],
+        "SS-STAY"
+    );
+    let serialized = value.to_string();
+    assert!(!serialized.contains("/panel/private/sub"));
+    assert!(!serialized.contains("super-secret-token"));
+    assert!(!serialized.contains("secret"));
+    assert!(!serialized.contains("ss.example.com"));
+
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_controller_subscription_url_fetch_failure_keeps_runtime() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    let started = core
+        .start_from_subscription_config_text(
+            ss_config(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+    let (url, request_thread) =
+        spawn_subscription_http_server(500, "Panel Error", "panel failed".to_string());
+
+    let outcome = core
+        .reload_from_subscription_url_with_update_plan(&url, Duration::from_secs(2), 4096)
+        .expect("subscription URL update failure outcome");
+    let request_line = request_thread.join().expect("subscription request");
+
+    assert_eq!(
+        request_line,
+        "GET /panel/private/sub?token=super-secret-token HTTP/1.1"
+    );
+    assert!(!outcome.applied);
+    assert!(outcome.update.is_none());
+    assert!(!outcome.fetch.ok);
+    assert_eq!(outcome.fetch.error_kind.as_deref(), Some("http-status"));
+    assert_eq!(
+        outcome.error.as_deref(),
+        Some("subscription URL fetch failed: http-status")
+    );
+    assert_eq!(outcome.status.generation, started.generation);
+    assert_eq!(
+        outcome.status.selected_outbound.as_deref(),
+        Some("SS-READY")
+    );
+    assert!(matches!(
+        outcome.status.status,
+        RuntimeStatus::Running {
+            ref selected_outbound,
+            ..
+        } if selected_outbound == "SS-READY"
+    ));
+    assert!(outcome.status.last_error.as_ref().is_some_and(|error| {
+        matches!(error, ClientErrorKind::ConfigInvalid(detail) if detail == "subscription URL fetch failed: http-status")
+    }));
+    let value = managed_subscription_url_update_outcome_json_value(&outcome);
+    assert_eq!(value["status"], "error");
+    assert_eq!(value["fetch"]["error_kind"], "http-status");
+    let serialized = value.to_string();
+    assert!(!serialized.contains("/panel/private/sub"));
+    assert!(!serialized.contains("super-secret-token"));
+
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_controller_subscription_url_unusable_update_keeps_runtime() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    let started = core
+        .start_from_subscription_config_text(
+            ss_config(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+    let unusable = r#"
+proxies:
+  - name: WG-SKIPPED
+    type: wireguard
+    server: wg.example.com
+    port: 51820
+    password: ignored
+"#;
+    let (url, request_thread) = spawn_subscription_http_server(200, "OK", unusable.to_string());
+
+    let outcome = core
+        .reload_from_subscription_url_with_update_plan(&url, Duration::from_secs(2), 4096)
+        .expect("subscription URL unusable update outcome");
+    request_thread.join().expect("subscription request");
+
+    assert!(!outcome.applied);
+    assert!(outcome.fetch.ok);
+    assert_eq!(outcome.fetch.http_status, Some(200));
+    assert_eq!(
+        outcome.error.as_deref(),
+        Some("subscription update rejected: no supported outbounds")
+    );
+    let update = outcome.update.as_ref().expect("update report");
+    assert_eq!(
+        update.reason,
+        SubscriptionUpdateReason::NoSupportedOutbounds
+    );
+    assert_eq!(update.new_supported_count, 0);
+    assert_eq!(update.new_skipped_count, 1);
+    assert_eq!(outcome.status.generation, started.generation);
+    assert_eq!(
+        outcome.status.selected_outbound.as_deref(),
+        Some("SS-READY")
+    );
+    assert_eq!(
+        outcome.status.last_error,
+        Some(ClientErrorKind::NoSupportedOutbounds)
+    );
 
     core.stop().expect("stop managed mixed controller");
 }

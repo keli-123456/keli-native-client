@@ -64,6 +64,9 @@ The managed controller can now apply that same plan during subscription reload:
 running sessions preserve the selected node when possible, fall back to the new
 default when necessary, or reject unusable updates without replacing the active
 runtime.
+It can also fetch a panel subscription URL and apply the planned reload in one
+managed path, returning a structured outcome with redacted source metadata,
+fetch status, update decision, and the post-update runtime snapshot.
 The managed background listener dispatches accepted TCP connections to workers,
 so one long-lived mixed client no longer blocks subsequent connections.
 That worker fan-out is bounded and records connection-limit rejections in

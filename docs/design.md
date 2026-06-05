@@ -439,3 +439,7 @@ Managed reload now consumes that plan directly: `ManagedMixedController` can
 reload with the planned selected outbound, keep the active selected node when it
 survives the update, fall back to the new default when it does not, and record a
 rejected update when the fetched subscription has no supported nodes.
+The same controller can now fetch a subscription URL and run that planned
+reload in one path, returning redacted fetch metadata, update outcome, and the
+current runtime snapshot while preserving the active runtime on fetch failure
+or unusable updates.
