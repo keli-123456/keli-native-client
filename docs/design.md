@@ -315,6 +315,9 @@ The first implementation target is deliberately small:
    counts limit rejections in loop summaries and managed runtime notes while
    reporting the active cap, preventing unbounded growth during long-running
    sessions.
+   `listen-mixed` and managed mixed runtime options can override that cap for
+   TUN TCP sessions, and the configured value survives managed subscription
+   reloads.
    The TCP session table also tracks last activity and packet loops prune idle
    sessions through the relay close path, with the pruned count visible in loop
    summaries and managed runtime status notes.
@@ -324,6 +327,9 @@ The first implementation target is deliberately small:
    Managed TUN runtime notes also include sanitized last-error fields for
    packet, UDP relay, and TCP session failures, giving support tooling the
    final failure reason without splitting the status line format.
+   TUN packet loop summaries also mark managed stop-signal exits separately
+   from packet-cap exits, so support can tell normal listener shutdowns from
+   bounded loop termination.
    Managed TUN packet loops now use a combined UDP/TCP relay path so the
    registry-backed UDP execution path remains active while direct and tagged
    TCP sessions can be exercised through the shared outbound registry.

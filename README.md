@@ -217,6 +217,8 @@ distinguish transient pressure from exit-time residue.
 The TUN TCP session table also enforces a default active-session cap and counts
 limit rejections in loop summaries and managed runtime notes while reporting
 the active cap, preventing unbounded growth during long-running sessions.
+`listen-mixed` and managed mixed runtime options can override that cap for TUN
+TCP sessions, and the configured value survives managed subscription reloads.
 The TCP session table also tracks last activity and packet loops prune idle
 sessions through the relay close path, with the pruned count visible in loop
 summaries and managed runtime status notes.
@@ -226,6 +228,9 @@ close-tail marker cleanup.
 Managed TUN runtime notes also include sanitized last-error fields for packet,
 UDP relay, and TCP session failures, giving support tooling the final failure
 reason without splitting the status line format.
+Those runtime summaries now also mark whether the TUN loop exited because a
+managed stop signal arrived or because its packet cap was reached, making
+normal shutdowns distinguishable from bounded-loop exits.
 The managed TUN runtime uses a combined UDP/TCP relay loop, so it can keep the
 registry-backed UDP path while also exercising registry-backed TCP sessions.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline

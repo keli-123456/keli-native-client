@@ -5122,6 +5122,8 @@ fn tun_packet_loop_writes_tcp_reset_for_blocked_tcp_to_device() {
         .expect("run TUN loop");
 
     assert_eq!(summary.processed_packets(), 1);
+    assert!(!summary.stop_requested);
+    assert!(summary.packet_limit_reached);
     assert_eq!(summary.tcp_resets_written, 1);
     assert_eq!(summary.dropped_packets, 0);
     assert_eq!(device.writes.len(), 1);

@@ -397,6 +397,8 @@ pub enum TunPacketLoopEvent {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TunPacketLoopSummary {
     pub idle_events: usize,
+    pub stop_requested: bool,
+    pub packet_limit_reached: bool,
     pub dns_responses_written: usize,
     pub udp_relay_responses_written: usize,
     pub tcp_resets_written: usize,
@@ -1016,6 +1018,14 @@ impl TunPacketLoopSummary {
         if let Some(error) = &report.last_close_error {
             self.last_tcp_session_error = Some(error.clone());
         }
+    }
+
+    pub fn record_stop_requested(&mut self) {
+        self.stop_requested = true;
+    }
+
+    pub fn record_packet_limit_reached(&mut self) {
+        self.packet_limit_reached = true;
     }
 
     pub fn record_tcp_session_table_state(&mut self, sessions: &TunTcpSessionTable) {
@@ -3265,14 +3275,19 @@ pub fn run_tun_packet_loop_summary<D: TunPacketDevice, R: DnsResolver>(
     max_packets: usize,
 ) -> Result<TunPacketLoopSummary, TunPacketLoopError> {
     let mut summary = TunPacketLoopSummary::default();
+    let mut packet_limit_reached = true;
     for _ in 0..max_packets {
         let event =
             process_tun_device_packet(device, routes, dns_hijack_enabled, dns, dns_ttl_seconds)?;
         let should_stop = event == TunPacketLoopEvent::NoPacket;
         summary.record_event(&event);
         if should_stop {
+            packet_limit_reached = false;
             break;
         }
+    }
+    if packet_limit_reached {
+        summary.record_packet_limit_reached();
     }
     Ok(summary)
 }
@@ -3329,6 +3344,7 @@ where
     T: TunTcpSessionRelay,
 {
     let mut summary = TunPacketLoopSummary::default();
+    let mut packet_limit_reached = true;
     for _ in 0..max_packets {
         let prune_report =
             prune_idle_tun_tcp_sessions(sessions, tcp_relay, Instant::now(), session_idle_timeout);
@@ -3348,8 +3364,12 @@ where
         summary.record_event(&event);
         summary.record_tcp_session_table_state(sessions);
         if should_stop {
+            packet_limit_reached = false;
             break;
         }
+    }
+    if packet_limit_reached {
+        summary.record_packet_limit_reached();
     }
     summary.record_tcp_session_table_state(sessions);
     Ok(summary)
@@ -3412,6 +3432,7 @@ where
     T: TunTcpSessionRelay,
 {
     let mut summary = TunPacketLoopSummary::default();
+    let mut packet_limit_reached = true;
     for _ in 0..max_packets {
         let prune_report =
             prune_idle_tun_tcp_sessions(sessions, tcp_relay, Instant::now(), session_idle_timeout);
@@ -3432,8 +3453,12 @@ where
         summary.record_event(&event);
         summary.record_tcp_session_table_state(sessions);
         if should_stop {
+            packet_limit_reached = false;
             break;
         }
+    }
+    if packet_limit_reached {
+        summary.record_packet_limit_reached();
     }
     summary.record_tcp_session_table_state(sessions);
     Ok(summary)
@@ -3454,6 +3479,7 @@ where
     U: TunUdpRelay,
 {
     let mut summary = TunPacketLoopSummary::default();
+    let mut packet_limit_reached = true;
     for _ in 0..max_packets {
         let event = process_tun_device_packet_with_udp_relay(
             device,
@@ -3466,8 +3492,12 @@ where
         let should_stop = event == TunPacketLoopEvent::NoPacket;
         summary.record_event(&event);
         if should_stop {
+            packet_limit_reached = false;
             break;
         }
+    }
+    if packet_limit_reached {
+        summary.record_packet_limit_reached();
     }
     Ok(summary)
 }
