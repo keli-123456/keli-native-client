@@ -316,6 +316,10 @@ proxies:
         report["doctor"]["tun_packet_pipeline_capabilities"][77],
         "tcp-session-state-summary"
     );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][78],
+        "tcp-session-state-peak"
+    );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");
     assert_eq!(report["tun_preflight"]["ready"], false);
     assert_eq!(

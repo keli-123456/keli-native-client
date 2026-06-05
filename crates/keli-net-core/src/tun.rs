@@ -417,6 +417,9 @@ pub struct TunPacketLoopSummary {
     pub tcp_sessions_open: usize,
     pub tcp_server_close_markers_open: usize,
     pub tcp_post_close_markers_open: usize,
+    pub tcp_sessions_peak: usize,
+    pub tcp_server_close_markers_peak: usize,
+    pub tcp_post_close_markers_peak: usize,
     pub tcp_session_errors: usize,
     pub last_tcp_session_error: Option<TunTcpSessionError>,
 }
@@ -1003,6 +1006,13 @@ impl TunPacketLoopSummary {
         self.tcp_sessions_open = state.active_sessions;
         self.tcp_server_close_markers_open = state.server_close_markers;
         self.tcp_post_close_markers_open = state.post_close_markers;
+        self.tcp_sessions_peak = self.tcp_sessions_peak.max(state.active_sessions);
+        self.tcp_server_close_markers_peak = self
+            .tcp_server_close_markers_peak
+            .max(state.server_close_markers);
+        self.tcp_post_close_markers_peak = self
+            .tcp_post_close_markers_peak
+            .max(state.post_close_markers);
     }
 
     pub fn processed_packets(&self) -> usize {
@@ -3281,6 +3291,7 @@ where
         )?;
         let should_stop = event == TunPacketLoopEvent::NoPacket;
         summary.record_event(&event);
+        summary.record_tcp_session_table_state(sessions);
         if should_stop {
             break;
         }
@@ -3364,6 +3375,7 @@ where
         )?;
         let should_stop = event == TunPacketLoopEvent::NoPacket;
         summary.record_event(&event);
+        summary.record_tcp_session_table_state(sessions);
         if should_stop {
             break;
         }
