@@ -501,6 +501,69 @@ fn accepts_established_tun_tcp_client_payload_and_acknowledges_it() {
 }
 
 #[test]
+fn acknowledges_duplicate_tun_tcp_client_payload_without_advancing_session() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let key = TunTcpSessionKey::from_flow(&syn.flow).expect("session key");
+    let mut sessions = TunTcpSessionTable::new();
+    sessions
+        .start_from_syn(&syn, 1000, 0x2000)
+        .expect("start TUN TCP session");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    sessions
+        .apply_ack(&ack)
+        .expect("apply session ACK")
+        .expect("session established");
+    let data_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+    );
+    let data = parse_tun_tcp_segment(&data_packet).expect("parse TCP data segment");
+    sessions
+        .accept_client_payload(&data)
+        .expect("accept TCP client payload")
+        .expect("payload frame");
+
+    let duplicate = sessions
+        .acknowledge_duplicate_client_payload(&data)
+        .expect("ack duplicate TCP client payload")
+        .expect("duplicate payload ACK");
+
+    assert_eq!(duplicate.sequence_number, 11);
+    assert_eq!(duplicate.acknowledgment_number, 16);
+    assert_eq!(duplicate.payload, b"GET /");
+    assert_eq!(
+        sessions
+            .get(&key)
+            .expect("stored session")
+            .client_next_sequence_number,
+        16,
+        "duplicate payload must not advance the client cursor"
+    );
+    let response =
+        parse_tun_tcp_segment(&duplicate.ack_packet).expect("parse duplicate payload ACK packet");
+    assert_eq!(response.flow.source_port, Some(443));
+    assert_eq!(response.flow.destination_port, Some(49152));
+    assert_eq!(response.sequence_number, 1001);
+    assert_eq!(response.acknowledgment_number, 16);
+    assert!(response.flags.ack());
+    assert!(response.payload.is_empty());
+}
+
+#[test]
 fn ignores_tun_tcp_client_payload_before_established_or_out_of_order() {
     let syn_packet = ipv4_packet(
         6,
@@ -838,6 +901,28 @@ fn processes_tun_tcp_session_steps_with_relay_callbacks_and_response_packets() {
     assert_eq!(server_packet.payload, b"HTTP/1.1");
     assert!(server_packet.flags.psh());
     assert!(server_packet.flags.ack());
+
+    let duplicate_step =
+        process_tun_tcp_session_segment(&mut sessions, &data, &mut relay, 1000, 0x2000)
+            .expect("process duplicate data step");
+    assert_eq!(duplicate_step.response_packets().len(), 1);
+    let TunTcpSessionStep::DuplicateClientPayload { ack } = duplicate_step else {
+        panic!("expected duplicate client payload step");
+    };
+    assert_eq!(ack.sequence_number, 11);
+    assert_eq!(ack.acknowledgment_number, 16);
+    assert_eq!(ack.payload, b"GET /");
+    assert_eq!(
+        relay.client_payloads,
+        vec![b"GET /".to_vec()],
+        "duplicate payload must not be written to the relay again"
+    );
+    let duplicate_ack =
+        parse_tun_tcp_segment(&ack.ack_packet).expect("parse duplicate payload ACK");
+    assert_eq!(duplicate_ack.sequence_number, 1009);
+    assert_eq!(duplicate_ack.acknowledgment_number, 16);
+    assert!(duplicate_ack.flags.ack());
+    assert!(duplicate_ack.payload.is_empty());
 }
 
 #[test]
@@ -2159,6 +2244,12 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
             6,
             "10.7.0.2",
             "93.184.216.34",
+            &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
             &tcp_segment(49152, 443, 16, 1009, 0x0011, 0x4000, &[], b""),
         ),
     ];
@@ -2177,7 +2268,7 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
         true,
         &mut dns,
         30,
-        4,
+        5,
         &mut sessions,
         &mut relay,
         1000,
@@ -2185,11 +2276,11 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
     )
     .expect("run TUN loop with TCP session relay");
 
-    assert_eq!(summary.processed_packets(), 4);
-    assert_eq!(summary.tcp_session_events, 4);
-    assert_eq!(summary.tcp_session_packets_written, 4);
+    assert_eq!(summary.processed_packets(), 5);
+    assert_eq!(summary.tcp_session_events, 5);
+    assert_eq!(summary.tcp_session_packets_written, 5);
     assert_eq!(summary.tcp_session_errors, 0);
-    assert_eq!(device.writes.len(), 4);
+    assert_eq!(device.writes.len(), 5);
     let syn_ack = parse_tun_tcp_segment(&device.writes[0]).expect("parse SYN-ACK");
     assert_eq!(syn_ack.sequence_number, 1000);
     assert_eq!(syn_ack.acknowledgment_number, 11);
@@ -2204,7 +2295,13 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
     assert_eq!(server_payload.sequence_number, 1001);
     assert_eq!(server_payload.acknowledgment_number, 16);
     assert_eq!(server_payload.payload, b"HTTP/1.1");
-    let close_ack = parse_tun_tcp_segment(&device.writes[3]).expect("parse close ACK packet");
+    let duplicate_ack =
+        parse_tun_tcp_segment(&device.writes[3]).expect("parse duplicate payload ACK packet");
+    assert_eq!(duplicate_ack.sequence_number, 1009);
+    assert_eq!(duplicate_ack.acknowledgment_number, 16);
+    assert!(duplicate_ack.flags.ack());
+    assert!(duplicate_ack.payload.is_empty());
+    let close_ack = parse_tun_tcp_segment(&device.writes[4]).expect("parse close ACK packet");
     assert_eq!(close_ack.sequence_number, 1009);
     assert_eq!(close_ack.acknowledgment_number, 17);
     assert!(close_ack.flags.ack());

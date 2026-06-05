@@ -17,7 +17,7 @@ fn doctor_report_lists_supported_outbounds() {
         "route_rule_capabilities=domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range"
     ));
     assert!(output.contains(
-        "tun_packet_pipeline_capabilities=ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-session-table,tcp-client-payload-ack,tcp-server-payload-packet,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-server-eof-fin-ack,tcp-session-idle-cleanup,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan"
+        "tun_packet_pipeline_capabilities=ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-server-payload-packet,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-server-eof-fin-ack,tcp-session-idle-cleanup,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan"
     ));
     assert!(output.contains(
         "supported_outbounds=direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic"
@@ -159,49 +159,53 @@ fn doctor_json_report_is_machine_readable() {
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][34],
-        "tcp-server-payload-packet"
+        "tcp-client-duplicate-ack"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][35],
-        "tcp-session-step-runner"
+        "tcp-server-payload-packet"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][36],
-        "tcp-session-device-loop"
+        "tcp-session-step-runner"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][37],
-        "tcp-server-payload-poll"
+        "tcp-session-device-loop"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][38],
-        "tcp-fin-close-ack"
+        "tcp-server-payload-poll"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][39],
-        "tcp-server-eof-fin-ack"
+        "tcp-fin-close-ack"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][40],
-        "tcp-session-idle-cleanup"
+        "tcp-server-eof-fin-ack"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][41],
-        "registry-tcp-session-relay"
+        "tcp-session-idle-cleanup"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][42],
-        "combined-tun-relay-loop"
+        "registry-tcp-session-relay"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][43],
-        "managed-registry-tcp-session-relay"
+        "combined-tun-relay-loop"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][44],
+        "managed-registry-tcp-session-relay"
+    );
+    assert_eq!(
+        report["tun_packet_pipeline_capabilities"][45],
         "tcp-relay-plan-summary"
     );
-    assert_eq!(report["tun_packet_pipeline_capabilities"][45], "relay-plan");
+    assert_eq!(report["tun_packet_pipeline_capabilities"][46], "relay-plan");
     assert_eq!(report["dns_engine"]["resolver"], "system_resolver");
     assert_eq!(report["dns_engine"]["cache_ttl_seconds"], 60);
     assert_eq!(
