@@ -240,6 +240,8 @@ Managed mixed status snapshots can now be exported as stable JSON, including
 recent runtime events, structured diagnostics, subscription health, DNS policy,
 system proxy config, panel restriction state, and redacted node capability
 metadata for UI/service integrations.
+They also expose runtime start time and uptime for long-running session
+diagnostics.
 Runtime event history is bounded for long-running sessions while the stable
 status snapshot still reports the total event count and retention limits for
 support timelines.

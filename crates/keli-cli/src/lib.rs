@@ -1150,6 +1150,8 @@ pub struct ManagedMixedStatusSnapshot {
     pub listen_addr: Option<SocketAddr>,
     pub selected_outbound: Option<String>,
     pub generation: u64,
+    pub started_at: Option<SystemTime>,
+    pub uptime: Option<Duration>,
     pub event_count: usize,
     pub retained_event_count: usize,
     pub event_history_limit: usize,
@@ -1402,6 +1404,8 @@ impl ManagedMixedStatusSnapshot {
             listen_addr: None,
             selected_outbound: None,
             generation: 0,
+            started_at: None,
+            uptime: None,
             event_count: 0,
             retained_event_count: 0,
             event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
@@ -1427,6 +1431,8 @@ pub fn managed_mixed_status_json_value(status: &ManagedMixedStatusSnapshot) -> s
         "listen_addr": status.listen_addr.map(|addr| addr.to_string()),
         "selected_outbound": status.selected_outbound.as_deref(),
         "generation": status.generation,
+        "started_at_unix_ms": status.started_at.map(system_time_unix_ms),
+        "uptime_ms": status.uptime.map(duration_millis),
         "event_count": status.event_count,
         "retained_event_count": status.retained_event_count,
         "event_history_limit": status.event_history_limit,
@@ -1710,6 +1716,10 @@ fn system_time_unix_ms(at: SystemTime) -> u64 {
     saturating_u128_to_u64(millis)
 }
 
+fn duration_millis(duration: Duration) -> u64 {
+    saturating_u128_to_u64(duration.as_millis())
+}
+
 fn saturating_u128_to_u64(value: u128) -> u64 {
     value.min(u128::from(u64::MAX)) as u64
 }
@@ -1906,6 +1916,8 @@ impl ManagedMixedStatusSnapshot {
             listen_addr: Some(handle.listen_addr()),
             selected_outbound: handle.selected_outbound().map(str::to_string),
             generation: handle.generation(),
+            started_at: handle.started_at(),
+            uptime: handle.uptime(),
             event_count: handle.event_count(),
             retained_event_count: handle.events().len(),
             event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
@@ -1936,6 +1948,14 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
 
     pub fn generation(&self) -> u64 {
         self.state.generation()
+    }
+
+    pub fn started_at(&self) -> Option<SystemTime> {
+        self.state.started_at()
+    }
+
+    pub fn uptime(&self) -> Option<Duration> {
+        self.state.uptime()
     }
 
     pub fn event_count(&self) -> usize {

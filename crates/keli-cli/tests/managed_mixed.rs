@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::str::FromStr;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use keli_cli::{
     apply_system_proxy_for_listener, managed_mixed_status_json_value,
@@ -418,6 +418,8 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
     assert_eq!(started.selected_outbound.as_deref(), Some("SS-READY"));
     assert!(started.listen_addr.is_some());
     assert_eq!(started.generation, 1);
+    assert!(started.started_at.is_some());
+    assert!(started.uptime.is_some());
     assert!(matches!(started.status, RuntimeStatus::Running { .. }));
     assert!(started.system_proxy_enabled());
     assert_eq!(
@@ -457,6 +459,8 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
 
     assert_eq!(reloaded.selected_outbound.as_deref(), Some("SS-NEXT"));
     assert_eq!(reloaded.generation, 2);
+    assert_eq!(reloaded.started_at, started.started_at);
+    assert!(reloaded.uptime.is_some());
     assert_eq!(
         reloaded.dns_options.address_family_policy,
         DnsAddressFamilyPolicy::Ipv6Only
@@ -477,6 +481,8 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
     assert_eq!(stopped.status(), &RuntimeStatus::Stopped);
     assert!(!core.is_running());
     assert_eq!(core.status().status, RuntimeStatus::Stopped);
+    assert!(core.status().started_at.is_none());
+    assert!(core.status().uptime.is_none());
     assert!(!core.status().system_proxy_enabled());
     assert!(!platform_controller.restored.borrow().is_empty());
 }
@@ -534,6 +540,8 @@ fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
     assert_eq!(value["status"]["generation"], started.generation);
     assert_eq!(value["selected_outbound"], "SS-READY");
     assert_eq!(value["generation"], started.generation);
+    assert!(value["started_at_unix_ms"].as_u64().is_some());
+    assert!(value["uptime_ms"].as_u64().is_some());
     assert!(value["listen_addr"].as_str().is_some());
     assert!(value["event_count"]
         .as_u64()
@@ -722,6 +730,8 @@ fn managed_mixed_status_json_includes_tun_runtime_diagnostic() {
         listen_addr: Some("127.0.0.1:7890".parse().expect("listen addr")),
         selected_outbound: Some("SS-READY".to_string()),
         generation: 7,
+        started_at: Some(SystemTime::UNIX_EPOCH),
+        uptime: Some(Duration::from_secs(2)),
         event_count: 1,
         retained_event_count: 1,
         event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
@@ -758,6 +768,8 @@ fn managed_mixed_status_json_includes_tun_runtime_diagnostic() {
     );
     assert_eq!(value["status"]["state"], "running");
     assert_eq!(value["status"]["generation"], 7);
+    assert_eq!(value["started_at_unix_ms"], 0);
+    assert_eq!(value["uptime_ms"], 2000);
 }
 
 #[test]

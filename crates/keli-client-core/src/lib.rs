@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use keli_protocol::{
     parse_subscription_outbound_profiles, OutboundProfile, ProxyProtocol, SecurityKind,
@@ -536,6 +536,7 @@ pub struct ClientRuntime {
     active_plan: Option<ConnectionPlan>,
     active_config: Option<RuntimeConfig>,
     generation: u64,
+    started_at: Option<SystemTime>,
     last_error: Option<ClientErrorKind>,
     event_count: usize,
     events: Vec<RuntimeEvent>,
@@ -550,6 +551,7 @@ impl Default for ClientRuntime {
             active_plan: None,
             active_config: None,
             generation: 0,
+            started_at: None,
             last_error: None,
             event_count: 1,
             events: vec![RuntimeEvent::new(
@@ -575,6 +577,19 @@ impl ClientRuntime {
 
     pub fn generation(&self) -> u64 {
         self.generation
+    }
+
+    pub fn started_at(&self) -> Option<SystemTime> {
+        self.started_at
+    }
+
+    pub fn uptime(&self) -> Option<Duration> {
+        self.uptime_at(SystemTime::now())
+    }
+
+    pub fn uptime_at(&self, now: SystemTime) -> Option<Duration> {
+        self.started_at
+            .and_then(|started_at| now.duration_since(started_at).ok())
     }
 
     pub fn event_count(&self) -> usize {
@@ -604,6 +619,7 @@ impl ClientRuntime {
         };
 
         self.generation += 1;
+        self.started_at = Some(SystemTime::now());
         self.status = RuntimeStatus::Running {
             generation: self.generation,
             selected_outbound: plan.selected_outbound().to_string(),
@@ -636,6 +652,9 @@ impl ClientRuntime {
         ) {
             Ok(plan) => {
                 self.generation += 1;
+                if self.started_at.is_none() {
+                    self.started_at = Some(SystemTime::now());
+                }
                 self.status = RuntimeStatus::Running {
                     generation: self.generation,
                     selected_outbound: plan.selected_outbound().to_string(),
@@ -674,6 +693,7 @@ impl ClientRuntime {
         );
         self.active_plan = None;
         self.active_config = None;
+        self.started_at = None;
         self.status = RuntimeStatus::Stopped;
         self.push_event(RuntimeEvent::new(
             RuntimeStatus::Stopped,
@@ -715,6 +735,7 @@ impl ClientRuntime {
     fn fail(&mut self, error: ClientErrorKind) {
         self.active_plan = None;
         self.active_config = None;
+        self.started_at = None;
         self.status = RuntimeStatus::Failed(error.clone());
         self.push_event(RuntimeEvent::new(
             RuntimeStatus::Failed(error),
@@ -1050,6 +1071,12 @@ proxies:
             .expect("runtime start");
 
         assert_eq!(plan.selected_outbound(), "SS-READY");
+        let started_at = runtime.started_at().expect("started at");
+        assert_eq!(
+            runtime.uptime_at(started_at + Duration::from_secs(3)),
+            Some(Duration::from_secs(3))
+        );
+        assert!(runtime.uptime().is_some());
         assert_eq!(
             runtime.status(),
             &RuntimeStatus::Running {
@@ -1079,6 +1106,8 @@ proxies:
         );
         assert_eq!(runtime.status(), &RuntimeStatus::Failed(error));
         assert!(runtime.active_plan().is_none());
+        assert!(runtime.started_at().is_none());
+        assert!(runtime.uptime().is_none());
     }
 
     #[test]
@@ -1091,6 +1120,7 @@ proxies:
                 "127.0.0.1:7890",
             ))
             .expect("runtime start");
+        let started_at = runtime.started_at().expect("started at");
 
         let plan = runtime
             .reload(RuntimeConfig::new(
@@ -1102,6 +1132,7 @@ proxies:
 
         assert_eq!(plan.selected_outbound(), "SS-B");
         assert_eq!(runtime.generation(), 2);
+        assert_eq!(runtime.started_at(), Some(started_at));
         assert_eq!(
             runtime.status(),
             &RuntimeStatus::Running {
@@ -1122,6 +1153,7 @@ proxies:
                 "127.0.0.1:7890",
             ))
             .expect("runtime start");
+        let started_at = runtime.started_at().expect("started at");
 
         let error = runtime
             .reload(RuntimeConfig::new(
@@ -1136,6 +1168,7 @@ proxies:
             ClientErrorKind::OutboundNotFound("MISSING".to_string())
         );
         assert_eq!(runtime.generation(), 1);
+        assert_eq!(runtime.started_at(), Some(started_at));
         assert_eq!(
             runtime.active_plan().map(ConnectionPlan::selected_outbound),
             Some("SS-A")
@@ -1333,5 +1366,7 @@ proxies:
         assert_eq!(runtime.status(), &RuntimeStatus::Stopped);
         assert!(runtime.active_plan().is_none());
         assert!(runtime.active_config().is_none());
+        assert!(runtime.started_at().is_none());
+        assert!(runtime.uptime().is_none());
     }
 }
