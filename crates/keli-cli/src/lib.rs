@@ -217,6 +217,12 @@ pub struct ConnectionMetricsSnapshot {
     pub failure_count: u64,
     pub connection_limit_rejection_count: u64,
     pub error_kind_counts: Vec<ConnectionErrorKindCount>,
+    pub total_upload_bytes: u64,
+    pub total_download_bytes: u64,
+    pub total_connect_ms: u128,
+    pub timed_connect_count: u64,
+    pub total_first_byte_ms: u128,
+    pub timed_first_byte_count: u64,
     pub last_connection_at: Option<SystemTime>,
     pub last_success_at: Option<SystemTime>,
     pub last_failure_at: Option<SystemTime>,
@@ -239,6 +245,12 @@ impl Default for ConnectionMetricsSnapshot {
             failure_count: 0,
             connection_limit_rejection_count: 0,
             error_kind_counts: Vec::new(),
+            total_upload_bytes: 0,
+            total_download_bytes: 0,
+            total_connect_ms: 0,
+            timed_connect_count: 0,
+            total_first_byte_ms: 0,
+            timed_first_byte_count: 0,
             last_connection_at: None,
             last_success_at: None,
             last_failure_at: None,
@@ -256,6 +268,12 @@ struct ConnectionMetricsState {
     failure_count: u64,
     connection_limit_rejection_count: u64,
     error_kind_counts: Vec<ConnectionErrorKindCount>,
+    total_upload_bytes: u64,
+    total_download_bytes: u64,
+    total_connect_ms: u128,
+    timed_connect_count: u64,
+    total_first_byte_ms: u128,
+    timed_first_byte_count: u64,
     last_connection_at: Option<SystemTime>,
     last_success_at: Option<SystemTime>,
     last_failure_at: Option<SystemTime>,
@@ -283,6 +301,18 @@ impl ConnectionMetrics {
         let recorded_at = SystemTime::now();
         state.last_connection_at = Some(recorded_at);
         state.total_connection_count = state.total_connection_count.saturating_add(1);
+        state.total_upload_bytes = state.total_upload_bytes.saturating_add(report.upload_bytes);
+        state.total_download_bytes = state
+            .total_download_bytes
+            .saturating_add(report.download_bytes);
+        if let Some(connect_ms) = report.connect_ms {
+            state.total_connect_ms = state.total_connect_ms.saturating_add(connect_ms);
+            state.timed_connect_count = state.timed_connect_count.saturating_add(1);
+        }
+        if let Some(first_byte_ms) = report.first_byte_ms {
+            state.total_first_byte_ms = state.total_first_byte_ms.saturating_add(first_byte_ms);
+            state.timed_first_byte_count = state.timed_first_byte_count.saturating_add(1);
+        }
         if let Some(error_kind) = report.error_kind {
             state.failure_count = state.failure_count.saturating_add(1);
             state.last_failure_at = Some(recorded_at);
@@ -334,6 +364,12 @@ impl ConnectionMetrics {
             failure_count: state.failure_count,
             connection_limit_rejection_count: state.connection_limit_rejection_count,
             error_kind_counts,
+            total_upload_bytes: state.total_upload_bytes,
+            total_download_bytes: state.total_download_bytes,
+            total_connect_ms: state.total_connect_ms,
+            timed_connect_count: state.timed_connect_count,
+            total_first_byte_ms: state.total_first_byte_ms,
+            timed_first_byte_count: state.timed_first_byte_count,
             last_connection_at: state.last_connection_at,
             last_success_at: state.last_success_at,
             last_failure_at: state.last_failure_at,
@@ -2126,6 +2162,20 @@ fn connection_metrics_json_value(metrics: &ConnectionMetricsSnapshot) -> serde_j
         "failure_count": metrics.failure_count,
         "connection_limit_rejection_count": metrics.connection_limit_rejection_count,
         "error_kind_counts": error_kind_counts,
+        "total_upload_bytes": metrics.total_upload_bytes,
+        "total_download_bytes": metrics.total_download_bytes,
+        "total_connect_ms": saturating_u128_to_u64(metrics.total_connect_ms),
+        "timed_connect_count": metrics.timed_connect_count,
+        "average_connect_ms": average_duration_ms(
+            metrics.total_connect_ms,
+            metrics.timed_connect_count
+        ),
+        "total_first_byte_ms": saturating_u128_to_u64(metrics.total_first_byte_ms),
+        "timed_first_byte_count": metrics.timed_first_byte_count,
+        "average_first_byte_ms": average_duration_ms(
+            metrics.total_first_byte_ms,
+            metrics.timed_first_byte_count
+        ),
         "last_connection_at_unix_ms": metrics.last_connection_at.map(system_time_unix_ms),
         "last_success_at_unix_ms": metrics.last_success_at.map(system_time_unix_ms),
         "last_failure_at_unix_ms": metrics.last_failure_at.map(system_time_unix_ms),
@@ -2137,6 +2187,14 @@ fn connection_metrics_json_value(metrics: &ConnectionMetricsSnapshot) -> serde_j
             .map(connection_report_json_value)
             .collect::<Vec<_>>(),
     })
+}
+
+fn average_duration_ms(total_ms: u128, count: u64) -> Option<u64> {
+    if count == 0 {
+        None
+    } else {
+        Some(saturating_u128_to_u64(total_ms / u128::from(count)))
+    }
 }
 
 fn connection_report_json_value(report: &ConnectionReport) -> serde_json::Value {

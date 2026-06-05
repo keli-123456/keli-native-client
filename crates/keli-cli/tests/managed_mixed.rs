@@ -7,10 +7,10 @@ use std::time::{Duration, Instant, SystemTime};
 
 use keli_cli::{
     apply_system_proxy_for_listener, managed_mixed_status_json_value,
-    write_managed_mixed_status_json_report, ConnectionErrorKindCount, ConnectionMetricsSnapshot,
-    ManagedMixedController, ManagedMixedOptions, ManagedMixedSession, ManagedMixedStatusSnapshot,
-    ManagedNodeHealthState, ManagedNodeHealthStatus, ManagedNodeProbeOptions,
-    ManagedNodeProbeSweepOptions, MixedDnsOptions, SmokeInboundKind,
+    write_managed_mixed_status_json_report, ConnectionErrorKindCount, ConnectionMetrics,
+    ConnectionMetricsSnapshot, ManagedMixedController, ManagedMixedOptions, ManagedMixedSession,
+    ManagedMixedStatusSnapshot, ManagedNodeHealthState, ManagedNodeHealthStatus,
+    ManagedNodeProbeOptions, ManagedNodeProbeSweepOptions, MixedDnsOptions, SmokeInboundKind,
     DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
     MANAGED_MIXED_RECENT_EVENT_LIMIT,
 };
@@ -19,7 +19,10 @@ use keli_client_core::{
     RuntimeDiagnostic, RuntimeEvent, RuntimeManagedMixedStopDrainDiagnostic, RuntimeStatus,
     RuntimeTunPacketLoopDiagnostic, DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
 };
-use keli_net_core::{ConnectionErrorKind, DnsAddressFamilyPolicy, DnsLocalResolutionPolicy};
+use keli_net_core::{
+    ConnectionErrorKind, ConnectionReport, DnsAddressFamilyPolicy, DnsLocalResolutionPolicy,
+    OutboundTarget, RouteAction, DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+};
 use keli_platform::{
     SystemProxyConfig, SystemProxyController, SystemProxyError, SystemProxySnapshot,
 };
@@ -210,6 +213,87 @@ fn wait_for_active_connection_workers<C: SystemProxyController + ?Sized>(
         thread::sleep(Duration::from_millis(25));
     }
     core.status()
+}
+
+#[test]
+fn connection_metrics_summarize_totals_after_recent_history_trims() {
+    let metrics = ConnectionMetrics::new(1);
+    let mut success = ConnectionReport::new(
+        "socks5",
+        OutboundTarget::new("example.com", 443),
+        RouteAction::Direct,
+    );
+    success.connect_ms = Some(10);
+    success.first_byte_ms = Some(30);
+    success.upload_bytes = 7;
+    success.download_bytes = 11;
+    metrics.record(&success);
+
+    let mut failure = ConnectionReport::new(
+        "http-connect",
+        OutboundTarget::new("blocked.example.com", 443),
+        RouteAction::Block,
+    );
+    failure.connect_ms = Some(20);
+    failure.upload_bytes = 13;
+    failure.download_bytes = 17;
+    failure.record_error(ConnectionErrorKind::RouteBlocked);
+    metrics.record(&failure);
+
+    let snapshot = metrics.snapshot();
+    assert_eq!(snapshot.total_connection_count, 2);
+    assert_eq!(snapshot.success_count, 1);
+    assert_eq!(snapshot.failure_count, 1);
+    assert_eq!(snapshot.total_upload_bytes, 20);
+    assert_eq!(snapshot.total_download_bytes, 28);
+    assert_eq!(snapshot.total_connect_ms, 30);
+    assert_eq!(snapshot.timed_connect_count, 2);
+    assert_eq!(snapshot.total_first_byte_ms, 30);
+    assert_eq!(snapshot.timed_first_byte_count, 1);
+    assert_eq!(snapshot.retained_connection_count, 1);
+    assert_eq!(
+        snapshot.recent_connections[0].target.host,
+        "blocked.example.com"
+    );
+    assert!(snapshot.last_connection_at.is_some());
+    assert!(snapshot.last_success_at.is_some());
+    assert_eq!(snapshot.last_failure_at, snapshot.last_connection_at);
+
+    let status = ManagedMixedStatusSnapshot {
+        status: RuntimeStatus::Stopped,
+        listen_addr: None,
+        selected_outbound: None,
+        generation: 0,
+        started_at: None,
+        uptime: None,
+        connection_metrics: snapshot,
+        event_count: 0,
+        retained_event_count: 0,
+        event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
+        recent_event_limit: MANAGED_MIXED_RECENT_EVENT_LIMIT,
+        recent_events: Vec::new(),
+        last_error: None,
+        system_proxy: None,
+        subscription: None,
+        dns_options: MixedDnsOptions::default(),
+        tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+        max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+        active_connection_workers: 0,
+        peak_connection_workers: 0,
+        active_client_connections: 0,
+        peak_client_connections: 0,
+        available_connection_worker_slots: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+        panel_state: None,
+    };
+    let value = managed_mixed_status_json_value(&status);
+    assert_eq!(value["connection_metrics"]["total_upload_bytes"], 20);
+    assert_eq!(value["connection_metrics"]["total_download_bytes"], 28);
+    assert_eq!(value["connection_metrics"]["total_connect_ms"], 30);
+    assert_eq!(value["connection_metrics"]["timed_connect_count"], 2);
+    assert_eq!(value["connection_metrics"]["average_connect_ms"], 15);
+    assert_eq!(value["connection_metrics"]["total_first_byte_ms"], 30);
+    assert_eq!(value["connection_metrics"]["timed_first_byte_count"], 1);
+    assert_eq!(value["connection_metrics"]["average_first_byte_ms"], 30);
 }
 
 #[derive(Debug)]
@@ -1039,6 +1123,20 @@ fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
     assert!(value["connection_metrics"]["error_kind_counts"]
         .as_object()
         .is_some_and(|counts| counts.is_empty()));
+    assert_eq!(value["connection_metrics"]["total_upload_bytes"], 0);
+    assert_eq!(value["connection_metrics"]["total_download_bytes"], 0);
+    assert_eq!(value["connection_metrics"]["total_connect_ms"], 0);
+    assert_eq!(value["connection_metrics"]["timed_connect_count"], 0);
+    assert_eq!(
+        value["connection_metrics"]["average_connect_ms"],
+        Value::Null
+    );
+    assert_eq!(value["connection_metrics"]["total_first_byte_ms"], 0);
+    assert_eq!(value["connection_metrics"]["timed_first_byte_count"], 0);
+    assert_eq!(
+        value["connection_metrics"]["average_first_byte_ms"],
+        Value::Null
+    );
     assert_eq!(
         value["connection_metrics"]["last_connection_at_unix_ms"],
         Value::Null
