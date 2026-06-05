@@ -50,6 +50,8 @@ use keli_protocol::{
 
 const DEFAULT_FIRST_BYTE_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+const DEFAULT_SUBSCRIPTION_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+const DEFAULT_SUBSCRIPTION_FETCH_MAX_BYTES: usize = 2 * 1024 * 1024;
 const DEFAULT_TUN_INTERFACE_NAME: &str = "keli-tun0";
 const DEFAULT_TUN_ADDRESS_CIDR: &str = "10.7.0.1/24";
 const DEFAULT_TUN_MTU: u16 = 1500;
@@ -81,6 +83,8 @@ const MANAGED_CONNECTION_METRIC_CAPABILITIES: &str =
     "total-connection-count,success-count,failure-count,connection-limit-rejection-count,error-kind-counts,route-action-counts,inbound-counts,total-upload-bytes,total-download-bytes,total-connect-ms,timed-connect-count,average-connect-ms,total-first-byte-ms,timed-first-byte-count,average-first-byte-ms,last-connection-timestamp,last-success-timestamp,last-failure-timestamp,recent-connection-reports,history-limit";
 const MANAGED_STATUS_SCHEMA_CAPABILITIES: &str =
     "schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,node-health-udp-aware-recommendation,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state";
+const SUBSCRIPTION_FETCH_CAPABILITIES: &str =
+    "http,https,timeout,max-bytes,redacted-source,profile-check-summary";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
     "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic";
 
@@ -94,6 +98,12 @@ pub enum CliCommand {
         output: ProbeOutputFormat,
     },
     Version,
+    SubscriptionFetch {
+        url: String,
+        output: ProbeOutputFormat,
+        timeout: Duration,
+        max_bytes: usize,
+    },
     ListenMixed {
         listen: String,
         once: bool,
@@ -3424,6 +3434,7 @@ pub fn parse_cli_command(
         Some("doctor") => parse_doctor(args),
         Some("tun-preflight") => parse_tun_preflight(args),
         Some("version") => Ok(CliCommand::Version),
+        Some("subscription-fetch") => parse_subscription_fetch(args),
         Some("listen-mixed") => parse_listen_mixed(args),
         Some("probe-outbound") => parse_probe_outbound(args),
         Some("smoke-mixed") => parse_smoke_mixed(args),
@@ -3448,6 +3459,15 @@ pub fn run(command: CliCommand) -> Result<(), String> {
         CliCommand::Version => {
             println!("keli-cli {}", env!("CARGO_PKG_VERSION"));
             Ok(())
+        }
+        CliCommand::SubscriptionFetch {
+            url,
+            output,
+            timeout,
+            max_bytes,
+        } => {
+            let mut stdout = io::stdout();
+            write_subscription_fetch_report_from_url(&url, output, timeout, max_bytes, &mut stdout)
         }
         CliCommand::ListenMixed {
             listen,
@@ -3597,12 +3617,16 @@ pub fn run(command: CliCommand) -> Result<(), String> {
 pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
-        "usage: keli-cli [doctor|tun-preflight|version|listen-mixed|probe-outbound|smoke-mixed|profile-check|support-bundle]"
+        "usage: keli-cli [doctor|tun-preflight|version|subscription-fetch|listen-mixed|probe-outbound|smoke-mixed|profile-check|support-bundle]"
     )?;
     writeln!(writer, "       keli-cli doctor [--format text|json]")?;
     writeln!(
         writer,
         "       keli-cli tun-preflight [--interface keli-tun0] [--address 10.7.0.1/24] [--mtu 1500] [--dns-hijack] [--format text|json]"
+    )?;
+    writeln!(
+        writer,
+        "       keli-cli subscription-fetch --url https://panel.example/subscription [--format text|json] [--timeout-ms 30000] [--max-bytes 2097152]"
     )?;
     writeln!(
         writer,
@@ -3691,6 +3715,53 @@ fn parse_tun_preflight(args: impl Iterator<Item = String>) -> Result<CliCommand,
         .map_err(|error| format!("invalid TUN preflight config: {error}"))?
         .with_dns_hijack(dns_hijack);
     Ok(CliCommand::TunPreflight { config, output })
+}
+
+fn parse_subscription_fetch(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
+    let mut url = None;
+    let mut output = ProbeOutputFormat::Text;
+    let mut timeout = DEFAULT_SUBSCRIPTION_FETCH_TIMEOUT;
+    let mut max_bytes = DEFAULT_SUBSCRIPTION_FETCH_MAX_BYTES;
+    let mut args = args.peekable();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--url" => {
+                url = Some(
+                    args.next()
+                        .ok_or_else(|| "--url requires a subscription URL".to_string())?,
+                );
+            }
+            "--format" => {
+                output = parse_probe_output_format(
+                    args.next()
+                        .ok_or_else(|| "--format requires text or json".to_string())?,
+                )?;
+            }
+            "--timeout-ms" => {
+                timeout = parse_duration_ms(
+                    args.next()
+                        .ok_or_else(|| "--timeout-ms requires a value".to_string())?,
+                    "--timeout-ms",
+                )?;
+            }
+            "--max-bytes" => {
+                max_bytes = parse_positive_usize(
+                    args.next()
+                        .ok_or_else(|| "--max-bytes requires a value".to_string())?,
+                    "--max-bytes",
+                )?;
+            }
+            other => return Err(format!("unknown subscription-fetch option: {other}")),
+        }
+    }
+
+    Ok(CliCommand::SubscriptionFetch {
+        url: url.ok_or_else(|| "subscription-fetch requires --url".to_string())?,
+        output,
+        timeout,
+        max_bytes,
+    })
 }
 
 fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
@@ -4183,6 +4254,7 @@ struct DoctorReport {
     supported_outbounds: Vec<&'static str>,
     supported_udp_outbounds: Vec<&'static str>,
     protocol_capabilities: &'static str,
+    subscription_fetch_capabilities: Vec<&'static str>,
     managed_connection_metric_capabilities: Vec<&'static str>,
     managed_status_schema_capabilities: Vec<&'static str>,
     tun_packet_pipeline_capabilities: Vec<&'static str>,
@@ -4278,6 +4350,7 @@ fn collect_doctor_report() -> DoctorReport {
         supported_outbounds: SUPPORTED_OUTBOUNDS.split(',').collect(),
         supported_udp_outbounds: SUPPORTED_UDP_OUTBOUNDS.split(',').collect(),
         protocol_capabilities: SUPPORTED_PROTOCOL_CAPABILITIES,
+        subscription_fetch_capabilities: SUBSCRIPTION_FETCH_CAPABILITIES.split(',').collect(),
         managed_connection_metric_capabilities: MANAGED_CONNECTION_METRIC_CAPABILITIES
             .split(',')
             .collect(),
@@ -4386,6 +4459,11 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     )?;
     writeln!(
         writer,
+        "subscription_fetch_capabilities={}",
+        report.subscription_fetch_capabilities.join(",")
+    )?;
+    writeln!(
+        writer,
         "managed_connection_metric_capabilities={}",
         report.managed_connection_metric_capabilities.join(",")
     )?;
@@ -4472,6 +4550,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         "supported_outbounds": &report.supported_outbounds,
         "supported_udp_outbounds": &report.supported_udp_outbounds,
         "protocol_capabilities": report.protocol_capabilities,
+        "subscription_fetch_capabilities": &report.subscription_fetch_capabilities,
         "managed_connection_metric_capabilities": &report.managed_connection_metric_capabilities,
         "managed_status_schema_capabilities": &report.managed_status_schema_capabilities,
         "tun_packet_pipeline_capabilities": &report.tun_packet_pipeline_capabilities,
@@ -4604,6 +4683,581 @@ fn tun_device_state(status: &TunDeviceStatus) -> &'static str {
     } else {
         "unsupported"
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SubscriptionFetchOptions {
+    url: String,
+    timeout: Duration,
+    max_bytes: usize,
+    user_agent: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SubscriptionFetchSource {
+    scheme: String,
+    host: String,
+    port: u16,
+    default_port: bool,
+    path_present: bool,
+    query_present: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SubscriptionFetchResponse {
+    source: SubscriptionFetchSource,
+    status_code: u16,
+    body: String,
+    body_bytes: usize,
+    elapsed: Duration,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SubscriptionFetchErrorKind {
+    InvalidUrl,
+    UnsupportedScheme,
+    MissingHost,
+    Resolve,
+    Connect,
+    Tls,
+    Write,
+    Read,
+    ResponseTooLarge,
+    InvalidResponse,
+    HttpStatus,
+    Utf8,
+}
+
+impl SubscriptionFetchErrorKind {
+    fn label(self) -> &'static str {
+        match self {
+            Self::InvalidUrl => "invalid-url",
+            Self::UnsupportedScheme => "unsupported-scheme",
+            Self::MissingHost => "missing-host",
+            Self::Resolve => "resolve",
+            Self::Connect => "connect",
+            Self::Tls => "tls",
+            Self::Write => "write",
+            Self::Read => "read",
+            Self::ResponseTooLarge => "response-too-large",
+            Self::InvalidResponse => "invalid-response",
+            Self::HttpStatus => "http-status",
+            Self::Utf8 => "utf8",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SubscriptionFetchError {
+    kind: SubscriptionFetchErrorKind,
+    detail: String,
+    source: Option<SubscriptionFetchSource>,
+}
+
+impl SubscriptionFetchError {
+    fn new(
+        kind: SubscriptionFetchErrorKind,
+        detail: impl Into<String>,
+        source: Option<SubscriptionFetchSource>,
+    ) -> Self {
+        Self {
+            kind,
+            detail: detail.into(),
+            source,
+        }
+    }
+}
+
+pub fn write_subscription_fetch_report_from_url(
+    url: &str,
+    output: ProbeOutputFormat,
+    timeout: Duration,
+    max_bytes: usize,
+    mut writer: impl Write,
+) -> Result<(), String> {
+    let options = SubscriptionFetchOptions {
+        url: url.to_string(),
+        timeout,
+        max_bytes,
+        user_agent: format!("keli-native-client/{}", env!("CARGO_PKG_VERSION")),
+    };
+    let report = subscription_fetch_report_value(fetch_subscription_config_text(&options));
+
+    match output {
+        ProbeOutputFormat::Text => write_subscription_fetch_text_report(&mut writer, &report),
+        ProbeOutputFormat::Json => {
+            serde_json::to_writer_pretty(&mut writer, &report)
+                .map_err(|error| error.to_string())?;
+            writeln!(writer).map_err(|error| error.to_string())
+        }
+    }
+}
+
+fn write_subscription_fetch_text_report(
+    writer: &mut impl Write,
+    report: &serde_json::Value,
+) -> Result<(), String> {
+    let fetch = &report["fetch"];
+    let source = &fetch["source"];
+    let profile = &report["profile"];
+    let status = report["status"].as_str().unwrap_or("error");
+    let fetch_status = fetch["status"].as_str().unwrap_or("error");
+    let scheme = source["scheme"].as_str().unwrap_or("-");
+    let host = source["host"].as_str().unwrap_or("-");
+    let port = source["port"]
+        .as_u64()
+        .map(|port| port.to_string())
+        .unwrap_or_else(|| "-".to_string());
+
+    if fetch_status == "ok" {
+        writeln!(
+            writer,
+            "subscription-fetch status={} fetch_status=ok scheme={} host={} port={} http_status={} bytes={} elapsed_ms={} source_format={} supported={} skipped={} default_outbound={}",
+            status,
+            scheme,
+            host,
+            port,
+            fetch["http_status"].as_u64().unwrap_or(0),
+            fetch["body_bytes"].as_u64().unwrap_or(0),
+            fetch["elapsed_ms"].as_u64().unwrap_or(0),
+            profile["source_format"].as_str().unwrap_or("-"),
+            profile["supported_count"].as_u64().unwrap_or(0),
+            profile["skipped_count"].as_u64().unwrap_or(0),
+            profile["default_outbound"].as_str().unwrap_or("-"),
+        )
+        .map_err(|error| error.to_string())
+    } else {
+        writeln!(
+            writer,
+            "subscription-fetch status=error fetch_status=error scheme={} host={} port={} error_kind={} error_detail={}",
+            scheme,
+            host,
+            port,
+            fetch["error_kind"].as_str().unwrap_or("unknown"),
+            fetch["error_detail"].as_str().unwrap_or("-"),
+        )
+        .map_err(|error| error.to_string())
+    }
+}
+
+fn subscription_fetch_report_value(
+    result: Result<SubscriptionFetchResponse, SubscriptionFetchError>,
+) -> serde_json::Value {
+    match result {
+        Ok(response) => {
+            let profile = support_bundle_profile_value(Some(&response.body));
+            let profile_status = profile["status"].as_str().unwrap_or("error");
+            serde_json::json!({
+                "status": if profile_status == "ok" { "ok" } else { "error" },
+                "kind": "keli_subscription_fetch",
+                "fetch": {
+                    "status": "ok",
+                    "source": subscription_fetch_source_json_value(&response.source),
+                    "http_status": response.status_code,
+                    "body_bytes": response.body_bytes,
+                    "elapsed_ms": duration_millis(response.elapsed),
+                },
+                "profile": profile,
+                "redaction": {
+                    "source_url": "scheme-host-port-flags-only",
+                    "profile_config_text": "omitted",
+                    "credentials": "omitted",
+                    "server_endpoints": "omitted",
+                },
+            })
+        }
+        Err(error) => serde_json::json!({
+            "status": "error",
+            "kind": "keli_subscription_fetch",
+            "fetch": {
+                "status": "error",
+                "source": error.source.as_ref().map(subscription_fetch_source_json_value),
+                "error_kind": error.kind.label(),
+                "error_detail": error.detail,
+            },
+            "profile": serde_json::Value::Null,
+            "redaction": {
+                "source_url": "scheme-host-port-flags-only",
+                "profile_config_text": "omitted",
+                "credentials": "omitted",
+                "server_endpoints": "omitted",
+            },
+        }),
+    }
+}
+
+fn fetch_subscription_config_text(
+    options: &SubscriptionFetchOptions,
+) -> Result<SubscriptionFetchResponse, SubscriptionFetchError> {
+    let started = Instant::now();
+    let url = url::Url::parse(&options.url).map_err(|error| {
+        SubscriptionFetchError::new(
+            SubscriptionFetchErrorKind::InvalidUrl,
+            format!("invalid subscription URL: {error}"),
+            None,
+        )
+    })?;
+    let source = subscription_fetch_source_from_url(&url)?;
+
+    match url.scheme() {
+        "http" => fetch_subscription_over_http(&url, &source, options, started),
+        "https" => fetch_subscription_over_https(&url, &source, options, started),
+        scheme => Err(SubscriptionFetchError::new(
+            SubscriptionFetchErrorKind::UnsupportedScheme,
+            format!("unsupported subscription URL scheme: {scheme}"),
+            Some(source),
+        )),
+    }
+}
+
+fn fetch_subscription_over_http(
+    url: &url::Url,
+    source: &SubscriptionFetchSource,
+    options: &SubscriptionFetchOptions,
+    started: Instant,
+) -> Result<SubscriptionFetchResponse, SubscriptionFetchError> {
+    let mut stream = connect_subscription_fetch_socket(source, options.timeout)?;
+    write_subscription_fetch_request(&mut stream, url, source, &options.user_agent).map_err(
+        |error| subscription_fetch_io_error(SubscriptionFetchErrorKind::Write, error, source),
+    )?;
+    let response = read_subscription_fetch_response(&mut stream, options.max_bytes, source)?;
+    parse_subscription_fetch_response(response, source.clone(), started, options.max_bytes)
+}
+
+fn fetch_subscription_over_https(
+    url: &url::Url,
+    source: &SubscriptionFetchSource,
+    options: &SubscriptionFetchOptions,
+    started: Instant,
+) -> Result<SubscriptionFetchResponse, SubscriptionFetchError> {
+    let stream = connect_subscription_fetch_socket(source, options.timeout)?;
+    let server_name =
+        rustls::pki_types::ServerName::try_from(source.host.clone()).map_err(|error| {
+            SubscriptionFetchError::new(
+                SubscriptionFetchErrorKind::Tls,
+                format!("invalid TLS server name: {error}"),
+                Some(source.clone()),
+            )
+        })?;
+    let tls_config = subscription_fetch_tls_config()?;
+    let connection = rustls::ClientConnection::new(tls_config, server_name).map_err(|error| {
+        SubscriptionFetchError::new(
+            SubscriptionFetchErrorKind::Tls,
+            format!("create TLS connection: {error}"),
+            Some(source.clone()),
+        )
+    })?;
+    let mut stream = rustls::StreamOwned::new(connection, stream);
+    write_subscription_fetch_request(&mut stream, url, source, &options.user_agent).map_err(
+        |error| subscription_fetch_io_error(SubscriptionFetchErrorKind::Write, error, source),
+    )?;
+    let response = read_subscription_fetch_response(&mut stream, options.max_bytes, source)?;
+    parse_subscription_fetch_response(response, source.clone(), started, options.max_bytes)
+}
+
+fn subscription_fetch_tls_config() -> Result<Arc<rustls::ClientConfig>, SubscriptionFetchError> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let root_store =
+        rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let config = rustls::ClientConfig::builder_with_provider(provider)
+        .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+        .map_err(|error| {
+            SubscriptionFetchError::new(
+                SubscriptionFetchErrorKind::Tls,
+                format!("build TLS protocol versions: {error}"),
+                None,
+            )
+        })?
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+    Ok(Arc::new(config))
+}
+
+fn subscription_fetch_source_from_url(
+    url: &url::Url,
+) -> Result<SubscriptionFetchSource, SubscriptionFetchError> {
+    let host = url.host_str().ok_or_else(|| {
+        SubscriptionFetchError::new(
+            SubscriptionFetchErrorKind::MissingHost,
+            "subscription URL must include a host",
+            None,
+        )
+    })?;
+    let port = url.port_or_known_default().ok_or_else(|| {
+        SubscriptionFetchError::new(
+            SubscriptionFetchErrorKind::UnsupportedScheme,
+            format!("unsupported subscription URL scheme: {}", url.scheme()),
+            None,
+        )
+    })?;
+    let path_present = !url.path().is_empty() && url.path() != "/";
+    Ok(SubscriptionFetchSource {
+        scheme: url.scheme().to_string(),
+        host: host.to_string(),
+        port,
+        default_port: url.port().is_none(),
+        path_present,
+        query_present: url.query().is_some(),
+    })
+}
+
+fn subscription_fetch_source_json_value(source: &SubscriptionFetchSource) -> serde_json::Value {
+    serde_json::json!({
+        "scheme": &source.scheme,
+        "host": &source.host,
+        "port": source.port,
+        "default_port": source.default_port,
+        "path_present": source.path_present,
+        "query_present": source.query_present,
+    })
+}
+
+fn connect_subscription_fetch_socket(
+    source: &SubscriptionFetchSource,
+    timeout: Duration,
+) -> Result<TcpStream, SubscriptionFetchError> {
+    let addresses = (source.host.as_str(), source.port)
+        .to_socket_addrs()
+        .map_err(|error| {
+            subscription_fetch_io_error(SubscriptionFetchErrorKind::Resolve, error, source)
+        })?
+        .collect::<Vec<_>>();
+    if addresses.is_empty() {
+        return Err(SubscriptionFetchError::new(
+            SubscriptionFetchErrorKind::Resolve,
+            "subscription host did not resolve to any socket address",
+            Some(source.clone()),
+        ));
+    }
+
+    let mut last_error = None;
+    for address in addresses {
+        match TcpStream::connect_timeout(&address, timeout) {
+            Ok(stream) => {
+                stream.set_read_timeout(Some(timeout)).map_err(|error| {
+                    subscription_fetch_io_error(SubscriptionFetchErrorKind::Read, error, source)
+                })?;
+                stream.set_write_timeout(Some(timeout)).map_err(|error| {
+                    subscription_fetch_io_error(SubscriptionFetchErrorKind::Write, error, source)
+                })?;
+                return Ok(stream);
+            }
+            Err(error) => last_error = Some(error),
+        }
+    }
+
+    Err(subscription_fetch_io_error(
+        SubscriptionFetchErrorKind::Connect,
+        last_error.unwrap_or_else(|| io::Error::other("connect failed")),
+        source,
+    ))
+}
+
+fn write_subscription_fetch_request(
+    writer: &mut impl Write,
+    url: &url::Url,
+    source: &SubscriptionFetchSource,
+    user_agent: &str,
+) -> io::Result<()> {
+    let path = if url.path().is_empty() {
+        "/"
+    } else {
+        url.path()
+    };
+    let request_target = if let Some(query) = url.query() {
+        format!("{path}?{query}")
+    } else {
+        path.to_string()
+    };
+    let host_header = subscription_fetch_host_header(source);
+    write!(
+        writer,
+        "GET {request_target} HTTP/1.1\r\nHost: {host_header}\r\nUser-Agent: {user_agent}\r\nAccept: text/plain, application/yaml, application/octet-stream, */*\r\nConnection: close\r\n\r\n"
+    )?;
+    writer.flush()
+}
+
+fn subscription_fetch_host_header(source: &SubscriptionFetchSource) -> String {
+    let host = if source.host.contains(':') && !source.host.starts_with('[') {
+        format!("[{}]", source.host)
+    } else {
+        source.host.clone()
+    };
+    if source.default_port {
+        host
+    } else {
+        format!("{host}:{}", source.port)
+    }
+}
+
+fn read_subscription_fetch_response(
+    reader: &mut impl Read,
+    max_bytes: usize,
+    source: &SubscriptionFetchSource,
+) -> Result<Vec<u8>, SubscriptionFetchError> {
+    let mut response = Vec::new();
+    let mut buffer = [0; 8192];
+    loop {
+        let bytes = reader.read(&mut buffer).map_err(|error| {
+            subscription_fetch_io_error(SubscriptionFetchErrorKind::Read, error, source)
+        })?;
+        if bytes == 0 {
+            break;
+        }
+        if response.len().saturating_add(bytes) > max_bytes {
+            return Err(SubscriptionFetchError::new(
+                SubscriptionFetchErrorKind::ResponseTooLarge,
+                format!("subscription response exceeded max-bytes limit: {max_bytes}"),
+                Some(source.clone()),
+            ));
+        }
+        response.extend_from_slice(&buffer[..bytes]);
+    }
+    Ok(response)
+}
+
+fn parse_subscription_fetch_response(
+    response: Vec<u8>,
+    source: SubscriptionFetchSource,
+    started: Instant,
+    max_bytes: usize,
+) -> Result<SubscriptionFetchResponse, SubscriptionFetchError> {
+    let Some(header_end) = find_http_header_end(&response) else {
+        return Err(SubscriptionFetchError::new(
+            SubscriptionFetchErrorKind::InvalidResponse,
+            "subscription fetch response is missing HTTP headers",
+            Some(source),
+        ));
+    };
+    let headers = String::from_utf8_lossy(&response[..header_end]);
+    let mut lines = headers.lines();
+    let status_line = lines.next().unwrap_or_default();
+    let status_code = parse_http_status_code(status_line).ok_or_else(|| {
+        SubscriptionFetchError::new(
+            SubscriptionFetchErrorKind::InvalidResponse,
+            "subscription fetch response has an invalid HTTP status line",
+            Some(source.clone()),
+        )
+    })?;
+    if !(200..300).contains(&status_code) {
+        return Err(SubscriptionFetchError::new(
+            SubscriptionFetchErrorKind::HttpStatus,
+            format!("subscription fetch returned HTTP status {status_code}"),
+            Some(source),
+        ));
+    }
+
+    let transfer_encoding =
+        lines
+            .filter_map(|line| line.split_once(':'))
+            .find_map(|(name, value)| {
+                name.eq_ignore_ascii_case("transfer-encoding")
+                    .then(|| value.trim().to_ascii_lowercase())
+            });
+    let body = &response[header_end + 4..];
+    let body = if transfer_encoding
+        .as_deref()
+        .is_some_and(|encoding| encoding.contains("chunked"))
+    {
+        decode_chunked_subscription_body(body, max_bytes, &source)?
+    } else {
+        body.to_vec()
+    };
+    let body_bytes = body.len();
+    let body = String::from_utf8(body).map_err(|error| {
+        SubscriptionFetchError::new(
+            SubscriptionFetchErrorKind::Utf8,
+            format!("subscription body is not UTF-8: {error}"),
+            Some(source.clone()),
+        )
+    })?;
+
+    Ok(SubscriptionFetchResponse {
+        source,
+        status_code,
+        body,
+        body_bytes,
+        elapsed: started.elapsed(),
+    })
+}
+
+fn find_http_header_end(response: &[u8]) -> Option<usize> {
+    response.windows(4).position(|window| window == b"\r\n\r\n")
+}
+
+fn parse_http_status_code(status_line: &str) -> Option<u16> {
+    let mut parts = status_line.split_whitespace();
+    let version = parts.next()?;
+    if !version.starts_with("HTTP/") {
+        return None;
+    }
+    parts.next()?.parse().ok()
+}
+
+fn decode_chunked_subscription_body(
+    body: &[u8],
+    max_bytes: usize,
+    source: &SubscriptionFetchSource,
+) -> Result<Vec<u8>, SubscriptionFetchError> {
+    let mut decoded = Vec::new();
+    let mut offset = 0;
+    loop {
+        let Some(line_end) = body[offset..]
+            .windows(2)
+            .position(|window| window == b"\r\n")
+            .map(|index| offset + index)
+        else {
+            return Err(SubscriptionFetchError::new(
+                SubscriptionFetchErrorKind::InvalidResponse,
+                "chunked subscription response is missing a chunk length",
+                Some(source.clone()),
+            ));
+        };
+        let length_line = String::from_utf8_lossy(&body[offset..line_end]);
+        let length_hex = length_line.split(';').next().unwrap_or_default().trim();
+        let length = usize::from_str_radix(length_hex, 16).map_err(|_| {
+            SubscriptionFetchError::new(
+                SubscriptionFetchErrorKind::InvalidResponse,
+                "chunked subscription response has an invalid chunk length",
+                Some(source.clone()),
+            )
+        })?;
+        offset = line_end + 2;
+        if length == 0 {
+            return Ok(decoded);
+        }
+        let chunk_end = offset.checked_add(length).ok_or_else(|| {
+            SubscriptionFetchError::new(
+                SubscriptionFetchErrorKind::InvalidResponse,
+                "chunked subscription response length overflowed",
+                Some(source.clone()),
+            )
+        })?;
+        if chunk_end + 2 > body.len() || &body[chunk_end..chunk_end + 2] != b"\r\n" {
+            return Err(SubscriptionFetchError::new(
+                SubscriptionFetchErrorKind::InvalidResponse,
+                "chunked subscription response is truncated",
+                Some(source.clone()),
+            ));
+        }
+        if decoded.len().saturating_add(length) > max_bytes {
+            return Err(SubscriptionFetchError::new(
+                SubscriptionFetchErrorKind::ResponseTooLarge,
+                format!("decoded subscription body exceeded max-bytes limit: {max_bytes}"),
+                Some(source.clone()),
+            ));
+        }
+        decoded.extend_from_slice(&body[offset..chunk_end]);
+        offset = chunk_end + 2;
+    }
+}
+
+fn subscription_fetch_io_error(
+    kind: SubscriptionFetchErrorKind,
+    error: io::Error,
+    source: &SubscriptionFetchSource,
+) -> SubscriptionFetchError {
+    SubscriptionFetchError::new(kind, error.to_string(), Some(source.clone()))
 }
 
 pub fn write_support_bundle_report(

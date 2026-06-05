@@ -60,6 +60,18 @@ proxies:
     assert_eq!(report["doctor"]["platform"], "Windows");
     assert_eq!(report["doctor"]["route_rule_capabilities"][3], "ip-cidr");
     assert_eq!(
+        report["doctor"]["subscription_fetch_capabilities"][0],
+        "http"
+    );
+    assert_eq!(
+        report["doctor"]["subscription_fetch_capabilities"][1],
+        "https"
+    );
+    assert_eq!(
+        report["doctor"]["subscription_fetch_capabilities"][5],
+        "profile-check-summary"
+    );
+    assert_eq!(
         report["doctor"]["resource_limits"]["runtime_event_history"],
         DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT
     );

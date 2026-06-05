@@ -9,7 +9,10 @@ keli-client-core.workspace = true
 keli-net-core.workspace = true
 keli-platform.workspace = true
 keli-protocol.workspace = true
+rustls.workspace = true
 serde_json.workspace = true
+url.workspace = true
+webpki-roots.workspace = true
 
 [dev-dependencies]
 aes.workspace = true

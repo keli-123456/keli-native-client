@@ -461,6 +461,32 @@ fn parses_probe_outbound_command() {
 }
 
 #[test]
+fn parses_subscription_fetch_json_command() {
+    let command = parse_cli_command([
+        "subscription-fetch",
+        "--url",
+        "https://panel.example/sub?token=secret",
+        "--format",
+        "json",
+        "--timeout-ms",
+        "1500",
+        "--max-bytes",
+        "4096",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::SubscriptionFetch {
+            url: "https://panel.example/sub?token=secret".to_string(),
+            output: ProbeOutputFormat::Json,
+            timeout: Duration::from_millis(1500),
+            max_bytes: 4096,
+        }
+    );
+}
+
+#[test]
 fn parses_probe_outbound_udp_command() {
     let command = parse_cli_command([
         "probe-outbound",

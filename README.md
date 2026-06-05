@@ -50,6 +50,11 @@ to be injected by callers. Health recommendations are UDP-aware: among healthy
 TCP-capable nodes, confirmed UDP-capable nodes are preferred before latency is
 used as the tie-breaker, and the status summary exposes UDP availability counts
 for UI/support decisions.
+The CLI also has a `subscription-fetch` diagnostic boundary for panel
+subscription update flows: it can fetch HTTP/HTTPS subscription URLs with
+timeout and size limits, feed the result through the existing redacted
+profile-check summary, and report only a scheme/host/port/path/query-presence
+source shape instead of leaking full subscription tokens.
 The managed background listener dispatches accepted TCP connections to workers,
 so one long-lived mixed client no longer blocks subsequent connections.
 That worker fan-out is bounded and records connection-limit rejections in

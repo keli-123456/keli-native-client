@@ -43,6 +43,9 @@ fn doctor_report_lists_supported_outbounds() {
         "protocol_capabilities=trojan=tcp,udp;vless=tcp,udp;vmess=tcp,udp;shadowsocks=tcp,udp;anytls=tcp,udp;naive=tcp;mieru=tcp,udp;hy2=tcp,udp;tuic=tcp,udp;socks=tcp,udp;http=tcp"
     ));
     assert!(output.contains(
+        "subscription_fetch_capabilities=http,https,timeout,max-bytes,redacted-source,profile-check-summary"
+    ));
+    assert!(output.contains(
         "managed_connection_metric_capabilities=total-connection-count,success-count,failure-count,connection-limit-rejection-count,error-kind-counts,route-action-counts,inbound-counts,total-upload-bytes,total-download-bytes,total-connect-ms,timed-connect-count,average-connect-ms,total-first-byte-ms,timed-first-byte-count,average-first-byte-ms,last-connection-timestamp,last-success-timestamp,last-failure-timestamp,recent-connection-reports,history-limit"
     ));
     assert!(output.contains(
@@ -415,6 +418,12 @@ fn doctor_json_report_is_machine_readable() {
     );
     assert_eq!(report["supported_outbounds"][0], "direct");
     assert_eq!(report["supported_udp_outbounds"][0], "direct");
+    assert_eq!(report["subscription_fetch_capabilities"][0], "http");
+    assert_eq!(report["subscription_fetch_capabilities"][1], "https");
+    assert_eq!(
+        report["subscription_fetch_capabilities"][5],
+        "profile-check-summary"
+    );
     assert_eq!(
         report["managed_connection_metric_capabilities"][0],
         "total-connection-count"

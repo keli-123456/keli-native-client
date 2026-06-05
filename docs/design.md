@@ -425,3 +425,7 @@ capability entries without credentials, endpoints, path, host, or SNI fields.
 The same redacted per-node capability shape is used by profile-check JSON so
 subscription diagnostics can be shared with support without exposing node
 servers, credentials, Host headers, paths, or SNI values.
+`subscription-fetch` now gives panel update flows a tested URL-fetch boundary:
+HTTP/HTTPS subscription responses are fetched with timeout and byte limits,
+validated through the same profile-check summary, and reported with redacted
+source metadata that omits full paths and query tokens.
