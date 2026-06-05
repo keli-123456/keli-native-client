@@ -1,5 +1,6 @@
 use std::fmt;
 use std::net::IpAddr;
+use std::path::PathBuf;
 use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -261,6 +262,30 @@ pub struct TunDeviceStatus {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunBackendStatus {
+    pub platform: PlatformKind,
+    pub backend: String,
+    pub supported: bool,
+    pub lifecycle_wired: bool,
+    pub packet_io_wired: bool,
+    pub driver_library_present: bool,
+    pub driver_library_path: Option<String>,
+    pub install_required: bool,
+    pub searched_paths: Vec<String>,
+    pub reason: Option<String>,
+}
+
+impl TunBackendStatus {
+    pub fn detect() -> Self {
+        NativeTunDeviceController::new().backend_status()
+    }
+
+    pub fn backend_label(&self) -> &str {
+        &self.backend
+    }
+}
+
 impl TunDeviceStatus {
     pub fn detect() -> Self {
         let controller = NativeTunDeviceController::new();
@@ -428,6 +453,36 @@ impl NativeTunDeviceController {
     pub fn for_platform(platform: PlatformKind) -> Self {
         Self { platform }
     }
+
+    pub fn backend_status(&self) -> TunBackendStatus {
+        match self.platform {
+            PlatformKind::Windows => windows_tun_backend_status(windows_tun_library_search_paths()),
+            PlatformKind::Android => TunBackendStatus {
+                platform: PlatformKind::Android,
+                backend: "android-vpn-service".to_string(),
+                supported: true,
+                lifecycle_wired: false,
+                packet_io_wired: false,
+                driver_library_present: false,
+                driver_library_path: None,
+                install_required: false,
+                searched_paths: Vec::new(),
+                reason: Some("Android VpnService bridge is not wired yet".to_string()),
+            },
+            ref platform => TunBackendStatus {
+                platform: platform.clone(),
+                backend: "unsupported".to_string(),
+                supported: false,
+                lifecycle_wired: false,
+                packet_io_wired: false,
+                driver_library_present: false,
+                driver_library_path: None,
+                install_required: false,
+                searched_paths: Vec::new(),
+                reason: Some(format!("TUN backend is unsupported on {platform:?}")),
+            },
+        }
+    }
 }
 
 impl Default for NativeTunDeviceController {
@@ -483,6 +538,60 @@ impl TunDeviceController for NativeTunDeviceController {
     fn stop(&self) -> Result<TunDeviceSnapshot, TunDeviceError> {
         self.snapshot()
     }
+}
+
+fn windows_tun_backend_status(search_paths: Vec<PathBuf>) -> TunBackendStatus {
+    let found_path = search_paths.iter().find(|path| path.is_file()).cloned();
+    let driver_library_present = found_path.is_some();
+    TunBackendStatus {
+        platform: PlatformKind::Windows,
+        backend: "wintun".to_string(),
+        supported: true,
+        lifecycle_wired: false,
+        packet_io_wired: false,
+        driver_library_present,
+        driver_library_path: found_path.map(|path| path.display().to_string()),
+        install_required: !driver_library_present,
+        searched_paths: search_paths
+            .into_iter()
+            .map(|path| path.display().to_string())
+            .collect(),
+        reason: Some(if driver_library_present {
+            "Wintun library detected, but native lifecycle and packet I/O bridge is not wired yet"
+                .to_string()
+        } else {
+            "Wintun library was not found; bundle wintun.dll and wire lifecycle/packet I/O bridge"
+                .to_string()
+        }),
+    }
+}
+
+fn windows_tun_library_search_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(path) = std::env::var_os("KELI_WINTUN_DLL") {
+        paths.push(PathBuf::from(path));
+    }
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(dir) = current_exe.parent() {
+            paths.push(dir.join("wintun.dll"));
+        }
+    }
+    if let Some(system_root) = std::env::var_os("SystemRoot") {
+        let system_root = PathBuf::from(system_root);
+        paths.push(system_root.join("System32").join("wintun.dll"));
+    }
+    paths.push(PathBuf::from(r"C:\Windows\System32\wintun.dll"));
+    dedup_paths(paths)
+}
+
+fn dedup_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut deduped = Vec::<PathBuf>::new();
+    for path in paths {
+        if !deduped.iter().any(|existing| existing == &path) {
+            deduped.push(path);
+        }
+    }
+    deduped
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1033,6 +1142,58 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
             linux.snapshot().expect_err("linux TUN unsupported"),
             TunDeviceError::UnsupportedPlatform(PlatformKind::Linux)
         );
+    }
+
+    #[test]
+    fn windows_tun_backend_status_reports_missing_wintun_library() {
+        let status =
+            windows_tun_backend_status(vec![PathBuf::from(r"C:\definitely-missing\wintun.dll")]);
+
+        assert_eq!(status.platform, PlatformKind::Windows);
+        assert_eq!(status.backend, "wintun");
+        assert!(status.supported);
+        assert!(!status.lifecycle_wired);
+        assert!(!status.packet_io_wired);
+        assert!(!status.driver_library_present);
+        assert!(status.install_required);
+        assert_eq!(status.driver_library_path, None);
+        assert_eq!(status.searched_paths.len(), 1);
+        assert!(status
+            .reason
+            .as_deref()
+            .expect("reason")
+            .contains("Wintun library was not found"));
+    }
+
+    #[test]
+    fn windows_tun_backend_status_reports_detected_library_without_wiring_it_ready() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("keli-wintun-test-{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+        let dll_path = temp_dir.join("wintun.dll");
+        std::fs::write(&dll_path, b"placeholder").expect("write placeholder dll");
+
+        let status = windows_tun_backend_status(vec![dll_path.clone()]);
+
+        std::fs::remove_file(&dll_path).ok();
+        std::fs::remove_dir(&temp_dir).ok();
+
+        assert_eq!(status.platform, PlatformKind::Windows);
+        assert_eq!(status.backend, "wintun");
+        assert!(status.supported);
+        assert!(status.driver_library_present);
+        assert!(!status.install_required);
+        assert_eq!(
+            status.driver_library_path,
+            Some(dll_path.display().to_string())
+        );
+        assert!(!status.lifecycle_wired);
+        assert!(!status.packet_io_wired);
+        assert!(status
+            .reason
+            .as_deref()
+            .expect("reason")
+            .contains("not wired yet"));
     }
 
     #[test]

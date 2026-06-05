@@ -87,6 +87,11 @@ proxies:
     );
     assert_eq!(report["doctor"]["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(report["doctor"]["platform"], "Windows");
+    assert_eq!(report["doctor"]["tun_backend"]["platform"], "Windows");
+    assert_eq!(report["doctor"]["tun_backend"]["backend"], "wintun");
+    assert_eq!(report["doctor"]["tun_backend"]["supported"], true);
+    assert_eq!(report["doctor"]["tun_backend"]["lifecycle_wired"], false);
+    assert_eq!(report["doctor"]["tun_backend"]["packet_io_wired"], false);
     assert_eq!(report["doctor"]["route_rule_capabilities"][3], "ip-cidr");
     assert_eq!(
         report["doctor"]["subscription_fetch_capabilities"][0],
@@ -227,6 +232,14 @@ proxies:
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][8],
         "json-gates"
+    );
+    assert_eq!(
+        report["doctor"]["tun_backend_check_capabilities"][0],
+        "backend-kind"
+    );
+    assert_eq!(
+        report["doctor"]["tun_backend_check_capabilities"][6],
+        "readiness-blocker-detail"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],

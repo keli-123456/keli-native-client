@@ -124,6 +124,12 @@ The first implementation target is deliberately small:
    guard and cleanup path that future UI/service runners will call.
    Support bundles include the same default TUN preflight report, making TUN
    readiness and lifecycle-backend failures visible in support diagnostics.
+   `tun-backend-check` reports the native TUN backend packaging state. On
+   Windows it probes Wintun library search paths, reports whether `wintun.dll`
+   is present, and keeps lifecycle/packet-I/O bridge wiring as explicit false
+   fields until the native backend is actually implemented. Doctor, support
+   bundles, and readiness gates include this backend status so packagers and UI
+   flows can distinguish missing driver assets from missing Rust-side wiring.
    DNS hijack now has a local SOCKS5 UDP path for A/AAAA wire queries, using the
    existing DNS engine and policy controls to return synthetic DNS responses
    instead of relaying hijacked DNS traffic to the original resolver.
@@ -382,10 +388,10 @@ The first implementation target is deliberately small:
    `readiness-check` now turns these production-readiness signals into an
    explicit default-core gate. It combines doctor schema coverage, interop
    validation/registry coverage, local mixed soak gates, resource limits,
-   managed panel/subscription state, system proxy support, and TUN preflight
-   state into one text or JSON report. Gates can pass, fail, or be skipped, so
-   CI and desktop integrations can see exactly why the native core is or is not
-   ready to become the default Keli core on a given machine.
+   managed panel/subscription state, system proxy support, TUN backend wiring,
+   and TUN preflight state into one text or JSON report. Gates can pass, fail,
+   or be skipped, so CI and desktop integrations can see exactly why the native
+   core is or is not ready to become the default Keli core on a given machine.
 
 The managed mixed runtime now supports a background handle with runtime status,
 generation tracking, event history, explicit stop, system proxy restoration, and

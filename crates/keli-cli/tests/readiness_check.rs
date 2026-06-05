@@ -22,7 +22,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(report["schema_version"], READINESS_CHECK_SCHEMA_VERSION);
     assert_eq!(report["ready_for_default_core"], false);
     assert_eq!(report["status"], "not-ready");
-    assert_eq!(report["summary"]["total_gate_count"], 10);
+    assert_eq!(report["summary"]["total_gate_count"], 11);
     assert_eq!(report["summary"]["skipped_gate_count"], 2);
 
     let gates = report["gates"].as_array().expect("gates");
@@ -47,6 +47,14 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
         .as_str()
         .expect("tun detail")
         .contains("status="));
+
+    let tun_backend = gate(gates, "tun-backend");
+    assert_eq!(tun_backend["category"], "platform");
+    assert_eq!(tun_backend["status"], "failed");
+    assert!(tun_backend["detail"]
+        .as_str()
+        .expect("tun backend detail")
+        .contains("backend=wintun"));
 }
 
 #[test]
@@ -85,8 +93,9 @@ fn readiness_check_text_reports_gate_summary() {
     .expect("write text readiness check");
 
     let output = String::from_utf8(output).expect("readiness text");
-    assert!(output.contains("readiness status=not-ready schema_version=1 gates=10"));
+    assert!(output.contains("readiness status=not-ready schema_version=1 gates=11"));
     assert!(output.contains("readiness gate=interop-matrix category=protocols status=passed"));
+    assert!(output.contains("readiness gate=tun-backend category=platform status=failed"));
     assert!(
         output.contains("readiness gate=mixed-soak-http-connect category=stability status=skipped")
     );

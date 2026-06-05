@@ -102,6 +102,19 @@ fn parses_tun_preflight_json_command() {
 }
 
 #[test]
+fn parses_tun_backend_check_json_command() {
+    let command =
+        parse_cli_command(["tun-backend-check", "--format", "json"]).expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::TunBackendCheck {
+            output: ProbeOutputFormat::Json
+        }
+    );
+}
+
+#[test]
 fn parses_support_bundle_command() {
     let command = parse_cli_command(["support-bundle", "--profile-config", "subscription.yaml"])
         .expect("command should parse");

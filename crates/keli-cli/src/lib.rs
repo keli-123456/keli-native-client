@@ -39,7 +39,7 @@ use keli_net_core::{
 use keli_platform::{
     NativeSystemProxyController, NativeTunDeviceController, PlatformCapabilities,
     SystemProxyConfig, SystemProxyController, SystemProxySnapshot, SystemProxyStatus,
-    TunDeviceConfig, TunDeviceController, TunDevicePreflight, TunDeviceReadiness,
+    TunBackendStatus, TunDeviceConfig, TunDeviceController, TunDevicePreflight, TunDeviceReadiness,
     TunDeviceSnapshot, TunDeviceStatus, TunPacketIo, TunPacketIoController,
 };
 use keli_protocol::{
@@ -71,7 +71,7 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 3;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 4;
 pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 2;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 1;
@@ -100,6 +100,8 @@ const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
     "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates";
+const TUN_BACKEND_CHECK_CAPABILITIES: &str =
+    "backend-kind,driver-library-detection,install-required,lifecycle-wiring,packet-io-wiring,searched-paths,readiness-blocker-detail";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,6 +121,9 @@ pub enum CliCommand {
     },
     TunPreflight {
         config: TunDeviceConfig,
+        output: ProbeOutputFormat,
+    },
+    TunBackendCheck {
         output: ProbeOutputFormat,
     },
     Version,
@@ -3906,6 +3911,7 @@ pub fn parse_cli_command(
         Some("interop-matrix") => parse_interop_matrix(args),
         Some("readiness-check") => parse_readiness_check(args),
         Some("tun-preflight") => parse_tun_preflight(args),
+        Some("tun-backend-check") => parse_tun_backend_check(args),
         Some("version") => Ok(CliCommand::Version),
         Some("subscription-fetch") => parse_subscription_fetch(args),
         Some("subscription-update") => parse_subscription_update(args),
@@ -3951,6 +3957,10 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             let mut stdout = io::stdout();
             write_tun_preflight_report_with_controller(&mut stdout, output, config, &controller)
                 .map_err(|error| format!("write TUN preflight report: {error}"))
+        }
+        CliCommand::TunBackendCheck { output } => {
+            let mut stdout = io::stdout();
+            write_tun_backend_check_report(output, &mut stdout)
         }
         CliCommand::Version => {
             println!("keli-cli {}", env!("CARGO_PKG_VERSION"));
@@ -4154,7 +4164,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
 pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
-        "usage: keli-cli [doctor|interop-matrix|readiness-check|tun-preflight|version|subscription-fetch|subscription-update|listen-mixed|probe-outbound|smoke-mixed|soak-mixed|profile-check|support-bundle]"
+        "usage: keli-cli [doctor|interop-matrix|readiness-check|tun-preflight|tun-backend-check|version|subscription-fetch|subscription-update|listen-mixed|probe-outbound|smoke-mixed|soak-mixed|profile-check|support-bundle]"
     )?;
     writeln!(writer, "       keli-cli doctor [--format text|json]")?;
     writeln!(
@@ -4168,6 +4178,10 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
         "       keli-cli tun-preflight [--interface keli-tun0] [--address 10.7.0.1/24] [--mtu 1500] [--dns-hijack] [--format text|json]"
+    )?;
+    writeln!(
+        writer,
+        "       keli-cli tun-backend-check [--format text|json]"
     )?;
     writeln!(
         writer,
@@ -4338,6 +4352,25 @@ fn parse_tun_preflight(args: impl Iterator<Item = String>) -> Result<CliCommand,
         .map_err(|error| format!("invalid TUN preflight config: {error}"))?
         .with_dns_hijack(dns_hijack);
     Ok(CliCommand::TunPreflight { config, output })
+}
+
+fn parse_tun_backend_check(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
+    let mut output = ProbeOutputFormat::Text;
+    let mut args = args.peekable();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--format" => {
+                output = parse_probe_output_format(
+                    args.next()
+                        .ok_or_else(|| "--format requires text or json".to_string())?,
+                )?;
+            }
+            other => return Err(format!("unknown tun-backend-check option: {other}")),
+        }
+    }
+
+    Ok(CliCommand::TunBackendCheck { output })
 }
 
 fn parse_subscription_fetch(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
@@ -4967,6 +5000,7 @@ struct DoctorReport {
     system_proxy_error: Option<String>,
     tun: bool,
     tun_device: TunDeviceStatus,
+    tun_backend: TunBackendStatus,
     secure_storage: bool,
     inbound_debug: String,
     inbound_kind: &'static str,
@@ -4991,6 +5025,7 @@ struct DoctorReport {
     stability_diagnostic_capabilities: Vec<&'static str>,
     interop_matrix_capabilities: Vec<&'static str>,
     readiness_check_capabilities: Vec<&'static str>,
+    tun_backend_check_capabilities: Vec<&'static str>,
     runtime_event_history_limit: usize,
     managed_status_recent_event_limit: usize,
     managed_connection_report_history_limit: usize,
@@ -5024,6 +5059,7 @@ fn collect_doctor_report() -> DoctorReport {
     let capabilities = PlatformCapabilities::detect();
     let system_proxy_status = SystemProxyStatus::detect();
     let tun_device = TunDeviceStatus::detect();
+    let tun_backend = TunBackendStatus::detect();
     let default_dns_options = MixedDnsOptions::default();
     let inbound = LocalInbound::Mixed {
         listen: "127.0.0.1".to_string(),
@@ -5069,6 +5105,7 @@ fn collect_doctor_report() -> DoctorReport {
         system_proxy_error: system_proxy_status.error,
         tun: capabilities.tun,
         tun_device,
+        tun_backend,
         secure_storage: capabilities.secure_storage,
         inbound_debug: format!("{inbound:?}"),
         inbound_kind: "mixed",
@@ -5095,6 +5132,7 @@ fn collect_doctor_report() -> DoctorReport {
         stability_diagnostic_capabilities: STABILITY_DIAGNOSTIC_CAPABILITIES.split(',').collect(),
         interop_matrix_capabilities: INTEROP_MATRIX_CAPABILITIES.split(',').collect(),
         readiness_check_capabilities: READINESS_CHECK_CAPABILITIES.split(',').collect(),
+        tun_backend_check_capabilities: TUN_BACKEND_CHECK_CAPABILITIES.split(',').collect(),
         runtime_event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
         managed_status_recent_event_limit: MANAGED_MIXED_RECENT_EVENT_LIMIT,
         managed_connection_report_history_limit: MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
@@ -5149,6 +5187,19 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
             .as_deref()
             .unwrap_or("-"),
         report.tun_device.error.as_deref().unwrap_or("-")
+    )?;
+    writeln!(
+        writer,
+        "tun_backend platform={} backend={} supported={} driver_library_present={} install_required={} lifecycle_wired={} packet_io_wired={} driver_library_path={} reason={}",
+        format!("{:?}", report.tun_backend.platform),
+        report.tun_backend.backend_label(),
+        report.tun_backend.supported,
+        report.tun_backend.driver_library_present,
+        report.tun_backend.install_required,
+        report.tun_backend.lifecycle_wired,
+        report.tun_backend.packet_io_wired,
+        report.tun_backend.driver_library_path.as_deref().unwrap_or("-"),
+        report.tun_backend.reason.as_deref().unwrap_or("-")
     )?;
     writeln!(writer, "secure_storage={}", report.secure_storage)?;
     writeln!(writer, "inbound={}", report.inbound_debug)?;
@@ -5240,6 +5291,11 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     )?;
     writeln!(
         writer,
+        "tun_backend_check_capabilities={}",
+        report.tun_backend_check_capabilities.join(",")
+    )?;
+    writeln!(
+        writer,
         "resource_limits runtime_event_history={} managed_status_recent_events={} managed_connection_report_history={} managed_connection_workers={} tun_tcp_max_active_sessions={}",
         report.runtime_event_history_limit,
         report.managed_status_recent_event_limit,
@@ -5294,6 +5350,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
             "dns_hijack": report.tun_device.dns_hijack,
             "error": report.tun_device.error.as_deref(),
         },
+        "tun_backend": tun_backend_json_value(&report.tun_backend),
         "secure_storage": report.secure_storage,
         "inbound": {
             "kind": report.inbound_kind,
@@ -5321,6 +5378,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         "stability_diagnostic_capabilities": &report.stability_diagnostic_capabilities,
         "interop_matrix_capabilities": &report.interop_matrix_capabilities,
         "readiness_check_capabilities": &report.readiness_check_capabilities,
+        "tun_backend_check_capabilities": &report.tun_backend_check_capabilities,
         "resource_limits": {
             "runtime_event_history": report.runtime_event_history_limit,
             "managed_status_recent_events": report.managed_status_recent_event_limit,
@@ -5330,6 +5388,74 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         },
         "sample_profile_valid": report.sample_profile_valid,
         "initial_phase": &report.initial_phase,
+    })
+}
+
+pub fn write_tun_backend_check_report(
+    output: ProbeOutputFormat,
+    mut writer: impl Write,
+) -> Result<(), String> {
+    let status = TunBackendStatus::detect();
+    match output {
+        ProbeOutputFormat::Text => write_tun_backend_check_text_report(&mut writer, &status),
+        ProbeOutputFormat::Json => write_tun_backend_check_json_report(&mut writer, &status),
+    }
+}
+
+fn write_tun_backend_check_text_report(
+    writer: &mut impl Write,
+    status: &TunBackendStatus,
+) -> Result<(), String> {
+    writeln!(
+        writer,
+        "tun_backend status={} platform={:?} backend={} supported={} driver_library_present={} install_required={} lifecycle_wired={} packet_io_wired={} driver_library_path={} reason={}",
+        if status.lifecycle_wired && status.packet_io_wired {
+            "ready"
+        } else {
+            "not-ready"
+        },
+        status.platform,
+        status.backend_label(),
+        status.supported,
+        status.driver_library_present,
+        status.install_required,
+        status.lifecycle_wired,
+        status.packet_io_wired,
+        status.driver_library_path.as_deref().unwrap_or("-"),
+        status.reason.as_deref().unwrap_or("-")
+    )
+    .map_err(|error| error.to_string())?;
+    for path in &status.searched_paths {
+        writeln!(writer, "tun_backend searched_path={path}").map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn write_tun_backend_check_json_report(
+    writer: &mut impl Write,
+    status: &TunBackendStatus,
+) -> Result<(), String> {
+    let value = serde_json::json!({
+        "status": if status.lifecycle_wired && status.packet_io_wired { "ready" } else { "not-ready" },
+        "kind": "keli_tun_backend_check",
+        "backend": tun_backend_json_value(status),
+    });
+    serde_json::to_writer_pretty(&mut *writer, &value).map_err(|error| error.to_string())?;
+    writeln!(writer).map_err(|error| error.to_string())
+}
+
+fn tun_backend_json_value(status: &TunBackendStatus) -> serde_json::Value {
+    serde_json::json!({
+        "platform": format!("{:?}", status.platform),
+        "backend": status.backend_label(),
+        "supported": status.supported,
+        "lifecycle_wired": status.lifecycle_wired,
+        "packet_io_wired": status.packet_io_wired,
+        "driver_library_present": status.driver_library_present,
+        "driver_library_path": status.driver_library_path.as_deref(),
+        "install_required": status.install_required,
+        "searched_paths": &status.searched_paths,
+        "reason": status.reason.as_deref(),
     })
 }
 
@@ -6063,6 +6189,24 @@ fn collect_readiness_check_report(
             format!(
                 "supported={} state={}",
                 doctor.system_proxy_supported, doctor.system_proxy_state
+            ),
+        ),
+        readiness_gate(
+            "tun-backend",
+            "platform",
+            doctor.tun_backend.supported
+                && doctor.tun_backend.lifecycle_wired
+                && doctor.tun_backend.packet_io_wired,
+            format!(
+                "platform={:?} backend={} supported={} driver_library_present={} install_required={} lifecycle_wired={} packet_io_wired={} reason={}",
+                doctor.tun_backend.platform,
+                doctor.tun_backend.backend_label(),
+                doctor.tun_backend.supported,
+                doctor.tun_backend.driver_library_present,
+                doctor.tun_backend.install_required,
+                doctor.tun_backend.lifecycle_wired,
+                doctor.tun_backend.packet_io_wired,
+                doctor.tun_backend.reason.as_deref().unwrap_or("-")
             ),
         ),
         readiness_gate(

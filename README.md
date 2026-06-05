@@ -127,6 +127,12 @@ into the net-core TUN packet loop.
 TUN preflight treats packet I/O availability as its own readiness boundary,
 reporting `packet-io-unavailable` when a platform can manage the interface but
 cannot yet feed packets into the data plane.
+`tun-backend-check` exposes the native TUN backend packaging state. On Windows
+it probes for Wintun (`wintun.dll`) through standard bundle/system paths and
+reports whether the driver library is present, whether lifecycle and packet I/O
+bridges are wired, and whether installation or backend wiring is still required.
+Doctor, support bundles, and readiness checks include this backend detail so the
+default-core blocker is actionable instead of a generic unavailable state.
 A bounded managed TUN packet-loop runner now ties lifecycle guard, packet I/O,
 net-core loop summary, and owned-device cleanup into one tested control path.
 Direct UDP TUN relay can execute an injected UDP relay, wrap the relay payload
@@ -326,9 +332,10 @@ and support flows can inspect protocol readiness without scraping this document.
 `readiness-check` adds a default-core gate for CI and desktop integration: it
 combines doctor schema coverage, interop matrix coverage, resource limits,
 panel/subscription status surfaces, system proxy support, TUN preflight state,
-and optional local mixed soak gates into one text or JSON report. The report is
-allowed to say `not-ready` when the local platform still lacks a required
-handoff such as packet I/O, making remaining default-core blockers explicit.
+TUN backend wiring, and optional local mixed soak gates into one text or JSON
+report. The report is allowed to say `not-ready` when the local platform still
+lacks a required handoff such as Wintun packaging, lifecycle control, or packet
+I/O, making remaining default-core blockers explicit.
 
 ## Protocol Matrix
 
@@ -373,6 +380,7 @@ cargo fmt --check
 $env:CARGO_INCREMENTAL='0'; cargo test --workspace -j 1
 cargo run -p keli-cli -- doctor
 cargo run -p keli-cli -- doctor --format json
+cargo run -p keli-cli -- tun-backend-check --format json
 cargo run -p keli-cli -- interop-matrix --format json
 cargo run -p keli-cli -- readiness-check --format json
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
