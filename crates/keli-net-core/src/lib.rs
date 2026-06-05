@@ -91,7 +91,7 @@ pub use tun::{
     TunTcpSessionPruneReport, TunTcpSessionRecord, TunTcpSessionRelay, TunTcpSessionStep,
     TunTcpSessionTable, TunTcpSessionTableState, TunTcpSynAckResponse, TunTransportProtocol,
     TunUdpPayload, TunUdpRelay, TunUdpRelayError, TunUdpRelayResponse,
-    DEFAULT_TUN_TCP_SESSION_IDLE_TIMEOUT,
+    DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS, DEFAULT_TUN_TCP_SESSION_IDLE_TIMEOUT,
 };
 pub use websocket::{websocket_accept_for_key, OwnedWebSocketClientStream, WebSocketClientStream};
 

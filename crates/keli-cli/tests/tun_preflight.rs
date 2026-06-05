@@ -19,6 +19,7 @@ use keli_cli::{
 use keli_net_core::{
     parse_tun_tcp_segment, parse_tun_udp_payload, DnsCache, DnsEngine, OutboundRegistry,
     RelayOptions, RouteAction, RouteEngine, SystemDnsResolver, TunPacketDevice,
+    DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
 };
 use keli_platform::{
     NativeSystemProxyController, TunDeviceConfig, TunDeviceController, TunDeviceError,
@@ -545,6 +546,11 @@ fn managed_tun_packet_loop_with_runtime_relays_tagged_tcp_via_registry() {
     assert_eq!(report.summary.processed_packets(), 4);
     assert_eq!(report.summary.tcp_session_events, 4);
     assert_eq!(report.summary.tcp_session_packets_written, 3);
+    assert_eq!(
+        report.summary.tcp_max_active_sessions,
+        DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS
+    );
+    assert_eq!(report.summary.tcp_session_limit_rejections, 0);
     assert_eq!(report.summary.tcp_sessions_pruned, 0);
     assert_eq!(report.summary.tcp_server_closed_sessions_pruned, 0);
     assert_eq!(report.summary.tcp_post_closed_sessions_pruned, 0);
@@ -903,6 +909,10 @@ fn managed_mixed_session_records_tun_runtime_status_note_after_serve() {
     assert!(note.contains("tcp_resets=0"));
     assert!(note.contains("tcp_session_events=0"));
     assert!(note.contains("tcp_session_writes=0"));
+    assert!(note.contains(&format!(
+        "tcp_max_active_sessions={DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS}"
+    )));
+    assert!(note.contains("tcp_session_limit_rejections=0"));
     assert!(note.contains("tcp_sessions_pruned=0"));
     assert!(note.contains("tcp_server_closed_pruned=0"));
     assert!(note.contains("tcp_post_closed_pruned=0"));

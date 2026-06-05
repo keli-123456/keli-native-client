@@ -238,6 +238,7 @@ pub struct TunTcpSessionTableState {
     pub active_sessions: usize,
     pub server_close_markers: usize,
     pub post_close_markers: usize,
+    pub max_active_sessions: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -321,11 +322,12 @@ pub enum TunTcpCloseMarkerResetKind {
     PostClose,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TunTcpSessionTable {
     sessions: HashMap<TunTcpSessionKey, TunTcpSessionRecord>,
     server_closed_sessions: HashMap<TunTcpSessionKey, TunTcpServerClosedSession>,
     post_closed_sessions: HashMap<TunTcpSessionKey, TunTcpPostCloseSession>,
+    max_active_sessions: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -409,6 +411,8 @@ pub struct TunPacketLoopSummary {
     pub last_udp_relay_error: Option<TunUdpRelayError>,
     pub tcp_session_events: usize,
     pub tcp_session_packets_written: usize,
+    pub tcp_max_active_sessions: usize,
+    pub tcp_session_limit_rejections: usize,
     pub tcp_sessions_pruned: usize,
     pub tcp_server_closed_sessions_pruned: usize,
     pub tcp_post_closed_sessions_pruned: usize,
@@ -538,6 +542,7 @@ const TCP_HEADER_LEN: usize = 20;
 const DEFAULT_TUN_TCP_RELAY_READ_BUFFER_SIZE: usize = 16 * 1024;
 const TUN_TCP_RELAY_READ_POLL_INTERVAL: Duration = Duration::from_millis(1);
 pub const DEFAULT_TUN_TCP_SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+pub const DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS: usize = 4096;
 
 pub trait TunUdpRelay {
     fn relay_udp_datagram(
@@ -839,6 +844,15 @@ impl From<TunPacketError> for TunTcpSessionError {
     }
 }
 
+impl TunTcpSessionError {
+    fn is_session_limit_exceeded(&self) -> bool {
+        matches!(
+            self,
+            Self::Packet(TunPacketError::TcpSessionLimitExceeded { .. })
+        )
+    }
+}
+
 impl TunTcpSessionStep {
     pub fn response_packets(&self) -> Vec<&[u8]> {
         match self {
@@ -986,6 +1000,9 @@ impl TunPacketLoopSummary {
             }
             TunPacketLoopEvent::TcpSessionError(error) => {
                 self.tcp_session_errors += 1;
+                if error.is_session_limit_exceeded() {
+                    self.tcp_session_limit_rejections += 1;
+                }
                 self.last_tcp_session_error = Some(error.clone());
             }
         }
@@ -1003,6 +1020,7 @@ impl TunPacketLoopSummary {
 
     pub fn record_tcp_session_table_state(&mut self, sessions: &TunTcpSessionTable) {
         let state = sessions.state_counts();
+        self.tcp_max_active_sessions = state.max_active_sessions;
         self.tcp_sessions_open = state.active_sessions;
         self.tcp_server_close_markers_open = state.server_close_markers;
         self.tcp_post_close_markers_open = state.post_close_markers;
@@ -1102,6 +1120,10 @@ pub enum TunPacketError {
     },
     ExpectedTcpSynSegment {
         flags: TunTcpFlags,
+    },
+    TcpSessionLimitExceeded {
+        active_sessions: usize,
+        max_active_sessions: usize,
     },
     TcpDataOffsetTooSmall {
         data_offset: usize,
@@ -1214,6 +1236,13 @@ impl fmt::Display for TunPacketError {
                 f,
                 "expected initial TCP SYN segment, got flags=0x{:03x}",
                 flags.bits()
+            ),
+            Self::TcpSessionLimitExceeded {
+                active_sessions,
+                max_active_sessions,
+            } => write!(
+                f,
+                "TUN TCP active session limit exceeded: active_sessions={active_sessions}, max_active_sessions={max_active_sessions}"
             ),
             Self::TcpDataOffsetTooSmall { data_offset } => write!(
                 f,
@@ -1359,13 +1388,32 @@ impl TunTcpSessionKey {
     }
 }
 
+impl Default for TunTcpSessionTable {
+    fn default() -> Self {
+        Self::with_max_active_sessions(DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS)
+    }
+}
+
 impl TunTcpSessionTable {
     pub fn new() -> Self {
         Self::default()
     }
 
+    pub fn with_max_active_sessions(max_active_sessions: usize) -> Self {
+        Self {
+            sessions: HashMap::new(),
+            server_closed_sessions: HashMap::new(),
+            post_closed_sessions: HashMap::new(),
+            max_active_sessions: max_active_sessions.max(1),
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.sessions.len()
+    }
+
+    pub fn max_active_sessions(&self) -> usize {
+        self.max_active_sessions
     }
 
     pub fn is_empty(&self) -> bool {
@@ -1377,6 +1425,7 @@ impl TunTcpSessionTable {
             active_sessions: self.sessions.len(),
             server_close_markers: self.server_closed_sessions.len(),
             post_close_markers: self.post_closed_sessions.len(),
+            max_active_sessions: self.max_active_sessions,
         }
     }
 
@@ -1403,6 +1452,12 @@ impl TunTcpSessionTable {
             });
         }
         let key = TunTcpSessionKey::from_flow(&segment.flow)?;
+        if !self.sessions.contains_key(&key) && self.sessions.len() >= self.max_active_sessions {
+            return Err(TunPacketError::TcpSessionLimitExceeded {
+                active_sessions: self.sessions.len(),
+                max_active_sessions: self.max_active_sessions,
+            });
+        }
         let session = TunTcpSessionRecord {
             key: key.clone(),
             flow: segment.flow.clone(),

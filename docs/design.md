@@ -311,6 +311,10 @@ The first implementation target is deliberately small:
    The same summaries keep peak active TCP session, server-close marker, and
    post-close marker counts observed during the packet loop, so support can
    distinguish transient pressure from exit-time residue.
+   The TUN TCP session table also enforces a default active-session cap and
+   counts limit rejections in loop summaries and managed runtime notes while
+   reporting the active cap, preventing unbounded growth during long-running
+   sessions.
    The TCP session table also tracks last activity and packet loops prune idle
    sessions through the relay close path, with the pruned count visible in loop
    summaries and managed runtime status notes.

@@ -21,9 +21,10 @@ use keli_net_core::{
     RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketDevice,
     TunPacketError, TunPacketLoopEvent, TunPacketLoopSummary, TunPacketProcessAction,
     TunPacketRelayAction, TunPacketRelayPlan, TunTcpCloseMarkerResetKind, TunTcpFlags,
-    TunTcpServerRead, TunTcpSessionKey, TunTcpSessionPhase, TunTcpSessionRecord,
-    TunTcpSessionRelay, TunTcpSessionStep, TunTcpSessionTable, TunTransportProtocol, TunUdpRelay,
-    TunUdpRelayError, UdpRelayResponse,
+    TunTcpServerRead, TunTcpSessionError, TunTcpSessionKey, TunTcpSessionPhase,
+    TunTcpSessionRecord, TunTcpSessionRelay, TunTcpSessionStep, TunTcpSessionTable,
+    TunTransportProtocol, TunUdpRelay, TunUdpRelayError, UdpRelayResponse,
+    DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
 };
 
 #[test]
@@ -401,6 +402,10 @@ fn starts_tun_tcp_session_from_syn_and_establishes_on_matching_ack() {
         .expect("start TUN TCP session");
 
     assert_eq!(sessions.len(), 1);
+    assert_eq!(
+        sessions.max_active_sessions(),
+        DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS
+    );
     assert_eq!(response.session.client_initial_sequence_number, 10);
     assert_eq!(response.session.client_next_sequence_number, 11);
     assert_eq!(response.session.server_initial_sequence_number, 1000);
@@ -437,6 +442,43 @@ fn starts_tun_tcp_session_from_syn_and_establishes_on_matching_ack() {
         sessions.get(&key).expect("established session").phase,
         TunTcpSessionPhase::Established
     );
+}
+
+#[test]
+fn tun_tcp_session_table_rejects_new_syn_when_active_limit_is_reached() {
+    let first_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let second_packet = ipv4_packet(
+        6,
+        "10.7.0.3",
+        "93.184.216.34",
+        &tcp_segment(49153, 443, 20, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let first_syn = parse_tun_tcp_segment(&first_packet).expect("parse first SYN segment");
+    let second_syn = parse_tun_tcp_segment(&second_packet).expect("parse second SYN segment");
+    let mut sessions = TunTcpSessionTable::with_max_active_sessions(1);
+
+    sessions
+        .start_from_syn(&first_syn, 1000, 0x2000)
+        .expect("start first TUN TCP session");
+    let error = sessions
+        .start_from_syn(&second_syn, 1000, 0x2000)
+        .expect_err("second active session should exceed limit");
+
+    assert_eq!(
+        error,
+        TunPacketError::TcpSessionLimitExceeded {
+            active_sessions: 1,
+            max_active_sessions: 1
+        }
+    );
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions.state_counts().active_sessions, 1);
+    assert_eq!(sessions.state_counts().max_active_sessions, 1);
 }
 
 #[test]
@@ -6564,6 +6606,67 @@ fn tun_packet_loop_with_tcp_session_relay_records_relay_error_and_continues_summ
     );
     assert_eq!(device.writes.len(), 1);
     assert!(relay.client_payloads.is_empty());
+}
+
+#[test]
+fn tun_packet_loop_with_tcp_session_relay_reports_session_limit_rejection() {
+    let packets = vec![
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.3",
+            "93.184.216.34",
+            &tcp_segment(49153, 443, 20, 0, 0x0002, 0x4000, &[], b""),
+        ),
+    ];
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut device = FakeTunPacketDevice::new(packets);
+    let mut sessions = TunTcpSessionTable::with_max_active_sessions(1);
+    let mut relay = FakeTunTcpSessionRelay::default();
+
+    let summary = run_tun_packet_loop_with_tcp_session_relay_summary(
+        &mut device,
+        &routes,
+        true,
+        &mut dns,
+        30,
+        2,
+        &mut sessions,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("run TUN loop with TCP session limit");
+
+    assert_eq!(summary.processed_packets(), 2);
+    assert_eq!(summary.tcp_session_events, 1);
+    assert_eq!(summary.tcp_session_packets_written, 1);
+    assert_eq!(summary.tcp_session_errors, 1);
+    assert_eq!(summary.tcp_max_active_sessions, 1);
+    assert_eq!(summary.tcp_session_limit_rejections, 1);
+    assert_eq!(
+        summary.last_tcp_session_error,
+        Some(TunTcpSessionError::Packet(
+            TunPacketError::TcpSessionLimitExceeded {
+                active_sessions: 1,
+                max_active_sessions: 1
+            }
+        ))
+    );
+    assert_eq!(summary.tcp_sessions_open, 1);
+    assert_eq!(summary.tcp_sessions_peak, 1);
+    assert_eq!(device.writes.len(), 1);
+    assert_eq!(sessions.len(), 1);
+    assert!(relay.established_sessions.is_empty());
 }
 
 #[test]
