@@ -79,7 +79,7 @@ const ROUTE_RULE_CAPABILITIES: &str =
 const MANAGED_CONNECTION_METRIC_CAPABILITIES: &str =
     "total-connection-count,success-count,failure-count,connection-limit-rejection-count,error-kind-counts,route-action-counts,inbound-counts,total-upload-bytes,total-download-bytes,total-connect-ms,timed-connect-count,average-connect-ms,total-first-byte-ms,timed-first-byte-count,average-first-byte-ms,last-connection-timestamp,last-success-timestamp,last-failure-timestamp,recent-connection-reports,history-limit";
 const MANAGED_STATUS_SCHEMA_CAPABILITIES: &str =
-    "schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,last-error,system-proxy,subscription-status,node-health,node-health-coverage,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state";
+    "schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
     "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic";
 
@@ -1694,6 +1694,9 @@ pub struct ManagedSubscriptionHealthSummary {
     pub recommended_state: Option<ManagedNodeHealthState>,
     pub recommended_is_selected: bool,
     pub switch_recommended: bool,
+    pub selected_outbound_healthy: bool,
+    pub recommended_outbound_healthy: bool,
+    pub recommended_switch_ready: bool,
     pub fully_checked: bool,
 }
 
@@ -1732,6 +1735,15 @@ impl ManagedSubscriptionHealthSummary {
             .find(|health| health.tag == recommended_outbound)
             .map(|health| health.state.clone());
         let recommended_is_selected = selected_outbound == recommended_outbound;
+        let selected_outbound_healthy = matches!(
+            selected_state.as_ref(),
+            Some(ManagedNodeHealthState::Healthy)
+        );
+        let recommended_outbound_healthy = matches!(
+            recommended_state.as_ref(),
+            Some(ManagedNodeHealthState::Healthy)
+        );
+        let recommended_switch_ready = !recommended_is_selected && recommended_outbound_healthy;
         let unchecked_count = node_count.saturating_sub(checked_count);
 
         Self {
@@ -1746,6 +1758,9 @@ impl ManagedSubscriptionHealthSummary {
             recommended_state,
             recommended_is_selected,
             switch_recommended: !recommended_is_selected,
+            selected_outbound_healthy,
+            recommended_outbound_healthy,
+            recommended_switch_ready,
             fully_checked: unchecked_count == 0,
         }
     }
@@ -2192,6 +2207,9 @@ fn managed_subscription_health_summary_json_value(
         "recommended_state": summary.recommended_state.as_ref().map(ManagedNodeHealthState::label),
         "recommended_is_selected": summary.recommended_is_selected,
         "switch_recommended": summary.switch_recommended,
+        "selected_outbound_healthy": summary.selected_outbound_healthy,
+        "recommended_outbound_healthy": summary.recommended_outbound_healthy,
+        "recommended_switch_ready": summary.recommended_switch_ready,
         "fully_checked": summary.fully_checked,
     })
 }

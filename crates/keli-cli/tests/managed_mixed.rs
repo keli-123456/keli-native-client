@@ -1329,6 +1329,18 @@ fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
         value["subscription"]["health_summary"]["unchecked_count"],
         1
     );
+    assert_eq!(
+        value["subscription"]["health_summary"]["selected_outbound_healthy"],
+        true
+    );
+    assert_eq!(
+        value["subscription"]["health_summary"]["recommended_outbound_healthy"],
+        true
+    );
+    assert_eq!(
+        value["subscription"]["health_summary"]["recommended_switch_ready"],
+        false
+    );
 
     let serialized = value.to_string();
     assert!(!serialized.contains("secret"));
@@ -1922,6 +1934,9 @@ fn managed_mixed_controller_status_reports_subscription_nodes() {
     );
     assert!(subscription.health_summary.recommended_is_selected);
     assert!(!subscription.health_summary.switch_recommended);
+    assert!(!subscription.health_summary.selected_outbound_healthy);
+    assert!(!subscription.health_summary.recommended_outbound_healthy);
+    assert!(!subscription.health_summary.recommended_switch_ready);
     assert!(!subscription.health_summary.fully_checked);
     assert_eq!(subscription.skipped[0].name, "WG-SKIPPED");
     assert_eq!(
@@ -1956,6 +1971,9 @@ fn managed_mixed_controller_status_reports_subscription_nodes() {
     );
     assert!(subscription.health_summary.recommended_is_selected);
     assert!(!subscription.health_summary.switch_recommended);
+    assert!(!subscription.health_summary.selected_outbound_healthy);
+    assert!(!subscription.health_summary.recommended_outbound_healthy);
+    assert!(!subscription.health_summary.recommended_switch_ready);
     assert!(!subscription.health_summary.fully_checked);
 
     core.stop().expect("stop managed mixed controller");
@@ -1995,6 +2013,9 @@ fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
         subscription.health_summary.selected_state,
         Some(ManagedNodeHealthState::Unknown)
     );
+    assert!(!subscription.health_summary.selected_outbound_healthy);
+    assert!(!subscription.health_summary.recommended_outbound_healthy);
+    assert!(!subscription.health_summary.recommended_switch_ready);
     assert!(!subscription.health_summary.fully_checked);
 
     core.record_node_health(ManagedNodeHealthStatus::healthy(
@@ -2041,6 +2062,9 @@ fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
     );
     assert!(subscription.health_summary.recommended_is_selected);
     assert!(!subscription.health_summary.switch_recommended);
+    assert!(subscription.health_summary.selected_outbound_healthy);
+    assert!(subscription.health_summary.recommended_outbound_healthy);
+    assert!(!subscription.health_summary.recommended_switch_ready);
     assert!(subscription.health_summary.fully_checked);
     assert_eq!(
         next.error_kind,
@@ -2151,6 +2175,9 @@ fn managed_mixed_controller_recommends_fastest_healthy_node() {
     );
     assert!(!subscription.health_summary.recommended_is_selected);
     assert!(subscription.health_summary.switch_recommended);
+    assert!(subscription.health_summary.selected_outbound_healthy);
+    assert!(subscription.health_summary.recommended_outbound_healthy);
+    assert!(subscription.health_summary.recommended_switch_ready);
     assert!(subscription.health_summary.fully_checked);
 
     let status = core
@@ -2175,6 +2202,9 @@ fn managed_mixed_controller_recommends_fastest_healthy_node() {
     );
     assert!(subscription.health_summary.recommended_is_selected);
     assert!(!subscription.health_summary.switch_recommended);
+    assert!(subscription.health_summary.selected_outbound_healthy);
+    assert!(subscription.health_summary.recommended_outbound_healthy);
+    assert!(!subscription.health_summary.recommended_switch_ready);
     assert!(subscription.health_summary.fully_checked);
 
     let status = core
@@ -2199,6 +2229,9 @@ fn managed_mixed_controller_recommends_fastest_healthy_node() {
     );
     assert!(subscription.health_summary.recommended_is_selected);
     assert!(!subscription.health_summary.switch_recommended);
+    assert!(!subscription.health_summary.selected_outbound_healthy);
+    assert!(!subscription.health_summary.recommended_outbound_healthy);
+    assert!(!subscription.health_summary.recommended_switch_ready);
     assert!(subscription.health_summary.fully_checked);
 
     core.stop().expect("stop managed mixed controller");
@@ -2242,6 +2275,7 @@ fn managed_mixed_controller_applies_recommended_outbound() {
     assert_eq!(subscription.recommended_outbound, "SS-NEXT");
     assert!(!subscription.health_summary.recommended_is_selected);
     assert!(subscription.health_summary.switch_recommended);
+    assert!(subscription.health_summary.recommended_switch_ready);
     assert!(subscription.health_summary.fully_checked);
 
     let switched = core
@@ -2263,6 +2297,9 @@ fn managed_mixed_controller_applies_recommended_outbound() {
         Some(ManagedNodeHealthState::Healthy)
     );
     assert!(!subscription.health_summary.switch_recommended);
+    assert!(subscription.health_summary.selected_outbound_healthy);
+    assert!(subscription.health_summary.recommended_outbound_healthy);
+    assert!(!subscription.health_summary.recommended_switch_ready);
     assert!(subscription.health_summary.fully_checked);
     assert_eq!(
         subscription
@@ -2337,6 +2374,9 @@ fn managed_mixed_controller_probe_all_node_health_records_each_supported_node() 
     assert_eq!(subscription.health_summary.checked_count, 2);
     assert!(subscription.health_summary.last_checked_at.is_some());
     assert!(!subscription.health_summary.recommended_is_selected);
+    assert!(!subscription.health_summary.selected_outbound_healthy);
+    assert!(subscription.health_summary.recommended_outbound_healthy);
+    assert!(subscription.health_summary.recommended_switch_ready);
     assert!(next.error_kind.is_some());
     assert!(next.error_detail.is_some());
 
@@ -2390,6 +2430,9 @@ fn managed_mixed_controller_probe_all_node_health_can_apply_recommended_outbound
     assert_eq!(subscription.health_summary.unhealthy_count, 1);
     assert_eq!(subscription.health_summary.checked_count, 2);
     assert!(subscription.health_summary.recommended_is_selected);
+    assert!(subscription.health_summary.selected_outbound_healthy);
+    assert!(subscription.health_summary.recommended_outbound_healthy);
+    assert!(!subscription.health_summary.recommended_switch_ready);
 
     ss_thread.join().expect("ss tcp echo server");
     core.stop().expect("stop managed mixed controller");
