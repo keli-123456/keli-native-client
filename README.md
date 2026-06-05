@@ -204,6 +204,8 @@ absorbed and a late duplicate client FIN+ACK can be acknowledged without
 creating reset noise.
 Late post-close client FINs that carry final payload are also ACKed and cached
 without reopening or writing to the already closed relay.
+Matching client RSTs now clear both server-close and post-close markers
+immediately without writing reset packets or closing the relay a second time.
 The TCP session table also tracks last activity and packet loops prune idle
 sessions through the relay close path, with the pruned count visible in loop
 summaries and managed runtime status notes.
