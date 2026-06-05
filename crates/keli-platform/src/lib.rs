@@ -1,7 +1,8 @@
 use std::fmt;
 use std::net::IpAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlatformKind {
@@ -270,7 +271,9 @@ pub struct TunBackendStatus {
     pub lifecycle_wired: bool,
     pub packet_io_wired: bool,
     pub driver_library_present: bool,
+    pub driver_api_available: bool,
     pub driver_library_path: Option<String>,
+    pub driver_api_error: Option<String>,
     pub install_required: bool,
     pub searched_paths: Vec<String>,
     pub reason: Option<String>,
@@ -283,6 +286,14 @@ impl TunBackendStatus {
 
     pub fn backend_label(&self) -> &str {
         &self.backend
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.supported
+            && self.lifecycle_wired
+            && self.packet_io_wired
+            && self.driver_api_available
+            && !self.install_required
     }
 }
 
@@ -433,25 +444,39 @@ pub trait TunPacketIoController: TunDeviceController {
     fn open_packet_io(&self, config: &TunDeviceConfig) -> Result<Self::PacketIo, TunDeviceError>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct NativeTunDeviceController {
     platform: PlatformKind,
+    state: Arc<Mutex<NativeTunControllerState>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default)]
+struct NativeTunControllerState {
+    active_config: Option<TunDeviceConfig>,
+    #[cfg(windows)]
+    windows_adapter: Option<Arc<windows_tun::WintunAdapter>>,
+}
+
+#[derive(Debug)]
 pub struct NativeTunPacketIo {
     platform: PlatformKind,
+    #[cfg(windows)]
+    windows_session: Option<windows_tun::WintunSession>,
 }
 
 impl NativeTunDeviceController {
     pub fn new() -> Self {
         Self {
             platform: PlatformKind::current(),
+            state: Arc::new(Mutex::new(NativeTunControllerState::default())),
         }
     }
 
     pub fn for_platform(platform: PlatformKind) -> Self {
-        Self { platform }
+        Self {
+            platform,
+            state: Arc::new(Mutex::new(NativeTunControllerState::default())),
+        }
     }
 
     pub fn backend_status(&self) -> TunBackendStatus {
@@ -464,7 +489,9 @@ impl NativeTunDeviceController {
                 lifecycle_wired: false,
                 packet_io_wired: false,
                 driver_library_present: false,
+                driver_api_available: false,
                 driver_library_path: None,
+                driver_api_error: None,
                 install_required: false,
                 searched_paths: Vec::new(),
                 reason: Some("Android VpnService bridge is not wired yet".to_string()),
@@ -476,7 +503,9 @@ impl NativeTunDeviceController {
                 lifecycle_wired: false,
                 packet_io_wired: false,
                 driver_library_present: false,
+                driver_api_available: false,
                 driver_library_path: None,
+                driver_api_error: None,
                 install_required: false,
                 searched_paths: Vec::new(),
                 reason: Some(format!("TUN backend is unsupported on {platform:?}")),
@@ -493,10 +522,20 @@ impl Default for NativeTunDeviceController {
 
 impl TunPacketIo for NativeTunPacketIo {
     fn read_packet(&mut self) -> Result<Option<Vec<u8>>, TunDeviceError> {
+        #[cfg(windows)]
+        if let Some(session) = self.windows_session.as_mut() {
+            return session.read_packet();
+        }
+
         Err(TunDeviceError::LifecycleUnavailable(self.platform.clone()))
     }
 
-    fn write_packet(&mut self, _packet: &[u8]) -> Result<(), TunDeviceError> {
+    fn write_packet(&mut self, packet: &[u8]) -> Result<(), TunDeviceError> {
+        #[cfg(windows)]
+        if let Some(session) = self.windows_session.as_mut() {
+            return session.write_packet(packet);
+        }
+
         Err(TunDeviceError::LifecycleUnavailable(self.platform.clone()))
     }
 }
@@ -507,8 +546,41 @@ impl TunPacketIoController for NativeTunDeviceController {
     fn open_packet_io(&self, config: &TunDeviceConfig) -> Result<Self::PacketIo, TunDeviceError> {
         config.validate()?;
         match self.platform {
-            PlatformKind::Windows | PlatformKind::Android => {
-                Err(TunDeviceError::LifecycleUnavailable(self.platform.clone()))
+            PlatformKind::Windows => {
+                #[cfg(windows)]
+                {
+                    let adapter = {
+                        let state = self.state.lock().map_err(|_| {
+                            TunDeviceError::Io("TUN controller state lock poisoned".to_string())
+                        })?;
+                        let Some(active_config) = state.active_config.as_ref() else {
+                            return Err(TunDeviceError::LifecycleUnavailable(
+                                PlatformKind::Windows,
+                            ));
+                        };
+                        if active_config != config {
+                            return Err(TunDeviceError::Io(format!(
+                                "active TUN config is {}, not {}",
+                                active_config.interface_name, config.interface_name
+                            )));
+                        }
+                        state.windows_adapter.as_ref().cloned().ok_or_else(|| {
+                            TunDeviceError::LifecycleUnavailable(PlatformKind::Windows)
+                        })?
+                    };
+                    let session = adapter.start_session()?;
+                    Ok(NativeTunPacketIo {
+                        platform: PlatformKind::Windows,
+                        windows_session: Some(session),
+                    })
+                }
+                #[cfg(not(windows))]
+                {
+                    Err(TunDeviceError::LifecycleUnavailable(PlatformKind::Windows))
+                }
+            }
+            PlatformKind::Android => {
+                Err(TunDeviceError::LifecycleUnavailable(PlatformKind::Android))
             }
             ref platform => Err(TunDeviceError::UnsupportedPlatform(platform.clone())),
         }
@@ -518,9 +590,21 @@ impl TunPacketIoController for NativeTunDeviceController {
 impl TunDeviceController for NativeTunDeviceController {
     fn snapshot(&self) -> Result<TunDeviceSnapshot, TunDeviceError> {
         match self.platform {
-            PlatformKind::Windows | PlatformKind::Android => {
-                Ok(TunDeviceSnapshot::stopped_supported_without_backend())
+            PlatformKind::Windows => {
+                if let Some(config) = self
+                    .state
+                    .lock()
+                    .map_err(|_| {
+                        TunDeviceError::Io("TUN controller state lock poisoned".to_string())
+                    })?
+                    .active_config
+                    .clone()
+                {
+                    return Ok(TunDeviceSnapshot::running(&config));
+                }
+                Ok(windows_tun_stopped_snapshot())
             }
+            PlatformKind::Android => Ok(TunDeviceSnapshot::stopped_supported_without_backend()),
             ref platform => Err(TunDeviceError::UnsupportedPlatform(platform.clone())),
         }
     }
@@ -528,41 +612,113 @@ impl TunDeviceController for NativeTunDeviceController {
     fn start(&self, config: &TunDeviceConfig) -> Result<TunDeviceSnapshot, TunDeviceError> {
         config.validate()?;
         match self.platform {
-            PlatformKind::Windows | PlatformKind::Android => {
-                Err(TunDeviceError::LifecycleUnavailable(self.platform.clone()))
+            PlatformKind::Windows => {
+                #[cfg(windows)]
+                {
+                    let adapter = windows_tun::WintunAdapter::open_or_create(config)?;
+                    windows_configure_tun_interface(config)?;
+                    let mut state = self.state.lock().map_err(|_| {
+                        TunDeviceError::Io("TUN controller state lock poisoned".to_string())
+                    })?;
+                    state.active_config = Some(config.clone());
+                    state.windows_adapter = Some(Arc::new(adapter));
+                    Ok(TunDeviceSnapshot::running(config))
+                }
+                #[cfg(not(windows))]
+                {
+                    Err(TunDeviceError::LifecycleUnavailable(PlatformKind::Windows))
+                }
+            }
+            PlatformKind::Android => {
+                Err(TunDeviceError::LifecycleUnavailable(PlatformKind::Android))
             }
             ref platform => Err(TunDeviceError::UnsupportedPlatform(platform.clone())),
         }
     }
 
     fn stop(&self) -> Result<TunDeviceSnapshot, TunDeviceError> {
-        self.snapshot()
+        match self.platform {
+            PlatformKind::Windows => {
+                let mut state = self.state.lock().map_err(|_| {
+                    TunDeviceError::Io("TUN controller state lock poisoned".to_string())
+                })?;
+                state.windows_adapter = None;
+                state.active_config = None;
+                Ok(windows_tun_stopped_snapshot())
+            }
+            PlatformKind::Android => self.snapshot(),
+            ref platform => Err(TunDeviceError::UnsupportedPlatform(platform.clone())),
+        }
     }
 }
 
 fn windows_tun_backend_status(search_paths: Vec<PathBuf>) -> TunBackendStatus {
     let found_path = search_paths.iter().find(|path| path.is_file()).cloned();
     let driver_library_present = found_path.is_some();
+    let driver_api_result = found_path
+        .as_deref()
+        .map(windows_tun_driver_api_available)
+        .transpose();
+    let (driver_api_available, driver_api_error) = match driver_api_result {
+        Ok(Some(())) => (true, None),
+        Ok(None) => (false, None),
+        Err(error) => (false, Some(error)),
+    };
+    let install_required = !driver_library_present || !driver_api_available;
     TunBackendStatus {
         platform: PlatformKind::Windows,
         backend: "wintun".to_string(),
         supported: true,
-        lifecycle_wired: false,
-        packet_io_wired: false,
+        lifecycle_wired: true,
+        packet_io_wired: true,
         driver_library_present,
+        driver_api_available,
         driver_library_path: found_path.map(|path| path.display().to_string()),
-        install_required: !driver_library_present,
+        driver_api_error: driver_api_error.clone(),
+        install_required,
         searched_paths: search_paths
             .into_iter()
             .map(|path| path.display().to_string())
             .collect(),
-        reason: Some(if driver_library_present {
-            "Wintun library detected, but native lifecycle and packet I/O bridge is not wired yet"
-                .to_string()
+        reason: Some(if !driver_library_present {
+            "Wintun library was not found; bundle a valid wintun.dll".to_string()
+        } else if let Some(error) = driver_api_error {
+            format!("Wintun library was found, but its API could not be loaded: {error}")
         } else {
-            "Wintun library was not found; bundle wintun.dll and wire lifecycle/packet I/O bridge"
-                .to_string()
+            "Wintun lifecycle and packet I/O bridge is wired".to_string()
         }),
+    }
+}
+
+fn windows_tun_stopped_snapshot() -> TunDeviceSnapshot {
+    let backend = windows_tun_backend_status(windows_tun_library_search_paths());
+    if backend.driver_api_available {
+        TunDeviceSnapshot {
+            supported: true,
+            lifecycle_available: true,
+            packet_io_available: true,
+            running: false,
+            interface_name: None,
+            address_cidr: None,
+            mtu: None,
+            dns_hijack: None,
+        }
+    } else {
+        TunDeviceSnapshot::stopped_supported_without_backend()
+    }
+}
+
+fn windows_tun_driver_api_available(path: &Path) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        windows_tun::WintunLibrary::load_from_path(path)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Err("Wintun API can only be loaded on Windows".to_string())
     }
 }
 
@@ -593,6 +749,428 @@ fn dedup_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
     }
     deduped
 }
+
+fn windows_configure_tun_interface(config: &TunDeviceConfig) -> Result<(), TunDeviceError> {
+    let (address, prefix) = parse_tun_address_cidr_parts(&config.address_cidr)?;
+    match address {
+        IpAddr::V4(address) => {
+            let netmask = ipv4_prefix_to_netmask(prefix)?;
+            run_tun_command_checked(
+                "netsh",
+                &[
+                    "interface".to_string(),
+                    "ipv4".to_string(),
+                    "set".to_string(),
+                    "address".to_string(),
+                    format!("name={}", config.interface_name),
+                    "static".to_string(),
+                    address.to_string(),
+                    netmask.to_string(),
+                ],
+            )?;
+            run_tun_command_checked(
+                "netsh",
+                &[
+                    "interface".to_string(),
+                    "ipv4".to_string(),
+                    "set".to_string(),
+                    "subinterface".to_string(),
+                    config.interface_name.clone(),
+                    format!("mtu={}", config.mtu),
+                    "store=active".to_string(),
+                ],
+            )
+        }
+        IpAddr::V6(address) => {
+            run_tun_command_checked(
+                "netsh",
+                &[
+                    "interface".to_string(),
+                    "ipv6".to_string(),
+                    "set".to_string(),
+                    "address".to_string(),
+                    format!("interface={}", config.interface_name),
+                    format!("address={address}/{prefix}"),
+                ],
+            )?;
+            run_tun_command_checked(
+                "netsh",
+                &[
+                    "interface".to_string(),
+                    "ipv6".to_string(),
+                    "set".to_string(),
+                    "subinterface".to_string(),
+                    config.interface_name.clone(),
+                    format!("mtu={}", config.mtu),
+                    "store=active".to_string(),
+                ],
+            )
+        }
+    }
+}
+
+fn parse_tun_address_cidr_parts(address_cidr: &str) -> Result<(IpAddr, u8), TunDeviceError> {
+    let Some((address, prefix)) = address_cidr.split_once('/') else {
+        return Err(TunDeviceError::InvalidAddressCidr(address_cidr.to_string()));
+    };
+    let address = address
+        .parse::<IpAddr>()
+        .map_err(|_| TunDeviceError::InvalidAddressCidr(address_cidr.to_string()))?;
+    let prefix = prefix
+        .parse::<u8>()
+        .map_err(|_| TunDeviceError::InvalidAddressCidr(address_cidr.to_string()))?;
+    Ok((address, prefix))
+}
+
+fn ipv4_prefix_to_netmask(prefix: u8) -> Result<std::net::Ipv4Addr, TunDeviceError> {
+    if prefix > 32 {
+        return Err(TunDeviceError::InvalidAddressCidr(format!("ipv4/{prefix}")));
+    }
+    let bits = if prefix == 0 {
+        0
+    } else {
+        u32::MAX << (32 - prefix)
+    };
+    Ok(std::net::Ipv4Addr::from(bits))
+}
+
+fn run_tun_command_checked(program: &str, args: &[String]) -> Result<(), TunDeviceError> {
+    let output = Command::new(program)
+        .args(args)
+        .output()
+        .map_err(|error| TunDeviceError::Io(error.to_string()))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(TunDeviceError::Io(format!(
+            "{} exited with code {}: {}",
+            program,
+            output
+                .status
+                .code()
+                .map_or_else(|| "unknown".to_string(), |code| code.to_string()),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )))
+    }
+}
+
+#[cfg(windows)]
+mod windows_tun {
+    use super::{
+        windows_tun_library_search_paths, TunDeviceConfig, TunDeviceError, WINDOWS_TUNNEL_TYPE,
+    };
+    use std::ffi::{c_char, c_void, CString, OsStr};
+    use std::fmt;
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::{Path, PathBuf};
+    use std::ptr;
+    use std::sync::Arc;
+
+    const WINTUN_RING_CAPACITY: u32 = 0x200000;
+    const WINTUN_MAX_IP_PACKET_SIZE: usize = 0xFFFF;
+    const ERROR_NO_MORE_ITEMS: u32 = 259;
+
+    type Bool = i32;
+    type Dword = u32;
+    type Byte = u8;
+    type Handle = *mut c_void;
+    type HModule = *mut c_void;
+    type AdapterHandle = *mut c_void;
+    type SessionHandle = *mut c_void;
+
+    type WintunCreateAdapter =
+        unsafe extern "system" fn(*const u16, *const u16, *const c_void) -> AdapterHandle;
+    type WintunOpenAdapter = unsafe extern "system" fn(*const u16) -> AdapterHandle;
+    type WintunCloseAdapter = unsafe extern "system" fn(AdapterHandle);
+    type WintunGetRunningDriverVersion = unsafe extern "system" fn() -> Dword;
+    type WintunStartSession = unsafe extern "system" fn(AdapterHandle, Dword) -> SessionHandle;
+    type WintunEndSession = unsafe extern "system" fn(SessionHandle);
+    type WintunGetReadWaitEvent = unsafe extern "system" fn(SessionHandle) -> Handle;
+    type WintunReceivePacket = unsafe extern "system" fn(SessionHandle, *mut Dword) -> *mut Byte;
+    type WintunReleaseReceivePacket = unsafe extern "system" fn(SessionHandle, *const Byte);
+    type WintunAllocateSendPacket = unsafe extern "system" fn(SessionHandle, Dword) -> *mut Byte;
+    type WintunSendPacket = unsafe extern "system" fn(SessionHandle, *const Byte);
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn LoadLibraryW(lpLibFileName: *const u16) -> HModule;
+        fn FreeLibrary(hLibModule: HModule) -> Bool;
+        fn GetProcAddress(hModule: HModule, lpProcName: *const c_char) -> *mut c_void;
+        fn GetLastError() -> Dword;
+    }
+
+    #[derive(Clone)]
+    pub struct WintunLibrary {
+        inner: Arc<WintunLibraryInner>,
+    }
+
+    struct WintunLibraryInner {
+        module: HModule,
+        path: PathBuf,
+        create_adapter: WintunCreateAdapter,
+        open_adapter: WintunOpenAdapter,
+        close_adapter: WintunCloseAdapter,
+        _get_running_driver_version: WintunGetRunningDriverVersion,
+        start_session: WintunStartSession,
+        end_session: WintunEndSession,
+        get_read_wait_event: WintunGetReadWaitEvent,
+        receive_packet: WintunReceivePacket,
+        release_receive_packet: WintunReleaseReceivePacket,
+        allocate_send_packet: WintunAllocateSendPacket,
+        send_packet: WintunSendPacket,
+    }
+
+    unsafe impl Send for WintunLibraryInner {}
+    unsafe impl Sync for WintunLibraryInner {}
+
+    impl WintunLibrary {
+        pub fn load_from_path(path: &Path) -> Result<Self, TunDeviceError> {
+            let wide_path = wide_os_str(path.as_os_str());
+            let module = unsafe { LoadLibraryW(wide_path.as_ptr()) };
+            if module.is_null() {
+                return Err(TunDeviceError::Io(format!(
+                    "load {} failed with Windows error {}",
+                    path.display(),
+                    last_error()
+                )));
+            }
+
+            let inner = unsafe {
+                match (|| -> Result<WintunLibraryInner, TunDeviceError> {
+                    Ok(WintunLibraryInner {
+                        module,
+                        path: path.to_path_buf(),
+                        create_adapter: resolve(module, "WintunCreateAdapter")?,
+                        open_adapter: resolve(module, "WintunOpenAdapter")?,
+                        close_adapter: resolve(module, "WintunCloseAdapter")?,
+                        _get_running_driver_version: resolve(
+                            module,
+                            "WintunGetRunningDriverVersion",
+                        )?,
+                        start_session: resolve(module, "WintunStartSession")?,
+                        end_session: resolve(module, "WintunEndSession")?,
+                        get_read_wait_event: resolve(module, "WintunGetReadWaitEvent")?,
+                        receive_packet: resolve(module, "WintunReceivePacket")?,
+                        release_receive_packet: resolve(module, "WintunReleaseReceivePacket")?,
+                        allocate_send_packet: resolve(module, "WintunAllocateSendPacket")?,
+                        send_packet: resolve(module, "WintunSendPacket")?,
+                    })
+                })() {
+                    Ok(inner) => inner,
+                    Err(error) => {
+                        FreeLibrary(module);
+                        return Err(error);
+                    }
+                }
+            };
+
+            Ok(Self {
+                inner: Arc::new(inner),
+            })
+        }
+
+        fn load_first() -> Result<Self, TunDeviceError> {
+            let paths = windows_tun_library_search_paths();
+            let Some(path) = paths.iter().find(|path| path.is_file()) else {
+                return Err(TunDeviceError::LifecycleUnavailable(
+                    super::PlatformKind::Windows,
+                ));
+            };
+            Self::load_from_path(path)
+        }
+
+        fn create_adapter(
+            &self,
+            config: &TunDeviceConfig,
+        ) -> Result<AdapterHandle, TunDeviceError> {
+            let name = wide_str(&config.interface_name);
+            let tunnel_type = wide_str(WINDOWS_TUNNEL_TYPE);
+            let adapter = unsafe {
+                (self.inner.create_adapter)(name.as_ptr(), tunnel_type.as_ptr(), ptr::null())
+            };
+            if adapter.is_null() {
+                Err(TunDeviceError::Io(format!(
+                    "WintunCreateAdapter({}) failed with Windows error {}",
+                    config.interface_name,
+                    last_error()
+                )))
+            } else {
+                Ok(adapter)
+            }
+        }
+
+        fn open_adapter(&self, interface_name: &str) -> Result<AdapterHandle, TunDeviceError> {
+            let name = wide_str(interface_name);
+            let adapter = unsafe { (self.inner.open_adapter)(name.as_ptr()) };
+            if adapter.is_null() {
+                Err(TunDeviceError::Io(format!(
+                    "WintunOpenAdapter({interface_name}) failed with Windows error {}",
+                    last_error()
+                )))
+            } else {
+                Ok(adapter)
+            }
+        }
+    }
+
+    impl fmt::Debug for WintunLibrary {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("WintunLibrary")
+                .field("path", &self.inner.path)
+                .finish_non_exhaustive()
+        }
+    }
+
+    impl Drop for WintunLibraryInner {
+        fn drop(&mut self) {
+            unsafe {
+                FreeLibrary(self.module);
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct WintunAdapter {
+        library: WintunLibrary,
+        handle: AdapterHandle,
+    }
+
+    unsafe impl Send for WintunAdapter {}
+    unsafe impl Sync for WintunAdapter {}
+
+    impl WintunAdapter {
+        pub fn open_or_create(config: &TunDeviceConfig) -> Result<Self, TunDeviceError> {
+            let library = WintunLibrary::load_first()?;
+            let handle = match library.open_adapter(&config.interface_name) {
+                Ok(handle) => handle,
+                Err(_) => library.create_adapter(config)?,
+            };
+            Ok(Self { library, handle })
+        }
+
+        pub fn start_session(self: &Arc<Self>) -> Result<WintunSession, TunDeviceError> {
+            let session =
+                unsafe { (self.library.inner.start_session)(self.handle, WINTUN_RING_CAPACITY) };
+            if session.is_null() {
+                return Err(TunDeviceError::Io(format!(
+                    "WintunStartSession failed with Windows error {}",
+                    last_error()
+                )));
+            }
+            let read_wait_event = unsafe { (self.library.inner.get_read_wait_event)(session) };
+            Ok(WintunSession {
+                adapter: Arc::clone(self),
+                session,
+                read_wait_event,
+            })
+        }
+    }
+
+    impl Drop for WintunAdapter {
+        fn drop(&mut self) {
+            unsafe {
+                (self.library.inner.close_adapter)(self.handle);
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct WintunSession {
+        adapter: Arc<WintunAdapter>,
+        session: SessionHandle,
+        read_wait_event: Handle,
+    }
+
+    unsafe impl Send for WintunSession {}
+
+    impl WintunSession {
+        pub fn read_packet(&mut self) -> Result<Option<Vec<u8>>, TunDeviceError> {
+            let _ = self.read_wait_event;
+            let mut packet_size: Dword = 0;
+            let packet = unsafe {
+                (self.adapter.library.inner.receive_packet)(self.session, &mut packet_size)
+            };
+            if packet.is_null() {
+                let error = last_error();
+                if error == ERROR_NO_MORE_ITEMS {
+                    return Ok(None);
+                }
+                return Err(TunDeviceError::Io(format!(
+                    "WintunReceivePacket failed with Windows error {error}"
+                )));
+            }
+            let bytes = unsafe {
+                std::slice::from_raw_parts(packet.cast_const(), packet_size as usize).to_vec()
+            };
+            unsafe {
+                (self.adapter.library.inner.release_receive_packet)(self.session, packet);
+            }
+            Ok(Some(bytes))
+        }
+
+        pub fn write_packet(&mut self, packet: &[u8]) -> Result<(), TunDeviceError> {
+            if packet.len() > WINTUN_MAX_IP_PACKET_SIZE {
+                return Err(TunDeviceError::Io(format!(
+                    "Wintun packet is too large: {} bytes",
+                    packet.len()
+                )));
+            }
+            let out = unsafe {
+                (self.adapter.library.inner.allocate_send_packet)(
+                    self.session,
+                    packet.len() as Dword,
+                )
+            };
+            if out.is_null() {
+                return Err(TunDeviceError::Io(format!(
+                    "WintunAllocateSendPacket failed with Windows error {}",
+                    last_error()
+                )));
+            }
+            unsafe {
+                ptr::copy_nonoverlapping(packet.as_ptr(), out, packet.len());
+                (self.adapter.library.inner.send_packet)(self.session, out);
+            }
+            Ok(())
+        }
+    }
+
+    impl Drop for WintunSession {
+        fn drop(&mut self) {
+            unsafe {
+                (self.adapter.library.inner.end_session)(self.session);
+            }
+        }
+    }
+
+    unsafe fn resolve<T: Copy>(module: HModule, name: &str) -> Result<T, TunDeviceError> {
+        let name = CString::new(name).expect("Wintun symbol names do not contain NUL bytes");
+        let proc = unsafe { GetProcAddress(module, name.as_ptr()) };
+        if proc.is_null() {
+            Err(TunDeviceError::Io(format!(
+                "resolve {} failed with Windows error {}",
+                name.to_string_lossy(),
+                last_error()
+            )))
+        } else {
+            Ok(unsafe { std::mem::transmute_copy(&proc) })
+        }
+    }
+
+    fn last_error() -> Dword {
+        unsafe { GetLastError() }
+    }
+
+    fn wide_str(value: &str) -> Vec<u16> {
+        OsStr::new(value).encode_wide().chain(Some(0)).collect()
+    }
+
+    fn wide_os_str(value: &OsStr) -> Vec<u16> {
+        value.encode_wide().chain(Some(0)).collect()
+    }
+}
+
+const WINDOWS_TUNNEL_TYPE: &str = "Keli";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TunDeviceError {
@@ -1112,28 +1690,18 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
     }
 
     #[test]
-    fn native_tun_controller_reports_lifecycle_boundary() {
+    fn native_tun_controller_reports_supported_boundary_without_starting_device() {
         let windows = NativeTunDeviceController::for_platform(PlatformKind::Windows);
         let snapshot = windows.snapshot().expect("windows TUN status");
 
         assert!(snapshot.supported);
-        assert!(!snapshot.lifecycle_available);
-        assert!(!snapshot.packet_io_available);
         assert!(!snapshot.running);
         assert_eq!(
             windows
                 .open_packet_io(
                     &TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500).expect("valid config")
                 )
-                .expect_err("native packet I/O is not wired yet"),
-            TunDeviceError::LifecycleUnavailable(PlatformKind::Windows)
-        );
-        assert_eq!(
-            windows
-                .start(
-                    &TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500).expect("valid config")
-                )
-                .expect_err("native backend is not wired yet"),
+                .expect_err("native packet I/O requires an active TUN adapter"),
             TunDeviceError::LifecycleUnavailable(PlatformKind::Windows)
         );
 
@@ -1152,10 +1720,13 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         assert_eq!(status.platform, PlatformKind::Windows);
         assert_eq!(status.backend, "wintun");
         assert!(status.supported);
-        assert!(!status.lifecycle_wired);
-        assert!(!status.packet_io_wired);
+        assert!(status.lifecycle_wired);
+        assert!(status.packet_io_wired);
         assert!(!status.driver_library_present);
+        assert!(!status.driver_api_available);
+        assert_eq!(status.driver_api_error, None);
         assert!(status.install_required);
+        assert!(!status.is_ready());
         assert_eq!(status.driver_library_path, None);
         assert_eq!(status.searched_paths.len(), 1);
         assert!(status
@@ -1166,7 +1737,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
     }
 
     #[test]
-    fn windows_tun_backend_status_reports_detected_library_without_wiring_it_ready() {
+    fn windows_tun_backend_status_reports_detected_invalid_library_without_marking_ready() {
         let temp_dir =
             std::env::temp_dir().join(format!("keli-wintun-test-{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).expect("create temp dir");
@@ -1182,18 +1753,21 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         assert_eq!(status.backend, "wintun");
         assert!(status.supported);
         assert!(status.driver_library_present);
-        assert!(!status.install_required);
+        assert!(!status.driver_api_available);
+        assert!(status.driver_api_error.is_some());
+        assert!(status.install_required);
+        assert!(!status.is_ready());
         assert_eq!(
             status.driver_library_path,
             Some(dll_path.display().to_string())
         );
-        assert!(!status.lifecycle_wired);
-        assert!(!status.packet_io_wired);
+        assert!(status.lifecycle_wired);
+        assert!(status.packet_io_wired);
         assert!(status
             .reason
             .as_deref()
             .expect("reason")
-            .contains("not wired yet"));
+            .contains("API could not be loaded"));
     }
 
     #[test]
@@ -1217,7 +1791,9 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
     fn tun_preflight_reports_lifecycle_unavailable_boundary() {
         let config =
             TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500).expect("valid TUN config");
-        let controller = NativeTunDeviceController::for_platform(PlatformKind::Windows);
+        let controller = StaticTunController {
+            snapshot: Ok(TunDeviceSnapshot::stopped_supported_without_backend()),
+        };
 
         let preflight = TunDevicePreflight::check(&controller, config);
 

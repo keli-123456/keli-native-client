@@ -126,10 +126,13 @@ The first implementation target is deliberately small:
    readiness and lifecycle-backend failures visible in support diagnostics.
    `tun-backend-check` reports the native TUN backend packaging state. On
    Windows it probes Wintun library search paths, reports whether `wintun.dll`
-   is present, and keeps lifecycle/packet-I/O bridge wiring as explicit false
-   fields until the native backend is actually implemented. Doctor, support
-   bundles, and readiness gates include this backend status so packagers and UI
-   flows can distinguish missing driver assets from missing Rust-side wiring.
+   is present, validates that the Wintun API can be loaded, and exposes install
+   requirements separately from Rust-side wiring. The Rust-side bridge now
+   dynamically loads Wintun, owns adapter/session handles, configures address
+   and MTU with `netsh`, and feeds packet I/O into the existing net-core TUN
+   loop. Doctor, support bundles, and readiness gates include this backend
+   status so packagers and UI flows can distinguish missing driver assets from
+   runtime API availability.
    DNS hijack now has a local SOCKS5 UDP path for A/AAAA wire queries, using the
    existing DNS engine and policy controls to return synthetic DNS responses
    instead of relaying hijacked DNS traffic to the original resolver.

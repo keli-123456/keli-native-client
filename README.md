@@ -128,11 +128,13 @@ TUN preflight treats packet I/O availability as its own readiness boundary,
 reporting `packet-io-unavailable` when a platform can manage the interface but
 cannot yet feed packets into the data plane.
 `tun-backend-check` exposes the native TUN backend packaging state. On Windows
-it probes for Wintun (`wintun.dll`) through standard bundle/system paths and
-reports whether the driver library is present, whether lifecycle and packet I/O
-bridges are wired, and whether installation or backend wiring is still required.
-Doctor, support bundles, and readiness checks include this backend detail so the
-default-core blocker is actionable instead of a generic unavailable state.
+it probes for Wintun (`wintun.dll`) through standard bundle/system paths,
+validates that the Wintun API can be loaded, and reports whether installation is
+still required. The Rust-side lifecycle and packet I/O bridge now loads Wintun
+at runtime, creates or opens the adapter, starts packet sessions, and hands
+packets to the net-core TUN loop. Doctor, support bundles, and readiness checks
+include this backend detail so the default-core blocker is actionable instead of
+a generic unavailable state.
 A bounded managed TUN packet-loop runner now ties lifecycle guard, packet I/O,
 net-core loop summary, and owned-device cleanup into one tested control path.
 Direct UDP TUN relay can execute an injected UDP relay, wrap the relay payload

@@ -14,8 +14,15 @@ fn tun_backend_check_json_reports_native_backend_wiring_state() {
     assert_eq!(report["backend"]["platform"], "Windows");
     assert_eq!(report["backend"]["backend"], "wintun");
     assert_eq!(report["backend"]["supported"], true);
-    assert_eq!(report["backend"]["lifecycle_wired"], false);
-    assert_eq!(report["backend"]["packet_io_wired"], false);
+    assert_eq!(report["backend"]["lifecycle_wired"], true);
+    assert_eq!(report["backend"]["packet_io_wired"], true);
+    assert!(report["backend"]["driver_api_available"].is_boolean());
+    assert_eq!(
+        report["status"].as_str().expect("status") == "ready",
+        report["backend"]["driver_api_available"]
+            .as_bool()
+            .expect("driver api bool")
+    );
     assert!(report["backend"]["searched_paths"]
         .as_array()
         .expect("searched paths")
@@ -24,7 +31,7 @@ fn tun_backend_check_json_reports_native_backend_wiring_state() {
     assert!(report["backend"]["reason"]
         .as_str()
         .expect("reason")
-        .contains("bridge"));
+        .contains("Wintun"));
 }
 
 #[test]
@@ -38,7 +45,8 @@ fn tun_backend_check_text_reports_install_or_wiring_detail() {
     assert!(output.contains("tun_backend status=not-ready"));
     assert!(output.contains("platform=Windows"));
     assert!(output.contains("backend=wintun"));
-    assert!(output.contains("lifecycle_wired=false"));
-    assert!(output.contains("packet_io_wired=false"));
+    assert!(output.contains("driver_api_available="));
+    assert!(output.contains("lifecycle_wired=true"));
+    assert!(output.contains("packet_io_wired=true"));
     assert!(output.contains("searched_path="));
 }

@@ -27,8 +27,9 @@ fn doctor_report_lists_supported_outbounds() {
     assert!(output.contains("lifecycle_available="));
     assert!(output.contains("packet_io_available="));
     assert!(output.contains("tun_backend platform=Windows backend=wintun"));
-    assert!(output.contains("lifecycle_wired=false"));
-    assert!(output.contains("packet_io_wired=false"));
+    assert!(output.contains("driver_api_available="));
+    assert!(output.contains("lifecycle_wired=true"));
+    assert!(output.contains("packet_io_wired=true"));
     assert!(output.contains("dns_leak_prevention_policy_available=true"));
     assert!(output.contains("dns_address_family_policy_available=true"));
     assert!(output.contains("dns_default_local_resolution_policy=allow-system"));
@@ -49,7 +50,7 @@ fn doctor_report_lists_supported_outbounds() {
         "readiness_check_capabilities=doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates"
     ));
     assert!(output.contains(
-        "tun_backend_check_capabilities=backend-kind,driver-library-detection,install-required,lifecycle-wiring,packet-io-wiring,searched-paths,readiness-blocker-detail"
+        "tun_backend_check_capabilities=backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,searched-paths,readiness-blocker-detail"
     ));
     assert!(output.contains(
         "supported_outbounds=direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic"
@@ -123,8 +124,13 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(report["tun_backend"]["platform"], "Windows");
     assert_eq!(report["tun_backend"]["backend"], "wintun");
     assert_eq!(report["tun_backend"]["supported"], true);
-    assert_eq!(report["tun_backend"]["lifecycle_wired"], false);
-    assert_eq!(report["tun_backend"]["packet_io_wired"], false);
+    assert_eq!(report["tun_backend"]["lifecycle_wired"], true);
+    assert_eq!(report["tun_backend"]["packet_io_wired"], true);
+    assert!(report["tun_backend"]["driver_api_available"].is_boolean());
+    assert!(
+        report["tun_backend"]["driver_api_error"].is_string()
+            || report["tun_backend"]["driver_api_error"].is_null()
+    );
     assert!(report["tun_backend"]["searched_paths"].is_array());
     assert_eq!(report["inbound"]["kind"], "mixed");
     assert_eq!(report["inbound"]["port"], 7890);
@@ -571,7 +577,11 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(report["readiness_check_capabilities"][8], "json-gates");
     assert_eq!(report["tun_backend_check_capabilities"][0], "backend-kind");
     assert_eq!(
-        report["tun_backend_check_capabilities"][6],
+        report["tun_backend_check_capabilities"][2],
+        "driver-api-load"
+    );
+    assert_eq!(
+        report["tun_backend_check_capabilities"][7],
         "readiness-blocker-detail"
     );
     assert_eq!(
