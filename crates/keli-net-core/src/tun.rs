@@ -221,14 +221,26 @@ pub enum TunPacketProcessAction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TunPacketLoopEvent {
     NoPacket,
-    WrotePacket { response: TunDnsHijackResponse },
-    WroteUdpRelayPacket { response: TunUdpRelayResponse },
-    WroteTcpResetPacket { response: TunTcpResetResponse },
+    WrotePacket {
+        response: TunDnsHijackResponse,
+    },
+    WroteUdpRelayPacket {
+        response: TunUdpRelayResponse,
+    },
+    WroteTcpResetPacket {
+        response: TunTcpResetResponse,
+    },
+    TcpSession {
+        plan: TunPacketRelayPlan,
+        step: TunTcpSessionStep,
+        packets_written: usize,
+    },
     Relay(TunPacketRelayPlan),
     Drop(TunPacketRelayPlan),
     Unsupported(TunPacketRelayPlan),
     PacketError(TunPacketError),
     UdpRelayError(TunUdpRelayError),
+    TcpSessionError(TunTcpSessionError),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -246,6 +258,10 @@ pub struct TunPacketLoopSummary {
     pub last_packet_error: Option<TunPacketError>,
     pub udp_relay_errors: usize,
     pub last_udp_relay_error: Option<TunUdpRelayError>,
+    pub tcp_session_events: usize,
+    pub tcp_session_packets_written: usize,
+    pub tcp_session_errors: usize,
+    pub last_tcp_session_error: Option<TunTcpSessionError>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -452,6 +468,12 @@ impl TunPacketLoopSummary {
             TunPacketLoopEvent::WroteTcpResetPacket { .. } => {
                 self.tcp_resets_written += 1;
             }
+            TunPacketLoopEvent::TcpSession {
+                packets_written, ..
+            } => {
+                self.tcp_session_events += 1;
+                self.tcp_session_packets_written += packets_written;
+            }
             TunPacketLoopEvent::Relay(plan) => {
                 self.relay_packets += 1;
                 match plan.relay_action {
@@ -480,6 +502,10 @@ impl TunPacketLoopSummary {
                 self.udp_relay_errors += 1;
                 self.last_udp_relay_error = Some(error.clone());
             }
+            TunPacketLoopEvent::TcpSessionError(error) => {
+                self.tcp_session_errors += 1;
+                self.last_tcp_session_error = Some(error.clone());
+            }
         }
     }
 
@@ -487,11 +513,13 @@ impl TunPacketLoopSummary {
         self.dns_responses_written
             + self.udp_relay_responses_written
             + self.tcp_resets_written
+            + self.tcp_session_events
             + self.relay_packets
             + self.dropped_packets
             + self.unsupported_packets
             + self.packet_errors
             + self.udp_relay_errors
+            + self.tcp_session_errors
     }
 }
 
@@ -1289,6 +1317,85 @@ where
     }
 }
 
+pub fn process_tun_device_packet_with_tcp_session_relay<D, R, T>(
+    device: &mut D,
+    routes: &RouteEngine,
+    dns_hijack_enabled: bool,
+    dns: &mut DnsEngine<R>,
+    dns_ttl_seconds: u32,
+    sessions: &mut TunTcpSessionTable,
+    tcp_relay: &mut T,
+    server_initial_sequence_number: u32,
+    window_size: u16,
+) -> Result<TunPacketLoopEvent, TunPacketLoopError>
+where
+    D: TunPacketDevice,
+    R: DnsResolver,
+    T: TunTcpSessionRelay,
+{
+    let Some(packet) = device.read_packet().map_err(TunPacketLoopError::Read)? else {
+        return Ok(TunPacketLoopEvent::NoPacket);
+    };
+
+    let action = match process_tun_packet(&packet, routes, dns_hijack_enabled, dns, dns_ttl_seconds)
+    {
+        Ok(action) => action,
+        Err(error) => return Ok(TunPacketLoopEvent::PacketError(error)),
+    };
+
+    match action {
+        TunPacketProcessAction::WritePacket { response } => {
+            device
+                .write_packet(&response.packet)
+                .map_err(TunPacketLoopError::Write)?;
+            Ok(TunPacketLoopEvent::WrotePacket { response })
+        }
+        TunPacketProcessAction::WriteTcpReset { response } => {
+            device
+                .write_packet(&response.packet)
+                .map_err(TunPacketLoopError::Write)?;
+            Ok(TunPacketLoopEvent::WroteTcpResetPacket { response })
+        }
+        TunPacketProcessAction::Relay(plan) => {
+            if !matches!(
+                plan.relay_action,
+                TunPacketRelayAction::DirectTcp { .. } | TunPacketRelayAction::OutboundTcp { .. }
+            ) {
+                return Ok(loop_event_for_relay_plan(plan));
+            }
+            let segment = match parse_tun_tcp_segment(&packet) {
+                Ok(segment) => segment,
+                Err(error) => return Ok(TunPacketLoopEvent::PacketError(error)),
+            };
+            let step = match process_tun_tcp_session_segment(
+                sessions,
+                &segment,
+                tcp_relay,
+                server_initial_sequence_number,
+                window_size,
+            ) {
+                Ok(step) => step,
+                Err(error) => return Ok(TunPacketLoopEvent::TcpSessionError(error)),
+            };
+            let packets_written = {
+                let packets = step.response_packets();
+                let packets_written = packets.len();
+                for packet in packets {
+                    device
+                        .write_packet(packet)
+                        .map_err(TunPacketLoopError::Write)?;
+                }
+                packets_written
+            };
+            Ok(TunPacketLoopEvent::TcpSession {
+                plan,
+                step,
+                packets_written,
+            })
+        }
+    }
+}
+
 pub fn run_tun_packet_loop<D: TunPacketDevice, R: DnsResolver>(
     device: &mut D,
     routes: &RouteEngine,
@@ -1322,6 +1429,45 @@ pub fn run_tun_packet_loop_summary<D: TunPacketDevice, R: DnsResolver>(
     for _ in 0..max_packets {
         let event =
             process_tun_device_packet(device, routes, dns_hijack_enabled, dns, dns_ttl_seconds)?;
+        let should_stop = event == TunPacketLoopEvent::NoPacket;
+        summary.record_event(&event);
+        if should_stop {
+            break;
+        }
+    }
+    Ok(summary)
+}
+
+pub fn run_tun_packet_loop_with_tcp_session_relay_summary<D, R, T>(
+    device: &mut D,
+    routes: &RouteEngine,
+    dns_hijack_enabled: bool,
+    dns: &mut DnsEngine<R>,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+    sessions: &mut TunTcpSessionTable,
+    tcp_relay: &mut T,
+    server_initial_sequence_number: u32,
+    window_size: u16,
+) -> Result<TunPacketLoopSummary, TunPacketLoopError>
+where
+    D: TunPacketDevice,
+    R: DnsResolver,
+    T: TunTcpSessionRelay,
+{
+    let mut summary = TunPacketLoopSummary::default();
+    for _ in 0..max_packets {
+        let event = process_tun_device_packet_with_tcp_session_relay(
+            device,
+            routes,
+            dns_hijack_enabled,
+            dns,
+            dns_ttl_seconds,
+            sessions,
+            tcp_relay,
+            server_initial_sequence_number,
+            window_size,
+        )?;
         let should_stop = event == TunPacketLoopEvent::NoPacket;
         summary.record_event(&event);
         if should_stop {

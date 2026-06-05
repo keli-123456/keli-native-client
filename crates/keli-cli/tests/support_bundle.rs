@@ -150,10 +150,14 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][36],
-        "tcp-relay-plan-summary"
+        "tcp-session-device-loop"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][37],
+        "tcp-relay-plan-summary"
+    );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][38],
         "relay-plan"
     );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");

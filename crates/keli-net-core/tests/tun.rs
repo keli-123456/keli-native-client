@@ -10,14 +10,15 @@ use keli_net_core::{
     parse_tun_packet_flow, parse_tun_tcp_segment, parse_tun_udp_payload, plan_tun_dns_hijack,
     plan_tun_packet_relay, process_tun_packet, process_tun_tcp_session_segment,
     relay_tun_direct_udp_packet, relay_tun_udp_packet, run_tun_packet_loop,
-    run_tun_packet_loop_summary, run_tun_packet_loop_with_udp_relay_summary, DnsCache, DnsEngine,
-    DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, OutboundRegistry,
-    OutboundTarget, RegistryTunUdpRelay, RouteAction, RouteDestination, RouteEngine, RouteIpCidr,
-    RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketDevice, TunPacketError,
-    TunPacketLoopEvent, TunPacketLoopSummary, TunPacketProcessAction, TunPacketRelayAction,
-    TunPacketRelayPlan, TunTcpFlags, TunTcpSessionKey, TunTcpSessionPhase, TunTcpSessionRecord,
-    TunTcpSessionRelay, TunTcpSessionStep, TunTcpSessionTable, TunTransportProtocol, TunUdpRelay,
-    TunUdpRelayError, UdpRelayResponse,
+    run_tun_packet_loop_summary, run_tun_packet_loop_with_tcp_session_relay_summary,
+    run_tun_packet_loop_with_udp_relay_summary, DnsCache, DnsEngine, DnsError,
+    DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, OutboundRegistry, OutboundTarget,
+    RegistryTunUdpRelay, RouteAction, RouteDestination, RouteEngine, RouteIpCidr, RouteMatcher,
+    RouteRule, RouteTarget, TunIpVersion, TunPacketDevice, TunPacketError, TunPacketLoopEvent,
+    TunPacketLoopSummary, TunPacketProcessAction, TunPacketRelayAction, TunPacketRelayPlan,
+    TunTcpFlags, TunTcpSessionKey, TunTcpSessionPhase, TunTcpSessionRecord, TunTcpSessionRelay,
+    TunTcpSessionStep, TunTcpSessionTable, TunTransportProtocol, TunUdpRelay, TunUdpRelayError,
+    UdpRelayResponse,
 };
 
 #[test]
@@ -1530,6 +1531,141 @@ fn tun_packet_loop_writes_tcp_reset_for_blocked_tcp_to_device() {
 }
 
 #[test]
+fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
+    let packets = vec![
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 16, 1009, 0x0014, 0x4000, &[], b""),
+        ),
+    ];
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut device = FakeTunPacketDevice::new(packets);
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::with_server_payloads(vec![b"HTTP/1.1".to_vec()]);
+
+    let summary = run_tun_packet_loop_with_tcp_session_relay_summary(
+        &mut device,
+        &routes,
+        true,
+        &mut dns,
+        30,
+        4,
+        &mut sessions,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("run TUN loop with TCP session relay");
+
+    assert_eq!(summary.processed_packets(), 4);
+    assert_eq!(summary.tcp_session_events, 4);
+    assert_eq!(summary.tcp_session_packets_written, 3);
+    assert_eq!(summary.tcp_session_errors, 0);
+    assert_eq!(device.writes.len(), 3);
+    let syn_ack = parse_tun_tcp_segment(&device.writes[0]).expect("parse SYN-ACK");
+    assert_eq!(syn_ack.sequence_number, 1000);
+    assert_eq!(syn_ack.acknowledgment_number, 11);
+    assert!(syn_ack.flags.syn());
+    assert!(syn_ack.flags.ack());
+    let client_ack = parse_tun_tcp_segment(&device.writes[1]).expect("parse client payload ACK");
+    assert_eq!(client_ack.sequence_number, 1001);
+    assert_eq!(client_ack.acknowledgment_number, 16);
+    assert!(client_ack.payload.is_empty());
+    let server_payload =
+        parse_tun_tcp_segment(&device.writes[2]).expect("parse server payload packet");
+    assert_eq!(server_payload.sequence_number, 1001);
+    assert_eq!(server_payload.acknowledgment_number, 16);
+    assert_eq!(server_payload.payload, b"HTTP/1.1");
+    assert_eq!(relay.established_sessions.len(), 1);
+    assert_eq!(relay.client_payloads, vec![b"GET /".to_vec()]);
+    assert_eq!(relay.closed_sessions.len(), 1);
+    assert!(sessions.is_empty());
+}
+
+#[test]
+fn tun_packet_loop_with_tcp_session_relay_records_relay_error_and_continues_summary() {
+    let packets = vec![
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+        ),
+    ];
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut device = FakeTunPacketDevice::new(packets);
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::with_client_payload_error("relay failed");
+
+    let summary = run_tun_packet_loop_with_tcp_session_relay_summary(
+        &mut device,
+        &routes,
+        true,
+        &mut dns,
+        30,
+        3,
+        &mut sessions,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("run TUN loop with TCP session relay error");
+
+    assert_eq!(summary.processed_packets(), 3);
+    assert_eq!(summary.tcp_session_events, 2);
+    assert_eq!(summary.tcp_session_packets_written, 1);
+    assert_eq!(summary.tcp_session_errors, 1);
+    assert_eq!(
+        summary.last_tcp_session_error,
+        Some(keli_net_core::TunTcpSessionError::Relay(
+            "relay failed".to_string()
+        ))
+    );
+    assert_eq!(device.writes.len(), 1);
+    assert!(relay.client_payloads.is_empty());
+}
+
+#[test]
 fn tun_packet_loop_reports_relay_and_drop_without_writing() {
     let direct_packet = ipv4_packet(
         17,
@@ -2159,12 +2295,20 @@ struct FakeTunTcpSessionRelay {
     client_payloads: Vec<Vec<u8>>,
     server_payloads: std::collections::VecDeque<Vec<u8>>,
     closed_sessions: Vec<TunTcpSessionRecord>,
+    client_payload_error: Option<String>,
 }
 
 impl FakeTunTcpSessionRelay {
     fn with_server_payloads(payloads: Vec<Vec<u8>>) -> Self {
         Self {
             server_payloads: payloads.into(),
+            ..Self::default()
+        }
+    }
+
+    fn with_client_payload_error(error: &str) -> Self {
+        Self {
+            client_payload_error: Some(error.to_string()),
             ..Self::default()
         }
     }
@@ -2180,6 +2324,9 @@ impl TunTcpSessionRelay for FakeTunTcpSessionRelay {
         &mut self,
         frame: &keli_net_core::TunTcpClientPayloadFrame,
     ) -> Result<(), String> {
+        if let Some(error) = &self.client_payload_error {
+            return Err(error.clone());
+        }
         self.client_payloads.push(frame.payload.clone());
         Ok(())
     }

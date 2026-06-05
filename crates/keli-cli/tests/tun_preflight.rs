@@ -825,9 +825,12 @@ fn managed_mixed_session_records_tun_runtime_status_note_after_serve() {
         .expect("runtime note");
     assert!(note.contains("managed TUN runtime stopped"));
     assert!(note.contains("tcp_resets=0"));
+    assert!(note.contains("tcp_session_events=0"));
+    assert!(note.contains("tcp_session_writes=0"));
     assert!(note.contains("tcp_relay_plans=0"));
     assert!(note.contains("udp_relay_plans=0"));
     assert!(note.contains("packet_errors=1"));
+    assert!(note.contains("tcp_session_errors=0"));
 }
 
 #[test]

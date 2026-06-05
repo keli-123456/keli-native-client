@@ -65,7 +65,7 @@ const SUPPORTED_PROTOCOL_CAPABILITIES: &str =
 const ROUTE_RULE_CAPABILITIES: &str =
     "domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
-    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-session-table,tcp-client-payload-ack,tcp-server-payload-packet,tcp-session-step-runner,tcp-relay-plan-summary,relay-plan";
+    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-session-table,tcp-client-payload-ack,tcp-server-payload-packet,tcp-session-step-runner,tcp-session-device-loop,tcp-relay-plan-summary,relay-plan";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
@@ -325,7 +325,7 @@ pub struct ManagedTunPacketLoopReport {
 
 pub fn managed_tun_runtime_report_note(report: &ManagedTunPacketLoopReport) -> String {
     format!(
-        "managed TUN runtime stopped interface={} owns_device={} processed={} idle={} dns_responses={} udp_responses={} tcp_resets={} relay_plans={} tcp_relay_plans={} udp_relay_plans={} drops={} unsupported={} packet_errors={} udp_relay_errors={}",
+        "managed TUN runtime stopped interface={} owns_device={} processed={} idle={} dns_responses={} udp_responses={} tcp_resets={} tcp_session_events={} tcp_session_writes={} relay_plans={} tcp_relay_plans={} udp_relay_plans={} drops={} unsupported={} packet_errors={} udp_relay_errors={} tcp_session_errors={}",
         report.config.interface_name,
         report.owns_device,
         report.summary.processed_packets(),
@@ -333,6 +333,8 @@ pub fn managed_tun_runtime_report_note(report: &ManagedTunPacketLoopReport) -> S
         report.summary.dns_responses_written,
         report.summary.udp_relay_responses_written,
         report.summary.tcp_resets_written,
+        report.summary.tcp_session_events,
+        report.summary.tcp_session_packets_written,
         report.summary.relay_packets,
         report.summary.tcp_relay_plans,
         report.summary.udp_relay_plans,
@@ -340,6 +342,7 @@ pub fn managed_tun_runtime_report_note(report: &ManagedTunPacketLoopReport) -> S
         report.summary.unsupported_packets,
         report.summary.packet_errors,
         report.summary.udp_relay_errors,
+        report.summary.tcp_session_errors,
     )
 }
 

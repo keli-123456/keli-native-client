@@ -128,6 +128,10 @@ A packet-level TCP session step runner now wires those pieces together for one
 segment at a time: SYN creates a SYN-ACK, ACK establishes the relay callback,
 client payload is written to the relay, queued server payload is packetized
 back to TUN, and FIN/RST closes the relay callback.
+A TCP session relay device-loop entrypoint now reads TUN packets, routes direct
+or tagged TCP relay plans into that step runner, writes response packets back
+to the device, and records TCP session events, written packets, and relay
+errors in loop summaries.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 
