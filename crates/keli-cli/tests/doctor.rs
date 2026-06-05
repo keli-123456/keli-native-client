@@ -2,7 +2,7 @@ use keli_cli::{
     DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, DOCTOR_REPORT_SCHEMA_VERSION,
     INTEROP_MATRIX_SCHEMA_VERSION, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
     MANAGED_MIXED_RECENT_EVENT_LIMIT, MANAGED_MIXED_STATUS_SCHEMA_VERSION,
-    SUPPORT_BUNDLE_SCHEMA_VERSION,
+    READINESS_CHECK_SCHEMA_VERSION, SUPPORT_BUNDLE_SCHEMA_VERSION,
 };
 use keli_client_core::DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT;
 use keli_net_core::DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS;
@@ -15,10 +15,11 @@ fn doctor_report_lists_supported_outbounds() {
 
     assert!(output.contains("version="));
     assert!(output.contains(&format!(
-        "schema_versions doctor_report={} support_bundle={} interop_matrix={} managed_mixed_status={}",
+        "schema_versions doctor_report={} support_bundle={} interop_matrix={} readiness_check={} managed_mixed_status={}",
         DOCTOR_REPORT_SCHEMA_VERSION,
         SUPPORT_BUNDLE_SCHEMA_VERSION,
         INTEROP_MATRIX_SCHEMA_VERSION,
+        READINESS_CHECK_SCHEMA_VERSION,
         MANAGED_MIXED_STATUS_SCHEMA_VERSION
     )));
     assert!(output.contains("system_proxy_state="));
@@ -40,6 +41,9 @@ fn doctor_report_lists_supported_outbounds() {
     ));
     assert!(output.contains(
         "interop_matrix_capabilities=protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export"
+    ));
+    assert!(output.contains(
+        "readiness_check_capabilities=doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates"
     ));
     assert!(output.contains(
         "supported_outbounds=direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic"
@@ -92,6 +96,10 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(
         report["schema_versions"]["interop_matrix"],
         INTEROP_MATRIX_SCHEMA_VERSION
+    );
+    assert_eq!(
+        report["schema_versions"]["readiness_check"],
+        READINESS_CHECK_SCHEMA_VERSION
     );
     assert_eq!(
         report["schema_versions"]["managed_mixed_status"],
@@ -546,6 +554,9 @@ fn doctor_json_report_is_machine_readable() {
         report["interop_matrix_capabilities"][7],
         "support-bundle-export"
     );
+    assert_eq!(report["readiness_check_capabilities"][0], "doctor-schema");
+    assert_eq!(report["readiness_check_capabilities"][4], "tun-preflight");
+    assert_eq!(report["readiness_check_capabilities"][8], "json-gates");
     assert_eq!(
         report["resource_limits"]["runtime_event_history"],
         DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT

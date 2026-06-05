@@ -47,6 +47,34 @@ fn parses_interop_matrix_json_command() {
 }
 
 #[test]
+fn parses_readiness_check_json_command() {
+    let command = parse_cli_command([
+        "readiness-check",
+        "--format",
+        "json",
+        "--soak-connections",
+        "2",
+        "--first-byte-timeout-ms",
+        "1500",
+        "--max-connection-workers",
+        "3",
+        "--skip-soak",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::ReadinessCheck {
+            output: ProbeOutputFormat::Json,
+            soak_connections: 2,
+            first_byte_timeout: Duration::from_millis(1500),
+            max_connection_workers: 3,
+            skip_soak: true,
+        }
+    );
+}
+
+#[test]
 fn parses_tun_preflight_json_command() {
     let command = parse_cli_command([
         "tun-preflight",

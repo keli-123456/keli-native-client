@@ -379,6 +379,13 @@ The first implementation target is deliberately small:
    coverage, validation sample counts, and outbound registry registration
    sample counts. Support bundles include the same matrix so UI/support tooling
    can verify native-core coverage from one JSON artifact.
+   `readiness-check` now turns these production-readiness signals into an
+   explicit default-core gate. It combines doctor schema coverage, interop
+   validation/registry coverage, local mixed soak gates, resource limits,
+   managed panel/subscription state, system proxy support, and TUN preflight
+   state into one text or JSON report. Gates can pass, fail, or be skipped, so
+   CI and desktop integrations can see exactly why the native core is or is not
+   ready to become the default Keli core on a given machine.
 
 The managed mixed runtime now supports a background handle with runtime status,
 generation tracking, event history, explicit stop, system proxy restoration, and

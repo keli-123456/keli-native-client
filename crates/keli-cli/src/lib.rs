@@ -66,13 +66,15 @@ const DEFAULT_TUN_PACKET_LOOP_MAX_PACKETS: usize = usize::MAX;
 const DEFAULT_TUN_TCP_SERVER_INITIAL_SEQUENCE_NUMBER: u32 = 1;
 const DEFAULT_TUN_TCP_WINDOW_SIZE: u16 = 0x4000;
 const DEFAULT_MIXED_SOAK_CONNECTIONS: usize = 25;
+const DEFAULT_READINESS_SOAK_CONNECTIONS: usize = 3;
 const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 2;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 3;
 pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 2;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 1;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 2;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -96,6 +98,8 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
     "local-mixed-soak,loopback-echo,managed-metrics,worker-drain,socks5,http-connect";
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
+const READINESS_CHECK_CAPABILITIES: &str =
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,6 +109,13 @@ pub enum CliCommand {
     },
     InteropMatrix {
         output: ProbeOutputFormat,
+    },
+    ReadinessCheck {
+        output: ProbeOutputFormat,
+        soak_connections: usize,
+        first_byte_timeout: Duration,
+        max_connection_workers: usize,
+        skip_soak: bool,
     },
     TunPreflight {
         config: TunDeviceConfig,
@@ -3893,6 +3904,7 @@ pub fn parse_cli_command(
         }),
         Some("doctor") => parse_doctor(args),
         Some("interop-matrix") => parse_interop_matrix(args),
+        Some("readiness-check") => parse_readiness_check(args),
         Some("tun-preflight") => parse_tun_preflight(args),
         Some("version") => Ok(CliCommand::Version),
         Some("subscription-fetch") => parse_subscription_fetch(args),
@@ -3916,6 +3928,23 @@ pub fn run(command: CliCommand) -> Result<(), String> {
         CliCommand::InteropMatrix { output } => {
             let mut stdout = io::stdout();
             write_interop_matrix_report(output, &mut stdout)
+        }
+        CliCommand::ReadinessCheck {
+            output,
+            soak_connections,
+            first_byte_timeout,
+            max_connection_workers,
+            skip_soak,
+        } => {
+            let mut stdout = io::stdout();
+            write_readiness_check_report(
+                output,
+                soak_connections,
+                first_byte_timeout,
+                max_connection_workers,
+                skip_soak,
+                &mut stdout,
+            )
         }
         CliCommand::TunPreflight { config, output } => {
             let controller = NativeTunDeviceController::new();
@@ -4125,12 +4154,16 @@ pub fn run(command: CliCommand) -> Result<(), String> {
 pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
-        "usage: keli-cli [doctor|interop-matrix|tun-preflight|version|subscription-fetch|subscription-update|listen-mixed|probe-outbound|smoke-mixed|soak-mixed|profile-check|support-bundle]"
+        "usage: keli-cli [doctor|interop-matrix|readiness-check|tun-preflight|version|subscription-fetch|subscription-update|listen-mixed|probe-outbound|smoke-mixed|soak-mixed|profile-check|support-bundle]"
     )?;
     writeln!(writer, "       keli-cli doctor [--format text|json]")?;
     writeln!(
         writer,
         "       keli-cli interop-matrix [--format text|json]"
+    )?;
+    writeln!(
+        writer,
+        "       keli-cli readiness-check [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--skip-soak]"
     )?;
     writeln!(
         writer,
@@ -4210,6 +4243,57 @@ fn parse_interop_matrix(args: impl Iterator<Item = String>) -> Result<CliCommand
     }
 
     Ok(CliCommand::InteropMatrix { output })
+}
+
+fn parse_readiness_check(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
+    let mut output = ProbeOutputFormat::Text;
+    let mut soak_connections = DEFAULT_READINESS_SOAK_CONNECTIONS;
+    let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
+    let mut max_connection_workers = DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS;
+    let mut skip_soak = false;
+    let mut args = args.peekable();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--format" => {
+                output = parse_probe_output_format(
+                    args.next()
+                        .ok_or_else(|| "--format requires text or json".to_string())?,
+                )?;
+            }
+            "--soak-connections" => {
+                soak_connections = parse_positive_usize(
+                    args.next()
+                        .ok_or_else(|| "--soak-connections requires a value".to_string())?,
+                    "--soak-connections",
+                )?;
+            }
+            "--first-byte-timeout-ms" => {
+                first_byte_timeout = parse_duration_ms(
+                    args.next()
+                        .ok_or_else(|| "--first-byte-timeout-ms requires a value".to_string())?,
+                    "--first-byte-timeout-ms",
+                )?;
+            }
+            "--max-connection-workers" => {
+                max_connection_workers = parse_positive_usize(
+                    args.next()
+                        .ok_or_else(|| "--max-connection-workers requires a value".to_string())?,
+                    "--max-connection-workers",
+                )?;
+            }
+            "--skip-soak" => skip_soak = true,
+            other => return Err(format!("unknown readiness-check option: {other}")),
+        }
+    }
+
+    Ok(CliCommand::ReadinessCheck {
+        output,
+        soak_connections,
+        first_byte_timeout,
+        max_connection_workers,
+        skip_soak,
+    })
 }
 
 fn parse_tun_preflight(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
@@ -4873,6 +4957,7 @@ struct DoctorReport {
     doctor_report_schema_version: u32,
     support_bundle_schema_version: u32,
     interop_matrix_schema_version: u32,
+    readiness_check_schema_version: u32,
     managed_mixed_status_schema_version: u32,
     version: &'static str,
     platform: String,
@@ -4905,6 +4990,7 @@ struct DoctorReport {
     tun_packet_pipeline_capabilities: Vec<&'static str>,
     stability_diagnostic_capabilities: Vec<&'static str>,
     interop_matrix_capabilities: Vec<&'static str>,
+    readiness_check_capabilities: Vec<&'static str>,
     runtime_event_history_limit: usize,
     managed_status_recent_event_limit: usize,
     managed_connection_report_history_limit: usize,
@@ -4965,6 +5051,7 @@ fn collect_doctor_report() -> DoctorReport {
         doctor_report_schema_version: DOCTOR_REPORT_SCHEMA_VERSION,
         support_bundle_schema_version: SUPPORT_BUNDLE_SCHEMA_VERSION,
         interop_matrix_schema_version: INTEROP_MATRIX_SCHEMA_VERSION,
+        readiness_check_schema_version: READINESS_CHECK_SCHEMA_VERSION,
         managed_mixed_status_schema_version: MANAGED_MIXED_STATUS_SCHEMA_VERSION,
         version: env!("CARGO_PKG_VERSION"),
         platform: format!("{:?}", capabilities.platform),
@@ -5007,6 +5094,7 @@ fn collect_doctor_report() -> DoctorReport {
         tun_packet_pipeline_capabilities: TUN_PACKET_PIPELINE_CAPABILITIES.split(',').collect(),
         stability_diagnostic_capabilities: STABILITY_DIAGNOSTIC_CAPABILITIES.split(',').collect(),
         interop_matrix_capabilities: INTEROP_MATRIX_CAPABILITIES.split(',').collect(),
+        readiness_check_capabilities: READINESS_CHECK_CAPABILITIES.split(',').collect(),
         runtime_event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
         managed_status_recent_event_limit: MANAGED_MIXED_RECENT_EVENT_LIMIT,
         managed_connection_report_history_limit: MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
@@ -5022,10 +5110,11 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     writeln!(writer, "version={}", report.version)?;
     writeln!(
         writer,
-        "schema_versions doctor_report={} support_bundle={} interop_matrix={} managed_mixed_status={}",
+        "schema_versions doctor_report={} support_bundle={} interop_matrix={} readiness_check={} managed_mixed_status={}",
         report.doctor_report_schema_version,
         report.support_bundle_schema_version,
         report.interop_matrix_schema_version,
+        report.readiness_check_schema_version,
         report.managed_mixed_status_schema_version
     )?;
     writeln!(writer, "platform={}", report.platform)?;
@@ -5146,6 +5235,11 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     )?;
     writeln!(
         writer,
+        "readiness_check_capabilities={}",
+        report.readiness_check_capabilities.join(",")
+    )?;
+    writeln!(
+        writer,
         "resource_limits runtime_event_history={} managed_status_recent_events={} managed_connection_report_history={} managed_connection_workers={} tun_tcp_max_active_sessions={}",
         report.runtime_event_history_limit,
         report.managed_status_recent_event_limit,
@@ -5177,6 +5271,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
             "doctor_report": report.doctor_report_schema_version,
             "support_bundle": report.support_bundle_schema_version,
             "interop_matrix": report.interop_matrix_schema_version,
+            "readiness_check": report.readiness_check_schema_version,
             "managed_mixed_status": report.managed_mixed_status_schema_version,
         },
         "version": report.version,
@@ -5225,6 +5320,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         "tun_packet_pipeline_capabilities": &report.tun_packet_pipeline_capabilities,
         "stability_diagnostic_capabilities": &report.stability_diagnostic_capabilities,
         "interop_matrix_capabilities": &report.interop_matrix_capabilities,
+        "readiness_check_capabilities": &report.readiness_check_capabilities,
         "resource_limits": {
             "runtime_event_history": report.runtime_event_history_limit,
             "managed_status_recent_events": report.managed_status_recent_event_limit,
@@ -5804,6 +5900,387 @@ fn interop_quic_transport() -> TransportKind {
         key: None,
         header_type: None,
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefaultCoreReadinessReport {
+    pub schema_version: u32,
+    pub version: &'static str,
+    pub ready_for_default_core: bool,
+    pub gates: Vec<ReadinessGateReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadinessGateReport {
+    pub name: &'static str,
+    pub category: &'static str,
+    pub status: ReadinessGateStatus,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadinessGateStatus {
+    Passed,
+    Failed,
+    Warning,
+    Skipped,
+}
+
+impl ReadinessGateStatus {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Passed => "passed",
+            Self::Failed => "failed",
+            Self::Warning => "warning",
+            Self::Skipped => "skipped",
+        }
+    }
+}
+
+pub fn write_readiness_check_report(
+    output: ProbeOutputFormat,
+    soak_connections: usize,
+    first_byte_timeout: Duration,
+    max_connection_workers: usize,
+    skip_soak: bool,
+    mut writer: impl Write,
+) -> Result<(), String> {
+    let report = collect_readiness_check_report(
+        soak_connections,
+        first_byte_timeout,
+        max_connection_workers,
+        skip_soak,
+    )?;
+    match output {
+        ProbeOutputFormat::Text => write_readiness_check_text_report(&mut writer, &report),
+        ProbeOutputFormat::Json => write_readiness_check_json_report(&mut writer, &report),
+    }
+}
+
+fn collect_readiness_check_report(
+    soak_connections: usize,
+    first_byte_timeout: Duration,
+    max_connection_workers: usize,
+    skip_soak: bool,
+) -> Result<DefaultCoreReadinessReport, String> {
+    if soak_connections == 0 {
+        return Err("readiness-check soak connections must be greater than 0".to_string());
+    }
+    if max_connection_workers == 0 {
+        return Err("readiness-check max connection workers must be greater than 0".to_string());
+    }
+
+    let doctor = collect_doctor_report();
+    let interop = collect_interop_matrix_report();
+    let tun_preflight = collect_default_tun_preflight();
+    let mut gates = vec![
+        readiness_gate(
+            "doctor-schema",
+            "diagnostics",
+            doctor.doctor_report_schema_version == DOCTOR_REPORT_SCHEMA_VERSION
+                && doctor.readiness_check_schema_version == READINESS_CHECK_SCHEMA_VERSION,
+            format!(
+                "doctor_schema={} readiness_schema={} support_bundle_schema={} managed_status_schema={}",
+                doctor.doctor_report_schema_version,
+                doctor.readiness_check_schema_version,
+                doctor.support_bundle_schema_version,
+                doctor.managed_mixed_status_schema_version
+            ),
+        ),
+        readiness_gate(
+            "interop-matrix",
+            "protocols",
+            interop.summary.validation_supported_count == interop.summary.protocol_count
+                && interop.summary.registry_supported_count == interop.summary.protocol_count
+                && interop.summary.registry_profile_count == interop.summary.sample_profile_count,
+            format!(
+                "protocols={} validation_supported={} registry_supported={} registry_profiles={}/{}",
+                interop.summary.protocol_count,
+                interop.summary.validation_supported_count,
+                interop.summary.registry_supported_count,
+                interop.summary.registry_profile_count,
+                interop.summary.sample_profile_count
+            ),
+        ),
+        readiness_gate(
+            "udp-coverage",
+            "protocols",
+            interop.summary.udp_relay_supported_count >= 10,
+            format!(
+                "udp_supported_protocols={} protocol_count={}",
+                interop.summary.udp_relay_supported_count, interop.summary.protocol_count
+            ),
+        ),
+        readiness_gate(
+            "resource-limits",
+            "stability",
+            doctor.runtime_event_history_limit > 0
+                && doctor.managed_status_recent_event_limit > 0
+                && doctor.managed_connection_report_history_limit > 0
+                && doctor.managed_connection_worker_limit > 0
+                && doctor.tun_tcp_max_active_sessions_default > 0,
+            format!(
+                "runtime_events={} recent_events={} connection_history={} workers={} tun_tcp_sessions={}",
+                doctor.runtime_event_history_limit,
+                doctor.managed_status_recent_event_limit,
+                doctor.managed_connection_report_history_limit,
+                doctor.managed_connection_worker_limit,
+                doctor.tun_tcp_max_active_sessions_default
+            ),
+        ),
+        readiness_gate(
+            "panel-subscription-state",
+            "managed-runtime",
+            doctor
+                .managed_status_schema_capabilities
+                .contains(&"panel-state")
+                && doctor
+                    .managed_status_schema_capabilities
+                    .contains(&"subscription-url-update-status")
+                && doctor
+                    .managed_status_schema_capabilities
+                    .contains(&"node-health-udp-aware-recommendation"),
+            "panel-state subscription-url-update-status node-health-udp-aware-recommendation".to_string(),
+        ),
+        readiness_gate(
+            "support-diagnostics",
+            "diagnostics",
+            doctor
+                .stability_diagnostic_capabilities
+                .contains(&"local-mixed-soak")
+                && doctor
+                    .interop_matrix_capabilities
+                    .contains(&"support-bundle-export")
+                && doctor
+                    .readiness_check_capabilities
+                    .contains(&"json-gates"),
+            "support bundle exports doctor and interop matrix; readiness exposes json gates".to_string(),
+        ),
+        readiness_gate(
+            "system-proxy-platform",
+            "platform",
+            doctor.system_proxy_supported,
+            format!(
+                "supported={} state={}",
+                doctor.system_proxy_supported, doctor.system_proxy_state
+            ),
+        ),
+        readiness_gate(
+            "tun-preflight",
+            "platform",
+            tun_preflight.ready,
+            format!(
+                "status={} interface={} address={} mtu={} reason={}",
+                tun_preflight.readiness.label(),
+                tun_preflight.config.interface_name,
+                tun_preflight.config.address_cidr,
+                tun_preflight.config.mtu,
+                tun_preflight.reason.as_deref().unwrap_or("-")
+            ),
+        ),
+    ];
+
+    if skip_soak {
+        gates.push(ReadinessGateReport {
+            name: "mixed-soak-socks5",
+            category: "stability",
+            status: ReadinessGateStatus::Skipped,
+            detail: format!("skipped by --skip-soak; planned_connections={soak_connections}"),
+        });
+        gates.push(ReadinessGateReport {
+            name: "mixed-soak-http-connect",
+            category: "stability",
+            status: ReadinessGateStatus::Skipped,
+            detail: format!("skipped by --skip-soak; planned_connections={soak_connections}"),
+        });
+    } else {
+        gates.push(readiness_soak_gate(
+            "mixed-soak-socks5",
+            SmokeInboundKind::Socks5,
+            soak_connections,
+            first_byte_timeout,
+            max_connection_workers,
+        ));
+        gates.push(readiness_soak_gate(
+            "mixed-soak-http-connect",
+            SmokeInboundKind::HttpConnect,
+            soak_connections,
+            first_byte_timeout,
+            max_connection_workers,
+        ));
+    }
+
+    let ready_for_default_core = gates
+        .iter()
+        .all(|gate| gate.status == ReadinessGateStatus::Passed);
+
+    Ok(DefaultCoreReadinessReport {
+        schema_version: READINESS_CHECK_SCHEMA_VERSION,
+        version: env!("CARGO_PKG_VERSION"),
+        ready_for_default_core,
+        gates,
+    })
+}
+
+fn readiness_gate(
+    name: &'static str,
+    category: &'static str,
+    passed: bool,
+    detail: String,
+) -> ReadinessGateReport {
+    ReadinessGateReport {
+        name,
+        category,
+        status: if passed {
+            ReadinessGateStatus::Passed
+        } else {
+            ReadinessGateStatus::Failed
+        },
+        detail,
+    }
+}
+
+fn readiness_soak_gate(
+    name: &'static str,
+    inbound: SmokeInboundKind,
+    soak_connections: usize,
+    first_byte_timeout: Duration,
+    max_connection_workers: usize,
+) -> ReadinessGateReport {
+    match run_soak_mixed(
+        soak_connections,
+        inbound,
+        first_byte_timeout,
+        max_connection_workers,
+    ) {
+        Ok(report) => readiness_gate(
+            name,
+            "stability",
+            report.completed_connections == report.requested_connections
+                && report.failed_connections == 0
+                && report.connection_metrics.failure_count == 0
+                && !report.stop_drain.timed_out
+                && report.stop_drain.workers_remaining == 0,
+            format!(
+                "inbound={} completed={}/{} failures={} stop_workers_remaining={} stop_timed_out={}",
+                inbound.cli_value(),
+                report.completed_connections,
+                report.requested_connections,
+                report.failed_connections,
+                report.stop_drain.workers_remaining,
+                report.stop_drain.timed_out
+            ),
+        ),
+        Err(error) => ReadinessGateReport {
+            name,
+            category: "stability",
+            status: ReadinessGateStatus::Failed,
+            detail: error,
+        },
+    }
+}
+
+fn write_readiness_check_text_report(
+    writer: &mut impl Write,
+    report: &DefaultCoreReadinessReport,
+) -> Result<(), String> {
+    let summary = readiness_summary_counts(&report.gates);
+    writeln!(
+        writer,
+        "readiness status={} schema_version={} gates={} passed={} failed={} warning={} skipped={}",
+        if report.ready_for_default_core {
+            "ready"
+        } else {
+            "not-ready"
+        },
+        report.schema_version,
+        summary.total,
+        summary.passed,
+        summary.failed,
+        summary.warning,
+        summary.skipped
+    )
+    .map_err(|error| error.to_string())?;
+    for gate in &report.gates {
+        writeln!(
+            writer,
+            "readiness gate={} category={} status={} detail={}",
+            gate.name,
+            gate.category,
+            gate.status.label(),
+            gate.detail
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn write_readiness_check_json_report(
+    writer: &mut impl Write,
+    report: &DefaultCoreReadinessReport,
+) -> Result<(), String> {
+    let value = readiness_check_json_value(report);
+    serde_json::to_writer_pretty(&mut *writer, &value).map_err(|error| error.to_string())?;
+    writeln!(writer).map_err(|error| error.to_string())
+}
+
+fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json::Value {
+    let summary = readiness_summary_counts(&report.gates);
+    let gates: Vec<_> = report
+        .gates
+        .iter()
+        .map(|gate| {
+            serde_json::json!({
+                "name": gate.name,
+                "category": gate.category,
+                "status": gate.status.label(),
+                "detail": gate.detail,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "status": if report.ready_for_default_core { "ready" } else { "not-ready" },
+        "kind": "keli_default_core_readiness",
+        "schema_version": report.schema_version,
+        "version": report.version,
+        "ready_for_default_core": report.ready_for_default_core,
+        "summary": {
+            "total_gate_count": summary.total,
+            "passed_gate_count": summary.passed,
+            "failed_gate_count": summary.failed,
+            "warning_gate_count": summary.warning,
+            "skipped_gate_count": summary.skipped,
+        },
+        "gates": gates,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReadinessSummaryCounts {
+    total: usize,
+    passed: usize,
+    failed: usize,
+    warning: usize,
+    skipped: usize,
+}
+
+fn readiness_summary_counts(gates: &[ReadinessGateReport]) -> ReadinessSummaryCounts {
+    let mut summary = ReadinessSummaryCounts {
+        total: gates.len(),
+        passed: 0,
+        failed: 0,
+        warning: 0,
+        skipped: 0,
+    };
+    for gate in gates {
+        match gate.status {
+            ReadinessGateStatus::Passed => summary.passed += 1,
+            ReadinessGateStatus::Failed => summary.failed += 1,
+            ReadinessGateStatus::Warning => summary.warning += 1,
+            ReadinessGateStatus::Skipped => summary.skipped += 1,
+        }
+    }
+    summary
 }
 
 pub fn write_tun_preflight_report_with_controller<C: TunDeviceController + ?Sized>(

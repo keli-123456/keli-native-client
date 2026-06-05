@@ -2,7 +2,7 @@ use keli_cli::{
     DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, DOCTOR_REPORT_SCHEMA_VERSION,
     INTEROP_MATRIX_SCHEMA_VERSION, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
     MANAGED_MIXED_RECENT_EVENT_LIMIT, MANAGED_MIXED_STATUS_SCHEMA_VERSION,
-    SUPPORT_BUNDLE_SCHEMA_VERSION,
+    READINESS_CHECK_SCHEMA_VERSION, SUPPORT_BUNDLE_SCHEMA_VERSION,
 };
 use keli_client_core::DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT;
 use keli_net_core::DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS;
@@ -56,6 +56,10 @@ proxies:
     assert_eq!(
         report["doctor"]["schema_versions"]["interop_matrix"],
         INTEROP_MATRIX_SCHEMA_VERSION
+    );
+    assert_eq!(
+        report["doctor"]["schema_versions"]["readiness_check"],
+        READINESS_CHECK_SCHEMA_VERSION
     );
     assert_eq!(
         report["doctor"]["schema_versions"]["managed_mixed_status"],
@@ -215,6 +219,14 @@ proxies:
     assert_eq!(
         report["doctor"]["interop_matrix_capabilities"][7],
         "support-bundle-export"
+    );
+    assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][0],
+        "doctor-schema"
+    );
+    assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][8],
+        "json-gates"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],

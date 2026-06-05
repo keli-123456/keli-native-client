@@ -323,6 +323,12 @@ native core: each supported protocol reports covered transports, TCP/UDP relay
 support, subscription profile sources, profile validation coverage, and
 registry registration coverage. Support bundles include the same matrix, so UI
 and support flows can inspect protocol readiness without scraping this document.
+`readiness-check` adds a default-core gate for CI and desktop integration: it
+combines doctor schema coverage, interop matrix coverage, resource limits,
+panel/subscription status surfaces, system proxy support, TUN preflight state,
+and optional local mixed soak gates into one text or JSON report. The report is
+allowed to say `not-ready` when the local platform still lacks a required
+handoff such as packet I/O, making remaining default-core blockers explicit.
 
 ## Protocol Matrix
 
@@ -347,7 +353,9 @@ tests for these protocols. `keli-cli doctor` prints the authoritative runtime
 capability list in text or JSON form, and `keli-cli support-bundle` exports a
 redacted JSON support report. `keli-cli interop-matrix --format json` exports
 the current protocol matrix with validation and registry sample counts for CI,
-UI, and support tooling.
+UI, and support tooling. `keli-cli readiness-check --format json` exports the
+current default-core readiness gates, including skipped or failed gates, so UI
+and release automation can track what is still blocking default-core use.
 
 ## Design Principles
 
@@ -366,6 +374,7 @@ $env:CARGO_INCREMENTAL='0'; cargo test --workspace -j 1
 cargo run -p keli-cli -- doctor
 cargo run -p keli-cli -- doctor --format json
 cargo run -p keli-cli -- interop-matrix --format json
+cargo run -p keli-cli -- readiness-check --format json
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
 cargo run -p keli-cli -- subscription-update --current-config active.yaml --new-config subscription.yaml --current-outbound proxy --format json
 cargo run -p keli-cli -- soak-mixed --connections 25 --format json
