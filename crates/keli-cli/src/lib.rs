@@ -218,6 +218,7 @@ pub struct ConnectionMetricsSnapshot {
     pub connection_limit_rejection_count: u64,
     pub error_kind_counts: Vec<ConnectionErrorKindCount>,
     pub route_action_counts: Vec<ConnectionRouteActionCount>,
+    pub inbound_counts: Vec<ConnectionInboundCount>,
     pub total_upload_bytes: u64,
     pub total_download_bytes: u64,
     pub total_connect_ms: u128,
@@ -244,6 +245,12 @@ pub struct ConnectionRouteActionCount {
     pub count: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionInboundCount {
+    pub inbound: String,
+    pub count: u64,
+}
+
 impl Default for ConnectionMetricsSnapshot {
     fn default() -> Self {
         Self {
@@ -253,6 +260,7 @@ impl Default for ConnectionMetricsSnapshot {
             connection_limit_rejection_count: 0,
             error_kind_counts: Vec::new(),
             route_action_counts: Vec::new(),
+            inbound_counts: Vec::new(),
             total_upload_bytes: 0,
             total_download_bytes: 0,
             total_connect_ms: 0,
@@ -277,6 +285,7 @@ struct ConnectionMetricsState {
     connection_limit_rejection_count: u64,
     error_kind_counts: Vec<ConnectionErrorKindCount>,
     route_action_counts: Vec<ConnectionRouteActionCount>,
+    inbound_counts: Vec<ConnectionInboundCount>,
     total_upload_bytes: u64,
     total_download_bytes: u64,
     total_connect_ms: u128,
@@ -310,6 +319,18 @@ impl ConnectionMetrics {
         let recorded_at = SystemTime::now();
         state.last_connection_at = Some(recorded_at);
         state.total_connection_count = state.total_connection_count.saturating_add(1);
+        if let Some(entry) = state
+            .inbound_counts
+            .iter_mut()
+            .find(|entry| entry.inbound == report.inbound)
+        {
+            entry.count = entry.count.saturating_add(1);
+        } else {
+            state.inbound_counts.push(ConnectionInboundCount {
+                inbound: report.inbound.clone(),
+                count: 1,
+            });
+        }
         if let Some(entry) = state
             .route_action_counts
             .iter_mut()
@@ -381,6 +402,8 @@ impl ConnectionMetrics {
         error_kind_counts.sort_by_key(|entry| entry.error_kind.as_str());
         let mut route_action_counts = state.route_action_counts.clone();
         route_action_counts.sort_by_key(|entry| route_action_sort_key(&entry.route_action));
+        let mut inbound_counts = state.inbound_counts.clone();
+        inbound_counts.sort_by(|left, right| left.inbound.cmp(&right.inbound));
         ConnectionMetricsSnapshot {
             total_connection_count: state.total_connection_count,
             success_count: state.success_count,
@@ -388,6 +411,7 @@ impl ConnectionMetrics {
             connection_limit_rejection_count: state.connection_limit_rejection_count,
             error_kind_counts,
             route_action_counts,
+            inbound_counts,
             total_upload_bytes: state.total_upload_bytes,
             total_download_bytes: state.total_download_bytes,
             total_connect_ms: state.total_connect_ms,
@@ -2190,6 +2214,16 @@ fn connection_metrics_json_value(metrics: &ConnectionMetricsSnapshot) -> serde_j
             })
         })
         .collect::<Vec<_>>();
+    let inbound_counts = metrics
+        .inbound_counts
+        .iter()
+        .map(|entry| {
+            serde_json::json!({
+                "inbound": &entry.inbound,
+                "count": entry.count,
+            })
+        })
+        .collect::<Vec<_>>();
     serde_json::json!({
         "total_connection_count": metrics.total_connection_count,
         "success_count": metrics.success_count,
@@ -2197,6 +2231,7 @@ fn connection_metrics_json_value(metrics: &ConnectionMetricsSnapshot) -> serde_j
         "connection_limit_rejection_count": metrics.connection_limit_rejection_count,
         "error_kind_counts": error_kind_counts,
         "route_action_counts": route_action_counts,
+        "inbound_counts": inbound_counts,
         "total_upload_bytes": metrics.total_upload_bytes,
         "total_download_bytes": metrics.total_download_bytes,
         "total_connect_ms": saturating_u128_to_u64(metrics.total_connect_ms),

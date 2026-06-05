@@ -7,12 +7,13 @@ use std::time::{Duration, Instant, SystemTime};
 
 use keli_cli::{
     apply_system_proxy_for_listener, managed_mixed_status_json_value,
-    write_managed_mixed_status_json_report, ConnectionErrorKindCount, ConnectionMetrics,
-    ConnectionMetricsSnapshot, ConnectionRouteActionCount, ManagedMixedController,
-    ManagedMixedOptions, ManagedMixedSession, ManagedMixedStatusSnapshot, ManagedNodeHealthState,
-    ManagedNodeHealthStatus, ManagedNodeProbeOptions, ManagedNodeProbeSweepOptions,
-    MixedDnsOptions, SmokeInboundKind, DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
-    MANAGED_CONNECTION_REPORT_HISTORY_LIMIT, MANAGED_MIXED_RECENT_EVENT_LIMIT,
+    write_managed_mixed_status_json_report, ConnectionErrorKindCount, ConnectionInboundCount,
+    ConnectionMetrics, ConnectionMetricsSnapshot, ConnectionRouteActionCount,
+    ManagedMixedController, ManagedMixedOptions, ManagedMixedSession, ManagedMixedStatusSnapshot,
+    ManagedNodeHealthState, ManagedNodeHealthStatus, ManagedNodeProbeOptions,
+    ManagedNodeProbeSweepOptions, MixedDnsOptions, SmokeInboundKind,
+    DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
+    MANAGED_MIXED_RECENT_EVENT_LIMIT,
 };
 use keli_client_core::{
     ClientErrorKind, PanelAccountState, PanelRiskControlState, PanelState, PanelUserState,
@@ -256,6 +257,19 @@ fn connection_metrics_summarize_totals_after_recent_history_trims() {
     assert_eq!(snapshot.success_count, 2);
     assert_eq!(snapshot.failure_count, 1);
     assert_eq!(
+        snapshot.inbound_counts,
+        vec![
+            ConnectionInboundCount {
+                inbound: "http-connect".to_string(),
+                count: 2,
+            },
+            ConnectionInboundCount {
+                inbound: "socks5".to_string(),
+                count: 1,
+            },
+        ]
+    );
+    assert_eq!(
         snapshot.route_action_counts,
         vec![
             ConnectionRouteActionCount {
@@ -314,6 +328,16 @@ fn connection_metrics_summarize_totals_after_recent_history_trims() {
         panel_state: None,
     };
     let value = managed_mixed_status_json_value(&status);
+    assert_eq!(
+        value["connection_metrics"]["inbound_counts"][0]["inbound"],
+        "http-connect"
+    );
+    assert_eq!(value["connection_metrics"]["inbound_counts"][0]["count"], 2);
+    assert_eq!(
+        value["connection_metrics"]["inbound_counts"][1]["inbound"],
+        "socks5"
+    );
+    assert_eq!(value["connection_metrics"]["inbound_counts"][1]["count"], 1);
     assert_eq!(
         value["connection_metrics"]["route_action_counts"][0]["route_action"]["kind"],
         "direct"
@@ -777,6 +801,13 @@ fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
             count: 1,
         }]
     );
+    assert_eq!(
+        status.connection_metrics.inbound_counts,
+        vec![ConnectionInboundCount {
+            inbound: "socks5".to_string(),
+            count: 1,
+        }]
+    );
     assert!(status.connection_metrics.last_connection_at.is_some());
     assert!(status.connection_metrics.last_success_at.is_none());
     assert_eq!(
@@ -818,6 +849,11 @@ fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
         value["connection_metrics"]["route_action_counts"][0]["count"],
         1
     );
+    assert_eq!(
+        value["connection_metrics"]["inbound_counts"][0]["inbound"],
+        "socks5"
+    );
+    assert_eq!(value["connection_metrics"]["inbound_counts"][0]["count"], 1);
     assert!(value["connection_metrics"]["last_connection_at_unix_ms"]
         .as_u64()
         .is_some());
@@ -864,6 +900,10 @@ fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
     assert_eq!(
         reloaded.connection_metrics.route_action_counts,
         status.connection_metrics.route_action_counts
+    );
+    assert_eq!(
+        reloaded.connection_metrics.inbound_counts,
+        status.connection_metrics.inbound_counts
     );
     assert_eq!(
         reloaded.connection_metrics.last_failure_at,
@@ -1199,6 +1239,9 @@ fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
         .as_object()
         .is_some_and(|counts| counts.is_empty()));
     assert!(value["connection_metrics"]["route_action_counts"]
+        .as_array()
+        .is_some_and(|counts| counts.is_empty()));
+    assert!(value["connection_metrics"]["inbound_counts"]
         .as_array()
         .is_some_and(|counts| counts.is_empty()));
     assert_eq!(value["connection_metrics"]["total_upload_bytes"], 0);

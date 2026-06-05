@@ -350,8 +350,8 @@ The first implementation target is deliberately small:
    Its aggregate connection metrics retain total transfer bytes and
    connect/first-byte timing totals with averages across the full managed
    session, plus route-action distribution across direct, block, DNS hijack,
-   and outbound-tag decisions, so long-running trends survive recent-history
-   trimming.
+   and outbound-tag decisions and inbound distribution across mixed entry
+   paths, so long-running trends survive recent-history trimming.
    Managed TUN packet loops now use a combined UDP/TCP relay path so the
    registry-backed UDP execution path remains active while direct and tagged
    TCP sessions can be exercised through the shared outbound registry.
@@ -377,8 +377,8 @@ client no longer blocks subsequent connections. That worker fan-out is bounded
 and records connection-limit rejections in managed connection metrics, including
 a cumulative rejection count and per-error-kind counts for long-running
 resource protection. The same metrics include last connection, success, and
-failure timestamps plus transfer-byte, timing, and route-action aggregates, and
-`listen-mixed --max-connection-workers` lets clients
+failure timestamps plus transfer-byte, timing, route-action, and inbound
+aggregates, and `listen-mixed --max-connection-workers` lets clients
 tune the cap. Its status snapshot reports active/peak workers and
 active/peak client connections plus remaining worker slots, so clients can detect
 saturation before rejections. Managed shutdown closes active mixed client
