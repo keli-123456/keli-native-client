@@ -1607,6 +1607,58 @@ fn handles_retransmitted_tun_tcp_syn_without_reconnecting_relay() {
 }
 
 #[test]
+fn ignores_retransmitted_tun_tcp_syn_after_client_fin_half_close() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    let fin_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0011, 0x4000, &[], b""),
+    );
+    let fin = parse_tun_tcp_segment(&fin_packet).expect("parse FIN segment");
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::default();
+
+    process_tun_tcp_session_segment(&mut sessions, &syn, &mut relay, 1000, 0x2000)
+        .expect("process initial SYN");
+    process_tun_tcp_session_segment(&mut sessions, &ack, &mut relay, 1000, 0x2000)
+        .expect("process ACK");
+    let fin_step = process_tun_tcp_session_segment(&mut sessions, &fin, &mut relay, 1000, 0x2000)
+        .expect("process client FIN");
+    assert!(matches!(fin_step, TunTcpSessionStep::ClientFinAck { .. }));
+
+    let retransmitted_syn_step =
+        process_tun_tcp_session_segment(&mut sessions, &syn, &mut relay, 5000, 0x3000)
+            .expect("process retransmitted SYN after half-close");
+
+    assert!(matches!(retransmitted_syn_step, TunTcpSessionStep::Noop));
+    assert!(retransmitted_syn_step.response_packets().is_empty());
+    assert_eq!(relay.established_sessions.len(), 1);
+    assert_eq!(relay.client_write_shutdown_sessions.len(), 1);
+    assert!(relay.closed_sessions.is_empty());
+    let stored = sessions
+        .get_flow(&syn.flow)
+        .expect("lookup session")
+        .expect("session should remain");
+    assert_eq!(stored.phase, TunTcpSessionPhase::ClientFinReceived);
+    assert_eq!(stored.server_initial_sequence_number, 1000);
+    assert_eq!(stored.server_next_sequence_number, 1001);
+}
+
+#[test]
 fn polls_tun_tcp_server_payload_on_followup_ack() {
     let syn_packet = ipv4_packet(
         6,
@@ -1719,6 +1771,7 @@ fn closes_tun_tcp_session_on_server_eof_and_builds_fin_ack() {
     assert!(fin.flags.ack());
     assert!(fin.payload.is_empty());
     assert!(sessions.is_empty());
+    assert!(relay.client_write_shutdown_sessions.is_empty());
     assert_eq!(relay.closed_sessions.len(), 1);
 }
 
@@ -1808,6 +1861,7 @@ fn retransmits_tun_tcp_server_fin_until_client_acknowledges_close() {
     assert_eq!(session.client_next_sequence_number, 16);
     assert_eq!(session.server_next_sequence_number, 1001);
     assert!(sessions.is_empty());
+    assert!(relay.client_write_shutdown_sessions.is_empty());
     assert_eq!(relay.closed_sessions.len(), 1);
 }
 
@@ -1874,6 +1928,7 @@ fn acknowledges_client_fin_ack_after_tun_tcp_server_fin_without_reset() {
     assert!(!ack.flags.fin());
     assert!(ack.payload.is_empty());
     assert!(sessions.is_empty());
+    assert!(relay.client_write_shutdown_sessions.is_empty());
     assert_eq!(relay.closed_sessions.len(), 1);
 }
 
@@ -1964,6 +2019,7 @@ fn absorbs_tun_tcp_post_close_duplicate_ack_and_late_client_fin() {
     assert!(ack.flags.ack());
     assert!(!ack.flags.rst());
     assert!(sessions.is_empty());
+    assert!(relay.client_write_shutdown_sessions.is_empty());
     assert_eq!(relay.closed_sessions.len(), 1);
 }
 
@@ -2027,6 +2083,7 @@ fn polls_tun_tcp_server_eof_on_followup_ack_and_builds_fin_ack() {
     assert!(fin.flags.fin());
     assert!(fin.flags.ack());
     assert!(sessions.is_empty());
+    assert!(relay.client_write_shutdown_sessions.is_empty());
     assert_eq!(relay.closed_sessions.len(), 1);
 }
 
@@ -2060,6 +2117,7 @@ fn closes_tun_tcp_session_step_and_notifies_relay() {
     assert_eq!(session.phase, TunTcpSessionPhase::SynReceived);
     assert!(response.is_none());
     assert!(sessions.is_empty());
+    assert!(relay.client_write_shutdown_sessions.is_empty());
     assert_eq!(relay.closed_sessions.len(), 1);
 }
 
@@ -2099,14 +2157,23 @@ fn closes_tun_tcp_session_with_fin_payload_after_writing_payload_once() {
         process_tun_tcp_session_segment(&mut sessions, &fin_payload, &mut relay, 1000, 0x2000)
             .expect("process FIN payload step");
 
-    let TunTcpSessionStep::ClientPayloadClosed { frame, response } = close_step else {
+    let TunTcpSessionStep::ClientPayloadClosed {
+        frame,
+        response,
+        server_response,
+        server_close,
+    } = close_step
+    else {
         panic!("expected FIN payload close step");
     };
     assert_eq!(frame.sequence_number, 11);
     assert_eq!(frame.acknowledgment_number, 17);
     assert_eq!(frame.payload, b"GET /");
     assert_eq!(relay.client_payloads, vec![b"GET /".to_vec()]);
-    assert_eq!(relay.closed_sessions.len(), 1);
+    assert_eq!(relay.client_write_shutdown_sessions.len(), 1);
+    assert!(relay.closed_sessions.is_empty());
+    assert!(server_response.is_none());
+    assert!(server_close.is_none());
     assert_eq!(response.sequence_number, 1001);
     assert_eq!(response.acknowledgment_number, 17);
     assert_eq!(frame.ack_packet, response.packet);
@@ -2116,7 +2183,14 @@ fn closes_tun_tcp_session_with_fin_payload_after_writing_payload_once() {
     assert!(ack.flags.ack());
     assert!(!ack.flags.rst());
     assert!(!ack.flags.fin());
-    assert!(sessions.is_empty());
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(
+        sessions
+            .get(&frame.session.key)
+            .expect("stored half-closed session")
+            .phase,
+        TunTcpSessionPhase::ClientFinReceived
+    );
 
     let duplicate_step =
         process_tun_tcp_session_segment(&mut sessions, &fin_payload, &mut relay, 1000, 0x2000)
@@ -2138,7 +2212,8 @@ fn closes_tun_tcp_session_with_fin_payload_after_writing_payload_once() {
         vec![b"GET /".to_vec()],
         "duplicate FIN payload must not be written to the relay twice"
     );
-    assert_eq!(relay.closed_sessions.len(), 1);
+    assert_eq!(relay.client_write_shutdown_sessions.len(), 1);
+    assert!(relay.closed_sessions.is_empty());
 }
 
 #[test]
@@ -2315,13 +2390,21 @@ fn ignores_unexpected_established_tun_tcp_close_step_without_notifying_relay() {
         process_tun_tcp_session_segment(&mut sessions, &valid_fin, &mut relay, 1000, 0x2000)
             .expect("process valid FIN");
 
-    let TunTcpSessionStep::Closed { session, response } = close_step else {
-        panic!("expected closed step");
+    let TunTcpSessionStep::ClientFinAck {
+        response,
+        server_response,
+        server_close,
+    } = close_step
+    else {
+        panic!("expected client FIN ACK step");
     };
-    assert_eq!(session.phase, TunTcpSessionPhase::Established);
-    assert!(response.is_some());
-    assert!(sessions.is_empty());
-    assert_eq!(relay.closed_sessions.len(), 1);
+    assert_eq!(response.sequence_number, 1009);
+    assert_eq!(response.acknowledgment_number, 17);
+    assert!(server_response.is_none());
+    assert!(server_close.is_none());
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(relay.client_write_shutdown_sessions.len(), 1);
+    assert!(relay.closed_sessions.is_empty());
 }
 
 #[test]
@@ -2431,10 +2514,16 @@ fn reacknowledges_duplicate_tun_tcp_client_fin_after_close_without_reset() {
     let close_step = process_tun_tcp_session_segment(&mut sessions, &fin, &mut relay, 1000, 0x2000)
         .expect("process initial client FIN");
 
-    let TunTcpSessionStep::Closed { response, .. } = close_step else {
-        panic!("expected closed step");
+    let TunTcpSessionStep::ClientFinAck {
+        response,
+        server_response,
+        server_close,
+    } = close_step
+    else {
+        panic!("expected client FIN ACK step");
     };
-    let response = response.expect("client FIN ACK");
+    assert!(server_response.is_none());
+    assert!(server_close.is_none());
     assert_eq!(response.sequence_number, 1001);
     assert_eq!(response.acknowledgment_number, 12);
 
@@ -2453,8 +2542,9 @@ fn reacknowledges_duplicate_tun_tcp_client_fin_after_close_without_reset() {
     assert!(ack.flags.ack());
     assert!(!ack.flags.rst());
     assert!(!ack.flags.fin());
-    assert!(sessions.is_empty());
-    assert_eq!(relay.closed_sessions.len(), 1);
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(relay.client_write_shutdown_sessions.len(), 1);
+    assert!(relay.closed_sessions.is_empty());
 }
 
 #[test]
@@ -2640,6 +2730,7 @@ fn prunes_idle_tun_tcp_sessions_and_closes_relay_state() {
     assert_eq!(report.close_errors, 0);
     assert!(report.last_close_error.is_none());
     assert!(sessions.is_empty());
+    assert!(relay.client_write_shutdown_sessions.is_empty());
     assert_eq!(relay.closed_sessions.len(), 1);
 }
 
@@ -3349,19 +3440,25 @@ fn registry_tun_tcp_session_relay_writes_fin_payload_before_close_once() {
 
     assert_eq!(summary.processed_packets(), 4);
     assert_eq!(summary.tcp_session_events, 4);
-    assert_eq!(summary.tcp_session_packets_written, 3);
+    assert_eq!(summary.tcp_session_packets_written, 4);
     assert_eq!(summary.tcp_session_errors, 0);
-    assert_eq!(device.writes.len(), 3);
+    assert_eq!(device.writes.len(), 4);
     let fin_payload_ack = parse_tun_tcp_segment(&device.writes[1]).expect("parse FIN payload ACK");
     assert_eq!(fin_payload_ack.sequence_number, 1001);
     assert_eq!(fin_payload_ack.acknowledgment_number, 17);
     assert!(fin_payload_ack.flags.ack());
     assert!(!fin_payload_ack.flags.rst());
+    let server_fin = parse_tun_tcp_segment(&device.writes[2]).expect("parse server FIN packet");
+    assert_eq!(server_fin.sequence_number, 1001);
+    assert_eq!(server_fin.acknowledgment_number, 17);
+    assert!(server_fin.flags.fin());
+    assert!(server_fin.flags.ack());
     let duplicate_ack =
-        parse_tun_tcp_segment(&device.writes[2]).expect("parse duplicate FIN payload ACK");
+        parse_tun_tcp_segment(&device.writes[3]).expect("parse retransmitted server FIN packet");
     assert_eq!(duplicate_ack.sequence_number, 1001);
     assert_eq!(duplicate_ack.acknowledgment_number, 17);
     assert!(duplicate_ack.flags.ack());
+    assert!(duplicate_ack.flags.fin());
     assert!(!duplicate_ack.flags.rst());
     assert!(relay.is_empty());
     assert!(sessions.is_empty());
@@ -3369,6 +3466,94 @@ fn registry_tun_tcp_session_relay_writes_fin_payload_before_close_once() {
         tcp_server.join().expect("TCP collect server"),
         b"GET /".to_vec(),
         "registry relay should deliver FIN payload once before closing"
+    );
+}
+
+#[test]
+fn registry_tun_tcp_session_relay_returns_server_payload_after_fin_payload_half_close() {
+    let (tcp_port, tcp_server) = spawn_tcp_response_after_eof_server(b"GET /", b"HTTP/1.1");
+    let packets = vec![
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "127.0.0.1",
+            &tcp_segment(49152, tcp_port, 10, 0, 0x0002, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "127.0.0.1",
+            &tcp_segment(49152, tcp_port, 11, 1001, 0x0010, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "127.0.0.1",
+            &tcp_segment(49152, tcp_port, 11, 1001, 0x0019, 0x4000, &[], b"GET /"),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "127.0.0.1",
+            &tcp_segment(49152, tcp_port, 11, 1001, 0x0019, 0x4000, &[], b"GET /"),
+        ),
+    ];
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let registry = OutboundRegistry::new();
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut relay_dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut relay =
+        RegistryTunTcpSessionRelay::new(&registry, &mut relay_dns, Duration::from_secs(1));
+    let mut sessions = TunTcpSessionTable::new();
+    let mut device = FakeTunPacketDevice::new(packets);
+
+    let summary = run_tun_packet_loop_with_tcp_session_relay_summary(
+        &mut device,
+        &routes,
+        true,
+        &mut dns,
+        30,
+        4,
+        &mut sessions,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("run TUN loop with registry FIN payload half-close response");
+
+    assert_eq!(summary.processed_packets(), 4);
+    assert_eq!(summary.tcp_session_events, 4);
+    assert_eq!(summary.tcp_session_packets_written, 4);
+    assert_eq!(summary.tcp_session_errors, 0);
+    assert_eq!(device.writes.len(), 4);
+    let fin_payload_ack = parse_tun_tcp_segment(&device.writes[1]).expect("parse FIN payload ACK");
+    assert_eq!(fin_payload_ack.sequence_number, 1001);
+    assert_eq!(fin_payload_ack.acknowledgment_number, 17);
+    assert!(fin_payload_ack.flags.ack());
+    assert!(!fin_payload_ack.flags.rst());
+    let server_payload =
+        parse_tun_tcp_segment(&device.writes[2]).expect("parse half-close server payload packet");
+    assert_eq!(server_payload.sequence_number, 1001);
+    assert_eq!(server_payload.acknowledgment_number, 17);
+    assert_eq!(server_payload.payload, b"HTTP/1.1");
+    let duplicate_ack = parse_tun_tcp_segment(&device.writes[3]).expect("parse duplicate FIN ACK");
+    assert_eq!(duplicate_ack.sequence_number, 1009);
+    assert_eq!(duplicate_ack.acknowledgment_number, 17);
+    assert!(duplicate_ack.flags.ack());
+    assert!(!duplicate_ack.flags.fin());
+    assert!(!duplicate_ack.flags.rst());
+    assert_eq!(relay.active_session_count(), 1);
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(
+        tcp_server.join().expect("TCP EOF response server"),
+        b"GET /".to_vec(),
+        "registry relay should half-close writes and still read the server response"
     );
 }
 
@@ -4323,6 +4508,10 @@ fn tun_packet_loop_reacknowledges_duplicate_client_fin_after_close_without_reset
         StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
         DnsCache::new(Duration::from_secs(60)),
     );
+    let syn_flow = parse_tun_tcp_segment(&packets[0])
+        .expect("parse SYN for session lookup")
+        .flow
+        .clone();
     let mut device = FakeTunPacketDevice::new(packets);
     let mut sessions = TunTcpSessionTable::new();
     let mut relay = FakeTunTcpSessionRelay::default();
@@ -4357,8 +4546,17 @@ fn tun_packet_loop_reacknowledges_duplicate_client_fin_after_close_without_reset
     assert_eq!(duplicate_fin_ack.acknowledgment_number, 12);
     assert!(duplicate_fin_ack.flags.ack());
     assert!(!duplicate_fin_ack.flags.rst());
-    assert!(sessions.is_empty());
-    assert_eq!(relay.closed_sessions.len(), 1);
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(
+        sessions
+            .get_flow(&syn_flow)
+            .expect("lookup session")
+            .expect("stored half-closed session")
+            .phase,
+        TunTcpSessionPhase::ClientFinReceived
+    );
+    assert_eq!(relay.client_write_shutdown_sessions.len(), 1);
+    assert!(relay.closed_sessions.is_empty());
 }
 
 #[test]
@@ -4417,7 +4615,8 @@ fn tun_packet_loop_writes_fin_payload_before_close_and_reacks_retransmit() {
     assert_eq!(summary.tcp_session_packets_written, 3);
     assert_eq!(device.writes.len(), 3);
     assert_eq!(relay.client_payloads, vec![b"GET /".to_vec()]);
-    assert_eq!(relay.closed_sessions.len(), 1);
+    assert_eq!(relay.client_write_shutdown_sessions.len(), 1);
+    assert!(relay.closed_sessions.is_empty());
     let first_ack = parse_tun_tcp_segment(&device.writes[1]).expect("parse FIN payload ACK");
     assert_eq!(first_ack.sequence_number, 1001);
     assert_eq!(first_ack.acknowledgment_number, 17);
@@ -4431,7 +4630,7 @@ fn tun_packet_loop_writes_fin_payload_before_close_and_reacks_retransmit() {
     assert!(retransmit_ack.flags.ack());
     assert!(!retransmit_ack.flags.rst());
     assert!(!retransmit_ack.flags.fin());
-    assert!(sessions.is_empty());
+    assert_eq!(sessions.len(), 1);
 }
 
 #[test]
@@ -4563,8 +4762,9 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
         relay.client_payloads,
         vec![b"GET /".to_vec(), b"more".to_vec()]
     );
-    assert_eq!(relay.closed_sessions.len(), 1);
-    assert!(sessions.is_empty());
+    assert_eq!(relay.client_write_shutdown_sessions.len(), 1);
+    assert!(relay.closed_sessions.is_empty());
+    assert_eq!(sessions.len(), 1);
 }
 
 #[test]
@@ -4664,8 +4864,9 @@ fn tun_packet_loop_accepts_client_payload_with_stale_server_ack() {
         relay.client_payloads,
         vec![b"GET /".to_vec(), b"more".to_vec()]
     );
-    assert_eq!(relay.closed_sessions.len(), 1);
-    assert!(sessions.is_empty());
+    assert_eq!(relay.client_write_shutdown_sessions.len(), 1);
+    assert!(relay.closed_sessions.is_empty());
+    assert_eq!(sessions.len(), 1);
 }
 
 #[test]
@@ -5408,6 +5609,37 @@ fn spawn_tcp_collect_until_eof_server() -> (u16, thread::JoinHandle<Vec<u8>>) {
     (port, server)
 }
 
+fn spawn_tcp_response_after_eof_server(
+    expected_request: &'static [u8],
+    response: &'static [u8],
+) -> (u16, thread::JoinHandle<Vec<u8>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind TCP EOF response server");
+    let port = listener
+        .local_addr()
+        .expect("TCP EOF response server address")
+        .port();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept TCP EOF response client");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .expect("set TCP EOF response read timeout");
+        stream
+            .set_write_timeout(Some(Duration::from_secs(1)))
+            .expect("set TCP EOF response write timeout");
+        let mut request = Vec::new();
+        stream
+            .read_to_end(&mut request)
+            .expect("read TCP request until EOF");
+        assert_eq!(request, expected_request);
+        stream
+            .write_all(response)
+            .expect("write TCP response after EOF");
+        stream.flush().expect("flush TCP response after EOF");
+        request
+    });
+    (port, server)
+}
+
 fn tcp_session_packets(
     destination: &str,
     destination_port: u16,
@@ -5529,6 +5761,7 @@ struct FakeTunTcpSessionRelay {
     established_sessions: Vec<TunTcpSessionRecord>,
     client_payloads: Vec<Vec<u8>>,
     server_reads: std::collections::VecDeque<TunTcpServerRead>,
+    client_write_shutdown_sessions: Vec<TunTcpSessionRecord>,
     closed_sessions: Vec<TunTcpSessionRecord>,
     client_payload_error: Option<String>,
 }
@@ -5577,6 +5810,11 @@ impl TunTcpSessionRelay for FakeTunTcpSessionRelay {
             return Err(error.clone());
         }
         self.client_payloads.push(frame.payload.clone());
+        Ok(())
+    }
+
+    fn shutdown_client_write(&mut self, session: &TunTcpSessionRecord) -> Result<(), String> {
+        self.client_write_shutdown_sessions.push(session.clone());
         Ok(())
     }
 

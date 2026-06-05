@@ -164,11 +164,13 @@ client payload is written to the relay, queued server payload is packetized
 back to TUN, FIN closes with an ACK packet, and RST closes without creating a
 reset loop.
 FIN segments that carry final client payload write that payload to the relay
-before closing, and retransmits are re-ACKed without rewriting payload.
-Registry-backed direct TCP relay tests cover that FIN payload close path
-against a real local TCP server through EOF.
-Client-initiated FIN close ACKs are also kept briefly so duplicate client FINs
-re-send the ACK instead of being treated as unknown sessions.
+before half-closing the relay write side, and retransmits are re-ACKed without
+rewriting payload.
+Registry-backed direct TCP relay tests cover both the EOF FIN path and the
+server-payload-after-client-FIN half-close path against real local TCP servers.
+Client-initiated FIN ACKs keep the TCP session open for server payload and
+server FIN responses while duplicate client FINs re-send the ACK instead of
+being treated as unknown sessions.
 A TCP session relay device-loop entrypoint now reads TUN packets, routes direct
 or tagged TCP relay plans into that step runner, writes response packets back
 to the device, and records TCP session events, written packets, and relay

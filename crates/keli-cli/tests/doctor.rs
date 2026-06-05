@@ -17,7 +17,7 @@ fn doctor_report_lists_supported_outbounds() {
         "route_rule_capabilities=domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range"
     ));
     assert!(output.contains(
-        "tun_packet_pipeline_capabilities=ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-post-close-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan"
+        "tun_packet_pipeline_capabilities=ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-post-close-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan"
     ));
     assert!(output.contains(
         "supported_outbounds=direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic"
@@ -223,61 +223,65 @@ fn doctor_json_report_is_machine_readable() {
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][50],
-        "tcp-client-fin-post-close-ack"
+        "tcp-client-fin-half-close"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][51],
-        "tcp-close-sequence-guard"
+        "tcp-client-fin-post-close-ack"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][52],
-        "tcp-close-latest-ack-guard"
+        "tcp-close-sequence-guard"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][53],
-        "tcp-unknown-session-reset"
+        "tcp-close-latest-ack-guard"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][54],
-        "tcp-server-eof-fin-ack"
+        "tcp-unknown-session-reset"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][55],
-        "tcp-server-fin-retransmit"
+        "tcp-server-eof-fin-ack"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][56],
-        "tcp-server-fin-final-ack"
+        "tcp-server-fin-retransmit"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][57],
-        "tcp-server-fin-client-fin-ack"
+        "tcp-server-fin-final-ack"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][58],
-        "tcp-server-fin-post-close-guard"
+        "tcp-server-fin-client-fin-ack"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][59],
-        "tcp-session-idle-cleanup"
+        "tcp-server-fin-post-close-guard"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][60],
-        "registry-tcp-session-relay"
+        "tcp-session-idle-cleanup"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][61],
-        "combined-tun-relay-loop"
+        "registry-tcp-session-relay"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][62],
-        "managed-registry-tcp-session-relay"
+        "combined-tun-relay-loop"
     );
     assert_eq!(
         report["tun_packet_pipeline_capabilities"][63],
+        "managed-registry-tcp-session-relay"
+    );
+    assert_eq!(
+        report["tun_packet_pipeline_capabilities"][64],
         "tcp-relay-plan-summary"
     );
-    assert_eq!(report["tun_packet_pipeline_capabilities"][64], "relay-plan");
+    assert_eq!(report["tun_packet_pipeline_capabilities"][65], "relay-plan");
     assert_eq!(report["dns_engine"]["resolver"], "system_resolver");
     assert_eq!(report["dns_engine"]["cache_ttl_seconds"], 60);
     assert_eq!(
