@@ -908,6 +908,111 @@ fn sends_tun_tcp_server_payload_and_advances_server_sequence() {
 }
 
 #[test]
+fn retransmits_last_tun_tcp_server_payload_on_duplicate_ack() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let key = TunTcpSessionKey::from_flow(&syn.flow).expect("session key");
+    let mut sessions = TunTcpSessionTable::new();
+    sessions
+        .start_from_syn(&syn, 1000, 0x2000)
+        .expect("start TUN TCP session");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    sessions
+        .apply_ack(&ack)
+        .expect("apply session ACK")
+        .expect("session established");
+    let data_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+    );
+    let data = parse_tun_tcp_segment(&data_packet).expect("parse TCP data segment");
+    sessions
+        .accept_client_payload(&data)
+        .expect("accept TCP client payload")
+        .expect("payload frame");
+    sessions
+        .send_server_payload(&syn.flow, b"HTTP/1.1")
+        .expect("send TCP server payload")
+        .expect("server payload frame");
+    assert_eq!(
+        sessions
+            .get(&key)
+            .expect("stored session")
+            .server_unacked_payload
+            .as_ref()
+            .expect("unacked server payload")
+            .sequence_number,
+        1001
+    );
+
+    let duplicate_ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let duplicate_ack = parse_tun_tcp_segment(&duplicate_ack_packet).expect("parse duplicate ACK");
+
+    let retransmission = sessions
+        .retransmit_server_payload(&duplicate_ack)
+        .expect("retransmit server payload")
+        .expect("server retransmission");
+
+    assert_eq!(retransmission.sequence_number, 1001);
+    assert_eq!(retransmission.acknowledgment_number, 16);
+    assert_eq!(retransmission.payload, b"HTTP/1.1");
+    assert_eq!(
+        sessions
+            .get(&key)
+            .expect("stored session")
+            .server_next_sequence_number,
+        1009,
+        "retransmission must not advance the server cursor"
+    );
+    let packet =
+        parse_tun_tcp_segment(&retransmission.packet).expect("parse retransmitted payload");
+    assert_eq!(packet.sequence_number, 1001);
+    assert_eq!(packet.acknowledgment_number, 16);
+    assert!(packet.flags.psh());
+    assert!(packet.flags.ack());
+    assert_eq!(packet.payload, b"HTTP/1.1");
+
+    let full_ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1009, 0x0010, 0x4000, &[], b""),
+    );
+    let full_ack = parse_tun_tcp_segment(&full_ack_packet).expect("parse full server ACK");
+    sessions
+        .server_payload_poll_session(&full_ack)
+        .expect("ack latest server payload")
+        .expect("pollable session");
+    assert!(sessions
+        .get(&key)
+        .expect("stored session")
+        .server_unacked_payload
+        .is_none());
+    assert!(sessions
+        .retransmit_server_payload(&duplicate_ack)
+        .expect("try retransmit after full ACK")
+        .is_none());
+}
+
+#[test]
 fn accepts_tun_tcp_client_payload_with_stale_known_server_ack() {
     let syn_packet = ipv4_packet(
         6,
@@ -1347,12 +1452,22 @@ fn processes_tun_tcp_session_steps_with_relay_callbacks_and_response_packets() {
     let stale_ack_step =
         process_tun_tcp_session_segment(&mut sessions, &stale_ack, &mut relay, 1000, 0x2000)
             .expect("process stale ACK step");
-    assert!(stale_ack_step.response_packets().is_empty());
-    let TunTcpSessionStep::ClientAck { session } = stale_ack_step else {
-        panic!("expected client ACK step");
+    assert_eq!(stale_ack_step.response_packets().len(), 1);
+    let TunTcpSessionStep::ServerPayloadRetransmission { response } = stale_ack_step else {
+        panic!("expected server payload retransmission step");
     };
-    assert_eq!(session.client_next_sequence_number, 20);
-    assert_eq!(session.server_next_sequence_number, 1009);
+    assert_eq!(response.session.client_next_sequence_number, 20);
+    assert_eq!(response.session.server_next_sequence_number, 1009);
+    assert_eq!(response.sequence_number, 1001);
+    assert_eq!(response.acknowledgment_number, 20);
+    assert_eq!(response.payload, b"HTTP/1.1");
+    let retransmitted =
+        parse_tun_tcp_segment(&response.packet).expect("parse retransmitted server payload");
+    assert_eq!(retransmitted.sequence_number, 1001);
+    assert_eq!(retransmitted.acknowledgment_number, 20);
+    assert_eq!(retransmitted.payload, b"HTTP/1.1");
+    assert!(retransmitted.flags.psh());
+    assert!(retransmitted.flags.ack());
     assert_eq!(
         relay.client_payloads,
         vec![b"GET /".to_vec(), b"more".to_vec()],
@@ -3241,6 +3356,76 @@ fn tun_packet_loop_with_tcp_session_relay_resets_unknown_session_segment() {
 }
 
 #[test]
+fn tun_packet_loop_with_tcp_session_relay_retransmits_server_payload_on_duplicate_ack() {
+    let packets = vec![
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 16, 1001, 0x0010, 0x4000, &[], b""),
+        ),
+    ];
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut device = FakeTunPacketDevice::new(packets);
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::with_server_payloads(vec![b"HTTP/1.1".to_vec()]);
+
+    let summary = run_tun_packet_loop_with_tcp_session_relay_summary(
+        &mut device,
+        &routes,
+        true,
+        &mut dns,
+        30,
+        4,
+        &mut sessions,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("run TUN loop with TCP server retransmission");
+
+    assert_eq!(summary.processed_packets(), 4);
+    assert_eq!(summary.tcp_session_events, 4);
+    assert_eq!(summary.tcp_session_packets_written, 4);
+    assert_eq!(device.writes.len(), 4);
+    let server_payload =
+        parse_tun_tcp_segment(&device.writes[2]).expect("parse server payload packet");
+    assert_eq!(server_payload.sequence_number, 1001);
+    assert_eq!(server_payload.acknowledgment_number, 16);
+    assert_eq!(server_payload.payload, b"HTTP/1.1");
+    let retransmitted =
+        parse_tun_tcp_segment(&device.writes[3]).expect("parse retransmitted server payload");
+    assert_eq!(retransmitted.sequence_number, 1001);
+    assert_eq!(retransmitted.acknowledgment_number, 16);
+    assert_eq!(retransmitted.payload, b"HTTP/1.1");
+    assert!(retransmitted.flags.psh());
+    assert!(retransmitted.flags.ack());
+    assert_eq!(relay.client_payloads, vec![b"GET /".to_vec()]);
+}
+
+#[test]
 fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
     let packets = vec![
         ipv4_packet(
@@ -3438,9 +3623,9 @@ fn tun_packet_loop_accepts_client_payload_with_stale_server_ack() {
 
     assert_eq!(summary.processed_packets(), 6);
     assert_eq!(summary.tcp_session_events, 6);
-    assert_eq!(summary.tcp_session_packets_written, 5);
+    assert_eq!(summary.tcp_session_packets_written, 6);
     assert_eq!(summary.tcp_session_errors, 0);
-    assert_eq!(device.writes.len(), 5);
+    assert_eq!(device.writes.len(), 6);
     let first_payload_ack =
         parse_tun_tcp_segment(&device.writes[1]).expect("parse first client payload ACK");
     assert_eq!(first_payload_ack.sequence_number, 1001);
@@ -3456,7 +3641,14 @@ fn tun_packet_loop_accepts_client_payload_with_stale_server_ack() {
     assert_eq!(stale_payload_ack.acknowledgment_number, 20);
     assert!(stale_payload_ack.flags.ack());
     assert!(stale_payload_ack.payload.is_empty());
-    let close_ack = parse_tun_tcp_segment(&device.writes[4]).expect("parse close ACK packet");
+    let retransmitted =
+        parse_tun_tcp_segment(&device.writes[4]).expect("parse retransmitted server payload");
+    assert_eq!(retransmitted.sequence_number, 1001);
+    assert_eq!(retransmitted.acknowledgment_number, 20);
+    assert_eq!(retransmitted.payload, b"HTTP/1.1");
+    assert!(retransmitted.flags.psh());
+    assert!(retransmitted.flags.ack());
+    let close_ack = parse_tun_tcp_segment(&device.writes[5]).expect("parse close ACK packet");
     assert_eq!(close_ack.sequence_number, 1009);
     assert_eq!(close_ack.acknowledgment_number, 21);
     assert_eq!(

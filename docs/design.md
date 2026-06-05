@@ -241,6 +241,9 @@ The first implementation target is deliberately small:
    The same session boundary can packetize server-side payload bytes with
    PSH+ACK, advance the tracked server sequence number, and return swapped
    IPv4/IPv6 TCP packets for the future TUN write-back side.
+   The session table retains the most recent unacknowledged server payload and
+   retransmits it when the TUN peer repeats the matching stale ACK, without
+   advancing the server sequence cursor again.
    Registry-backed TUN TCP relay server reads are capped to the default TUN
    MTU payload budget, so large upstream responses are packetized into
    MSS-sized chunks and continue through follow-up client ACK polling.

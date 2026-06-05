@@ -122,6 +122,13 @@ pub enum TunTcpSessionPhase {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunTcpServerUnackedPayload {
+    pub sequence_number: u32,
+    pub acknowledgment_number: u32,
+    pub payload: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TunTcpSessionRecord {
     pub key: TunTcpSessionKey,
     pub flow: TunPacketFlow,
@@ -129,6 +136,7 @@ pub struct TunTcpSessionRecord {
     pub client_next_sequence_number: u32,
     pub server_initial_sequence_number: u32,
     pub server_next_sequence_number: u32,
+    pub server_unacked_payload: Option<TunTcpServerUnackedPayload>,
     pub window_size: u16,
     pub phase: TunTcpSessionPhase,
     pub last_activity_at: Instant,
@@ -238,6 +246,9 @@ pub enum TunTcpSessionStep {
         ack: TunTcpOutOfOrderClientPayloadAck,
     },
     ServerPayload {
+        response: TunTcpServerPayloadFrame,
+    },
+    ServerPayloadRetransmission {
         response: TunTcpServerPayloadFrame,
     },
     ServerClosed {
@@ -767,7 +778,9 @@ impl TunTcpSessionStep {
             }
             Self::DuplicateClientPayload { ack } => vec![ack.ack_packet.as_slice()],
             Self::OutOfOrderClientPayload { ack } => vec![ack.ack_packet.as_slice()],
-            Self::ServerPayload { response } => vec![response.packet.as_slice()],
+            Self::ServerPayload { response } | Self::ServerPayloadRetransmission { response } => {
+                vec![response.packet.as_slice()]
+            }
             Self::ServerClosed { response } => vec![response.packet.as_slice()],
             Self::Closed {
                 response: Some(response),
@@ -1237,6 +1250,7 @@ impl TunTcpSessionTable {
             client_next_sequence_number: tcp_segment_next_sequence_number(segment),
             server_initial_sequence_number,
             server_next_sequence_number: server_initial_sequence_number.wrapping_add(1),
+            server_unacked_payload: None,
             window_size,
             phase: TunTcpSessionPhase::SynReceived,
             last_activity_at: Instant::now(),
@@ -1470,22 +1484,71 @@ impl TunTcpSessionTable {
 
         let sequence_number = session.server_next_sequence_number;
         let acknowledgment_number = session.client_next_sequence_number;
+        let payload = payload.to_vec();
         let packet = build_tun_tcp_payload_response_packet(
             &session.flow,
             sequence_number,
             acknowledgment_number,
             session.window_size,
-            payload,
+            &payload,
         )?;
         session.server_next_sequence_number = session
             .server_next_sequence_number
             .wrapping_add(payload.len() as u32);
+        session.server_unacked_payload = Some(TunTcpServerUnackedPayload {
+            sequence_number,
+            acknowledgment_number,
+            payload: payload.clone(),
+        });
         session.last_activity_at = Instant::now();
         Ok(Some(TunTcpServerPayloadFrame {
             session: session.clone(),
             sequence_number,
             acknowledgment_number,
-            payload: payload.to_vec(),
+            payload,
+            packet,
+        }))
+    }
+
+    pub fn retransmit_server_payload(
+        &mut self,
+        segment: &TunTcpSegment<'_>,
+    ) -> Result<Option<TunTcpServerPayloadFrame>, TunPacketError> {
+        if !segment.flags.ack()
+            || segment.flags.syn()
+            || segment.flags.rst()
+            || segment.flags.fin()
+            || !segment.payload.is_empty()
+        {
+            return Ok(None);
+        }
+        let key = TunTcpSessionKey::from_flow(&segment.flow)?;
+        let Some(session) = self.sessions.get_mut(&key) else {
+            return Ok(None);
+        };
+        let Some(unacked) = session.server_unacked_payload.clone() else {
+            return Ok(None);
+        };
+        if session.phase != TunTcpSessionPhase::Established
+            || segment.sequence_number != session.client_next_sequence_number
+            || segment.acknowledgment_number != unacked.sequence_number
+        {
+            return Ok(None);
+        }
+        let acknowledgment_number = session.client_next_sequence_number;
+        let packet = build_tun_tcp_payload_response_packet(
+            &session.flow,
+            unacked.sequence_number,
+            acknowledgment_number,
+            session.window_size,
+            &unacked.payload,
+        )?;
+        session.last_activity_at = Instant::now();
+        Ok(Some(TunTcpServerPayloadFrame {
+            session: session.clone(),
+            sequence_number: unacked.sequence_number,
+            acknowledgment_number,
+            payload: unacked.payload,
             packet,
         }))
     }
@@ -1536,6 +1599,7 @@ impl TunTcpSessionTable {
             && segment.sequence_number == session.client_next_sequence_number
             && segment.acknowledgment_number == session.server_next_sequence_number
         {
+            session.server_unacked_payload = None;
             session.last_activity_at = Instant::now();
             return Ok(Some(session.clone()));
         }
@@ -1562,6 +1626,9 @@ impl TunTcpSessionTable {
             && segment.sequence_number == session.client_next_sequence_number
             && tcp_segment_acknowledges_known_server_sequence(segment, session)
         {
+            if segment.acknowledgment_number == session.server_next_sequence_number {
+                session.server_unacked_payload = None;
+            }
             session.last_activity_at = Instant::now();
             return Ok(Some(session.clone()));
         }
@@ -1875,6 +1942,10 @@ fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
     }
 
     if established.is_none() {
+        if let Some(response) = sessions.retransmit_server_payload(segment)? {
+            return Ok(TunTcpSessionStep::ServerPayloadRetransmission { response });
+        }
+
         if let Some(session) = sessions.server_payload_poll_session(segment)? {
             match relay
                 .poll_server_event(&session)
