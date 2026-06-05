@@ -50,7 +50,8 @@ managed connection metrics, including cumulative rejection and error-kind counts
 plus last connection, success, and failure timestamps for long-running resource
 protection. The same aggregate layer keeps total upload/download bytes and
 connect/first-byte timing totals with averages even after the bounded recent
-history trims old entries. `listen-mixed`
+history trims old entries, and it records route-action distribution across
+direct, block, DNS hijack, and outbound-tag decisions. `listen-mixed`
 can tune this cap with `--max-connection-workers`, and managed status reports
 active/peak workers, active/peak client connections, and remaining worker slots for
 saturation diagnostics. Managed shutdown closes active mixed client streams and
@@ -268,7 +269,9 @@ success/failure counts, route actions, byte counters, and timing fields so UI
 and support tooling can inspect recent relay behavior without parsing logs. Its
 aggregate connection metrics also retain total transfer bytes and timing
 averages across the full managed session, independent of recent-history
-retention.
+retention. They also keep route-action distribution so support can see whether
+traffic is mostly direct, blocked, DNS-hijacked, or assigned to specific
+outbound tags after older reports have been trimmed.
 The managed TUN runtime uses a combined UDP/TCP relay loop, so it can keep the
 registry-backed UDP path while also exercising registry-backed TCP sessions.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline

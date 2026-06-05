@@ -217,6 +217,7 @@ pub struct ConnectionMetricsSnapshot {
     pub failure_count: u64,
     pub connection_limit_rejection_count: u64,
     pub error_kind_counts: Vec<ConnectionErrorKindCount>,
+    pub route_action_counts: Vec<ConnectionRouteActionCount>,
     pub total_upload_bytes: u64,
     pub total_download_bytes: u64,
     pub total_connect_ms: u128,
@@ -237,6 +238,12 @@ pub struct ConnectionErrorKindCount {
     pub count: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionRouteActionCount {
+    pub route_action: RouteAction,
+    pub count: u64,
+}
+
 impl Default for ConnectionMetricsSnapshot {
     fn default() -> Self {
         Self {
@@ -245,6 +252,7 @@ impl Default for ConnectionMetricsSnapshot {
             failure_count: 0,
             connection_limit_rejection_count: 0,
             error_kind_counts: Vec::new(),
+            route_action_counts: Vec::new(),
             total_upload_bytes: 0,
             total_download_bytes: 0,
             total_connect_ms: 0,
@@ -268,6 +276,7 @@ struct ConnectionMetricsState {
     failure_count: u64,
     connection_limit_rejection_count: u64,
     error_kind_counts: Vec<ConnectionErrorKindCount>,
+    route_action_counts: Vec<ConnectionRouteActionCount>,
     total_upload_bytes: u64,
     total_download_bytes: u64,
     total_connect_ms: u128,
@@ -301,6 +310,18 @@ impl ConnectionMetrics {
         let recorded_at = SystemTime::now();
         state.last_connection_at = Some(recorded_at);
         state.total_connection_count = state.total_connection_count.saturating_add(1);
+        if let Some(entry) = state
+            .route_action_counts
+            .iter_mut()
+            .find(|entry| entry.route_action == report.route_action)
+        {
+            entry.count = entry.count.saturating_add(1);
+        } else {
+            state.route_action_counts.push(ConnectionRouteActionCount {
+                route_action: report.route_action.clone(),
+                count: 1,
+            });
+        }
         state.total_upload_bytes = state.total_upload_bytes.saturating_add(report.upload_bytes);
         state.total_download_bytes = state
             .total_download_bytes
@@ -358,12 +379,15 @@ impl ConnectionMetrics {
             .collect::<Vec<_>>();
         let mut error_kind_counts = state.error_kind_counts.clone();
         error_kind_counts.sort_by_key(|entry| entry.error_kind.as_str());
+        let mut route_action_counts = state.route_action_counts.clone();
+        route_action_counts.sort_by_key(|entry| route_action_sort_key(&entry.route_action));
         ConnectionMetricsSnapshot {
             total_connection_count: state.total_connection_count,
             success_count: state.success_count,
             failure_count: state.failure_count,
             connection_limit_rejection_count: state.connection_limit_rejection_count,
             error_kind_counts,
+            route_action_counts,
             total_upload_bytes: state.total_upload_bytes,
             total_download_bytes: state.total_download_bytes,
             total_connect_ms: state.total_connect_ms,
@@ -2156,12 +2180,23 @@ fn connection_metrics_json_value(metrics: &ConnectionMetricsSnapshot) -> serde_j
             )
         })
         .collect::<serde_json::Map<_, _>>();
+    let route_action_counts = metrics
+        .route_action_counts
+        .iter()
+        .map(|entry| {
+            serde_json::json!({
+                "route_action": route_action_json_value(&entry.route_action),
+                "count": entry.count,
+            })
+        })
+        .collect::<Vec<_>>();
     serde_json::json!({
         "total_connection_count": metrics.total_connection_count,
         "success_count": metrics.success_count,
         "failure_count": metrics.failure_count,
         "connection_limit_rejection_count": metrics.connection_limit_rejection_count,
         "error_kind_counts": error_kind_counts,
+        "route_action_counts": route_action_counts,
         "total_upload_bytes": metrics.total_upload_bytes,
         "total_download_bytes": metrics.total_download_bytes,
         "total_connect_ms": saturating_u128_to_u64(metrics.total_connect_ms),
@@ -2187,6 +2222,15 @@ fn connection_metrics_json_value(metrics: &ConnectionMetricsSnapshot) -> serde_j
             .map(connection_report_json_value)
             .collect::<Vec<_>>(),
     })
+}
+
+fn route_action_sort_key(action: &RouteAction) -> String {
+    match action {
+        RouteAction::Direct => "0:direct".to_string(),
+        RouteAction::Block => "1:block".to_string(),
+        RouteAction::HijackDns => "2:hijack-dns".to_string(),
+        RouteAction::Outbound(tag) => format!("3:outbound:{tag}"),
+    }
 }
 
 fn average_duration_ms(total_ms: u128, count: u64) -> Option<u64> {

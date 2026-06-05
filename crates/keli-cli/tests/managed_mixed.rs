@@ -8,11 +8,11 @@ use std::time::{Duration, Instant, SystemTime};
 use keli_cli::{
     apply_system_proxy_for_listener, managed_mixed_status_json_value,
     write_managed_mixed_status_json_report, ConnectionErrorKindCount, ConnectionMetrics,
-    ConnectionMetricsSnapshot, ManagedMixedController, ManagedMixedOptions, ManagedMixedSession,
-    ManagedMixedStatusSnapshot, ManagedNodeHealthState, ManagedNodeHealthStatus,
-    ManagedNodeProbeOptions, ManagedNodeProbeSweepOptions, MixedDnsOptions, SmokeInboundKind,
-    DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
-    MANAGED_MIXED_RECENT_EVENT_LIMIT,
+    ConnectionMetricsSnapshot, ConnectionRouteActionCount, ManagedMixedController,
+    ManagedMixedOptions, ManagedMixedSession, ManagedMixedStatusSnapshot, ManagedNodeHealthState,
+    ManagedNodeHealthStatus, ManagedNodeProbeOptions, ManagedNodeProbeSweepOptions,
+    MixedDnsOptions, SmokeInboundKind, DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+    MANAGED_CONNECTION_REPORT_HISTORY_LIMIT, MANAGED_MIXED_RECENT_EVENT_LIMIT,
 };
 use keli_client_core::{
     ClientErrorKind, PanelAccountState, PanelRiskControlState, PanelState, PanelUserState,
@@ -229,6 +229,17 @@ fn connection_metrics_summarize_totals_after_recent_history_trims() {
     success.download_bytes = 11;
     metrics.record(&success);
 
+    let mut outbound = ConnectionReport::new(
+        "http-connect",
+        OutboundTarget::new("proxy.example.com", 443),
+        RouteAction::Outbound("SS-READY".to_string()),
+    );
+    outbound.connect_ms = Some(30);
+    outbound.first_byte_ms = Some(50);
+    outbound.upload_bytes = 5;
+    outbound.download_bytes = 9;
+    metrics.record(&outbound);
+
     let mut failure = ConnectionReport::new(
         "http-connect",
         OutboundTarget::new("blocked.example.com", 443),
@@ -241,15 +252,32 @@ fn connection_metrics_summarize_totals_after_recent_history_trims() {
     metrics.record(&failure);
 
     let snapshot = metrics.snapshot();
-    assert_eq!(snapshot.total_connection_count, 2);
-    assert_eq!(snapshot.success_count, 1);
+    assert_eq!(snapshot.total_connection_count, 3);
+    assert_eq!(snapshot.success_count, 2);
     assert_eq!(snapshot.failure_count, 1);
-    assert_eq!(snapshot.total_upload_bytes, 20);
-    assert_eq!(snapshot.total_download_bytes, 28);
-    assert_eq!(snapshot.total_connect_ms, 30);
-    assert_eq!(snapshot.timed_connect_count, 2);
-    assert_eq!(snapshot.total_first_byte_ms, 30);
-    assert_eq!(snapshot.timed_first_byte_count, 1);
+    assert_eq!(
+        snapshot.route_action_counts,
+        vec![
+            ConnectionRouteActionCount {
+                route_action: RouteAction::Direct,
+                count: 1,
+            },
+            ConnectionRouteActionCount {
+                route_action: RouteAction::Block,
+                count: 1,
+            },
+            ConnectionRouteActionCount {
+                route_action: RouteAction::Outbound("SS-READY".to_string()),
+                count: 1,
+            },
+        ]
+    );
+    assert_eq!(snapshot.total_upload_bytes, 25);
+    assert_eq!(snapshot.total_download_bytes, 37);
+    assert_eq!(snapshot.total_connect_ms, 60);
+    assert_eq!(snapshot.timed_connect_count, 3);
+    assert_eq!(snapshot.total_first_byte_ms, 80);
+    assert_eq!(snapshot.timed_first_byte_count, 2);
     assert_eq!(snapshot.retained_connection_count, 1);
     assert_eq!(
         snapshot.recent_connections[0].target.host,
@@ -286,14 +314,42 @@ fn connection_metrics_summarize_totals_after_recent_history_trims() {
         panel_state: None,
     };
     let value = managed_mixed_status_json_value(&status);
-    assert_eq!(value["connection_metrics"]["total_upload_bytes"], 20);
-    assert_eq!(value["connection_metrics"]["total_download_bytes"], 28);
-    assert_eq!(value["connection_metrics"]["total_connect_ms"], 30);
-    assert_eq!(value["connection_metrics"]["timed_connect_count"], 2);
-    assert_eq!(value["connection_metrics"]["average_connect_ms"], 15);
-    assert_eq!(value["connection_metrics"]["total_first_byte_ms"], 30);
-    assert_eq!(value["connection_metrics"]["timed_first_byte_count"], 1);
-    assert_eq!(value["connection_metrics"]["average_first_byte_ms"], 30);
+    assert_eq!(
+        value["connection_metrics"]["route_action_counts"][0]["route_action"]["kind"],
+        "direct"
+    );
+    assert_eq!(
+        value["connection_metrics"]["route_action_counts"][0]["count"],
+        1
+    );
+    assert_eq!(
+        value["connection_metrics"]["route_action_counts"][1]["route_action"]["kind"],
+        "block"
+    );
+    assert_eq!(
+        value["connection_metrics"]["route_action_counts"][1]["count"],
+        1
+    );
+    assert_eq!(
+        value["connection_metrics"]["route_action_counts"][2]["route_action"]["kind"],
+        "outbound"
+    );
+    assert_eq!(
+        value["connection_metrics"]["route_action_counts"][2]["route_action"]["tag"],
+        "SS-READY"
+    );
+    assert_eq!(
+        value["connection_metrics"]["route_action_counts"][2]["count"],
+        1
+    );
+    assert_eq!(value["connection_metrics"]["total_upload_bytes"], 25);
+    assert_eq!(value["connection_metrics"]["total_download_bytes"], 37);
+    assert_eq!(value["connection_metrics"]["total_connect_ms"], 60);
+    assert_eq!(value["connection_metrics"]["timed_connect_count"], 3);
+    assert_eq!(value["connection_metrics"]["average_connect_ms"], 20);
+    assert_eq!(value["connection_metrics"]["total_first_byte_ms"], 80);
+    assert_eq!(value["connection_metrics"]["timed_first_byte_count"], 2);
+    assert_eq!(value["connection_metrics"]["average_first_byte_ms"], 40);
 }
 
 #[derive(Debug)]
@@ -714,6 +770,13 @@ fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
             count: 1,
         }]
     );
+    assert_eq!(
+        status.connection_metrics.route_action_counts,
+        vec![ConnectionRouteActionCount {
+            route_action: RouteAction::Block,
+            count: 1,
+        }]
+    );
     assert!(status.connection_metrics.last_connection_at.is_some());
     assert!(status.connection_metrics.last_success_at.is_none());
     assert_eq!(
@@ -745,6 +808,14 @@ fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
     );
     assert_eq!(
         value["connection_metrics"]["error_kind_counts"]["route_blocked"],
+        1
+    );
+    assert_eq!(
+        value["connection_metrics"]["route_action_counts"][0]["route_action"]["kind"],
+        "block"
+    );
+    assert_eq!(
+        value["connection_metrics"]["route_action_counts"][0]["count"],
         1
     );
     assert!(value["connection_metrics"]["last_connection_at_unix_ms"]
@@ -789,6 +860,10 @@ fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
             error_kind: ConnectionErrorKind::RouteBlocked,
             count: 1,
         }]
+    );
+    assert_eq!(
+        reloaded.connection_metrics.route_action_counts,
+        status.connection_metrics.route_action_counts
     );
     assert_eq!(
         reloaded.connection_metrics.last_failure_at,
@@ -1122,6 +1197,9 @@ fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
     );
     assert!(value["connection_metrics"]["error_kind_counts"]
         .as_object()
+        .is_some_and(|counts| counts.is_empty()));
+    assert!(value["connection_metrics"]["route_action_counts"]
+        .as_array()
         .is_some_and(|counts| counts.is_empty()));
     assert_eq!(value["connection_metrics"]["total_upload_bytes"], 0);
     assert_eq!(value["connection_metrics"]["total_download_bytes"], 0);
