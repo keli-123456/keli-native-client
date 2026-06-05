@@ -967,7 +967,9 @@ fn managed_mixed_session_records_tun_runtime_status_note_after_serve() {
         .rev()
         .find_map(|event| event.diagnostic.as_ref())
         .expect("runtime diagnostic");
-    let RuntimeDiagnostic::TunPacketLoop(diagnostic) = diagnostic;
+    let RuntimeDiagnostic::TunPacketLoop(diagnostic) = diagnostic else {
+        panic!("expected TUN packet loop diagnostic");
+    };
     assert_eq!(diagnostic.interface_name, "keli-tun0");
     assert!(diagnostic.owns_device);
     assert_eq!(

@@ -15,8 +15,8 @@ use keli_cli::{
 };
 use keli_client_core::{
     ClientErrorKind, PanelAccountState, PanelRiskControlState, PanelState, PanelUserState,
-    RuntimeDiagnostic, RuntimeEvent, RuntimeStatus, RuntimeTunPacketLoopDiagnostic,
-    DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
+    RuntimeDiagnostic, RuntimeEvent, RuntimeManagedMixedStopDrainDiagnostic, RuntimeStatus,
+    RuntimeTunPacketLoopDiagnostic, DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
 };
 use keli_net_core::{ConnectionErrorKind, DnsAddressFamilyPolicy, DnsLocalResolutionPolicy};
 use keli_platform::{
@@ -729,6 +729,45 @@ fn managed_mixed_background_stop_closes_active_connections() {
     assert_eq!(stopped.status(), &RuntimeStatus::Stopped);
     assert!(!core.is_running());
 
+    let drain_event = stopped
+        .events()
+        .iter()
+        .find(|event| {
+            matches!(
+                event.diagnostic,
+                Some(RuntimeDiagnostic::ManagedMixedStopDrain(_))
+            )
+        })
+        .expect("managed mixed stop drain diagnostic event");
+    assert!(matches!(
+        &drain_event.status,
+        RuntimeStatus::Running {
+            selected_outbound,
+            ..
+        } if selected_outbound == "SS-READY"
+    ));
+    let drain_note = drain_event.note.as_deref().expect("stop drain note");
+    assert!(drain_note.starts_with(
+        "managed mixed stop drain active_connections_shutdown=1 workers_before_shutdown=1"
+    ));
+    assert!(drain_note.contains("drain_timeout_ms=500"));
+    let RuntimeDiagnostic::ManagedMixedStopDrain(diagnostic) = drain_event
+        .diagnostic
+        .as_ref()
+        .expect("stop drain diagnostic")
+    else {
+        panic!("expected managed mixed stop drain diagnostic");
+    };
+    assert_eq!(diagnostic.active_connections_shutdown, 1);
+    assert_eq!(diagnostic.workers_before_shutdown, 1);
+    assert_eq!(
+        diagnostic.workers_drained + diagnostic.workers_remaining,
+        diagnostic.workers_before_shutdown
+    );
+    assert!(diagnostic.workers_remaining <= diagnostic.workers_before_shutdown);
+    assert_eq!(diagnostic.drain_timeout_ms, 500);
+    assert_eq!(diagnostic.timed_out, diagnostic.workers_remaining > 0);
+
     let mut byte = [0; 1];
     assert!(stalled_client.read_exact(&mut byte).is_err());
 }
@@ -1094,6 +1133,64 @@ fn managed_mixed_status_json_includes_tun_runtime_diagnostic() {
     assert_eq!(value["status"]["generation"], 7);
     assert_eq!(value["started_at_unix_ms"], 0);
     assert_eq!(value["uptime_ms"], 2000);
+}
+
+#[test]
+fn managed_mixed_status_json_includes_stop_drain_diagnostic() {
+    let diagnostic =
+        RuntimeDiagnostic::ManagedMixedStopDrain(RuntimeManagedMixedStopDrainDiagnostic {
+            active_connections_shutdown: 2,
+            workers_before_shutdown: 3,
+            workers_drained: 2,
+            workers_remaining: 1,
+            drain_timeout_ms: 500,
+            timed_out: true,
+        });
+    let snapshot = ManagedMixedStatusSnapshot {
+        status: RuntimeStatus::Running {
+            generation: 3,
+            selected_outbound: "SS-READY".to_string(),
+            listen: "127.0.0.1:7890".to_string(),
+        },
+        listen_addr: Some("127.0.0.1:7890".parse().expect("listen addr")),
+        selected_outbound: Some("SS-READY".to_string()),
+        generation: 3,
+        started_at: Some(SystemTime::UNIX_EPOCH),
+        uptime: Some(Duration::from_secs(1)),
+        connection_metrics: ConnectionMetricsSnapshot::default(),
+        event_count: 1,
+        retained_event_count: 1,
+        event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
+        recent_event_limit: MANAGED_MIXED_RECENT_EVENT_LIMIT,
+        recent_events: vec![RuntimeEvent::with_diagnostic(
+            RuntimeStatus::Running {
+                generation: 3,
+                selected_outbound: "SS-READY".to_string(),
+                listen: "127.0.0.1:7890".to_string(),
+            },
+            Some("managed mixed stop drain"),
+            diagnostic,
+        )],
+        last_error: None,
+        system_proxy: None,
+        subscription: None,
+        dns_options: MixedDnsOptions::default(),
+        tun_tcp_max_active_sessions: 17,
+        max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+        active_connection_workers: 0,
+        available_connection_worker_slots: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+        panel_state: None,
+    };
+
+    let value = managed_mixed_status_json_value(&snapshot);
+    let diagnostic = &value["recent_events"][0]["diagnostic"];
+    assert_eq!(diagnostic["kind"], "managed-mixed-stop-drain");
+    assert_eq!(diagnostic["active_connections_shutdown"], 2);
+    assert_eq!(diagnostic["workers_before_shutdown"], 3);
+    assert_eq!(diagnostic["workers_drained"], 2);
+    assert_eq!(diagnostic["workers_remaining"], 1);
+    assert_eq!(diagnostic["drain_timeout_ms"], 500);
+    assert_eq!(diagnostic["timed_out"], true);
 }
 
 #[test]

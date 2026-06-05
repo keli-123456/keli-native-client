@@ -488,6 +488,7 @@ impl RuntimeEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeDiagnostic {
     TunPacketLoop(RuntimeTunPacketLoopDiagnostic),
+    ManagedMixedStopDrain(RuntimeManagedMixedStopDrainDiagnostic),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -528,6 +529,16 @@ pub struct RuntimeTunPacketLoopDiagnostic {
     pub last_packet_error: Option<String>,
     pub last_udp_relay_error: Option<String>,
     pub last_tcp_session_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeManagedMixedStopDrainDiagnostic {
+    pub active_connections_shutdown: usize,
+    pub workers_before_shutdown: usize,
+    pub workers_drained: usize,
+    pub workers_remaining: usize,
+    pub drain_timeout_ms: u64,
+    pub timed_out: bool,
 }
 
 #[derive(Debug, Clone)]

@@ -374,7 +374,10 @@ long-running resource protection, and `listen-mixed --max-connection-workers`
 lets clients tune the cap. Its status snapshot reports active workers and
 remaining worker slots, so clients can detect saturation before rejections.
 Managed shutdown closes active mixed client streams and uses a bounded worker
-drain, so held handshakes cannot stall core stop. It
+drain, so held handshakes cannot stall core stop. That drain result is recorded
+as a structured runtime diagnostic with closed-connection, drained-worker,
+remaining-worker, timeout, and timeout-state fields, so UI/support tooling can
+see whether stop completed cleanly without parsing stderr. It
 includes recent runtime events, the last failure reason, current generation,
 selected outbound, listener address, managed system proxy config, and
 subscription node status including supported tags, skipped entries, default

@@ -14,9 +14,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use keli_client_core::{
     build_connection_plan, ClientErrorKind, ClientRuntime, ConnectionPhase, ConnectionPlan,
-    PanelState, RuntimeConfig, RuntimeDiagnostic, RuntimeEvent, RuntimeStatus,
-    RuntimeTunPacketLoopDiagnostic, SkippedProfileSummary, SubscriptionNodeCapability,
-    DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
+    PanelState, RuntimeConfig, RuntimeDiagnostic, RuntimeEvent,
+    RuntimeManagedMixedStopDrainDiagnostic, RuntimeStatus, RuntimeTunPacketLoopDiagnostic,
+    SkippedProfileSummary, SubscriptionNodeCapability, DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
 };
 use keli_net_core::{
     build_dns_error_response, build_dns_response, encode_socks5_udp_datagram,
@@ -365,15 +365,18 @@ impl ActiveConnectionRegistry {
         })
     }
 
-    fn shutdown_all(&self) {
-        let Ok(streams) = self.inner.streams.lock() else {
-            return;
+    fn shutdown_all(&self) -> usize {
+        let Ok(mut streams) = self.inner.streams.lock() else {
+            return 0;
         };
-        for stream in streams.values() {
+        let shutdown_streams = std::mem::take(&mut *streams);
+        let shutdown_count = shutdown_streams.len();
+        for stream in shutdown_streams.values() {
             let _ = stream.set_read_timeout(Some(Duration::from_millis(10)));
             let _ = stream.set_write_timeout(Some(Duration::from_millis(10)));
             let _ = stream.shutdown(Shutdown::Both);
         }
+        shutdown_count
     }
 
     fn unregister(&self, id: usize) {
@@ -655,6 +658,26 @@ pub fn managed_tun_runtime_report_diagnostic(
             .as_ref()
             .map(|error| sanitize_runtime_note_value(&error.to_string())),
     })
+}
+
+pub fn managed_mixed_stop_drain_note(
+    diagnostic: &RuntimeManagedMixedStopDrainDiagnostic,
+) -> String {
+    format!(
+        "managed mixed stop drain active_connections_shutdown={} workers_before_shutdown={} workers_drained={} workers_remaining={} drain_timeout_ms={} timed_out={}",
+        diagnostic.active_connections_shutdown,
+        diagnostic.workers_before_shutdown,
+        diagnostic.workers_drained,
+        diagnostic.workers_remaining,
+        diagnostic.drain_timeout_ms,
+        diagnostic.timed_out,
+    )
+}
+
+pub fn managed_mixed_stop_drain_diagnostic(
+    diagnostic: RuntimeManagedMixedStopDrainDiagnostic,
+) -> RuntimeDiagnostic {
+    RuntimeDiagnostic::ManagedMixedStopDrain(diagnostic)
 }
 
 fn tun_runtime_note_error_value<E: std::fmt::Display>(error: Option<&E>) -> String {
@@ -1360,7 +1383,7 @@ pub struct ManagedMixedHandle<'a, C: SystemProxyController + ?Sized> {
     tun_tcp_max_active_sessions: usize,
     node_health: HashMap<String, ManagedNodeHealthStatus>,
     stop: Arc<AtomicBool>,
-    thread: Option<thread::JoinHandle<io::Result<()>>>,
+    thread: Option<thread::JoinHandle<io::Result<RuntimeManagedMixedStopDrainDiagnostic>>>,
     system_proxy_guard: Option<ManagedSystemProxyGuard<'a, C>>,
 }
 
@@ -1774,6 +1797,15 @@ fn runtime_diagnostic_json_value(diagnostic: &RuntimeDiagnostic) -> serde_json::
             "last_packet_error": diagnostic.last_packet_error.as_deref(),
             "last_udp_relay_error": diagnostic.last_udp_relay_error.as_deref(),
             "last_tcp_session_error": diagnostic.last_tcp_session_error.as_deref(),
+        }),
+        RuntimeDiagnostic::ManagedMixedStopDrain(diagnostic) => serde_json::json!({
+            "kind": "managed-mixed-stop-drain",
+            "active_connections_shutdown": diagnostic.active_connections_shutdown,
+            "workers_before_shutdown": diagnostic.workers_before_shutdown,
+            "workers_drained": diagnostic.workers_drained,
+            "workers_remaining": diagnostic.workers_remaining,
+            "drain_timeout_ms": diagnostic.drain_timeout_ms,
+            "timed_out": diagnostic.timed_out,
         }),
     }
 }
@@ -2532,21 +2564,29 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
                     .join()
                     .map_err(|_| "managed mixed listener thread panicked".to_string())
                     .and_then(|result| {
-                        result.map_err(|error| format!("managed mixed listener failed: {error}"))
+                        result
+                            .map(Some)
+                            .map_err(|error| format!("managed mixed listener failed: {error}"))
                     })
             })
-            .unwrap_or(Ok(()));
+            .unwrap_or(Ok(None));
         let restore_result = self
             .system_proxy_guard
             .take()
             .map(ManagedSystemProxyGuard::restore)
             .unwrap_or(Ok(()));
+        if let Ok(Some(diagnostic)) = &serve_result {
+            self.state.record_status_diagnostic(
+                managed_mixed_stop_drain_note(diagnostic),
+                managed_mixed_stop_drain_diagnostic(diagnostic.clone()),
+            );
+        }
         self.state.stop();
 
         match (serve_result, restore_result) {
-            (Ok(()), Ok(())) => Ok(self.state),
+            (Ok(_), Ok(())) => Ok(self.state),
             (Err(serve_error), Ok(())) => Err(serve_error),
-            (Ok(()), Err(restore_error)) => Err(restore_error),
+            (Ok(_), Err(restore_error)) => Err(restore_error),
             (Err(serve_error), Err(restore_error)) => {
                 Err(format!("{serve_error}; {restore_error}"))
             }
@@ -4074,7 +4114,7 @@ fn serve_mixed_listener_until(
     listener: TcpListener,
     runtime: Arc<RwLock<MixedProxyRuntime>>,
     stop: Arc<AtomicBool>,
-) -> io::Result<()> {
+) -> io::Result<RuntimeManagedMixedStopDrainDiagnostic> {
     let mut workers = Vec::new();
     listener.set_nonblocking(true)?;
     while !stop.load(Ordering::SeqCst) {
@@ -4106,18 +4146,29 @@ fn serve_mixed_listener_until(
             Err(error) => return Err(error),
         }
     }
-    shutdown_active_mixed_connections(&runtime)?;
+    let workers_before_shutdown = workers.len();
+    let active_connections_shutdown = shutdown_active_mixed_connections(&runtime)?;
     reap_finished_mixed_connection_workers(&mut workers);
-    drain_mixed_connection_workers(&mut workers, MANAGED_CONNECTION_DRAIN_TIMEOUT);
-    Ok(())
+    let workers_remaining =
+        drain_mixed_connection_workers(&mut workers, MANAGED_CONNECTION_DRAIN_TIMEOUT);
+    let workers_drained = workers_before_shutdown.saturating_sub(workers_remaining);
+    Ok(RuntimeManagedMixedStopDrainDiagnostic {
+        active_connections_shutdown,
+        workers_before_shutdown,
+        workers_drained,
+        workers_remaining,
+        drain_timeout_ms: duration_millis(MANAGED_CONNECTION_DRAIN_TIMEOUT),
+        timed_out: workers_remaining > 0,
+    })
 }
 
-fn shutdown_active_mixed_connections(runtime: &Arc<RwLock<MixedProxyRuntime>>) -> io::Result<()> {
+fn shutdown_active_mixed_connections(
+    runtime: &Arc<RwLock<MixedProxyRuntime>>,
+) -> io::Result<usize> {
     let runtime = runtime
         .read()
         .map_err(|_| io::Error::other("mixed runtime lock poisoned"))?;
-    runtime.active_connection_registry.shutdown_all();
-    Ok(())
+    Ok(runtime.active_connection_registry.shutdown_all())
 }
 
 fn record_mixed_connection_worker_limit_rejection(stream: TcpStream, runtime: &MixedProxyRuntime) {
@@ -4148,7 +4199,10 @@ fn reap_finished_mixed_connection_workers(workers: &mut Vec<thread::JoinHandle<(
     }
 }
 
-fn drain_mixed_connection_workers(workers: &mut Vec<thread::JoinHandle<()>>, timeout: Duration) {
+fn drain_mixed_connection_workers(
+    workers: &mut Vec<thread::JoinHandle<()>>,
+    timeout: Duration,
+) -> usize {
     let started = Instant::now();
     while !workers.is_empty() && started.elapsed() < timeout {
         reap_finished_mixed_connection_workers(workers);
@@ -4162,6 +4216,7 @@ fn drain_mixed_connection_workers(workers: &mut Vec<thread::JoinHandle<()>>, tim
             workers.len()
         );
     }
+    workers.len()
 }
 
 pub fn listen_mixed_with_system_proxy_controller<C: SystemProxyController + ?Sized>(
