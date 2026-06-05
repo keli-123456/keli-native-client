@@ -56,6 +56,7 @@ const BLOCK_CIDR_RULE_PREFIX: &str = "cidr:";
 const BLOCK_PORT_RULE_PREFIX: &str = "port:";
 const UDP_RELAY_POLL_INTERVAL: Duration = Duration::from_millis(200);
 const MANAGED_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(25);
+const MANAGED_CONNECTION_DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
 const MANAGED_TUN_IDLE_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const DEFAULT_TUN_DNS_TTL_SECONDS: u32 = 30;
 const DEFAULT_TUN_PACKET_LOOP_MAX_PACKETS: usize = usize::MAX;
@@ -337,6 +338,62 @@ impl Drop for ConnectionWorkerLease {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ActiveConnectionRegistry {
+    inner: Arc<ActiveConnectionRegistryInner>,
+}
+
+#[derive(Debug, Default)]
+struct ActiveConnectionRegistryInner {
+    next_id: AtomicUsize,
+    streams: Mutex<HashMap<usize, TcpStream>>,
+}
+
+impl ActiveConnectionRegistry {
+    fn register(&self, stream: &TcpStream) -> io::Result<ActiveConnectionLease> {
+        let shutdown_stream = stream.try_clone()?;
+        let id = self.inner.next_id.fetch_add(1, Ordering::SeqCst);
+        let mut streams = self
+            .inner
+            .streams
+            .lock()
+            .map_err(|_| io::Error::other("active connection registry lock poisoned"))?;
+        streams.insert(id, shutdown_stream);
+        Ok(ActiveConnectionLease {
+            registry: self.clone(),
+            id,
+        })
+    }
+
+    fn shutdown_all(&self) {
+        let Ok(streams) = self.inner.streams.lock() else {
+            return;
+        };
+        for stream in streams.values() {
+            let _ = stream.set_read_timeout(Some(Duration::from_millis(10)));
+            let _ = stream.set_write_timeout(Some(Duration::from_millis(10)));
+            let _ = stream.shutdown(Shutdown::Both);
+        }
+    }
+
+    fn unregister(&self, id: usize) {
+        if let Ok(mut streams) = self.inner.streams.lock() {
+            streams.remove(&id);
+        }
+    }
+}
+
+struct ActiveConnectionLease {
+    registry: ActiveConnectionRegistry,
+    id: usize,
+}
+
+impl Drop for ActiveConnectionLease {
+    fn drop(&mut self) {
+        self.registry.unregister(self.id);
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MixedProxyRuntime {
     pub routes: RouteEngine,
@@ -347,6 +404,7 @@ pub struct MixedProxyRuntime {
     pub connection_metrics: ConnectionMetrics,
     pub max_connection_workers: usize,
     pub connection_worker_gauge: ConnectionWorkerGauge,
+    pub active_connection_registry: ActiveConnectionRegistry,
 }
 
 impl MixedProxyRuntime {
@@ -360,6 +418,7 @@ impl MixedProxyRuntime {
             connection_metrics: ConnectionMetrics::default(),
             max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             connection_worker_gauge: ConnectionWorkerGauge::default(),
+            active_connection_registry: ActiveConnectionRegistry::default(),
         }
     }
 
@@ -373,6 +432,7 @@ impl MixedProxyRuntime {
             connection_metrics: ConnectionMetrics::default(),
             max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             connection_worker_gauge: ConnectionWorkerGauge::default(),
+            active_connection_registry: ActiveConnectionRegistry::default(),
         }
     }
 
@@ -2437,6 +2497,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
             next_runtime.connection_metrics = runtime.connection_metrics.clone();
             next_runtime.max_connection_workers = runtime.max_connection_workers;
             next_runtime.connection_worker_gauge = runtime.connection_worker_gauge.clone();
+            next_runtime.active_connection_registry = runtime.active_connection_registry.clone();
             *runtime = next_runtime;
         }
 
@@ -4029,8 +4090,10 @@ fn serve_mixed_listener_until(
                     record_mixed_connection_worker_limit_rejection(stream, &runtime);
                     continue;
                 }
+                let connection_lease = runtime.active_connection_registry.register(&stream)?;
                 let worker_lease = runtime.connection_worker_gauge.start_worker();
                 workers.push(thread::spawn(move || {
+                    let _connection_lease = connection_lease;
                     let _worker_lease = worker_lease;
                     if let Err(error) = handle_mixed_connection_with_routes(&mut stream, &runtime) {
                         eprintln!("mixed inbound failed: {error}");
@@ -4043,7 +4106,17 @@ fn serve_mixed_listener_until(
             Err(error) => return Err(error),
         }
     }
+    shutdown_active_mixed_connections(&runtime)?;
     reap_finished_mixed_connection_workers(&mut workers);
+    drain_mixed_connection_workers(&mut workers, MANAGED_CONNECTION_DRAIN_TIMEOUT);
+    Ok(())
+}
+
+fn shutdown_active_mixed_connections(runtime: &Arc<RwLock<MixedProxyRuntime>>) -> io::Result<()> {
+    let runtime = runtime
+        .read()
+        .map_err(|_| io::Error::other("mixed runtime lock poisoned"))?;
+    runtime.active_connection_registry.shutdown_all();
     Ok(())
 }
 
@@ -4072,6 +4145,22 @@ fn reap_finished_mixed_connection_workers(workers: &mut Vec<thread::JoinHandle<(
         } else {
             index += 1;
         }
+    }
+}
+
+fn drain_mixed_connection_workers(workers: &mut Vec<thread::JoinHandle<()>>, timeout: Duration) {
+    let started = Instant::now();
+    while !workers.is_empty() && started.elapsed() < timeout {
+        reap_finished_mixed_connection_workers(workers);
+        if !workers.is_empty() {
+            thread::sleep(MANAGED_ACCEPT_POLL_INTERVAL);
+        }
+    }
+    if !workers.is_empty() {
+        eprintln!(
+            "mixed inbound stop timed out waiting for {} active worker(s)",
+            workers.len()
+        );
     }
 }
 
@@ -5728,6 +5817,7 @@ fn mixed_runtime_from_parsed_profiles(
         connection_metrics: ConnectionMetrics::default(),
         max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
         connection_worker_gauge: ConnectionWorkerGauge::default(),
+        active_connection_registry: ActiveConnectionRegistry::default(),
     })
 }
 
@@ -5745,6 +5835,7 @@ fn mixed_runtime_from_cli(
         connection_metrics: ConnectionMetrics::default(),
         max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
         connection_worker_gauge: ConnectionWorkerGauge::default(),
+        active_connection_registry: ActiveConnectionRegistry::default(),
     }
 }
 

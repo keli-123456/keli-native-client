@@ -13,9 +13,9 @@ use keli_cli::{
     listen_mixed_with_optional_tun_controller_report, run_managed_tun_packet_loop,
     run_managed_tun_packet_loop_with_runtime, run_with_optional_tun_device,
     run_with_optional_tun_runtime_background, run_with_optional_tun_runtime_background_report,
-    write_tun_preflight_report_with_controller, ConnectionMetrics, ConnectionWorkerGauge,
-    ManagedMixedOptions, ManagedMixedSession, MixedProxyRuntime, PlatformTunPacketDevice,
-    ProbeOutputFormat, DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+    write_tun_preflight_report_with_controller, ActiveConnectionRegistry, ConnectionMetrics,
+    ConnectionWorkerGauge, ManagedMixedOptions, ManagedMixedSession, MixedProxyRuntime,
+    PlatformTunPacketDevice, ProbeOutputFormat, DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
 };
 use keli_client_core::RuntimeDiagnostic;
 use keli_net_core::{
@@ -478,6 +478,7 @@ fn managed_tun_packet_loop_with_runtime_relays_tagged_udp_via_registry() {
         connection_metrics: ConnectionMetrics::default(),
         max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
         connection_worker_gauge: ConnectionWorkerGauge::default(),
+        active_connection_registry: ActiveConnectionRegistry::default(),
     };
 
     let report =
@@ -544,6 +545,7 @@ fn managed_tun_packet_loop_with_runtime_relays_tagged_tcp_via_registry() {
         connection_metrics: ConnectionMetrics::default(),
         max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
         connection_worker_gauge: ConnectionWorkerGauge::default(),
+        active_connection_registry: ActiveConnectionRegistry::default(),
     };
 
     let report =
@@ -621,6 +623,7 @@ fn optional_background_tun_runtime_returns_summary_report() {
         connection_metrics: ConnectionMetrics::default(),
         max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
         connection_worker_gauge: ConnectionWorkerGauge::default(),
+        active_connection_registry: ActiveConnectionRegistry::default(),
     };
 
     let (output, report) = run_with_optional_tun_runtime_background_report(
@@ -746,6 +749,7 @@ fn listen_mixed_with_optional_tun_controller_report_returns_tun_summary() {
         connection_metrics: ConnectionMetrics::default(),
         max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
         connection_worker_gauge: ConnectionWorkerGauge::default(),
+        active_connection_registry: ActiveConnectionRegistry::default(),
     };
     let listen = free_local_addr();
     let thread_listen = listen.clone();
@@ -830,6 +834,7 @@ fn listen_mixed_with_optional_tun_controller_runs_tun_loop_while_listener_serves
         connection_metrics: ConnectionMetrics::default(),
         max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
         connection_worker_gauge: ConnectionWorkerGauge::default(),
+        active_connection_registry: ActiveConnectionRegistry::default(),
     };
     let listen = free_local_addr();
     let thread_listen = listen.clone();

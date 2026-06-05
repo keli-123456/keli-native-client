@@ -48,7 +48,9 @@ so one long-lived mixed client no longer blocks subsequent connections.
 That worker fan-out is bounded and records connection-limit rejections in
 managed connection metrics for long-running resource protection. `listen-mixed`
 can tune this cap with `--max-connection-workers`, and managed status reports
-active workers plus remaining worker slots for saturation diagnostics.
+active workers plus remaining worker slots for saturation diagnostics. Managed
+shutdown closes active mixed client streams and uses a bounded worker drain, so
+held handshakes cannot stall core stop.
 The route engine now also has destination-aware keyword, CIDR, and port
 matching, and the mixed TCP/UDP paths use that richer decision surface.
 The CLI/runtime route setup exposes domain, CIDR, exact-port, and port-range

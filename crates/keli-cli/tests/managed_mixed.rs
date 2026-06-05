@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::str::FromStr;
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use keli_cli::{
     apply_system_proxy_for_listener, managed_mixed_status_json_value,
@@ -572,7 +572,9 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
         } if selected_outbound == "SS-NEXT"
     ));
 
+    let stop_started = Instant::now();
     let stopped = core.stop().expect("stop managed mixed controller");
+    assert!(stop_started.elapsed() < Duration::from_secs(5));
 
     assert_eq!(stopped.status(), &RuntimeStatus::Stopped);
     assert!(!core.is_running());
@@ -699,6 +701,36 @@ fn managed_mixed_background_listener_handles_next_connection_while_one_waits() {
         DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS
     );
     core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_background_stop_closes_active_connections() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    let started = core
+        .start_from_subscription_config_text(
+            ss_config(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+    let listen_addr = started.listen_addr.expect("managed listener addr");
+
+    let mut stalled_client = open_socks5_handshake(listen_addr);
+    let busy = wait_for_active_connection_workers(&core, 1);
+    assert_eq!(busy.active_connection_workers, 1);
+
+    let stop_started = Instant::now();
+    let stopped = core.stop().expect("stop managed mixed controller");
+    assert!(stop_started.elapsed() < Duration::from_secs(5));
+    assert_eq!(stopped.status(), &RuntimeStatus::Stopped);
+    assert!(!core.is_running());
+
+    let mut byte = [0; 1];
+    assert!(stalled_client.read_exact(&mut byte).is_err());
 }
 
 #[test]
