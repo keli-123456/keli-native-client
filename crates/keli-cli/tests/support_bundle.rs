@@ -162,22 +162,26 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][39],
-        "registry-tcp-session-relay"
+        "tcp-server-eof-fin-ack"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][40],
-        "combined-tun-relay-loop"
+        "registry-tcp-session-relay"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][41],
-        "managed-registry-tcp-session-relay"
+        "combined-tun-relay-loop"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][42],
-        "tcp-relay-plan-summary"
+        "managed-registry-tcp-session-relay"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][43],
+        "tcp-relay-plan-summary"
+    );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][44],
         "relay-plan"
     );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");

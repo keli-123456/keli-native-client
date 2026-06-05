@@ -232,7 +232,8 @@ The first implementation target is deliberately small:
    packets.
    Established TCP sessions can also poll additional server payload on
    follow-up client ACKs, allowing split upstream responses to continue flowing
-   back to TUN after the first response packet.
+   back to TUN after the first response packet; remote TCP EOF is surfaced as a
+   server FIN+ACK packet back to TUN and clears the session boundary.
    Managed TUN packet loops now use a combined UDP/TCP relay path so the
    registry-backed UDP execution path remains active while direct and tagged
    TCP sessions can be exercised through the shared outbound registry.

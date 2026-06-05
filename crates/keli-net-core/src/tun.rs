@@ -152,6 +152,14 @@ pub struct TunTcpServerPayloadFrame {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunTcpServerCloseFrame {
+    pub session: TunTcpSessionRecord,
+    pub sequence_number: u32,
+    pub acknowledgment_number: u32,
+    pub packet: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TunTcpCloseFrame {
     pub session: TunTcpSessionRecord,
     pub sequence_number: u32,
@@ -177,9 +185,13 @@ pub enum TunTcpSessionStep {
     ClientPayload {
         frame: TunTcpClientPayloadFrame,
         server_response: Option<TunTcpServerPayloadFrame>,
+        server_close: Option<TunTcpServerCloseFrame>,
     },
     ServerPayload {
         response: TunTcpServerPayloadFrame,
+    },
+    ServerClosed {
+        response: TunTcpServerCloseFrame,
     },
     Closed {
         session: TunTcpSessionRecord,
@@ -296,6 +308,13 @@ pub enum TunTcpSessionError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TunTcpServerRead {
+    NoPayload,
+    Payload(Vec<u8>),
+    Closed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TunPacketLoopError {
     Read(String),
     Write(String),
@@ -341,11 +360,31 @@ pub trait TunTcpSessionRelay {
         Ok(None)
     }
 
+    fn read_server_event(
+        &mut self,
+        session: &TunTcpSessionRecord,
+    ) -> Result<TunTcpServerRead, String> {
+        match self.read_server_payload(session)? {
+            Some(payload) => Ok(TunTcpServerRead::Payload(payload)),
+            None => Ok(TunTcpServerRead::NoPayload),
+        }
+    }
+
     fn poll_server_payload(
         &mut self,
         session: &TunTcpSessionRecord,
     ) -> Result<Option<Vec<u8>>, String> {
         self.read_server_payload(session)
+    }
+
+    fn poll_server_event(
+        &mut self,
+        session: &TunTcpSessionRecord,
+    ) -> Result<TunTcpServerRead, String> {
+        match self.poll_server_payload(session)? {
+            Some(payload) => Ok(TunTcpServerRead::Payload(payload)),
+            None => Ok(TunTcpServerRead::NoPayload),
+        }
     }
 
     fn close_session(&mut self, _session: &TunTcpSessionRecord) -> Result<(), String> {
@@ -472,14 +511,34 @@ impl<R: DnsResolver> TunTcpSessionRelay for RegistryTunTcpSessionRelay<'_, R> {
         &mut self,
         session: &TunTcpSessionRecord,
     ) -> Result<Option<Vec<u8>>, String> {
-        self.read_server_payload_until(session, Some(Instant::now() + self.timeout))
+        match self.read_server_event(session)? {
+            TunTcpServerRead::Payload(payload) => Ok(Some(payload)),
+            TunTcpServerRead::NoPayload | TunTcpServerRead::Closed => Ok(None),
+        }
     }
 
     fn poll_server_payload(
         &mut self,
         session: &TunTcpSessionRecord,
     ) -> Result<Option<Vec<u8>>, String> {
-        self.read_server_payload_until(session, None)
+        match self.poll_server_event(session)? {
+            TunTcpServerRead::Payload(payload) => Ok(Some(payload)),
+            TunTcpServerRead::NoPayload | TunTcpServerRead::Closed => Ok(None),
+        }
+    }
+
+    fn read_server_event(
+        &mut self,
+        session: &TunTcpSessionRecord,
+    ) -> Result<TunTcpServerRead, String> {
+        self.read_server_event_until(session, Some(Instant::now() + self.timeout))
+    }
+
+    fn poll_server_event(
+        &mut self,
+        session: &TunTcpSessionRecord,
+    ) -> Result<TunTcpServerRead, String> {
+        self.read_server_event_until(session, None)
     }
 
     fn close_session(&mut self, session: &TunTcpSessionRecord) -> Result<(), String> {
@@ -489,25 +548,25 @@ impl<R: DnsResolver> TunTcpSessionRelay for RegistryTunTcpSessionRelay<'_, R> {
 }
 
 impl<'a, R: DnsResolver> RegistryTunTcpSessionRelay<'a, R> {
-    fn read_server_payload_until(
+    fn read_server_event_until(
         &mut self,
         session: &TunTcpSessionRecord,
         deadline: Option<Instant>,
-    ) -> Result<Option<Vec<u8>>, String> {
+    ) -> Result<TunTcpServerRead, String> {
         let mut buffer = vec![0; self.read_buffer_size];
         loop {
             let read_result = match self.sessions.get_mut(&session.key) {
                 Some(connection) => connection.read(&mut buffer),
-                None => return Ok(None),
+                None => return Ok(TunTcpServerRead::Closed),
             };
             match read_result {
                 Ok(0) => {
                     self.close_key(&session.key);
-                    return Ok(None);
+                    return Ok(TunTcpServerRead::Closed);
                 }
                 Ok(size) => {
                     buffer.truncate(size);
-                    return Ok(Some(buffer));
+                    return Ok(TunTcpServerRead::Payload(buffer));
                 }
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
                 Err(error)
@@ -515,11 +574,11 @@ impl<'a, R: DnsResolver> RegistryTunTcpSessionRelay<'a, R> {
                         || error.kind() == io::ErrorKind::TimedOut =>
                 {
                     let Some(deadline) = deadline else {
-                        return Ok(None);
+                        return Ok(TunTcpServerRead::NoPayload);
                     };
                     let now = Instant::now();
                     if now >= deadline {
-                        return Ok(None);
+                        return Ok(TunTcpServerRead::NoPayload);
                     }
                     std::thread::sleep(
                         deadline
@@ -623,14 +682,19 @@ impl TunTcpSessionStep {
             Self::ClientPayload {
                 frame,
                 server_response,
+                server_close,
             } => {
                 let mut packets = vec![frame.ack_packet.as_slice()];
                 if let Some(server_response) = server_response {
                     packets.push(server_response.packet.as_slice());
                 }
+                if let Some(server_close) = server_close {
+                    packets.push(server_close.packet.as_slice());
+                }
                 packets
             }
             Self::ServerPayload { response } => vec![response.packet.as_slice()],
+            Self::ServerClosed { response } => vec![response.packet.as_slice()],
             Self::Closed {
                 response: Some(response),
                 ..
@@ -1193,6 +1257,32 @@ impl TunTcpSessionTable {
         }))
     }
 
+    pub fn close_server_side(
+        &mut self,
+        key: &TunTcpSessionKey,
+    ) -> Result<Option<TunTcpServerCloseFrame>, TunPacketError> {
+        let Some(session) = self.sessions.remove(key) else {
+            return Ok(None);
+        };
+        if session.phase != TunTcpSessionPhase::Established {
+            return Ok(None);
+        }
+        let sequence_number = session.server_next_sequence_number;
+        let acknowledgment_number = session.client_next_sequence_number;
+        let packet = build_tun_tcp_fin_ack_response_packet(
+            &session.flow,
+            sequence_number,
+            acknowledgment_number,
+            session.window_size,
+        )?;
+        Ok(Some(TunTcpServerCloseFrame {
+            session,
+            sequence_number,
+            acknowledgment_number,
+            packet,
+        }))
+    }
+
     pub fn server_payload_poll_session(
         &self,
         segment: &TunTcpSegment<'_>,
@@ -1321,6 +1411,20 @@ pub fn process_tun_tcp_session_segment<R: TunTcpSessionRelay>(
     )
 }
 
+fn close_tun_tcp_session_from_server<R: TunTcpSessionRelay>(
+    sessions: &mut TunTcpSessionTable,
+    relay: &mut R,
+    session: &TunTcpSessionRecord,
+) -> Result<Option<TunTcpServerCloseFrame>, TunTcpSessionError> {
+    let response = sessions.close_server_side(&session.key)?;
+    if let Some(response) = &response {
+        relay
+            .close_session(&response.session)
+            .map_err(TunTcpSessionError::Relay)?;
+    }
+    Ok(response)
+}
+
 fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
     sessions: &mut TunTcpSessionTable,
     segment: &TunTcpSegment<'_>,
@@ -1363,30 +1467,46 @@ fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
         relay
             .write_client_payload(&frame)
             .map_err(TunTcpSessionError::Relay)?;
-        let server_response = match relay
-            .read_server_payload(&frame.session)
+        let (server_response, server_close) = match relay
+            .read_server_event(&frame.session)
             .map_err(TunTcpSessionError::Relay)?
         {
-            Some(payload) => sessions.send_server_payload(&frame.session.flow, &payload)?,
-            None => None,
+            TunTcpServerRead::Payload(payload) => (
+                sessions.send_server_payload(&frame.session.flow, &payload)?,
+                None,
+            ),
+            TunTcpServerRead::Closed => (
+                None,
+                close_tun_tcp_session_from_server(sessions, relay, &frame.session)?,
+            ),
+            TunTcpServerRead::NoPayload => (None, None),
         };
         return Ok(TunTcpSessionStep::ClientPayload {
             frame,
             server_response,
+            server_close,
         });
     }
 
     if established.is_none() {
         if let Some(session) = sessions.server_payload_poll_session(segment)? {
-            let server_response = match relay
-                .poll_server_payload(&session)
+            match relay
+                .poll_server_event(&session)
                 .map_err(TunTcpSessionError::Relay)?
             {
-                Some(payload) => sessions.send_server_payload(&session.flow, &payload)?,
-                None => None,
-            };
-            if let Some(response) = server_response {
-                return Ok(TunTcpSessionStep::ServerPayload { response });
+                TunTcpServerRead::Payload(payload) => {
+                    if let Some(response) = sessions.send_server_payload(&session.flow, &payload)? {
+                        return Ok(TunTcpSessionStep::ServerPayload { response });
+                    }
+                }
+                TunTcpServerRead::Closed => {
+                    if let Some(response) =
+                        close_tun_tcp_session_from_server(sessions, relay, &session)?
+                    {
+                        return Ok(TunTcpSessionStep::ServerClosed { response });
+                    }
+                }
+                TunTcpServerRead::NoPayload => {}
             }
         }
     }
@@ -2058,6 +2178,22 @@ pub fn build_tun_tcp_payload_response_packet(
         TunTcpFlags::from_bits(0x0018),
         window_size,
         payload,
+    )
+}
+
+pub fn build_tun_tcp_fin_ack_response_packet(
+    flow: &TunPacketFlow,
+    sequence_number: u32,
+    acknowledgment_number: u32,
+    window_size: u16,
+) -> Result<Vec<u8>, TunPacketError> {
+    build_tun_tcp_response_packet(
+        flow,
+        sequence_number,
+        acknowledgment_number,
+        TunTcpFlags::from_bits(0x0011),
+        window_size,
+        b"",
     )
 }
 
