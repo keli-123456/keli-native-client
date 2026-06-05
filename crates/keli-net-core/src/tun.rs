@@ -1333,6 +1333,7 @@ impl TunTcpSessionTable {
             return Ok(None);
         }
 
+        clear_server_unacked_payload_if_latest_acknowledged(segment, session);
         session.client_next_sequence_number = tcp_segment_next_sequence_number(segment);
         session.last_activity_at = Instant::now();
         let ack_packet = build_tun_tcp_ack_response_packet(
@@ -1377,6 +1378,7 @@ impl TunTcpSessionTable {
         let Some(payload) = segment.payload.get(payload_offset..) else {
             return Ok(None);
         };
+        clear_server_unacked_payload_if_latest_acknowledged(segment, session);
         let sequence_number = session.client_next_sequence_number;
         session.client_next_sequence_number = segment_next_sequence_number;
         session.last_activity_at = Instant::now();
@@ -1417,6 +1419,7 @@ impl TunTcpSessionTable {
             return Ok(None);
         }
 
+        clear_server_unacked_payload_if_latest_acknowledged(segment, session);
         session.last_activity_at = Instant::now();
         let ack_packet = build_tun_tcp_ack_response_packet(
             &session.flow,
@@ -1453,6 +1456,7 @@ impl TunTcpSessionTable {
             return Ok(None);
         }
 
+        clear_server_unacked_payload_if_latest_acknowledged(segment, session);
         session.last_activity_at = Instant::now();
         let ack_packet = build_tun_tcp_ack_response_packet(
             &session.flow,
@@ -1599,7 +1603,7 @@ impl TunTcpSessionTable {
             && segment.sequence_number == session.client_next_sequence_number
             && segment.acknowledgment_number == session.server_next_sequence_number
         {
-            session.server_unacked_payload = None;
+            clear_server_unacked_payload_if_latest_acknowledged(segment, session);
             session.last_activity_at = Instant::now();
             return Ok(Some(session.clone()));
         }
@@ -1626,9 +1630,7 @@ impl TunTcpSessionTable {
             && segment.sequence_number == session.client_next_sequence_number
             && tcp_segment_acknowledges_known_server_sequence(segment, session)
         {
-            if segment.acknowledgment_number == session.server_next_sequence_number {
-                session.server_unacked_payload = None;
-            }
+            clear_server_unacked_payload_if_latest_acknowledged(segment, session);
             session.last_activity_at = Instant::now();
             return Ok(Some(session.clone()));
         }
@@ -2897,6 +2899,15 @@ fn tcp_segment_acknowledges_known_server_sequence(
     } else {
         segment.acknowledgment_number >= acknowledged_syn
             || segment.acknowledgment_number <= session.server_next_sequence_number
+    }
+}
+
+fn clear_server_unacked_payload_if_latest_acknowledged(
+    segment: &TunTcpSegment<'_>,
+    session: &mut TunTcpSessionRecord,
+) {
+    if segment.acknowledgment_number == session.server_next_sequence_number {
+        session.server_unacked_payload = None;
     }
 }
 

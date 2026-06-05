@@ -152,6 +152,9 @@ packets that the eventual stream runner can write back to TUN.
 The session table now also retains the most recent unacknowledged server
 payload and retransmits it when the TUN peer repeats the matching stale ACK,
 without advancing the server sequence cursor again.
+Any accepted client ACK or payload that reaches the latest server sequence
+clears that retransmit slot so later stale ACKs cannot replay data the peer has
+already confirmed.
 Registry-backed TUN TCP relay server reads are capped to the default TUN MTU
 payload budget, so large upstream responses are packetized into MSS-sized
 chunks and continue flowing through follow-up client ACK polling.
