@@ -233,6 +233,13 @@ pub struct TunTcpSessionPruneReport {
     pub last_close_error: Option<TunTcpSessionError>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TunTcpSessionTableState {
+    pub active_sessions: usize,
+    pub server_close_markers: usize,
+    pub post_close_markers: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TunTcpSessionStep {
     Noop,
@@ -407,6 +414,9 @@ pub struct TunPacketLoopSummary {
     pub tcp_post_closed_sessions_pruned: usize,
     pub tcp_server_close_marker_resets: usize,
     pub tcp_post_close_marker_resets: usize,
+    pub tcp_sessions_open: usize,
+    pub tcp_server_close_markers_open: usize,
+    pub tcp_post_close_markers_open: usize,
     pub tcp_session_errors: usize,
     pub last_tcp_session_error: Option<TunTcpSessionError>,
 }
@@ -988,6 +998,13 @@ impl TunPacketLoopSummary {
         }
     }
 
+    pub fn record_tcp_session_table_state(&mut self, sessions: &TunTcpSessionTable) {
+        let state = sessions.state_counts();
+        self.tcp_sessions_open = state.active_sessions;
+        self.tcp_server_close_markers_open = state.server_close_markers;
+        self.tcp_post_close_markers_open = state.post_close_markers;
+    }
+
     pub fn processed_packets(&self) -> usize {
         self.dns_responses_written
             + self.udp_relay_responses_written
@@ -1343,6 +1360,14 @@ impl TunTcpSessionTable {
 
     pub fn is_empty(&self) -> bool {
         self.sessions.is_empty()
+    }
+
+    pub fn state_counts(&self) -> TunTcpSessionTableState {
+        TunTcpSessionTableState {
+            active_sessions: self.sessions.len(),
+            server_close_markers: self.server_closed_sessions.len(),
+            post_close_markers: self.post_closed_sessions.len(),
+        }
     }
 
     pub fn get(&self, key: &TunTcpSessionKey) -> Option<&TunTcpSessionRecord> {
@@ -3260,6 +3285,7 @@ where
             break;
         }
     }
+    summary.record_tcp_session_table_state(sessions);
     Ok(summary)
 }
 
@@ -3342,6 +3368,7 @@ where
             break;
         }
     }
+    summary.record_tcp_session_table_state(sessions);
     Ok(summary)
 }
 

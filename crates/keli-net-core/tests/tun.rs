@@ -4400,6 +4400,9 @@ fn registry_tun_tcp_session_relay_writes_fin_payload_before_close_once() {
     assert_eq!(summary.tcp_session_events, 4);
     assert_eq!(summary.tcp_session_packets_written, 4);
     assert_eq!(summary.tcp_session_errors, 0);
+    assert_eq!(summary.tcp_sessions_open, 0);
+    assert_eq!(summary.tcp_server_close_markers_open, 1);
+    assert_eq!(summary.tcp_post_close_markers_open, 0);
     assert_eq!(device.writes.len(), 4);
     let fin_payload_ack = parse_tun_tcp_segment(&device.writes[1]).expect("parse FIN payload ACK");
     assert_eq!(fin_payload_ack.sequence_number, 1001);
@@ -5195,6 +5198,9 @@ fn tun_packet_loop_with_tcp_session_relay_retransmits_server_payload_on_duplicat
     assert_eq!(summary.processed_packets(), 4);
     assert_eq!(summary.tcp_session_events, 4);
     assert_eq!(summary.tcp_session_packets_written, 4);
+    assert_eq!(summary.tcp_sessions_open, 1);
+    assert_eq!(summary.tcp_server_close_markers_open, 0);
+    assert_eq!(summary.tcp_post_close_markers_open, 0);
     assert_eq!(device.writes.len(), 4);
     let server_payload =
         parse_tun_tcp_segment(&device.writes[2]).expect("parse server payload packet");
@@ -5436,6 +5442,9 @@ fn tun_packet_loop_acknowledges_client_fin_after_server_fin_without_reset() {
     assert_eq!(summary.processed_packets(), 4);
     assert_eq!(summary.tcp_session_events, 4);
     assert_eq!(summary.tcp_session_packets_written, 4);
+    assert_eq!(summary.tcp_sessions_open, 0);
+    assert_eq!(summary.tcp_server_close_markers_open, 0);
+    assert_eq!(summary.tcp_post_close_markers_open, 1);
     assert_eq!(device.writes.len(), 4);
     let server_fin = parse_tun_tcp_segment(&device.writes[2]).expect("parse server FIN packet");
     assert_eq!(server_fin.sequence_number, 1001);
@@ -5870,6 +5879,9 @@ fn tun_packet_loop_reacknowledges_duplicate_client_fin_after_close_without_reset
     assert_eq!(summary.processed_packets(), 4);
     assert_eq!(summary.tcp_session_events, 4);
     assert_eq!(summary.tcp_session_packets_written, 3);
+    assert_eq!(summary.tcp_sessions_open, 1);
+    assert_eq!(summary.tcp_server_close_markers_open, 0);
+    assert_eq!(summary.tcp_post_close_markers_open, 0);
     assert_eq!(device.writes.len(), 3);
     let first_fin_ack =
         parse_tun_tcp_segment(&device.writes[1]).expect("parse initial client FIN ACK");
@@ -6471,6 +6483,9 @@ fn tun_packet_loop_prunes_idle_tcp_sessions_before_next_read() {
     assert_eq!(summary.tcp_session_events, 1);
     assert_eq!(summary.tcp_session_packets_written, 1);
     assert_eq!(summary.tcp_sessions_pruned, 1);
+    assert_eq!(summary.tcp_sessions_open, 0);
+    assert_eq!(summary.tcp_server_close_markers_open, 0);
+    assert_eq!(summary.tcp_post_close_markers_open, 0);
     assert_eq!(summary.tcp_session_errors, 0);
     assert_eq!(device.writes.len(), 1);
     assert_eq!(relay.closed_sessions.len(), 1);

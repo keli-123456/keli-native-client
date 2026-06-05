@@ -305,6 +305,9 @@ The first implementation target is deliberately small:
    immediately without writing reset packets or closing the relay a second time.
    Loop summaries and managed runtime notes count those server-close and
    post-close RST marker clears separately from idle marker pruning.
+   They also snapshot open active TCP sessions, server-close markers, and
+   post-close markers at loop exit, making residual TUN/TCP state visible in
+   support diagnostics.
    The TCP session table also tracks last activity and packet loops prune idle
    sessions through the relay close path, with the pruned count visible in loop
    summaries and managed runtime status notes.
