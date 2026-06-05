@@ -267,6 +267,9 @@ The first implementation target is deliberately small:
    follow-up client ACKs, allowing split upstream responses to continue flowing
    back to TUN after the first response packet; remote TCP EOF is surfaced as a
    server FIN+ACK packet back to TUN and clears the session boundary.
+   After that server FIN is emitted, the session table keeps a short close
+   marker: duplicate stale ACKs retransmit the FIN, while the final FIN ACK is
+   absorbed without producing an unknown-session RST.
    The TCP session table also tracks last activity and packet loops prune idle
    sessions through the relay close path, with the pruned count visible in loop
    summaries and managed runtime status notes.
