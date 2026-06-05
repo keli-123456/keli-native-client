@@ -97,6 +97,7 @@ pub enum CliCommand {
         first_byte_timeout: Duration,
         idle_timeout: Duration,
         tun_tcp_max_active_sessions: usize,
+        max_connection_workers: usize,
         dns_options: MixedDnsOptions,
     },
     ProbeOutbound {
@@ -2698,6 +2699,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             first_byte_timeout,
             idle_timeout,
             tun_tcp_max_active_sessions,
+            max_connection_workers,
             dns_options,
         } => {
             let relay_options = RelayOptions {
@@ -2720,7 +2722,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                         system_proxy_bypass,
                         dns_options,
                         tun_tcp_max_active_sessions,
-                        max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+                        max_connection_workers,
                     },
                     &controller,
                 )?;
@@ -2737,6 +2739,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
 
             let mut runtime = mixed_runtime_from_cli(block_domains, relay_options, dns_options);
             runtime.tun_tcp_max_active_sessions = tun_tcp_max_active_sessions;
+            runtime.max_connection_workers = max_connection_workers;
             let tun_report = listen_mixed_with_optional_tun_controller_report(
                 &listen,
                 once,
@@ -2841,7 +2844,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli listen-mixed [--listen 127.0.0.1:7890] [--once] [--profile-config subscription.yaml] [--outbound-tag proxy] [--block-domain example.com] [--block-cidr 10.0.0.0/8] [--block-port 25|1000-2000] [--first-byte-timeout-ms 30000] [--idle-timeout-ms 300000] [--dns-local-policy allow-system|prevent-public-leak] [--dns-address-family dual-stack|ipv4-only|ipv6-only] [--tun] [--tun-interface keli-tun0] [--tun-address 10.7.0.1/24] [--tun-mtu 1500] [--tun-dns-hijack] [--tun-tcp-max-active-sessions 4096]"
+        "       keli-cli listen-mixed [--listen 127.0.0.1:7890] [--once] [--profile-config subscription.yaml] [--outbound-tag proxy] [--block-domain example.com] [--block-cidr 10.0.0.0/8] [--block-port 25|1000-2000] [--first-byte-timeout-ms 30000] [--idle-timeout-ms 300000] [--max-connection-workers 1024] [--dns-local-policy allow-system|prevent-public-leak] [--dns-address-family dual-stack|ipv4-only|ipv6-only] [--tun] [--tun-interface keli-tun0] [--tun-address 10.7.0.1/24] [--tun-mtu 1500] [--tun-dns-hijack] [--tun-tcp-max-active-sessions 4096]"
     )?;
     writeln!(
         writer,
@@ -2963,6 +2966,7 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
     let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut idle_timeout = DEFAULT_IDLE_TIMEOUT;
     let mut tun_tcp_max_active_sessions = DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS;
+    let mut max_connection_workers = DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS;
     let mut dns_options = MixedDnsOptions::default();
     let mut args = args.peekable();
 
@@ -2995,6 +2999,13 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
                         "--tun-tcp-max-active-sessions requires a value".to_string()
                     })?,
                     "--tun-tcp-max-active-sessions",
+                )?;
+            }
+            "--max-connection-workers" => {
+                max_connection_workers = parse_positive_usize(
+                    args.next()
+                        .ok_or_else(|| "--max-connection-workers requires a value".to_string())?,
+                    "--max-connection-workers",
                 )?;
             }
             "--block-domain" => {
@@ -3103,6 +3114,7 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
         first_byte_timeout,
         idle_timeout,
         tun_tcp_max_active_sessions,
+        max_connection_workers,
         dns_options,
     })
 }

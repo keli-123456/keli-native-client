@@ -370,7 +370,8 @@ level listener handle internal to the managed core path. The managed background
 listener dispatches accepted TCP connections to workers so one long-lived mixed
 client no longer blocks subsequent connections. That worker fan-out is bounded
 and records connection-limit rejections in managed connection metrics for
-long-running resource protection. Its status snapshot
+long-running resource protection, and `listen-mixed --max-connection-workers`
+lets clients tune the cap. Its status snapshot
 includes recent runtime events, the last failure reason, current generation,
 selected outbound, listener address, managed system proxy config, and
 subscription node status including supported tags, skipped entries, default

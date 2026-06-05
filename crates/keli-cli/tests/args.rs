@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use keli_cli::{
     parse_cli_command, CliCommand, MixedDnsOptions, ProbeOutputFormat, SmokeInboundKind,
+    DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
 };
 use keli_net_core::{
     DnsAddressFamilyPolicy, DnsLocalResolutionPolicy, DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
@@ -91,6 +92,7 @@ fn parses_listen_mixed_once_command() {
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             dns_options: MixedDnsOptions::default(),
         }
     );
@@ -114,6 +116,7 @@ fn defaults_listen_mixed_to_local_port_7890() {
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             dns_options: MixedDnsOptions::default(),
         }
     );
@@ -144,6 +147,7 @@ fn parses_listen_mixed_block_domain_rules() {
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             dns_options: MixedDnsOptions::default(),
         }
     );
@@ -180,6 +184,7 @@ fn parses_listen_mixed_block_cidr_and_port_rules() {
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             dns_options: MixedDnsOptions::default(),
         }
     );
@@ -218,6 +223,7 @@ fn parses_listen_mixed_relay_timeouts() {
             first_byte_timeout: Duration::from_millis(1500),
             idle_timeout: Duration::from_millis(90000),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             dns_options: MixedDnsOptions::default(),
         }
     );
@@ -248,6 +254,7 @@ fn parses_listen_mixed_profile_config_and_outbound_tag() {
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             dns_options: MixedDnsOptions::default(),
         }
     );
@@ -279,6 +286,7 @@ fn parses_listen_mixed_system_proxy_options() {
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             dns_options: MixedDnsOptions::default(),
         }
     );
@@ -317,6 +325,7 @@ fn parses_listen_mixed_tun_options() {
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             dns_options: MixedDnsOptions::default(),
         }
     );
@@ -343,9 +352,43 @@ fn parses_listen_mixed_tun_tcp_session_limit() {
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             tun_tcp_max_active_sessions: 17,
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             dns_options: MixedDnsOptions::default(),
         }
     );
+}
+
+#[test]
+fn parses_listen_mixed_connection_worker_limit() {
+    let command = parse_cli_command(["listen-mixed", "--max-connection-workers", "23"])
+        .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::ListenMixed {
+            listen: "127.0.0.1:7890".to_string(),
+            once: false,
+            block_domains: Vec::new(),
+            profile_config: None,
+            outbound_tag: None,
+            system_proxy: false,
+            system_proxy_bypass: Vec::new(),
+            tun_device: None,
+            first_byte_timeout: Duration::from_secs(30),
+            idle_timeout: Duration::from_secs(300),
+            tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+            max_connection_workers: 23,
+            dns_options: MixedDnsOptions::default(),
+        }
+    );
+}
+
+#[test]
+fn rejects_invalid_listen_mixed_connection_worker_limit() {
+    let error = parse_cli_command(["listen-mixed", "--max-connection-workers", "0"])
+        .expect_err("zero worker limit should fail");
+
+    assert!(error.contains("--max-connection-workers must be greater than 0"));
 }
 
 #[test]
@@ -373,6 +416,7 @@ fn parses_listen_mixed_dns_policy_options() {
             first_byte_timeout: Duration::from_secs(30),
             idle_timeout: Duration::from_secs(300),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             dns_options: MixedDnsOptions {
                 local_resolution_policy: DnsLocalResolutionPolicy::PreventPublicLeak,
                 address_family_policy: DnsAddressFamilyPolicy::Ipv6Only,
