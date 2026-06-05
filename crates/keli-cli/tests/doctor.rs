@@ -1,6 +1,7 @@
 use keli_cli::{
-    DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
-    MANAGED_MIXED_RECENT_EVENT_LIMIT,
+    DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, DOCTOR_REPORT_SCHEMA_VERSION,
+    MANAGED_CONNECTION_REPORT_HISTORY_LIMIT, MANAGED_MIXED_RECENT_EVENT_LIMIT,
+    MANAGED_MIXED_STATUS_SCHEMA_VERSION, SUPPORT_BUNDLE_SCHEMA_VERSION,
 };
 use keli_client_core::DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT;
 use keli_net_core::DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS;
@@ -12,6 +13,12 @@ fn doctor_report_lists_supported_outbounds() {
     let output = String::from_utf8(output).expect("doctor utf8");
 
     assert!(output.contains("version="));
+    assert!(output.contains(&format!(
+        "schema_versions doctor_report={} support_bundle={} managed_mixed_status={}",
+        DOCTOR_REPORT_SCHEMA_VERSION,
+        SUPPORT_BUNDLE_SCHEMA_VERSION,
+        MANAGED_MIXED_STATUS_SCHEMA_VERSION
+    )));
     assert!(output.contains("system_proxy_state="));
     assert!(output.contains("tun_device_supported="));
     assert!(output.contains("lifecycle_available="));
@@ -59,6 +66,19 @@ fn doctor_json_report_is_machine_readable() {
     let report: serde_json::Value = serde_json::from_slice(&output).expect("doctor json");
 
     assert_eq!(report["status"], "ok");
+    assert_eq!(report["schema_version"], DOCTOR_REPORT_SCHEMA_VERSION);
+    assert_eq!(
+        report["schema_versions"]["doctor_report"],
+        DOCTOR_REPORT_SCHEMA_VERSION
+    );
+    assert_eq!(
+        report["schema_versions"]["support_bundle"],
+        SUPPORT_BUNDLE_SCHEMA_VERSION
+    );
+    assert_eq!(
+        report["schema_versions"]["managed_mixed_status"],
+        MANAGED_MIXED_STATUS_SCHEMA_VERSION
+    );
     assert_eq!(report["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(report["platform"], "Windows");
     assert_eq!(report["system_proxy"]["supported"], true);

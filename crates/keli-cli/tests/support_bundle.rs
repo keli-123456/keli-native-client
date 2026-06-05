@@ -1,6 +1,7 @@
 use keli_cli::{
-    DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
-    MANAGED_MIXED_RECENT_EVENT_LIMIT,
+    DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, DOCTOR_REPORT_SCHEMA_VERSION,
+    MANAGED_CONNECTION_REPORT_HISTORY_LIMIT, MANAGED_MIXED_RECENT_EVENT_LIMIT,
+    MANAGED_MIXED_STATUS_SCHEMA_VERSION, SUPPORT_BUNDLE_SCHEMA_VERSION,
 };
 use keli_client_core::DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT;
 use keli_net_core::DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS;
@@ -42,7 +43,19 @@ proxies:
     let report: Value = serde_json::from_slice(&output).expect("support bundle json");
     assert_eq!(report["status"], "ok");
     assert_eq!(report["kind"], "keli_support_bundle");
-    assert_eq!(report["schema_version"], 1);
+    assert_eq!(report["schema_version"], SUPPORT_BUNDLE_SCHEMA_VERSION);
+    assert_eq!(
+        report["doctor"]["schema_version"],
+        DOCTOR_REPORT_SCHEMA_VERSION
+    );
+    assert_eq!(
+        report["doctor"]["schema_versions"]["support_bundle"],
+        SUPPORT_BUNDLE_SCHEMA_VERSION
+    );
+    assert_eq!(
+        report["doctor"]["schema_versions"]["managed_mixed_status"],
+        MANAGED_MIXED_STATUS_SCHEMA_VERSION
+    );
     assert_eq!(report["doctor"]["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(report["doctor"]["platform"], "Windows");
     assert_eq!(report["doctor"]["route_rule_capabilities"][3], "ip-cidr");

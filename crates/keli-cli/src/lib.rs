@@ -65,6 +65,8 @@ const DEFAULT_TUN_TCP_WINDOW_SIZE: u16 = 0x4000;
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 1;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 1;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 1;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -3925,6 +3927,9 @@ fn parse_profile_check(args: impl Iterator<Item = String>) -> Result<CliCommand,
 
 #[derive(Debug, Clone)]
 struct DoctorReport {
+    doctor_report_schema_version: u32,
+    support_bundle_schema_version: u32,
+    managed_mixed_status_schema_version: u32,
     version: &'static str,
     platform: String,
     system_proxy_supported: bool,
@@ -4009,6 +4014,9 @@ fn collect_doctor_report() -> DoctorReport {
     };
 
     DoctorReport {
+        doctor_report_schema_version: DOCTOR_REPORT_SCHEMA_VERSION,
+        support_bundle_schema_version: SUPPORT_BUNDLE_SCHEMA_VERSION,
+        managed_mixed_status_schema_version: MANAGED_MIXED_STATUS_SCHEMA_VERSION,
         version: env!("CARGO_PKG_VERSION"),
         platform: format!("{:?}", capabilities.platform),
         system_proxy_supported: capabilities.system_proxy,
@@ -4059,6 +4067,13 @@ fn collect_doctor_report() -> DoctorReport {
 fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io::Result<()> {
     writeln!(writer, "keli-native-client doctor")?;
     writeln!(writer, "version={}", report.version)?;
+    writeln!(
+        writer,
+        "schema_versions doctor_report={} support_bundle={} managed_mixed_status={}",
+        report.doctor_report_schema_version,
+        report.support_bundle_schema_version,
+        report.managed_mixed_status_schema_version
+    )?;
     writeln!(writer, "platform={}", report.platform)?;
     writeln!(writer, "system_proxy={}", report.system_proxy_supported)?;
     writeln!(
@@ -4183,6 +4198,12 @@ fn write_doctor_json_report(mut writer: impl Write, report: &DoctorReport) -> io
 fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
     serde_json::json!({
         "status": "ok",
+        "schema_version": report.doctor_report_schema_version,
+        "schema_versions": {
+            "doctor_report": report.doctor_report_schema_version,
+            "support_bundle": report.support_bundle_schema_version,
+            "managed_mixed_status": report.managed_mixed_status_schema_version,
+        },
         "version": report.version,
         "platform": &report.platform,
         "system_proxy": {
@@ -4367,7 +4388,7 @@ pub fn write_support_bundle_report(
     let value = serde_json::json!({
         "status": "ok",
         "kind": "keli_support_bundle",
-        "schema_version": 1,
+        "schema_version": SUPPORT_BUNDLE_SCHEMA_VERSION,
         "generated_at_unix_ms": generated_at_unix_ms,
         "doctor": doctor_report_json_value(&collect_doctor_report()),
         "tun_preflight": tun_preflight_json_value(&collect_default_tun_preflight()),

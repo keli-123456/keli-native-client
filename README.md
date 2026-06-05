@@ -282,6 +282,9 @@ Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets plus managed status and connection metric schema support,
 runtime event, connection report, managed connection worker, and TUN TCP
 session resource limits for support and UI integration.
+Doctor also reports the schema versions for doctor output, support bundles,
+and managed status snapshots, so integrations can negotiate diagnostic JSON
+shapes without inspecting each payload separately.
 
 ## Protocol Matrix
 

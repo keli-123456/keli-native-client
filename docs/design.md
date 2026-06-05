@@ -362,6 +362,9 @@ The first implementation target is deliberately small:
    schema, runtime event, connection report, managed connection worker, and
    TUN TCP session resource limits so UI and support tooling can see this
    data-plane readiness without inspecting code.
+   It also reports the schema versions for doctor output, support bundles, and
+   managed status snapshots so callers can negotiate diagnostic JSON shapes
+   from one place.
 4. Keli panel integration: subscription fetch/update, user state, node
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,
