@@ -2064,6 +2064,7 @@ impl TunTcpSessionTable {
             acknowledgment_number,
             session.window_size,
         )?;
+        clear_server_unacked_payload_if_latest_acknowledged(segment, session);
         session.last_activity_at = Instant::now();
         Ok(Some(TunTcpCloseFrame {
             session: session.clone(),

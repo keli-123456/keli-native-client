@@ -2246,6 +2246,14 @@ fn acknowledges_client_fin_with_stale_known_server_ack_and_retransmits_unacked_p
         &tcp_segment(49152, 443, 12, 1001, 0x0010, 0x4000, &[], b""),
     );
     let stale_ack = parse_tun_tcp_segment(&stale_ack_packet).expect("parse stale ACK segment");
+    let latest_ack_fin_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1009, 0x0011, 0x4000, &[], b""),
+    );
+    let latest_ack_fin =
+        parse_tun_tcp_segment(&latest_ack_fin_packet).expect("parse latest-ack FIN segment");
     let mut sessions = TunTcpSessionTable::new();
     let mut relay = FakeTunTcpSessionRelay::default();
 
@@ -2297,6 +2305,30 @@ fn acknowledges_client_fin_with_stale_known_server_ack_and_retransmits_unacked_p
     assert_eq!(response.sequence_number, 1001);
     assert_eq!(response.acknowledgment_number, 12);
     assert_eq!(response.payload, b"HTTP/1.1");
+
+    let latest_ack_fin_step =
+        process_tun_tcp_session_segment(&mut sessions, &latest_ack_fin, &mut relay, 1000, 0x2000)
+            .expect("process latest-ACK duplicate client FIN");
+
+    let TunTcpSessionStep::ServerCloseClientFinAck { response } = latest_ack_fin_step else {
+        panic!("expected duplicate FIN ACK after latest server ACK");
+    };
+    assert_eq!(response.sequence_number, 1009);
+    assert_eq!(response.acknowledgment_number, 12);
+    assert!(sessions
+        .get(&response.session.key)
+        .expect("stored half-closed session")
+        .server_unacked_payload
+        .is_none());
+
+    let stale_ack_after_latest_step =
+        process_tun_tcp_session_segment(&mut sessions, &stale_ack, &mut relay, 1000, 0x2000)
+            .expect("process stale ACK after latest-ACK client FIN");
+    assert!(matches!(
+        stale_ack_after_latest_step,
+        TunTcpSessionStep::ClientAck { .. }
+    ));
+    assert!(stale_ack_after_latest_step.response_packets().is_empty());
     assert_eq!(
         sessions
             .get(&response.session.key)
@@ -2337,6 +2369,14 @@ fn acknowledges_fin_payload_with_stale_known_server_ack_and_retransmits_unacked_
         &tcp_segment(49152, 443, 16, 1001, 0x0010, 0x4000, &[], b""),
     );
     let stale_ack = parse_tun_tcp_segment(&stale_ack_packet).expect("parse stale ACK segment");
+    let latest_ack_fin_payload_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1009, 0x0019, 0x4000, &[], b"POST"),
+    );
+    let latest_ack_fin_payload = parse_tun_tcp_segment(&latest_ack_fin_payload_packet)
+        .expect("parse latest-ack FIN payload segment");
     let mut sessions = TunTcpSessionTable::new();
     let mut relay = FakeTunTcpSessionRelay::default();
 
@@ -2393,6 +2433,41 @@ fn acknowledges_fin_payload_with_stale_known_server_ack_and_retransmits_unacked_
     assert_eq!(response.sequence_number, 1001);
     assert_eq!(response.acknowledgment_number, 16);
     assert_eq!(response.payload, b"HTTP/1.1");
+
+    let latest_ack_fin_payload_step = process_tun_tcp_session_segment(
+        &mut sessions,
+        &latest_ack_fin_payload,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("process latest-ACK duplicate FIN payload");
+
+    let TunTcpSessionStep::ServerCloseClientFinAck { response } = latest_ack_fin_payload_step
+    else {
+        panic!("expected duplicate FIN payload ACK after latest server ACK");
+    };
+    assert_eq!(response.sequence_number, 1009);
+    assert_eq!(response.acknowledgment_number, 16);
+    assert_eq!(
+        relay.client_payloads,
+        vec![b"POST".to_vec()],
+        "latest-ACK duplicate FIN payload must not be written again"
+    );
+    assert!(sessions
+        .get(&response.session.key)
+        .expect("stored half-closed session")
+        .server_unacked_payload
+        .is_none());
+
+    let stale_ack_after_latest_step =
+        process_tun_tcp_session_segment(&mut sessions, &stale_ack, &mut relay, 1000, 0x2000)
+            .expect("process stale ACK after latest-ACK FIN payload");
+    assert!(matches!(
+        stale_ack_after_latest_step,
+        TunTcpSessionStep::ClientAck { .. }
+    ));
+    assert!(stale_ack_after_latest_step.response_packets().is_empty());
     assert_eq!(
         sessions
             .get(&response.session.key)

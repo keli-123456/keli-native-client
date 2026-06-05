@@ -269,6 +269,9 @@ The first implementation target is deliberately small:
    closes.
    Duplicate client FINs that still stale-ACK that payload retransmit the
    server payload packet instead of only emitting another empty ACK.
+   When a duplicate client FIN ACKs the latest server payload, the session
+   clears that unacknowledged payload marker so later stale ACKs do not replay
+   it.
    A TCP session relay device-loop entrypoint now reads TUN packets, routes
    direct or tagged TCP relay plans into that step runner, writes response
    packets back to the device, and records TCP session events, written packets,
