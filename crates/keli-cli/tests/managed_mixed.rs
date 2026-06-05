@@ -618,6 +618,10 @@ fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
     assert_eq!(status.connection_metrics.total_connection_count, 1);
     assert_eq!(status.connection_metrics.success_count, 0);
     assert_eq!(status.connection_metrics.failure_count, 1);
+    assert_eq!(
+        status.connection_metrics.connection_limit_rejection_count,
+        0
+    );
     assert_eq!(status.connection_metrics.retained_connection_count, 1);
     assert_eq!(
         status.connection_metrics.connection_history_limit,
@@ -637,6 +641,10 @@ fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
     let value = managed_mixed_status_json_value(&status);
     assert_eq!(value["connection_metrics"]["total_connection_count"], 1);
     assert_eq!(value["connection_metrics"]["failure_count"], 1);
+    assert_eq!(
+        value["connection_metrics"]["connection_limit_rejection_count"],
+        0
+    );
     assert_eq!(
         value["connection_metrics"]["recent_connections"][0]["target"]["host"],
         "blocked.example.com"
@@ -658,6 +666,10 @@ fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
         .expect("reload managed mixed controller");
     assert_eq!(reloaded.connection_metrics.total_connection_count, 1);
     assert_eq!(reloaded.connection_metrics.failure_count, 1);
+    assert_eq!(
+        reloaded.connection_metrics.connection_limit_rejection_count,
+        0
+    );
     assert_eq!(reloaded.connection_metrics.retained_connection_count, 1);
 
     core.stop().expect("stop managed mixed controller");
@@ -860,6 +872,10 @@ fn managed_mixed_background_listener_rejects_connections_above_worker_limit() {
     assert_eq!(status.available_connection_worker_slots, 0);
     assert_eq!(status.connection_metrics.total_connection_count, 1);
     assert_eq!(status.connection_metrics.failure_count, 1);
+    assert_eq!(
+        status.connection_metrics.connection_limit_rejection_count,
+        1
+    );
     let report = status
         .connection_metrics
         .recent_connections
@@ -879,6 +895,10 @@ fn managed_mixed_background_listener_rejects_connections_above_worker_limit() {
     assert_eq!(value["active_client_connections"], 1);
     assert_eq!(value["peak_client_connections"], 1);
     assert_eq!(value["available_connection_worker_slots"], 0);
+    assert_eq!(
+        value["connection_metrics"]["connection_limit_rejection_count"],
+        1
+    );
     assert_eq!(
         value["connection_metrics"]["recent_connections"][0]["error_kind"],
         "connection_limit_reached"
@@ -952,6 +972,10 @@ fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
     assert_eq!(value["connection_metrics"]["total_connection_count"], 0);
     assert_eq!(value["connection_metrics"]["success_count"], 0);
     assert_eq!(value["connection_metrics"]["failure_count"], 0);
+    assert_eq!(
+        value["connection_metrics"]["connection_limit_rejection_count"],
+        0
+    );
     assert_eq!(
         value["connection_metrics"]["connection_history_limit"],
         MANAGED_CONNECTION_REPORT_HISTORY_LIMIT

@@ -215,6 +215,7 @@ pub struct ConnectionMetricsSnapshot {
     pub total_connection_count: u64,
     pub success_count: u64,
     pub failure_count: u64,
+    pub connection_limit_rejection_count: u64,
     pub retained_connection_count: usize,
     pub connection_history_limit: usize,
     pub recent_connections: Vec<ConnectionReport>,
@@ -226,6 +227,7 @@ impl Default for ConnectionMetricsSnapshot {
             total_connection_count: 0,
             success_count: 0,
             failure_count: 0,
+            connection_limit_rejection_count: 0,
             retained_connection_count: 0,
             connection_history_limit: MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
             recent_connections: Vec::new(),
@@ -238,6 +240,7 @@ struct ConnectionMetricsState {
     total_connection_count: u64,
     success_count: u64,
     failure_count: u64,
+    connection_limit_rejection_count: u64,
     recent_connections: Vec<ConnectionReport>,
 }
 
@@ -262,6 +265,10 @@ impl ConnectionMetrics {
         state.total_connection_count = state.total_connection_count.saturating_add(1);
         if report.error_kind.is_some() {
             state.failure_count = state.failure_count.saturating_add(1);
+            if report.error_kind == Some(ConnectionErrorKind::ConnectionLimitReached) {
+                state.connection_limit_rejection_count =
+                    state.connection_limit_rejection_count.saturating_add(1);
+            }
         } else {
             state.success_count = state.success_count.saturating_add(1);
         }
@@ -289,6 +296,7 @@ impl ConnectionMetrics {
             total_connection_count: state.total_connection_count,
             success_count: state.success_count,
             failure_count: state.failure_count,
+            connection_limit_rejection_count: state.connection_limit_rejection_count,
             retained_connection_count: recent_connections.len(),
             connection_history_limit: self.history_limit,
             recent_connections,
@@ -2066,6 +2074,7 @@ fn connection_metrics_json_value(metrics: &ConnectionMetricsSnapshot) -> serde_j
         "total_connection_count": metrics.total_connection_count,
         "success_count": metrics.success_count,
         "failure_count": metrics.failure_count,
+        "connection_limit_rejection_count": metrics.connection_limit_rejection_count,
         "retained_connection_count": metrics.retained_connection_count,
         "connection_history_limit": metrics.connection_history_limit,
         "recent_connections": metrics
