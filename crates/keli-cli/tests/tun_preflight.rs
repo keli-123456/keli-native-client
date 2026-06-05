@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::UdpSocket;
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,8 +17,8 @@ use keli_cli::{
     MixedProxyRuntime, PlatformTunPacketDevice, ProbeOutputFormat,
 };
 use keli_net_core::{
-    parse_tun_udp_payload, DnsCache, DnsEngine, OutboundRegistry, RelayOptions, RouteAction,
-    RouteEngine, SystemDnsResolver, TunPacketDevice,
+    parse_tun_tcp_segment, parse_tun_udp_payload, DnsCache, DnsEngine, OutboundRegistry,
+    RelayOptions, RouteAction, RouteEngine, SystemDnsResolver, TunPacketDevice,
 };
 use keli_platform::{
     NativeSystemProxyController, TunDeviceConfig, TunDeviceController, TunDeviceError,
@@ -492,6 +492,71 @@ fn managed_tun_packet_loop_with_runtime_relays_tagged_udp_via_registry() {
 }
 
 #[test]
+fn managed_tun_packet_loop_with_runtime_relays_tagged_tcp_via_registry() {
+    let config = TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500)
+        .expect("valid TUN config")
+        .with_dns_hijack(true);
+    let stopped_snapshot = TunDeviceSnapshot {
+        supported: true,
+        lifecycle_available: true,
+        packet_io_available: true,
+        running: false,
+        interface_name: None,
+        address_cidr: None,
+        mtu: None,
+        dns_hijack: None,
+    };
+    let (tcp_port, tcp_server) = spawn_tcp_response_server(b"GET /", b"HTTP/1.1");
+    let writes = Arc::new(Mutex::new(Vec::new()));
+    let controller = FakeTunDeviceController::new(stopped_snapshot.clone())
+        .with_start_result(TunDeviceSnapshot::running(&config))
+        .with_stop_result(stopped_snapshot)
+        .with_packet_io(FakeTunPacketIo {
+            reads: VecDeque::from(tcp_session_packets(
+                "127.0.0.1",
+                tcp_port,
+                1,
+                b"GET /",
+                b"HTTP/1.1".len(),
+            )),
+            shared_reads: None,
+            writes: Vec::new(),
+            shared_writes: Some(Arc::clone(&writes)),
+        });
+    let mut outbounds = OutboundRegistry::new();
+    outbounds.add_direct("edge");
+    let runtime = MixedProxyRuntime {
+        routes: RouteEngine::new(RouteAction::Outbound("edge".to_string())),
+        relay_options: RelayOptions {
+            first_byte_timeout: Some(Duration::from_secs(1)),
+            idle_timeout: Some(Duration::from_secs(1)),
+        },
+        outbounds,
+        dns_options: Default::default(),
+    };
+
+    let report =
+        run_managed_tun_packet_loop_with_runtime(&controller, config.clone(), &runtime, 30, 4)
+            .expect("run managed TUN packet loop with TCP runtime relay");
+
+    assert_eq!(controller.starts.borrow().as_slice(), &[config.clone()]);
+    assert_eq!(controller.opens.borrow().as_slice(), &[config]);
+    assert_eq!(*controller.stops.borrow(), 1);
+    assert_eq!(report.summary.processed_packets(), 4);
+    assert_eq!(report.summary.tcp_session_events, 4);
+    assert_eq!(report.summary.tcp_session_packets_written, 3);
+    assert_eq!(report.summary.tcp_session_errors, 0);
+    assert_eq!(report.summary.udp_relay_responses_written, 0);
+    let writes = writes.lock().expect("TUN writes lock");
+    assert_eq!(writes.len(), 3);
+    let response = parse_tun_tcp_segment(&writes[2]).expect("parse TUN TCP response");
+    assert_eq!(response.flow.source_port, Some(tcp_port));
+    assert_eq!(response.flow.destination_port, Some(49152));
+    assert_eq!(response.payload, b"HTTP/1.1");
+    tcp_server.join().expect("TCP response server");
+}
+
+#[test]
 fn optional_background_tun_runtime_returns_summary_report() {
     let config = TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500)
         .expect("valid TUN config")
@@ -872,6 +937,35 @@ fn spawn_udp_echo_server(
     (port, server)
 }
 
+fn spawn_tcp_response_server(
+    expected_request: &'static [u8],
+    response: &'static [u8],
+) -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind TCP response server");
+    let port = listener
+        .local_addr()
+        .expect("TCP response server address")
+        .port();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept TCP request");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .expect("set TCP response server read timeout");
+        stream
+            .set_write_timeout(Some(Duration::from_secs(1)))
+            .expect("set TCP response server write timeout");
+        let mut request = vec![0; expected_request.len()];
+        stream
+            .read_exact(&mut request)
+            .expect("read TCP request payload");
+        assert_eq!(request, expected_request);
+        stream
+            .write_all(response)
+            .expect("write TCP response payload");
+    });
+    (port, server)
+}
+
 fn free_local_addr() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind local listener");
     listener.local_addr().expect("local addr").to_string()
@@ -959,6 +1053,97 @@ fn udp_datagram(source_port: u16, destination_port: u16, payload: &[u8]) -> Vec<
     datagram.extend_from_slice(&0u16.to_be_bytes());
     datagram.extend_from_slice(payload);
     datagram
+}
+
+fn tcp_segment(
+    source_port: u16,
+    destination_port: u16,
+    sequence_number: u32,
+    acknowledgment_number: u32,
+    flags: u16,
+    window_size: u16,
+    payload: &[u8],
+) -> Vec<u8> {
+    let mut segment = vec![0; 20 + payload.len()];
+    segment[0..2].copy_from_slice(&source_port.to_be_bytes());
+    segment[2..4].copy_from_slice(&destination_port.to_be_bytes());
+    segment[4..8].copy_from_slice(&sequence_number.to_be_bytes());
+    segment[8..12].copy_from_slice(&acknowledgment_number.to_be_bytes());
+    segment[12] = 0x50 | (((flags >> 8) & 0x01) as u8);
+    segment[13] = flags as u8;
+    segment[14..16].copy_from_slice(&window_size.to_be_bytes());
+    segment[20..].copy_from_slice(payload);
+    segment
+}
+
+fn tcp_session_packets(
+    destination: &str,
+    destination_port: u16,
+    server_initial_sequence_number: u32,
+    client_payload: &[u8],
+    server_payload_len: usize,
+) -> Vec<Vec<u8>> {
+    let client_initial_sequence_number = 10;
+    let client_payload_sequence_number = client_initial_sequence_number + 1;
+    let server_acknowledgment_number = server_initial_sequence_number + 1;
+    vec![
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            destination,
+            &tcp_segment(
+                49152,
+                destination_port,
+                client_initial_sequence_number,
+                0,
+                0x0002,
+                0x4000,
+                b"",
+            ),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            destination,
+            &tcp_segment(
+                49152,
+                destination_port,
+                client_payload_sequence_number,
+                server_acknowledgment_number,
+                0x0010,
+                0x4000,
+                b"",
+            ),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            destination,
+            &tcp_segment(
+                49152,
+                destination_port,
+                client_payload_sequence_number,
+                server_acknowledgment_number,
+                0x0018,
+                0x4000,
+                client_payload,
+            ),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            destination,
+            &tcp_segment(
+                49152,
+                destination_port,
+                client_payload_sequence_number + client_payload.len() as u32,
+                server_acknowledgment_number + server_payload_len as u32,
+                0x0014,
+                0x4000,
+                b"",
+            ),
+        ),
+    ]
 }
 
 #[derive(Debug, Default)]

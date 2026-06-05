@@ -132,6 +132,11 @@ A TCP session relay device-loop entrypoint now reads TUN packets, routes direct
 or tagged TCP relay plans into that step runner, writes response packets back
 to the device, and records TCP session events, written packets, and relay
 errors in loop summaries.
+Registry-backed TUN TCP session relay now opens real direct or tagged outbound
+TCP streams, writes accepted client payload bytes into those streams, reads
+server payload bytes back, and packetizes them into TUN TCP response packets.
+The managed TUN runtime uses a combined UDP/TCP relay loop, so it can keep the
+registry-backed UDP path while also exercising registry-backed TCP sessions.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
 capability sets for support and UI integration.
 

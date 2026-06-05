@@ -1,4 +1,5 @@
-use std::net::{IpAddr, SocketAddr, UdpSocket};
+use std::io::{Read, Write};
+use std::net::{IpAddr, SocketAddr, TcpListener, UdpSocket};
 use std::thread;
 use std::time::Duration;
 
@@ -10,13 +11,14 @@ use keli_net_core::{
     parse_tun_packet_flow, parse_tun_tcp_segment, parse_tun_udp_payload, plan_tun_dns_hijack,
     plan_tun_packet_relay, process_tun_packet, process_tun_tcp_session_segment,
     relay_tun_direct_udp_packet, relay_tun_udp_packet, run_tun_packet_loop,
-    run_tun_packet_loop_summary, run_tun_packet_loop_with_tcp_session_relay_summary,
-    run_tun_packet_loop_with_udp_relay_summary, DnsCache, DnsEngine, DnsError,
-    DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, OutboundRegistry, OutboundTarget,
-    RegistryTunUdpRelay, RouteAction, RouteDestination, RouteEngine, RouteIpCidr, RouteMatcher,
-    RouteRule, RouteTarget, TunIpVersion, TunPacketDevice, TunPacketError, TunPacketLoopEvent,
-    TunPacketLoopSummary, TunPacketProcessAction, TunPacketRelayAction, TunPacketRelayPlan,
-    TunTcpFlags, TunTcpSessionKey, TunTcpSessionPhase, TunTcpSessionRecord, TunTcpSessionRelay,
+    run_tun_packet_loop_summary, run_tun_packet_loop_with_relays_summary,
+    run_tun_packet_loop_with_tcp_session_relay_summary, run_tun_packet_loop_with_udp_relay_summary,
+    DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver,
+    OutboundRegistry, OutboundTarget, RegistryTunTcpSessionRelay, RegistryTunUdpRelay, RouteAction,
+    RouteDestination, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion,
+    TunPacketDevice, TunPacketError, TunPacketLoopEvent, TunPacketLoopSummary,
+    TunPacketProcessAction, TunPacketRelayAction, TunPacketRelayPlan, TunTcpFlags,
+    TunTcpSessionKey, TunTcpSessionPhase, TunTcpSessionRecord, TunTcpSessionRelay,
     TunTcpSessionStep, TunTcpSessionTable, TunTransportProtocol, TunUdpRelay, TunUdpRelayError,
     UdpRelayResponse,
 };
@@ -1395,6 +1397,128 @@ fn tun_packet_loop_with_registry_udp_relay_writes_tagged_outbound_response() {
 }
 
 #[test]
+fn tun_packet_loop_with_registry_relays_executes_direct_udp_and_tcp_sessions() {
+    let (udp_port, udp_server) = spawn_udp_echo_server(b"ping", b"pong");
+    let (tcp_port, tcp_server) = spawn_tcp_response_server(b"GET /", b"HTTP/1.1");
+    let mut packets = vec![ipv4_packet(
+        17,
+        "10.7.0.2",
+        "127.0.0.1",
+        &udp_datagram(54321, udp_port, b"ping"),
+    )];
+    packets.extend(tcp_session_packets(
+        "127.0.0.1",
+        tcp_port,
+        1000,
+        b"GET /",
+        b"HTTP/1.1".len(),
+    ));
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let registry = OutboundRegistry::new();
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut udp_relay_dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut tcp_relay_dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut udp_relay =
+        RegistryTunUdpRelay::new(&registry, &mut udp_relay_dns, Duration::from_secs(1));
+    let mut tcp_relay =
+        RegistryTunTcpSessionRelay::new(&registry, &mut tcp_relay_dns, Duration::from_secs(1));
+    let mut sessions = TunTcpSessionTable::new();
+    let mut device = FakeTunPacketDevice::new(packets);
+
+    let summary = run_tun_packet_loop_with_relays_summary(
+        &mut device,
+        &routes,
+        true,
+        &mut dns,
+        30,
+        5,
+        &mut udp_relay,
+        &mut sessions,
+        &mut tcp_relay,
+        1000,
+        0x2000,
+    )
+    .expect("run TUN loop with registry relays");
+
+    assert_eq!(summary.processed_packets(), 5);
+    assert_eq!(summary.udp_relay_responses_written, 1);
+    assert_eq!(summary.tcp_session_events, 4);
+    assert_eq!(summary.tcp_session_packets_written, 3);
+    assert_eq!(summary.udp_relay_errors, 0);
+    assert_eq!(summary.tcp_session_errors, 0);
+    assert_eq!(device.writes.len(), 4);
+    assert_eq!(
+        parse_tun_udp_payload(&device.writes[0])
+            .expect("parse UDP response")
+            .payload,
+        b"pong"
+    );
+    let server_payload =
+        parse_tun_tcp_segment(&device.writes[3]).expect("parse TCP server payload packet");
+    assert_eq!(server_payload.payload, b"HTTP/1.1");
+    assert!(tcp_relay.is_empty());
+    assert!(sessions.is_empty());
+    udp_server.join().expect("udp echo server");
+    tcp_server.join().expect("tcp response server");
+}
+
+#[test]
+fn registry_tun_tcp_session_relay_relays_tagged_direct_outbound_tcp_stream_payload() {
+    let (tcp_port, tcp_server) = spawn_tcp_response_server(b"GET /", b"HTTP/1.1");
+    let packets = tcp_session_packets("127.0.0.1", tcp_port, 1000, b"GET /", b"HTTP/1.1".len());
+    let routes = RouteEngine::new(RouteAction::Outbound("edge".to_string()));
+    let mut registry = OutboundRegistry::new();
+    registry.add_direct("edge");
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut relay_dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut relay =
+        RegistryTunTcpSessionRelay::new(&registry, &mut relay_dns, Duration::from_secs(1));
+    let mut sessions = TunTcpSessionTable::new();
+    let mut device = FakeTunPacketDevice::new(packets);
+
+    let summary = run_tun_packet_loop_with_tcp_session_relay_summary(
+        &mut device,
+        &routes,
+        true,
+        &mut dns,
+        30,
+        4,
+        &mut sessions,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("run TUN loop with registry TCP session relay");
+
+    assert_eq!(summary.processed_packets(), 4);
+    assert_eq!(summary.tcp_session_events, 4);
+    assert_eq!(summary.tcp_session_packets_written, 3);
+    assert_eq!(summary.tcp_session_errors, 0);
+    assert_eq!(device.writes.len(), 3);
+    let server_payload =
+        parse_tun_tcp_segment(&device.writes[2]).expect("parse TCP server payload packet");
+    assert_eq!(server_payload.payload, b"HTTP/1.1");
+    assert!(relay.is_empty());
+    assert!(sessions.is_empty());
+    tcp_server.join().expect("tcp response server");
+}
+
+#[test]
 fn tun_packet_loop_with_udp_relay_records_relay_error_and_continues() {
     let packet = ipv4_packet(
         17,
@@ -2245,6 +2369,109 @@ fn spawn_udp_echo_server(
         socket.send_to(response, peer).expect("write UDP response");
     });
     (port, server)
+}
+
+fn spawn_tcp_response_server(
+    expected_request: &'static [u8],
+    response: &'static [u8],
+) -> (u16, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind TCP response server");
+    let port = listener
+        .local_addr()
+        .expect("TCP response server address")
+        .port();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept TCP request");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .expect("set TCP response server read timeout");
+        stream
+            .set_write_timeout(Some(Duration::from_secs(1)))
+            .expect("set TCP response server write timeout");
+        let mut request = vec![0; expected_request.len()];
+        stream
+            .read_exact(&mut request)
+            .expect("read TCP request payload");
+        assert_eq!(request, expected_request);
+        stream
+            .write_all(response)
+            .expect("write TCP response payload");
+    });
+    (port, server)
+}
+
+fn tcp_session_packets(
+    destination: &str,
+    destination_port: u16,
+    server_initial_sequence_number: u32,
+    client_payload: &[u8],
+    server_payload_len: usize,
+) -> Vec<Vec<u8>> {
+    let client_initial_sequence_number = 10;
+    let client_payload_sequence_number = client_initial_sequence_number + 1;
+    let server_acknowledgment_number = server_initial_sequence_number + 1;
+    vec![
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            destination,
+            &tcp_segment(
+                49152,
+                destination_port,
+                client_initial_sequence_number,
+                0,
+                0x0002,
+                0x4000,
+                &[],
+                b"",
+            ),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            destination,
+            &tcp_segment(
+                49152,
+                destination_port,
+                client_payload_sequence_number,
+                server_acknowledgment_number,
+                0x0010,
+                0x4000,
+                &[],
+                b"",
+            ),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            destination,
+            &tcp_segment(
+                49152,
+                destination_port,
+                client_payload_sequence_number,
+                server_acknowledgment_number,
+                0x0018,
+                0x4000,
+                &[],
+                client_payload,
+            ),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            destination,
+            &tcp_segment(
+                49152,
+                destination_port,
+                client_payload_sequence_number + client_payload.len() as u32,
+                server_acknowledgment_number + server_payload_len as u32,
+                0x0014,
+                0x4000,
+                &[],
+                b"",
+            ),
+        ),
+    ]
 }
 
 #[derive(Clone)]

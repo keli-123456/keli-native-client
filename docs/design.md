@@ -225,6 +225,13 @@ The first implementation target is deliberately small:
    direct or tagged TCP relay plans into that step runner, writes response
    packets back to the device, and records TCP session events, written packets,
    and relay errors in loop summaries.
+   Registry-backed TUN TCP session relay now opens real direct or tagged
+   outbound TCP streams, writes accepted client payloads into those streams,
+   reads server payloads back, and packetizes them into TUN TCP response
+   packets.
+   Managed TUN packet loops now use a combined UDP/TCP relay path so the
+   registry-backed UDP execution path remains active while direct and tagged
+   TCP sessions can be exercised through the shared outbound registry.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets so UI and support tooling can see this data-plane
    readiness without inspecting code.

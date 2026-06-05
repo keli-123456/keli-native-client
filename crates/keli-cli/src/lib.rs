@@ -22,15 +22,16 @@ use keli_net_core::{
     http_connect_bad_request_response, http_connect_success_response,
     http_proxy_bad_request_response, parse_dns_query, parse_http_connect_request,
     parse_http_proxy_request, parse_socks5_handshake, parse_socks5_request,
-    parse_socks5_udp_datagram, process_tun_device_packet_with_udp_relay,
+    parse_socks5_udp_datagram, process_tun_device_packet_with_relays,
     relay_owned_bidirectional_with_options, run_tun_packet_loop_summary,
-    run_tun_packet_loop_with_udp_relay_summary, socks5_no_auth_response, socks5_reply,
-    ConnectionErrorKind, ConnectionReport, DirectTcpConnector, DirectUdpConnector,
-    DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy,
-    DnsQuestionType, DnsResolver, LocalInbound, OutboundConnection, OutboundRegistry,
-    OutboundTarget, RegistryTunUdpRelay, RelayOptions, RouteAction, RouteEngine, RouteIpCidr,
-    RouteMatcher, RouteRule, Socks5Address, Socks5Command, Socks5ReplyCode, SystemDnsResolver,
-    TunPacketDevice, TunPacketLoopEvent, TunPacketLoopSummary, TunUdpRelay,
+    run_tun_packet_loop_with_relays_summary, run_tun_packet_loop_with_udp_relay_summary,
+    socks5_no_auth_response, socks5_reply, ConnectionErrorKind, ConnectionReport,
+    DirectTcpConnector, DirectUdpConnector, DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsError,
+    DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, LocalInbound, OutboundConnection,
+    OutboundRegistry, OutboundTarget, RegistryTunTcpSessionRelay, RegistryTunUdpRelay,
+    RelayOptions, RouteAction, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, Socks5Address,
+    Socks5Command, Socks5ReplyCode, SystemDnsResolver, TunPacketDevice, TunPacketLoopEvent,
+    TunPacketLoopSummary, TunTcpSessionTable, TunUdpRelay,
 };
 use keli_platform::{
     NativeSystemProxyController, NativeTunDeviceController, PlatformCapabilities,
@@ -56,6 +57,8 @@ const MANAGED_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const MANAGED_TUN_IDLE_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const DEFAULT_TUN_DNS_TTL_SECONDS: u32 = 30;
 const DEFAULT_TUN_PACKET_LOOP_MAX_PACKETS: usize = usize::MAX;
+const DEFAULT_TUN_TCP_SERVER_INITIAL_SEQUENCE_NUMBER: u32 = 1;
+const DEFAULT_TUN_TCP_WINDOW_SIZE: u16 = 0x4000;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
 const SUPPORTED_UDP_OUTBOUNDS: &str =
@@ -65,7 +68,7 @@ const SUPPORTED_PROTOCOL_CAPABILITIES: &str =
 const ROUTE_RULE_CAPABILITIES: &str =
     "domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
-    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-session-table,tcp-client-payload-ack,tcp-server-payload-packet,tcp-session-step-runner,tcp-session-device-loop,tcp-relay-plan-summary,relay-plan";
+    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-session-table,tcp-client-payload-ack,tcp-server-payload-packet,tcp-session-step-runner,tcp-session-device-loop,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
@@ -461,22 +464,31 @@ pub fn run_managed_tun_packet_loop_with_runtime<C>(
 where
     C: TunPacketIoController + ?Sized,
 {
-    let mut dns = runtime.dns_options.engine();
-    let mut relay_dns = runtime.dns_options.engine();
-    let timeout = runtime
-        .relay_options
-        .first_byte_timeout
-        .unwrap_or(DEFAULT_FIRST_BYTE_TIMEOUT);
-    let mut udp_relay = RegistryTunUdpRelay::new(&runtime.outbounds, &mut relay_dns, timeout);
-    run_managed_tun_packet_loop_with_udp_relay(
+    let guard = apply_tun_device_for_config(controller, config)?;
+    let config = guard.config().clone();
+    let start_snapshot = guard.snapshot().clone();
+    let owns_device = guard.owns_device();
+    let summary_result = run_managed_tun_packet_loop_inner_with_runtime_summary(
         controller,
-        config,
-        &runtime.routes,
-        &mut dns,
+        &config,
+        runtime,
         dns_ttl_seconds,
         max_packets,
-        &mut udp_relay,
-    )
+    );
+    let stop_result = guard.stop();
+
+    match (summary_result, stop_result) {
+        (Ok(summary), Ok(stop_snapshot)) => Ok(ManagedTunPacketLoopReport {
+            config,
+            start_snapshot,
+            stop_snapshot,
+            owns_device,
+            summary,
+        }),
+        (Ok(_), Err(stop_error)) => Err(stop_error),
+        (Err(loop_error), Ok(_)) => Err(loop_error),
+        (Err(loop_error), Err(stop_error)) => Err(format!("{loop_error}; {stop_error}")),
+    }
 }
 
 pub fn run_with_optional_tun_runtime<C, F, T>(
@@ -495,13 +507,14 @@ where
         .map(|config| apply_tun_device_for_config(controller, config))
         .transpose()?;
     let tun_result = if let Some(guard) = guard.as_ref() {
-        run_managed_tun_packet_loop_inner_with_runtime(
+        run_managed_tun_packet_loop_inner_with_runtime_summary(
             controller,
             guard.config(),
             runtime,
             dns_ttl_seconds,
             max_packets,
         )
+        .map(|_| ())
     } else {
         Ok(())
     };
@@ -705,24 +718,32 @@ where
 {
     let mut device = PlatformTunPacketDevice::new(io);
     let mut dns = runtime.dns_options.engine();
-    let mut relay_dns = runtime.dns_options.engine();
+    let mut udp_relay_dns = runtime.dns_options.engine();
+    let mut tcp_relay_dns = runtime.dns_options.engine();
     let timeout = runtime
         .relay_options
         .first_byte_timeout
         .unwrap_or(DEFAULT_FIRST_BYTE_TIMEOUT);
-    let mut udp_relay = RegistryTunUdpRelay::new(&runtime.outbounds, &mut relay_dns, timeout);
+    let mut udp_relay = RegistryTunUdpRelay::new(&runtime.outbounds, &mut udp_relay_dns, timeout);
+    let mut tcp_relay =
+        RegistryTunTcpSessionRelay::new(&runtime.outbounds, &mut tcp_relay_dns, timeout);
+    let mut sessions = TunTcpSessionTable::new();
     let mut summary = TunPacketLoopSummary::default();
     for _ in 0..max_packets {
         if stop.load(Ordering::SeqCst) {
             break;
         }
-        let event = process_tun_device_packet_with_udp_relay(
+        let event = process_tun_device_packet_with_relays(
             &mut device,
             &runtime.routes,
             config.dns_hijack,
             &mut dns,
             dns_ttl_seconds,
             &mut udp_relay,
+            &mut sessions,
+            &mut tcp_relay,
+            DEFAULT_TUN_TCP_SERVER_INITIAL_SEQUENCE_NUMBER,
+            DEFAULT_TUN_TCP_WINDOW_SIZE,
         )
         .map_err(|error| format!("run TUN packet loop: {error}"))?;
         let should_pause = event == TunPacketLoopEvent::NoPacket;
@@ -734,24 +755,28 @@ where
     Ok(summary)
 }
 
-fn run_managed_tun_packet_loop_inner_with_runtime<C>(
+fn run_managed_tun_packet_loop_inner_with_runtime_summary<C>(
     controller: &C,
     config: &TunDeviceConfig,
     runtime: &MixedProxyRuntime,
     dns_ttl_seconds: u32,
     max_packets: usize,
-) -> Result<(), String>
+) -> Result<TunPacketLoopSummary, String>
 where
     C: TunPacketIoController + ?Sized,
 {
     let mut dns = runtime.dns_options.engine();
-    let mut relay_dns = runtime.dns_options.engine();
+    let mut udp_relay_dns = runtime.dns_options.engine();
+    let mut tcp_relay_dns = runtime.dns_options.engine();
     let timeout = runtime
         .relay_options
         .first_byte_timeout
         .unwrap_or(DEFAULT_FIRST_BYTE_TIMEOUT);
-    let mut udp_relay = RegistryTunUdpRelay::new(&runtime.outbounds, &mut relay_dns, timeout);
-    run_managed_tun_packet_loop_inner_with_udp_relay(
+    let mut udp_relay = RegistryTunUdpRelay::new(&runtime.outbounds, &mut udp_relay_dns, timeout);
+    let mut tcp_relay =
+        RegistryTunTcpSessionRelay::new(&runtime.outbounds, &mut tcp_relay_dns, timeout);
+    let mut sessions = TunTcpSessionTable::new();
+    run_managed_tun_packet_loop_inner_with_relays(
         controller,
         config,
         &runtime.routes,
@@ -759,8 +784,47 @@ where
         dns_ttl_seconds,
         max_packets,
         &mut udp_relay,
+        &mut sessions,
+        &mut tcp_relay,
     )
-    .map(|_| ())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_managed_tun_packet_loop_inner_with_relays<C, R, U, T>(
+    controller: &C,
+    config: &TunDeviceConfig,
+    routes: &RouteEngine,
+    dns: &mut DnsEngine<R>,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+    udp_relay: &mut U,
+    sessions: &mut TunTcpSessionTable,
+    tcp_relay: &mut T,
+) -> Result<TunPacketLoopSummary, String>
+where
+    C: TunPacketIoController + ?Sized,
+    R: DnsResolver,
+    U: TunUdpRelay,
+    T: keli_net_core::TunTcpSessionRelay,
+{
+    let io = controller
+        .open_packet_io(config)
+        .map_err(|error| format!("open TUN packet I/O: {error}"))?;
+    let mut device = PlatformTunPacketDevice::new(io);
+    run_tun_packet_loop_with_relays_summary(
+        &mut device,
+        routes,
+        config.dns_hijack,
+        dns,
+        dns_ttl_seconds,
+        max_packets,
+        udp_relay,
+        sessions,
+        tcp_relay,
+        DEFAULT_TUN_TCP_SERVER_INITIAL_SEQUENCE_NUMBER,
+        DEFAULT_TUN_TCP_WINDOW_SIZE,
+    )
+    .map_err(|error| format!("run TUN packet loop: {error}"))
 }
 
 fn run_managed_tun_packet_loop_inner_with_udp_relay<C, R, U>(

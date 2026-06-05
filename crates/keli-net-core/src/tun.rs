@@ -1,6 +1,7 @@
 use std::collections::HashMap;
+use std::io::{self, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{error::Error, fmt};
 
 use crate::dns::{
@@ -8,8 +9,8 @@ use crate::dns::{
     DnsQuestionType, DnsResolver, DnsWireError, DnsWireQuestion,
 };
 use crate::{
-    DirectUdpConnector, OutboundRegistry, OutboundTarget, RouteAction, RouteDestination,
-    RouteEngine, RouteTarget, UdpRelayResponse,
+    DirectTcpConnector, DirectUdpConnector, OutboundConnection, OutboundRegistry, OutboundTarget,
+    OwnedRelayStream, RouteAction, RouteDestination, RouteEngine, RouteTarget, UdpRelayResponse,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -309,6 +310,14 @@ pub trait TunTcpSessionRelay {
         Ok(())
     }
 
+    fn establish_session_with_plan(
+        &mut self,
+        session: &TunTcpSessionRecord,
+        _plan: &TunPacketRelayPlan,
+    ) -> Result<(), String> {
+        self.establish_session(session)
+    }
+
     fn write_client_payload(&mut self, _frame: &TunTcpClientPayloadFrame) -> Result<(), String> {
         Ok(())
     }
@@ -325,6 +334,9 @@ pub trait TunTcpSessionRelay {
     }
 }
 
+const DEFAULT_TUN_TCP_RELAY_READ_BUFFER_SIZE: usize = 16 * 1024;
+const TUN_TCP_RELAY_READ_POLL_INTERVAL: Duration = Duration::from_millis(1);
+
 pub trait TunUdpRelay {
     fn relay_udp_datagram(
         &mut self,
@@ -340,6 +352,146 @@ pub trait TunUdpRelay {
     ) -> Result<UdpRelayResponse, String> {
         let _ = (target, payload);
         Err(format!("outbound UDP relay is unsupported for tag: {tag}"))
+    }
+}
+
+pub struct RegistryTunTcpSessionRelay<'a, R: DnsResolver> {
+    outbounds: &'a OutboundRegistry,
+    dns: &'a mut DnsEngine<R>,
+    timeout: Duration,
+    sessions: HashMap<TunTcpSessionKey, OutboundConnection>,
+    read_buffer_size: usize,
+}
+
+impl<'a, R: DnsResolver> RegistryTunTcpSessionRelay<'a, R> {
+    pub fn new(
+        outbounds: &'a OutboundRegistry,
+        dns: &'a mut DnsEngine<R>,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            outbounds,
+            dns,
+            timeout,
+            sessions: HashMap::new(),
+            read_buffer_size: DEFAULT_TUN_TCP_RELAY_READ_BUFFER_SIZE,
+        }
+    }
+
+    pub fn with_read_buffer_size(mut self, read_buffer_size: usize) -> Self {
+        self.read_buffer_size = read_buffer_size.max(1);
+        self
+    }
+
+    pub fn active_session_count(&self) -> usize {
+        self.sessions.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sessions.is_empty()
+    }
+
+    fn connect_for_plan(
+        &mut self,
+        plan: &TunPacketRelayPlan,
+    ) -> Result<OutboundConnection, String> {
+        let mut connection = match &plan.relay_action {
+            TunPacketRelayAction::DirectTcp { target } => {
+                DirectTcpConnector::connect_with_dns(target, self.timeout, &mut *self.dns)
+                    .map(OutboundConnection::Tcp)
+            }
+            TunPacketRelayAction::OutboundTcp { tag, target } => {
+                self.outbounds
+                    .connect_with_dns(tag, target, self.timeout, &mut *self.dns)
+            }
+            action => {
+                return Err(format!("unsupported TUN TCP relay action: {action:?}"));
+            }
+        }
+        .map_err(|error| error.to_string())?;
+        connection
+            .set_nonblocking_mode(true)
+            .map_err(|error| error.to_string())?;
+        Ok(connection)
+    }
+
+    fn close_key(&mut self, key: &TunTcpSessionKey) {
+        if let Some(connection) = self.sessions.remove(key) {
+            let _ = connection.shutdown_both();
+        }
+    }
+}
+
+impl<R: DnsResolver> TunTcpSessionRelay for RegistryTunTcpSessionRelay<'_, R> {
+    fn establish_session(&mut self, _session: &TunTcpSessionRecord) -> Result<(), String> {
+        Err("registry TUN TCP relay requires a relay plan to establish sessions".to_string())
+    }
+
+    fn establish_session_with_plan(
+        &mut self,
+        session: &TunTcpSessionRecord,
+        plan: &TunPacketRelayPlan,
+    ) -> Result<(), String> {
+        self.close_key(&session.key);
+        let connection = self.connect_for_plan(plan)?;
+        self.sessions.insert(session.key.clone(), connection);
+        Ok(())
+    }
+
+    fn write_client_payload(&mut self, frame: &TunTcpClientPayloadFrame) -> Result<(), String> {
+        let connection = self
+            .sessions
+            .get_mut(&frame.session.key)
+            .ok_or_else(|| format!("TUN TCP session is not connected: {:?}", frame.session.key))?;
+        connection
+            .write_all(&frame.payload)
+            .and_then(|_| connection.flush())
+            .map_err(|error| error.to_string())
+    }
+
+    fn read_server_payload(
+        &mut self,
+        session: &TunTcpSessionRecord,
+    ) -> Result<Option<Vec<u8>>, String> {
+        let mut buffer = vec![0; self.read_buffer_size];
+        let deadline = Instant::now() + self.timeout;
+        loop {
+            let read_result = match self.sessions.get_mut(&session.key) {
+                Some(connection) => connection.read(&mut buffer),
+                None => return Ok(None),
+            };
+            match read_result {
+                Ok(0) => {
+                    self.close_key(&session.key);
+                    return Ok(None);
+                }
+                Ok(size) => {
+                    buffer.truncate(size);
+                    return Ok(Some(buffer));
+                }
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error)
+                    if error.kind() == io::ErrorKind::WouldBlock
+                        || error.kind() == io::ErrorKind::TimedOut =>
+                {
+                    let now = Instant::now();
+                    if now >= deadline {
+                        return Ok(None);
+                    }
+                    std::thread::sleep(
+                        deadline
+                            .saturating_duration_since(now)
+                            .min(TUN_TCP_RELAY_READ_POLL_INTERVAL),
+                    );
+                }
+                Err(error) => return Err(error.to_string()),
+            }
+        }
+    }
+
+    fn close_session(&mut self, session: &TunTcpSessionRecord) -> Result<(), String> {
+        self.close_key(&session.key);
+        Ok(())
     }
 }
 
@@ -1070,6 +1222,24 @@ pub fn process_tun_tcp_session_segment<R: TunTcpSessionRelay>(
     server_initial_sequence_number: u32,
     window_size: u16,
 ) -> Result<TunTcpSessionStep, TunTcpSessionError> {
+    process_tun_tcp_session_segment_with_relay_plan(
+        sessions,
+        segment,
+        relay,
+        None,
+        server_initial_sequence_number,
+        window_size,
+    )
+}
+
+fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
+    sessions: &mut TunTcpSessionTable,
+    segment: &TunTcpSegment<'_>,
+    relay: &mut R,
+    relay_plan: Option<&TunPacketRelayPlan>,
+    server_initial_sequence_number: u32,
+    window_size: u16,
+) -> Result<TunTcpSessionStep, TunTcpSessionError> {
     if segment.flags.rst() || segment.flags.fin() {
         if let Some(session) = sessions.remove_on_close(segment)? {
             relay
@@ -1089,9 +1259,11 @@ pub fn process_tun_tcp_session_segment<R: TunTcpSessionRelay>(
     let established = if segment.flags.ack() && !segment.flags.syn() {
         let established = sessions.apply_ack(segment)?;
         if let Some(session) = &established {
-            relay
-                .establish_session(session)
-                .map_err(TunTcpSessionError::Relay)?;
+            match relay_plan {
+                Some(plan) => relay.establish_session_with_plan(session, plan),
+                None => relay.establish_session(session),
+            }
+            .map_err(TunTcpSessionError::Relay)?;
         }
         established
     } else {
@@ -1367,10 +1539,11 @@ where
                 Ok(segment) => segment,
                 Err(error) => return Ok(TunPacketLoopEvent::PacketError(error)),
             };
-            let step = match process_tun_tcp_session_segment(
+            let step = match process_tun_tcp_session_segment_with_relay_plan(
                 sessions,
                 &segment,
                 tcp_relay,
+                Some(&plan),
                 server_initial_sequence_number,
                 window_size,
             ) {
@@ -1392,6 +1565,103 @@ where
                 step,
                 packets_written,
             })
+        }
+    }
+}
+
+pub fn process_tun_device_packet_with_relays<D, R, U, T>(
+    device: &mut D,
+    routes: &RouteEngine,
+    dns_hijack_enabled: bool,
+    dns: &mut DnsEngine<R>,
+    dns_ttl_seconds: u32,
+    udp_relay: &mut U,
+    sessions: &mut TunTcpSessionTable,
+    tcp_relay: &mut T,
+    server_initial_sequence_number: u32,
+    window_size: u16,
+) -> Result<TunPacketLoopEvent, TunPacketLoopError>
+where
+    D: TunPacketDevice,
+    R: DnsResolver,
+    U: TunUdpRelay,
+    T: TunTcpSessionRelay,
+{
+    let Some(packet) = device.read_packet().map_err(TunPacketLoopError::Read)? else {
+        return Ok(TunPacketLoopEvent::NoPacket);
+    };
+
+    let action = match process_tun_packet(&packet, routes, dns_hijack_enabled, dns, dns_ttl_seconds)
+    {
+        Ok(action) => action,
+        Err(error) => return Ok(TunPacketLoopEvent::PacketError(error)),
+    };
+
+    match action {
+        TunPacketProcessAction::WritePacket { response } => {
+            device
+                .write_packet(&response.packet)
+                .map_err(TunPacketLoopError::Write)?;
+            Ok(TunPacketLoopEvent::WrotePacket { response })
+        }
+        TunPacketProcessAction::WriteTcpReset { response } => {
+            device
+                .write_packet(&response.packet)
+                .map_err(TunPacketLoopError::Write)?;
+            Ok(TunPacketLoopEvent::WroteTcpResetPacket { response })
+        }
+        TunPacketProcessAction::Relay(plan) => {
+            if matches!(
+                plan.relay_action,
+                TunPacketRelayAction::DirectUdp { .. } | TunPacketRelayAction::OutboundUdp { .. }
+            ) {
+                let response = match relay_tun_udp_packet(&packet, plan, udp_relay) {
+                    Ok(response) => response,
+                    Err(error) => return Ok(TunPacketLoopEvent::UdpRelayError(error)),
+                };
+                device
+                    .write_packet(&response.packet)
+                    .map_err(TunPacketLoopError::Write)?;
+                return Ok(TunPacketLoopEvent::WroteUdpRelayPacket { response });
+            }
+
+            if matches!(
+                plan.relay_action,
+                TunPacketRelayAction::DirectTcp { .. } | TunPacketRelayAction::OutboundTcp { .. }
+            ) {
+                let segment = match parse_tun_tcp_segment(&packet) {
+                    Ok(segment) => segment,
+                    Err(error) => return Ok(TunPacketLoopEvent::PacketError(error)),
+                };
+                let step = match process_tun_tcp_session_segment_with_relay_plan(
+                    sessions,
+                    &segment,
+                    tcp_relay,
+                    Some(&plan),
+                    server_initial_sequence_number,
+                    window_size,
+                ) {
+                    Ok(step) => step,
+                    Err(error) => return Ok(TunPacketLoopEvent::TcpSessionError(error)),
+                };
+                let packets_written = {
+                    let packets = step.response_packets();
+                    let packets_written = packets.len();
+                    for packet in packets {
+                        device
+                            .write_packet(packet)
+                            .map_err(TunPacketLoopError::Write)?;
+                    }
+                    packets_written
+                };
+                return Ok(TunPacketLoopEvent::TcpSession {
+                    plan,
+                    step,
+                    packets_written,
+                });
+            }
+
+            Ok(loop_event_for_relay_plan(plan))
         }
     }
 }
@@ -1463,6 +1733,48 @@ where
             dns_hijack_enabled,
             dns,
             dns_ttl_seconds,
+            sessions,
+            tcp_relay,
+            server_initial_sequence_number,
+            window_size,
+        )?;
+        let should_stop = event == TunPacketLoopEvent::NoPacket;
+        summary.record_event(&event);
+        if should_stop {
+            break;
+        }
+    }
+    Ok(summary)
+}
+
+pub fn run_tun_packet_loop_with_relays_summary<D, R, U, T>(
+    device: &mut D,
+    routes: &RouteEngine,
+    dns_hijack_enabled: bool,
+    dns: &mut DnsEngine<R>,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+    udp_relay: &mut U,
+    sessions: &mut TunTcpSessionTable,
+    tcp_relay: &mut T,
+    server_initial_sequence_number: u32,
+    window_size: u16,
+) -> Result<TunPacketLoopSummary, TunPacketLoopError>
+where
+    D: TunPacketDevice,
+    R: DnsResolver,
+    U: TunUdpRelay,
+    T: TunTcpSessionRelay,
+{
+    let mut summary = TunPacketLoopSummary::default();
+    for _ in 0..max_packets {
+        let event = process_tun_device_packet_with_relays(
+            device,
+            routes,
+            dns_hijack_enabled,
+            dns,
+            dns_ttl_seconds,
+            udp_relay,
             sessions,
             tcp_relay,
             server_initial_sequence_number,
