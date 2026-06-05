@@ -39,7 +39,7 @@ fn doctor_report_lists_supported_outbounds() {
         "managed_connection_metric_capabilities=total-connection-count,success-count,failure-count,connection-limit-rejection-count,error-kind-counts,route-action-counts,inbound-counts,total-upload-bytes,total-download-bytes,total-connect-ms,timed-connect-count,average-connect-ms,total-first-byte-ms,timed-first-byte-count,average-first-byte-ms,last-connection-timestamp,last-success-timestamp,last-failure-timestamp,recent-connection-reports,history-limit"
     ));
     assert!(output.contains(
-        "managed_status_schema_capabilities=runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,last-error,system-proxy,subscription-status,node-health,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state"
+        "managed_status_schema_capabilities=schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,last-error,system-proxy,subscription-status,node-health,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state"
     ));
     assert!(output.contains(&format!(
         "resource_limits runtime_event_history={} managed_status_recent_events={} managed_connection_report_history={} managed_connection_workers={} tun_tcp_max_active_sessions={}",
@@ -417,18 +417,22 @@ fn doctor_json_report_is_machine_readable() {
     );
     assert_eq!(
         report["managed_status_schema_capabilities"][0],
+        "schema-version"
+    );
+    assert_eq!(
+        report["managed_status_schema_capabilities"][1],
         "runtime-status"
     );
     assert_eq!(
-        report["managed_status_schema_capabilities"][10],
+        report["managed_status_schema_capabilities"][11],
         "runtime-event-diagnostics"
     );
     assert_eq!(
-        report["managed_status_schema_capabilities"][13],
+        report["managed_status_schema_capabilities"][14],
         "subscription-status"
     );
     assert_eq!(
-        report["managed_status_schema_capabilities"][18],
+        report["managed_status_schema_capabilities"][19],
         "panel-state"
     );
     assert_eq!(

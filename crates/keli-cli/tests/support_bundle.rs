@@ -84,14 +84,18 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["managed_status_schema_capabilities"][0],
+        "schema-version"
+    );
+    assert_eq!(
+        report["doctor"]["managed_status_schema_capabilities"][1],
         "runtime-status"
     );
     assert_eq!(
-        report["doctor"]["managed_status_schema_capabilities"][10],
+        report["doctor"]["managed_status_schema_capabilities"][11],
         "runtime-event-diagnostics"
     );
     assert_eq!(
-        report["doctor"]["managed_status_schema_capabilities"][18],
+        report["doctor"]["managed_status_schema_capabilities"][19],
         "panel-state"
     );
     assert_eq!(

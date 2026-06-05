@@ -339,6 +339,8 @@ The first implementation target is deliberately small:
    recent events, structured diagnostics, subscription health, DNS policy,
    system proxy config, panel restriction state, and redacted node capability
    metadata for UI/service integrations.
+   The status JSON carries a top-level schema version so UI/service consumers
+   can branch cleanly as the status shape evolves.
    They also expose runtime start time and uptime for long-running session
    diagnostics.
    Runtime event history is bounded for long-running sessions while status

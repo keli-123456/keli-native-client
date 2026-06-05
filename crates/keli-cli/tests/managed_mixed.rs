@@ -13,7 +13,7 @@ use keli_cli::{
     ManagedNodeHealthState, ManagedNodeHealthStatus, ManagedNodeProbeOptions,
     ManagedNodeProbeSweepOptions, MixedDnsOptions, SmokeInboundKind,
     DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
-    MANAGED_MIXED_RECENT_EVENT_LIMIT,
+    MANAGED_MIXED_RECENT_EVENT_LIMIT, MANAGED_MIXED_STATUS_SCHEMA_VERSION,
 };
 use keli_client_core::{
     ClientErrorKind, PanelAccountState, PanelRiskControlState, PanelState, PanelUserState,
@@ -1222,6 +1222,7 @@ fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
         .expect("record node health");
 
     let value = managed_mixed_status_json_value(&status);
+    assert_eq!(value["schema_version"], MANAGED_MIXED_STATUS_SCHEMA_VERSION);
     assert_eq!(value["status"]["state"], "running");
     assert_eq!(value["status"]["generation"], started.generation);
     assert_eq!(value["selected_outbound"], "SS-READY");
