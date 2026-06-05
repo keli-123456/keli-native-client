@@ -34,6 +34,19 @@ fn parses_doctor_json_command() {
 }
 
 #[test]
+fn parses_interop_matrix_json_command() {
+    let command =
+        parse_cli_command(["interop-matrix", "--format", "json"]).expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::InteropMatrix {
+            output: ProbeOutputFormat::Json
+        }
+    );
+}
+
+#[test]
 fn parses_tun_preflight_json_command() {
     let command = parse_cli_command([
         "tun-preflight",

@@ -70,8 +70,9 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 1;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 1;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 2;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 2;
+pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 2;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -93,10 +94,16 @@ const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
     "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic";
 const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
     "local-mixed-soak,loopback-echo,managed-metrics,worker-drain,socks5,http-connect";
+const INTEROP_MATRIX_CAPABILITIES: &str =
+    "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
+const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
     Doctor {
+        output: ProbeOutputFormat,
+    },
+    InteropMatrix {
         output: ProbeOutputFormat,
     },
     TunPreflight {
@@ -3885,6 +3892,7 @@ pub fn parse_cli_command(
             output: ProbeOutputFormat::Text,
         }),
         Some("doctor") => parse_doctor(args),
+        Some("interop-matrix") => parse_interop_matrix(args),
         Some("tun-preflight") => parse_tun_preflight(args),
         Some("version") => Ok(CliCommand::Version),
         Some("subscription-fetch") => parse_subscription_fetch(args),
@@ -3904,6 +3912,10 @@ pub fn run(command: CliCommand) -> Result<(), String> {
         CliCommand::Doctor { output } => {
             print_doctor(output);
             Ok(())
+        }
+        CliCommand::InteropMatrix { output } => {
+            let mut stdout = io::stdout();
+            write_interop_matrix_report(output, &mut stdout)
         }
         CliCommand::TunPreflight { config, output } => {
             let controller = NativeTunDeviceController::new();
@@ -4113,9 +4125,13 @@ pub fn run(command: CliCommand) -> Result<(), String> {
 pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
-        "usage: keli-cli [doctor|tun-preflight|version|subscription-fetch|subscription-update|listen-mixed|probe-outbound|smoke-mixed|soak-mixed|profile-check|support-bundle]"
+        "usage: keli-cli [doctor|interop-matrix|tun-preflight|version|subscription-fetch|subscription-update|listen-mixed|probe-outbound|smoke-mixed|soak-mixed|profile-check|support-bundle]"
     )?;
     writeln!(writer, "       keli-cli doctor [--format text|json]")?;
+    writeln!(
+        writer,
+        "       keli-cli interop-matrix [--format text|json]"
+    )?;
     writeln!(
         writer,
         "       keli-cli tun-preflight [--interface keli-tun0] [--address 10.7.0.1/24] [--mtu 1500] [--dns-hijack] [--format text|json]"
@@ -4175,6 +4191,25 @@ fn parse_doctor(args: impl Iterator<Item = String>) -> Result<CliCommand, String
     }
 
     Ok(CliCommand::Doctor { output })
+}
+
+fn parse_interop_matrix(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
+    let mut output = ProbeOutputFormat::Text;
+    let mut args = args.peekable();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--format" => {
+                output = parse_probe_output_format(
+                    args.next()
+                        .ok_or_else(|| "--format requires text or json".to_string())?,
+                )?;
+            }
+            other => return Err(format!("unknown interop-matrix option: {other}")),
+        }
+    }
+
+    Ok(CliCommand::InteropMatrix { output })
 }
 
 fn parse_tun_preflight(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
@@ -4837,6 +4872,7 @@ fn parse_profile_check(args: impl Iterator<Item = String>) -> Result<CliCommand,
 struct DoctorReport {
     doctor_report_schema_version: u32,
     support_bundle_schema_version: u32,
+    interop_matrix_schema_version: u32,
     managed_mixed_status_schema_version: u32,
     version: &'static str,
     platform: String,
@@ -4868,6 +4904,7 @@ struct DoctorReport {
     managed_status_schema_capabilities: Vec<&'static str>,
     tun_packet_pipeline_capabilities: Vec<&'static str>,
     stability_diagnostic_capabilities: Vec<&'static str>,
+    interop_matrix_capabilities: Vec<&'static str>,
     runtime_event_history_limit: usize,
     managed_status_recent_event_limit: usize,
     managed_connection_report_history_limit: usize,
@@ -4927,6 +4964,7 @@ fn collect_doctor_report() -> DoctorReport {
     DoctorReport {
         doctor_report_schema_version: DOCTOR_REPORT_SCHEMA_VERSION,
         support_bundle_schema_version: SUPPORT_BUNDLE_SCHEMA_VERSION,
+        interop_matrix_schema_version: INTEROP_MATRIX_SCHEMA_VERSION,
         managed_mixed_status_schema_version: MANAGED_MIXED_STATUS_SCHEMA_VERSION,
         version: env!("CARGO_PKG_VERSION"),
         platform: format!("{:?}", capabilities.platform),
@@ -4968,6 +5006,7 @@ fn collect_doctor_report() -> DoctorReport {
         managed_status_schema_capabilities: MANAGED_STATUS_SCHEMA_CAPABILITIES.split(',').collect(),
         tun_packet_pipeline_capabilities: TUN_PACKET_PIPELINE_CAPABILITIES.split(',').collect(),
         stability_diagnostic_capabilities: STABILITY_DIAGNOSTIC_CAPABILITIES.split(',').collect(),
+        interop_matrix_capabilities: INTEROP_MATRIX_CAPABILITIES.split(',').collect(),
         runtime_event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
         managed_status_recent_event_limit: MANAGED_MIXED_RECENT_EVENT_LIMIT,
         managed_connection_report_history_limit: MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
@@ -4983,9 +5022,10 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     writeln!(writer, "version={}", report.version)?;
     writeln!(
         writer,
-        "schema_versions doctor_report={} support_bundle={} managed_mixed_status={}",
+        "schema_versions doctor_report={} support_bundle={} interop_matrix={} managed_mixed_status={}",
         report.doctor_report_schema_version,
         report.support_bundle_schema_version,
+        report.interop_matrix_schema_version,
         report.managed_mixed_status_schema_version
     )?;
     writeln!(writer, "platform={}", report.platform)?;
@@ -5101,6 +5141,11 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     )?;
     writeln!(
         writer,
+        "interop_matrix_capabilities={}",
+        report.interop_matrix_capabilities.join(",")
+    )?;
+    writeln!(
+        writer,
         "resource_limits runtime_event_history={} managed_status_recent_events={} managed_connection_report_history={} managed_connection_workers={} tun_tcp_max_active_sessions={}",
         report.runtime_event_history_limit,
         report.managed_status_recent_event_limit,
@@ -5131,6 +5176,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         "schema_versions": {
             "doctor_report": report.doctor_report_schema_version,
             "support_bundle": report.support_bundle_schema_version,
+            "interop_matrix": report.interop_matrix_schema_version,
             "managed_mixed_status": report.managed_mixed_status_schema_version,
         },
         "version": report.version,
@@ -5178,6 +5224,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         "managed_status_schema_capabilities": &report.managed_status_schema_capabilities,
         "tun_packet_pipeline_capabilities": &report.tun_packet_pipeline_capabilities,
         "stability_diagnostic_capabilities": &report.stability_diagnostic_capabilities,
+        "interop_matrix_capabilities": &report.interop_matrix_capabilities,
         "resource_limits": {
             "runtime_event_history": report.runtime_event_history_limit,
             "managed_status_recent_events": report.managed_status_recent_event_limit,
@@ -5188,6 +5235,575 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         "sample_profile_valid": report.sample_profile_valid,
         "initial_phase": &report.initial_phase,
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InteropMatrixReport {
+    pub schema_version: u32,
+    pub version: &'static str,
+    pub summary: InteropMatrixSummary,
+    pub entries: Vec<InteropMatrixEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InteropMatrixSummary {
+    pub protocol_count: usize,
+    pub tcp_relay_supported_count: usize,
+    pub udp_relay_supported_count: usize,
+    pub profile_source_supported_count: usize,
+    pub validation_supported_count: usize,
+    pub registry_supported_count: usize,
+    pub sample_profile_count: usize,
+    pub registry_profile_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InteropMatrixEntry {
+    pub protocol: &'static str,
+    pub tcp_relay_supported: bool,
+    pub udp_relay_supported: bool,
+    pub covered_transports: Vec<&'static str>,
+    pub profile_sources: Vec<&'static str>,
+    pub sample_profile_count: usize,
+    pub validation_supported: bool,
+    pub validated_profile_count: usize,
+    pub validation_error: Option<String>,
+    pub registry_supported: bool,
+    pub registry_profile_count: usize,
+    pub registry_error: Option<String>,
+}
+
+struct InteropMatrixSpec {
+    protocol: &'static str,
+    tcp_relay_supported: bool,
+    udp_relay_supported: bool,
+    covered_transports: Vec<&'static str>,
+    profile_sources: Vec<&'static str>,
+    sample_profiles: Vec<OutboundProfile>,
+}
+
+pub fn write_interop_matrix_report(
+    output: ProbeOutputFormat,
+    mut writer: impl Write,
+) -> Result<(), String> {
+    let report = collect_interop_matrix_report();
+    match output {
+        ProbeOutputFormat::Text => write_interop_matrix_text_report(&mut writer, &report),
+        ProbeOutputFormat::Json => write_interop_matrix_json_report(&mut writer, &report),
+    }
+}
+
+fn collect_interop_matrix_report() -> InteropMatrixReport {
+    let entries: Vec<_> = interop_matrix_specs()
+        .into_iter()
+        .map(interop_matrix_entry_from_spec)
+        .collect();
+    let summary = InteropMatrixSummary {
+        protocol_count: entries.len(),
+        tcp_relay_supported_count: entries
+            .iter()
+            .filter(|entry| entry.tcp_relay_supported)
+            .count(),
+        udp_relay_supported_count: entries
+            .iter()
+            .filter(|entry| entry.udp_relay_supported)
+            .count(),
+        profile_source_supported_count: entries
+            .iter()
+            .filter(|entry| {
+                entry
+                    .profile_sources
+                    .iter()
+                    .any(|source| matches!(*source, "mihomo-yaml" | "share-link"))
+            })
+            .count(),
+        validation_supported_count: entries
+            .iter()
+            .filter(|entry| entry.validation_supported)
+            .count(),
+        registry_supported_count: entries
+            .iter()
+            .filter(|entry| entry.registry_supported)
+            .count(),
+        sample_profile_count: entries.iter().map(|entry| entry.sample_profile_count).sum(),
+        registry_profile_count: entries
+            .iter()
+            .map(|entry| entry.registry_profile_count)
+            .sum(),
+    };
+
+    InteropMatrixReport {
+        schema_version: INTEROP_MATRIX_SCHEMA_VERSION,
+        version: env!("CARGO_PKG_VERSION"),
+        summary,
+        entries,
+    }
+}
+
+fn write_interop_matrix_text_report(
+    writer: &mut impl Write,
+    report: &InteropMatrixReport,
+) -> Result<(), String> {
+    writeln!(
+        writer,
+        "interop status=ok schema_version={} protocols={} tcp_relay_supported={} udp_relay_supported={} profile_source_supported={} validation_supported={} registry_supported={} sample_profiles={} registry_profiles={}",
+        report.schema_version,
+        report.summary.protocol_count,
+        report.summary.tcp_relay_supported_count,
+        report.summary.udp_relay_supported_count,
+        report.summary.profile_source_supported_count,
+        report.summary.validation_supported_count,
+        report.summary.registry_supported_count,
+        report.summary.sample_profile_count,
+        report.summary.registry_profile_count
+    )
+    .map_err(|error| error.to_string())?;
+    for entry in &report.entries {
+        writeln!(
+            writer,
+            "interop protocol={} tcp_relay_supported={} udp_relay_supported={} transports={} profile_sources={} sample_profiles={} validation_supported={} validated_profiles={} validation_error={} registry_supported={} registry_profiles={} registry_error={}",
+            entry.protocol,
+            entry.tcp_relay_supported,
+            entry.udp_relay_supported,
+            entry.covered_transports.join(","),
+            entry.profile_sources.join(","),
+            entry.sample_profile_count,
+            entry.validation_supported,
+            entry.validated_profile_count,
+            entry.validation_error.as_deref().unwrap_or("-"),
+            entry.registry_supported,
+            entry.registry_profile_count,
+            entry.registry_error.as_deref().unwrap_or("-")
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn write_interop_matrix_json_report(
+    writer: &mut impl Write,
+    report: &InteropMatrixReport,
+) -> Result<(), String> {
+    let value = interop_matrix_json_value(report);
+    serde_json::to_writer_pretty(&mut *writer, &value).map_err(|error| error.to_string())?;
+    writeln!(writer).map_err(|error| error.to_string())
+}
+
+fn interop_matrix_json_value(report: &InteropMatrixReport) -> serde_json::Value {
+    let entries: Vec<_> = report
+        .entries
+        .iter()
+        .map(|entry| {
+            serde_json::json!({
+                "protocol": entry.protocol,
+                "tcp_relay_supported": entry.tcp_relay_supported,
+                "udp_relay_supported": entry.udp_relay_supported,
+                "covered_transports": &entry.covered_transports,
+                "profile_sources": &entry.profile_sources,
+                "sample_profile_count": entry.sample_profile_count,
+                "validation_supported": entry.validation_supported,
+                "validated_profile_count": entry.validated_profile_count,
+                "validation_error": entry.validation_error.as_deref(),
+                "registry_supported": entry.registry_supported,
+                "registry_profile_count": entry.registry_profile_count,
+                "registry_error": entry.registry_error.as_deref(),
+            })
+        })
+        .collect();
+
+    serde_json::json!({
+        "status": "ok",
+        "kind": "keli_interop_matrix",
+        "schema_version": report.schema_version,
+        "version": report.version,
+        "summary": {
+            "protocol_count": report.summary.protocol_count,
+            "tcp_relay_supported_count": report.summary.tcp_relay_supported_count,
+            "udp_relay_supported_count": report.summary.udp_relay_supported_count,
+            "profile_source_supported_count": report.summary.profile_source_supported_count,
+            "validation_supported_count": report.summary.validation_supported_count,
+            "registry_supported_count": report.summary.registry_supported_count,
+            "sample_profile_count": report.summary.sample_profile_count,
+            "registry_profile_count": report.summary.registry_profile_count,
+        },
+        "entries": entries,
+    })
+}
+
+fn interop_matrix_entry_from_spec(spec: InteropMatrixSpec) -> InteropMatrixEntry {
+    let sample_profile_count = spec.sample_profiles.len();
+    let mut validated_profile_count = 0;
+    let mut validation_error = None;
+    for profile in &spec.sample_profiles {
+        match profile.validate() {
+            Ok(()) => validated_profile_count += 1,
+            Err(error) if validation_error.is_none() => {
+                validation_error = Some(format!("{}: {error}", profile.tag));
+            }
+            Err(_) => {}
+        }
+    }
+    let validation_supported = validated_profile_count == sample_profile_count;
+
+    let mut registry_profile_count = 0;
+    let mut registry_error = None;
+    for profile in &spec.sample_profiles {
+        match OutboundRegistry::from_profiles([profile.clone()]) {
+            Ok(_) => registry_profile_count += 1,
+            Err(error) if registry_error.is_none() => {
+                registry_error = Some(format!("{}: {error}", profile.tag));
+            }
+            Err(_) => {}
+        }
+    }
+    let registry_supported = registry_profile_count == sample_profile_count;
+
+    InteropMatrixEntry {
+        protocol: spec.protocol,
+        tcp_relay_supported: spec.tcp_relay_supported,
+        udp_relay_supported: spec.udp_relay_supported,
+        covered_transports: spec.covered_transports,
+        profile_sources: spec.profile_sources,
+        sample_profile_count,
+        validation_supported,
+        validated_profile_count,
+        validation_error,
+        registry_supported,
+        registry_profile_count,
+        registry_error,
+    }
+}
+
+fn interop_matrix_specs() -> Vec<InteropMatrixSpec> {
+    vec![
+        InteropMatrixSpec {
+            protocol: "direct",
+            tcp_relay_supported: true,
+            udp_relay_supported: true,
+            covered_transports: vec!["tcp", "udp"],
+            profile_sources: vec!["built-in"],
+            sample_profiles: Vec::new(),
+        },
+        InteropMatrixSpec {
+            protocol: "trojan",
+            tcp_relay_supported: true,
+            udp_relay_supported: true,
+            covered_transports: vec!["tcp", "ws", "httpupgrade", "grpc", "h2", "quic"],
+            profile_sources: interop_profile_sources(),
+            sample_profiles: vec![
+                interop_profile(
+                    "interop-trojan-tcp",
+                    ProxyProtocol::Trojan,
+                    TransportKind::Tcp,
+                    interop_tls_security(),
+                    "password",
+                ),
+                interop_profile(
+                    "interop-trojan-ws",
+                    ProxyProtocol::Trojan,
+                    interop_ws_transport(),
+                    SecurityKind::None,
+                    "password",
+                ),
+                interop_profile(
+                    "interop-trojan-httpupgrade",
+                    ProxyProtocol::Trojan,
+                    interop_httpupgrade_transport(),
+                    SecurityKind::None,
+                    "password",
+                ),
+                interop_profile(
+                    "interop-trojan-grpc",
+                    ProxyProtocol::Trojan,
+                    interop_grpc_transport(),
+                    SecurityKind::None,
+                    "password",
+                ),
+                interop_profile(
+                    "interop-trojan-h2",
+                    ProxyProtocol::Trojan,
+                    interop_h2_transport(),
+                    SecurityKind::None,
+                    "password",
+                ),
+                interop_profile(
+                    "interop-trojan-quic",
+                    ProxyProtocol::Trojan,
+                    interop_quic_transport(),
+                    SecurityKind::None,
+                    "password",
+                ),
+            ],
+        },
+        InteropMatrixSpec {
+            protocol: "vless",
+            tcp_relay_supported: true,
+            udp_relay_supported: true,
+            covered_transports: vec!["tcp", "ws", "httpupgrade", "grpc", "h2", "quic"],
+            profile_sources: interop_profile_sources(),
+            sample_profiles: vec![
+                interop_uuid_profile(
+                    "interop-vless-tcp",
+                    ProxyProtocol::Vless,
+                    TransportKind::Tcp,
+                ),
+                interop_uuid_profile(
+                    "interop-vless-ws",
+                    ProxyProtocol::Vless,
+                    interop_ws_transport(),
+                ),
+                interop_uuid_profile(
+                    "interop-vless-httpupgrade",
+                    ProxyProtocol::Vless,
+                    interop_httpupgrade_transport(),
+                ),
+                interop_uuid_profile(
+                    "interop-vless-grpc",
+                    ProxyProtocol::Vless,
+                    interop_grpc_transport(),
+                ),
+                interop_uuid_profile(
+                    "interop-vless-h2",
+                    ProxyProtocol::Vless,
+                    interop_h2_transport(),
+                ),
+                interop_uuid_profile(
+                    "interop-vless-quic",
+                    ProxyProtocol::Vless,
+                    interop_quic_transport(),
+                ),
+            ],
+        },
+        InteropMatrixSpec {
+            protocol: "vmess",
+            tcp_relay_supported: true,
+            udp_relay_supported: true,
+            covered_transports: vec!["tcp", "ws", "httpupgrade", "grpc", "h2", "quic"],
+            profile_sources: interop_profile_sources(),
+            sample_profiles: vec![
+                interop_vmess_profile("interop-vmess-tcp", TransportKind::Tcp),
+                interop_vmess_profile("interop-vmess-ws", interop_ws_transport()),
+                interop_vmess_profile("interop-vmess-httpupgrade", interop_httpupgrade_transport()),
+                interop_vmess_profile("interop-vmess-grpc", interop_grpc_transport()),
+                interop_vmess_profile("interop-vmess-h2", interop_h2_transport()),
+                interop_vmess_profile("interop-vmess-quic", interop_quic_transport()),
+            ],
+        },
+        InteropMatrixSpec {
+            protocol: "shadowsocks",
+            tcp_relay_supported: true,
+            udp_relay_supported: true,
+            covered_transports: vec!["tcp"],
+            profile_sources: interop_profile_sources(),
+            sample_profiles: vec![interop_shadowsocks_profile()],
+        },
+        InteropMatrixSpec {
+            protocol: "anytls",
+            tcp_relay_supported: true,
+            udp_relay_supported: true,
+            covered_transports: vec!["tls-tcp"],
+            profile_sources: interop_profile_sources(),
+            sample_profiles: vec![interop_profile(
+                "interop-anytls",
+                ProxyProtocol::AnyTls,
+                TransportKind::Tcp,
+                interop_tls_security(),
+                "password",
+            )],
+        },
+        InteropMatrixSpec {
+            protocol: "naive",
+            tcp_relay_supported: true,
+            udp_relay_supported: false,
+            covered_transports: vec!["h2", "h3"],
+            profile_sources: interop_profile_sources(),
+            sample_profiles: vec![
+                interop_profile(
+                    "interop-naive-h2",
+                    ProxyProtocol::Naive,
+                    TransportKind::Tcp,
+                    interop_tls_security(),
+                    "user:password",
+                ),
+                interop_profile(
+                    "interop-naive-h3",
+                    ProxyProtocol::Naive,
+                    interop_quic_transport(),
+                    interop_tls_security(),
+                    "user:password",
+                ),
+            ],
+        },
+        InteropMatrixSpec {
+            protocol: "mieru",
+            tcp_relay_supported: true,
+            udp_relay_supported: true,
+            covered_transports: vec!["tcp"],
+            profile_sources: interop_profile_sources(),
+            sample_profiles: vec![interop_profile(
+                "interop-mieru",
+                ProxyProtocol::Mieru,
+                TransportKind::Tcp,
+                SecurityKind::None,
+                "user:password",
+            )],
+        },
+        InteropMatrixSpec {
+            protocol: "hy2",
+            tcp_relay_supported: true,
+            udp_relay_supported: true,
+            covered_transports: vec!["quic"],
+            profile_sources: interop_profile_sources(),
+            sample_profiles: vec![interop_profile(
+                "interop-hy2",
+                ProxyProtocol::Hy2,
+                interop_quic_transport(),
+                interop_tls_security(),
+                "password",
+            )],
+        },
+        InteropMatrixSpec {
+            protocol: "tuic",
+            tcp_relay_supported: true,
+            udp_relay_supported: true,
+            covered_transports: vec!["quic"],
+            profile_sources: interop_profile_sources(),
+            sample_profiles: vec![interop_profile(
+                "interop-tuic",
+                ProxyProtocol::Tuic,
+                interop_quic_transport(),
+                interop_tls_security(),
+                &format!("{INTEROP_SAMPLE_UUID}:password"),
+            )],
+        },
+        InteropMatrixSpec {
+            protocol: "socks5",
+            tcp_relay_supported: true,
+            udp_relay_supported: true,
+            covered_transports: vec!["tcp", "udp-associate"],
+            profile_sources: interop_profile_sources(),
+            sample_profiles: vec![interop_profile(
+                "interop-socks5",
+                ProxyProtocol::Socks,
+                TransportKind::Tcp,
+                SecurityKind::None,
+                "",
+            )],
+        },
+        InteropMatrixSpec {
+            protocol: "http",
+            tcp_relay_supported: true,
+            udp_relay_supported: false,
+            covered_transports: vec!["connect"],
+            profile_sources: interop_profile_sources(),
+            sample_profiles: vec![interop_profile(
+                "interop-http",
+                ProxyProtocol::Http,
+                TransportKind::Tcp,
+                SecurityKind::None,
+                "",
+            )],
+        },
+    ]
+}
+
+fn interop_profile_sources() -> Vec<&'static str> {
+    vec!["mihomo-yaml", "share-link"]
+}
+
+fn interop_uuid_profile(
+    tag: &'static str,
+    protocol: ProxyProtocol,
+    transport: TransportKind,
+) -> OutboundProfile {
+    interop_profile(
+        tag,
+        protocol,
+        transport,
+        SecurityKind::None,
+        INTEROP_SAMPLE_UUID,
+    )
+}
+
+fn interop_vmess_profile(tag: &'static str, transport: TransportKind) -> OutboundProfile {
+    OutboundProfile {
+        cipher: Some("auto".to_string()),
+        ..interop_uuid_profile(tag, ProxyProtocol::Vmess, transport)
+    }
+}
+
+fn interop_shadowsocks_profile() -> OutboundProfile {
+    OutboundProfile {
+        cipher: Some("aes-256-gcm".to_string()),
+        ..interop_profile(
+            "interop-shadowsocks",
+            ProxyProtocol::Shadowsocks,
+            TransportKind::Tcp,
+            SecurityKind::None,
+            "password",
+        )
+    }
+}
+
+fn interop_profile(
+    tag: &'static str,
+    protocol: ProxyProtocol,
+    transport: TransportKind,
+    security: SecurityKind,
+    credential: impl Into<String>,
+) -> OutboundProfile {
+    OutboundProfile {
+        tag: tag.to_string(),
+        protocol,
+        endpoint: Endpoint::new("interop.example.com", 443),
+        transport,
+        security,
+        credential: credential.into(),
+        cipher: None,
+        flow: None,
+    }
+}
+
+fn interop_tls_security() -> SecurityKind {
+    SecurityKind::Tls {
+        sni: Some("interop.example.com".to_string()),
+        skip_verify: true,
+    }
+}
+
+fn interop_ws_transport() -> TransportKind {
+    TransportKind::WebSocket {
+        path: "/interop".to_string(),
+        host: Some("interop.example.com".to_string()),
+    }
+}
+
+fn interop_httpupgrade_transport() -> TransportKind {
+    TransportKind::HttpUpgrade {
+        path: "/interop".to_string(),
+        host: Some("interop.example.com".to_string()),
+    }
+}
+
+fn interop_h2_transport() -> TransportKind {
+    TransportKind::Http2 {
+        path: "/interop".to_string(),
+        host: Some("interop.example.com".to_string()),
+    }
+}
+
+fn interop_grpc_transport() -> TransportKind {
+    TransportKind::Grpc {
+        service_name: Some("interop".to_string()),
+    }
+}
+
+fn interop_quic_transport() -> TransportKind {
+    TransportKind::Quic {
+        security: None,
+        key: None,
+        header_type: None,
+    }
 }
 
 pub fn write_tun_preflight_report_with_controller<C: TunDeviceController + ?Sized>(
@@ -6034,6 +6650,7 @@ pub fn write_support_bundle_report(
         "schema_version": SUPPORT_BUNDLE_SCHEMA_VERSION,
         "generated_at_unix_ms": generated_at_unix_ms,
         "doctor": doctor_report_json_value(&collect_doctor_report()),
+        "interop_matrix": interop_matrix_json_value(&collect_interop_matrix_report()),
         "tun_preflight": tun_preflight_json_value(&collect_default_tun_preflight()),
         "profile": support_bundle_profile_value(profile_config_text),
         "redaction": {
@@ -7376,6 +7993,9 @@ fn spawn_mixed_soak_echo_server(
         while accepted < expected_connections && !stop.load(Ordering::SeqCst) {
             match listener.accept() {
                 Ok((mut stream, _)) => {
+                    stream
+                        .set_nonblocking(false)
+                        .map_err(|error| format!("set soak echo blocking: {error}"))?;
                     stream
                         .set_read_timeout(Some(timeout))
                         .map_err(|error| format!("set soak echo read timeout: {error}"))?;

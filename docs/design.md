@@ -374,6 +374,11 @@ The first implementation target is deliberately small:
    completed/failed connections, aggregate managed connection metrics,
    worker/client peaks, and stop-drain state as text or JSON. Doctor and
    support bundles advertise this stability diagnostic surface.
+   `interop-matrix` now exposes the current protocol readiness matrix as text
+   or JSON, including covered transports, TCP/UDP relay support, profile source
+   coverage, validation sample counts, and outbound registry registration
+   sample counts. Support bundles include the same matrix so UI/support tooling
+   can verify native-core coverage from one JSON artifact.
 
 The managed mixed runtime now supports a background handle with runtime status,
 generation tracking, event history, explicit stop, system proxy restoration, and

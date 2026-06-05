@@ -1,7 +1,8 @@
 use keli_cli::{
     DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, DOCTOR_REPORT_SCHEMA_VERSION,
-    MANAGED_CONNECTION_REPORT_HISTORY_LIMIT, MANAGED_MIXED_RECENT_EVENT_LIMIT,
-    MANAGED_MIXED_STATUS_SCHEMA_VERSION, SUPPORT_BUNDLE_SCHEMA_VERSION,
+    INTEROP_MATRIX_SCHEMA_VERSION, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
+    MANAGED_MIXED_RECENT_EVENT_LIMIT, MANAGED_MIXED_STATUS_SCHEMA_VERSION,
+    SUPPORT_BUNDLE_SCHEMA_VERSION,
 };
 use keli_client_core::DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT;
 use keli_net_core::DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS;
@@ -53,8 +54,32 @@ proxies:
         SUPPORT_BUNDLE_SCHEMA_VERSION
     );
     assert_eq!(
+        report["doctor"]["schema_versions"]["interop_matrix"],
+        INTEROP_MATRIX_SCHEMA_VERSION
+    );
+    assert_eq!(
         report["doctor"]["schema_versions"]["managed_mixed_status"],
         MANAGED_MIXED_STATUS_SCHEMA_VERSION
+    );
+    assert_eq!(report["interop_matrix"]["status"], "ok");
+    assert_eq!(report["interop_matrix"]["kind"], "keli_interop_matrix");
+    assert_eq!(
+        report["interop_matrix"]["schema_version"],
+        INTEROP_MATRIX_SCHEMA_VERSION
+    );
+    assert_eq!(report["interop_matrix"]["summary"]["protocol_count"], 12);
+    assert_eq!(
+        report["interop_matrix"]["summary"]["registry_supported_count"],
+        12
+    );
+    assert_eq!(
+        report["interop_matrix"]["summary"]["registry_profile_count"],
+        27
+    );
+    assert_eq!(report["interop_matrix"]["entries"][1]["protocol"], "trojan");
+    assert_eq!(
+        report["interop_matrix"]["entries"][1]["registry_supported"],
+        true
     );
     assert_eq!(report["doctor"]["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(report["doctor"]["platform"], "Windows");
@@ -182,6 +207,14 @@ proxies:
     assert_eq!(
         report["doctor"]["stability_diagnostic_capabilities"][5],
         "http-connect"
+    );
+    assert_eq!(
+        report["doctor"]["interop_matrix_capabilities"][0],
+        "protocol-summary"
+    );
+    assert_eq!(
+        report["doctor"]["interop_matrix_capabilities"][7],
+        "support-bundle-export"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],

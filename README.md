@@ -318,6 +318,11 @@ diagnostic that runs repeated loopback echo traffic through one managed mixed
 runtime, then reports connection metrics, worker/client peaks, and stop-drain
 state in text or JSON. Doctor and support bundles advertise this stability
 diagnostic surface so CI, UI, and support tooling can discover it.
+`interop-matrix` exposes a machine-readable production-readiness matrix for the
+native core: each supported protocol reports covered transports, TCP/UDP relay
+support, subscription profile sources, profile validation coverage, and
+registry registration coverage. Support bundles include the same matrix, so UI
+and support flows can inspect protocol readiness without scraping this document.
 
 ## Protocol Matrix
 
@@ -340,7 +345,9 @@ The client protocol set is aligned with `keli-core-rs/src/protocol.rs`.
 Both Mihomo YAML and share-link subscriptions have parser and registry matrix
 tests for these protocols. `keli-cli doctor` prints the authoritative runtime
 capability list in text or JSON form, and `keli-cli support-bundle` exports a
-redacted JSON support report.
+redacted JSON support report. `keli-cli interop-matrix --format json` exports
+the current protocol matrix with validation and registry sample counts for CI,
+UI, and support tooling.
 
 ## Design Principles
 
@@ -358,6 +365,7 @@ cargo fmt --check
 $env:CARGO_INCREMENTAL='0'; cargo test --workspace -j 1
 cargo run -p keli-cli -- doctor
 cargo run -p keli-cli -- doctor --format json
+cargo run -p keli-cli -- interop-matrix --format json
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
 cargo run -p keli-cli -- subscription-update --current-config active.yaml --new-config subscription.yaml --current-outbound proxy --format json
 cargo run -p keli-cli -- soak-mixed --connections 25 --format json
