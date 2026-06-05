@@ -1935,9 +1935,6 @@ impl TunTcpSessionTable {
                 packet,
             }));
         }
-        if !segment.payload.is_empty() {
-            return Ok(None);
-        }
         if segment.sequence_number != post_close.client_next_sequence_number {
             return Ok(None);
         }
