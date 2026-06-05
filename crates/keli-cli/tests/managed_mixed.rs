@@ -399,6 +399,7 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
                 outbound_tag: Some("SS-READY".to_string()),
                 system_proxy: true,
                 system_proxy_bypass: vec!["localhost".to_string()],
+                tun_tcp_max_active_sessions: 17,
                 dns_options: MixedDnsOptions {
                     local_resolution_policy: DnsLocalResolutionPolicy::PreventPublicLeak,
                     address_family_policy: DnsAddressFamilyPolicy::Ipv6Only,
@@ -423,6 +424,7 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
         started.dns_options.address_family_policy,
         DnsAddressFamilyPolicy::Ipv6Only
     );
+    assert_eq!(started.tun_tcp_max_active_sessions, 17);
     assert_eq!(
         started.system_proxy.as_ref().map(|config| &config.bypass),
         Some(&vec!["localhost".to_string()])
@@ -455,6 +457,7 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
         reloaded.dns_options.address_family_policy,
         DnsAddressFamilyPolicy::Ipv6Only
     );
+    assert_eq!(reloaded.tun_tcp_max_active_sessions, 17);
     assert!(reloaded.event_count >= started.event_count);
     assert!(reloaded.recent_events.len() <= 5);
     assert!(matches!(

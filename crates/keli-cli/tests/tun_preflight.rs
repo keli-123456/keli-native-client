@@ -472,6 +472,7 @@ fn managed_tun_packet_loop_with_runtime_relays_tagged_udp_via_registry() {
         },
         outbounds,
         dns_options: Default::default(),
+        tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
     };
 
     let report =
@@ -534,6 +535,7 @@ fn managed_tun_packet_loop_with_runtime_relays_tagged_tcp_via_registry() {
         },
         outbounds,
         dns_options: Default::default(),
+        tun_tcp_max_active_sessions: 17,
     };
 
     let report =
@@ -546,10 +548,7 @@ fn managed_tun_packet_loop_with_runtime_relays_tagged_tcp_via_registry() {
     assert_eq!(report.summary.processed_packets(), 4);
     assert_eq!(report.summary.tcp_session_events, 4);
     assert_eq!(report.summary.tcp_session_packets_written, 3);
-    assert_eq!(
-        report.summary.tcp_max_active_sessions,
-        DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS
-    );
+    assert_eq!(report.summary.tcp_max_active_sessions, 17);
     assert_eq!(report.summary.tcp_session_limit_rejections, 0);
     assert_eq!(report.summary.tcp_sessions_pruned, 0);
     assert_eq!(report.summary.tcp_server_closed_sessions_pruned, 0);
@@ -610,6 +609,7 @@ fn optional_background_tun_runtime_returns_summary_report() {
         },
         outbounds,
         dns_options: Default::default(),
+        tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
     };
 
     let (output, report) = run_with_optional_tun_runtime_background_report(
@@ -731,6 +731,7 @@ fn listen_mixed_with_optional_tun_controller_report_returns_tun_summary() {
         },
         outbounds,
         dns_options: Default::default(),
+        tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
     };
     let listen = free_local_addr();
     let thread_listen = listen.clone();
@@ -811,6 +812,7 @@ fn listen_mixed_with_optional_tun_controller_runs_tun_loop_while_listener_serves
         },
         outbounds,
         dns_options: Default::default(),
+        tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
     };
     let listen = free_local_addr();
     let thread_listen = listen.clone();

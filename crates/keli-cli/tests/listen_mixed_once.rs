@@ -19,6 +19,7 @@ use http::{HeaderMap, Request, Response, StatusCode};
 use keli_cli::{run, CliCommand};
 use keli_net_core::{
     encode_socks5_udp_datagram, parse_socks5_udp_datagram, websocket_accept_for_key, Socks5Address,
+    DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
 };
 use keli_protocol::Endpoint;
 use rcgen::generate_simple_self_signed;
@@ -70,6 +71,7 @@ fn listen_mixed_once_uses_profile_config_for_socks5_connect() {
             tun_device: None,
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
@@ -126,6 +128,7 @@ fn listen_mixed_once_uses_profile_config_for_http_connect() {
             tun_device: None,
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
@@ -178,6 +181,7 @@ fn listen_mixed_once_blocks_cli_port_rule_without_connecting_target() {
             tun_device: None,
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
@@ -221,6 +225,7 @@ fn listen_mixed_once_blocks_cli_cidr_rule_for_socks5_connect() {
             tun_device: None,
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
@@ -267,6 +272,7 @@ fn listen_mixed_once_uses_profile_config_for_anytls_http_connect() {
             tun_device: None,
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
@@ -328,6 +334,7 @@ fn listen_mixed_once_uses_profile_config_for_naive_http_connect() {
             tun_device: None,
             first_byte_timeout: Duration::from_secs(3),
             idle_timeout: Duration::from_secs(3),
+            tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
@@ -804,6 +811,7 @@ fn listen_mixed_once_uses_profile_config_for_socks5_udp_associate() {
             tun_device: None,
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
@@ -875,6 +883,7 @@ fn listen_mixed_once_uses_profile_config_for_mieru_socks5_udp_associate() {
             tun_device: None,
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
@@ -946,6 +955,7 @@ fn listen_mixed_once_uses_profile_config_for_vmess_socks5_udp_associate() {
             tun_device: None,
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
@@ -1099,6 +1109,7 @@ fn run_profile_http_connect_round_trip(profile_path: &str, outbound_tag: &str) {
             tun_device: None,
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             dns_options: Default::default(),
         })
         .expect("run listen-mixed once");
@@ -1157,6 +1168,7 @@ fn run_profile_socks5_udp_associate_round_trip_to(
             tun_device: None,
             first_byte_timeout: Duration::from_secs(2),
             idle_timeout: Duration::from_secs(2),
+            tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             dns_options: Default::default(),
         })
         .expect("run listen-mixed once");

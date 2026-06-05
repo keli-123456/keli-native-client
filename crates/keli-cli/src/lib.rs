@@ -32,7 +32,7 @@ use keli_net_core::{
     OutboundTarget, RegistryTunTcpSessionRelay, RegistryTunUdpRelay, RelayOptions, RouteAction,
     RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, Socks5Address, Socks5Command,
     Socks5ReplyCode, SystemDnsResolver, TunPacketDevice, TunPacketLoopEvent, TunPacketLoopSummary,
-    TunTcpSessionTable, TunUdpRelay,
+    TunTcpSessionTable, TunUdpRelay, DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
 };
 use keli_platform::{
     NativeSystemProxyController, NativeTunDeviceController, PlatformCapabilities,
@@ -69,7 +69,7 @@ const SUPPORTED_PROTOCOL_CAPABILITIES: &str =
 const ROUTE_RULE_CAPABILITIES: &str =
     "domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
-    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit";
+    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
@@ -92,6 +92,7 @@ pub enum CliCommand {
         tun_device: Option<TunDeviceConfig>,
         first_byte_timeout: Duration,
         idle_timeout: Duration,
+        tun_tcp_max_active_sessions: usize,
         dns_options: MixedDnsOptions,
     },
     ProbeOutbound {
@@ -209,6 +210,7 @@ pub struct MixedProxyRuntime {
     pub relay_options: RelayOptions,
     pub outbounds: OutboundRegistry,
     pub dns_options: MixedDnsOptions,
+    pub tun_tcp_max_active_sessions: usize,
 }
 
 impl MixedProxyRuntime {
@@ -218,6 +220,7 @@ impl MixedProxyRuntime {
             relay_options: default_relay_options(),
             outbounds: OutboundRegistry::new(),
             dns_options: MixedDnsOptions::default(),
+            tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
         }
     }
 
@@ -227,6 +230,7 @@ impl MixedProxyRuntime {
             relay_options: default_relay_options(),
             outbounds,
             dns_options: MixedDnsOptions::default(),
+            tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
         }
     }
 }
@@ -246,6 +250,7 @@ pub struct ManagedMixedOptions {
     pub system_proxy: bool,
     pub system_proxy_bypass: Vec<String>,
     pub dns_options: MixedDnsOptions,
+    pub tun_tcp_max_active_sessions: usize,
 }
 
 impl Default for ManagedMixedOptions {
@@ -258,6 +263,7 @@ impl Default for ManagedMixedOptions {
             system_proxy: false,
             system_proxy_bypass: Vec::new(),
             dns_options: MixedDnsOptions::default(),
+            tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
         }
     }
 }
@@ -778,7 +784,8 @@ where
     let mut udp_relay = RegistryTunUdpRelay::new(&runtime.outbounds, &mut udp_relay_dns, timeout);
     let mut tcp_relay =
         RegistryTunTcpSessionRelay::new(&runtime.outbounds, &mut tcp_relay_dns, timeout);
-    let mut sessions = TunTcpSessionTable::new();
+    let mut sessions =
+        TunTcpSessionTable::with_max_active_sessions(runtime.tun_tcp_max_active_sessions);
     let mut summary = TunPacketLoopSummary::default();
     for _ in 0..max_packets {
         if stop.load(Ordering::SeqCst) {
@@ -839,7 +846,8 @@ where
     let mut udp_relay = RegistryTunUdpRelay::new(&runtime.outbounds, &mut udp_relay_dns, timeout);
     let mut tcp_relay =
         RegistryTunTcpSessionRelay::new(&runtime.outbounds, &mut tcp_relay_dns, timeout);
-    let mut sessions = TunTcpSessionTable::new();
+    let mut sessions =
+        TunTcpSessionTable::with_max_active_sessions(runtime.tun_tcp_max_active_sessions);
     run_managed_tun_packet_loop_inner_with_relays(
         controller,
         config,
@@ -1050,6 +1058,7 @@ pub struct ManagedMixedSession<'a, C: SystemProxyController + ?Sized> {
     block_domains: Vec<String>,
     relay_options: RelayOptions,
     dns_options: MixedDnsOptions,
+    tun_tcp_max_active_sessions: usize,
     system_proxy_guard: Option<ManagedSystemProxyGuard<'a, C>>,
 }
 
@@ -1062,6 +1071,7 @@ pub struct ManagedMixedHandle<'a, C: SystemProxyController + ?Sized> {
     block_domains: Vec<String>,
     relay_options: RelayOptions,
     dns_options: MixedDnsOptions,
+    tun_tcp_max_active_sessions: usize,
     node_health: HashMap<String, ManagedNodeHealthStatus>,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<io::Result<()>>>,
@@ -1080,6 +1090,7 @@ pub struct ManagedMixedStatusSnapshot {
     pub system_proxy: Option<SystemProxyConfig>,
     pub subscription: Option<ManagedSubscriptionStatus>,
     pub dns_options: MixedDnsOptions,
+    pub tun_tcp_max_active_sessions: usize,
     pub panel_state: Option<PanelState>,
 }
 
@@ -1328,6 +1339,7 @@ impl ManagedMixedStatusSnapshot {
             system_proxy: None,
             subscription: None,
             dns_options: MixedDnsOptions::default(),
+            tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             panel_state,
         }
     }
@@ -1538,6 +1550,7 @@ impl ManagedMixedStatusSnapshot {
             system_proxy: handle.system_proxy_config().cloned(),
             subscription: handle.subscription_status(),
             dns_options: handle.dns_options,
+            tun_tcp_max_active_sessions: handle.tun_tcp_max_active_sessions,
             panel_state,
         }
     }
@@ -1758,7 +1771,10 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
             Some(selected_outbound.clone()),
             self.dns_options,
         ) {
-            Ok(runtime) => runtime,
+            Ok(mut runtime) => {
+                runtime.tun_tcp_max_active_sessions = self.tun_tcp_max_active_sessions;
+                runtime
+            }
             Err(error) => {
                 self.state
                     .record_reload_rejected(ClientErrorKind::ConfigInvalid(error.clone()));
@@ -1863,6 +1879,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
         let block_domains = options.block_domains;
         let relay_options = options.relay_options;
         let dns_options = options.dns_options;
+        let tun_tcp_max_active_sessions = options.tun_tcp_max_active_sessions;
         let mut state = ClientRuntime::default();
         let selected_outbound = match state.start(RuntimeConfig::new(
             config_text,
@@ -1879,7 +1896,10 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
             Some(selected_outbound),
             dns_options,
         ) {
-            Ok(runtime) => runtime,
+            Ok(mut runtime) => {
+                runtime.tun_tcp_max_active_sessions = tun_tcp_max_active_sessions;
+                runtime
+            }
             Err(error) => {
                 state.record_failure(ClientErrorKind::ConfigInvalid(error.clone()));
                 return Err(error);
@@ -1910,6 +1930,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
             block_domains,
             relay_options,
             dns_options,
+            tun_tcp_max_active_sessions,
             system_proxy_guard,
         })
     }
@@ -2028,6 +2049,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
             block_domains: self.block_domains,
             relay_options: self.relay_options,
             dns_options: self.dns_options,
+            tun_tcp_max_active_sessions: self.tun_tcp_max_active_sessions,
             node_health: HashMap::new(),
             stop,
             thread: Some(thread),
@@ -2093,6 +2115,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             tun_device,
             first_byte_timeout,
             idle_timeout,
+            tun_tcp_max_active_sessions,
             dns_options,
         } => {
             let relay_options = RelayOptions {
@@ -2114,6 +2137,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                         system_proxy,
                         system_proxy_bypass,
                         dns_options,
+                        tun_tcp_max_active_sessions,
                     },
                     &controller,
                 )?;
@@ -2128,7 +2152,8 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 return Ok(());
             }
 
-            let runtime = mixed_runtime_from_cli(block_domains, relay_options, dns_options);
+            let mut runtime = mixed_runtime_from_cli(block_domains, relay_options, dns_options);
+            runtime.tun_tcp_max_active_sessions = tun_tcp_max_active_sessions;
             let tun_report = listen_mixed_with_optional_tun_controller_report(
                 &listen,
                 once,
@@ -2233,7 +2258,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli listen-mixed [--listen 127.0.0.1:7890] [--once] [--profile-config subscription.yaml] [--outbound-tag proxy] [--block-domain example.com] [--block-cidr 10.0.0.0/8] [--block-port 25|1000-2000] [--first-byte-timeout-ms 30000] [--idle-timeout-ms 300000] [--dns-local-policy allow-system|prevent-public-leak] [--dns-address-family dual-stack|ipv4-only|ipv6-only] [--tun] [--tun-interface keli-tun0] [--tun-address 10.7.0.1/24] [--tun-mtu 1500] [--tun-dns-hijack]"
+        "       keli-cli listen-mixed [--listen 127.0.0.1:7890] [--once] [--profile-config subscription.yaml] [--outbound-tag proxy] [--block-domain example.com] [--block-cidr 10.0.0.0/8] [--block-port 25|1000-2000] [--first-byte-timeout-ms 30000] [--idle-timeout-ms 300000] [--dns-local-policy allow-system|prevent-public-leak] [--dns-address-family dual-stack|ipv4-only|ipv6-only] [--tun] [--tun-interface keli-tun0] [--tun-address 10.7.0.1/24] [--tun-mtu 1500] [--tun-dns-hijack] [--tun-tcp-max-active-sessions 4096]"
     )?;
     writeln!(
         writer,
@@ -2354,6 +2379,7 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
     let mut tun_dns_hijack = false;
     let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut idle_timeout = DEFAULT_IDLE_TIMEOUT;
+    let mut tun_tcp_max_active_sessions = DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS;
     let mut dns_options = MixedDnsOptions::default();
     let mut args = args.peekable();
 
@@ -2377,6 +2403,15 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
                     args.next()
                         .ok_or_else(|| "--idle-timeout-ms requires a value".to_string())?,
                     "--idle-timeout-ms",
+                )?;
+            }
+            "--tun-tcp-max-active-sessions" => {
+                tun_enabled = true;
+                tun_tcp_max_active_sessions = parse_positive_usize(
+                    args.next().ok_or_else(|| {
+                        "--tun-tcp-max-active-sessions requires a value".to_string()
+                    })?,
+                    "--tun-tcp-max-active-sessions",
                 )?;
             }
             "--block-domain" => {
@@ -2484,6 +2519,7 @@ fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, 
         tun_device,
         first_byte_timeout,
         idle_timeout,
+        tun_tcp_max_active_sessions,
         dns_options,
     })
 }
@@ -4955,6 +4991,7 @@ fn mixed_runtime_from_parsed_profiles(
         relay_options,
         outbounds,
         dns_options,
+        tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
     })
 }
 
@@ -4968,6 +5005,7 @@ fn mixed_runtime_from_cli(
         relay_options,
         outbounds: OutboundRegistry::new(),
         dns_options,
+        tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
     }
 }
 
@@ -5050,6 +5088,16 @@ fn parse_duration_ms(value: String, option: &str) -> Result<Duration, String> {
         return Err(format!("{option} must be greater than 0"));
     }
     Ok(Duration::from_millis(milliseconds))
+}
+
+fn parse_positive_usize(value: String, option: &str) -> Result<usize, String> {
+    let number = value
+        .parse::<usize>()
+        .map_err(|_| format!("{option} requires a positive integer value"))?;
+    if number == 0 {
+        return Err(format!("{option} must be greater than 0"));
+    }
+    Ok(number)
 }
 
 fn to_io_error(error: impl std::error::Error + Send + Sync + 'static) -> io::Error {
