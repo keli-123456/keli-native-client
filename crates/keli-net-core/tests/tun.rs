@@ -2339,6 +2339,80 @@ fn acknowledges_client_fin_with_stale_known_server_ack_and_retransmits_unacked_p
 }
 
 #[test]
+fn duplicate_client_fin_with_latest_server_ack_polls_server_eof() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    let fin_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0011, 0x4000, &[], b""),
+    );
+    let fin = parse_tun_tcp_segment(&fin_packet).expect("parse FIN segment");
+    let latest_ack_fin_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1009, 0x0011, 0x4000, &[], b""),
+    );
+    let latest_ack_fin =
+        parse_tun_tcp_segment(&latest_ack_fin_packet).expect("parse latest-ack FIN segment");
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::with_server_reads(vec![
+        TunTcpServerRead::NoPayload,
+        TunTcpServerRead::Closed,
+    ]);
+
+    process_tun_tcp_session_segment(&mut sessions, &syn, &mut relay, 1000, 0x2000)
+        .expect("process SYN step");
+    process_tun_tcp_session_segment(&mut sessions, &ack, &mut relay, 1000, 0x2000)
+        .expect("process ACK step");
+    sessions
+        .send_server_payload(&syn.flow, b"HTTP/1.1")
+        .expect("send server payload")
+        .expect("server payload frame");
+    process_tun_tcp_session_segment(&mut sessions, &fin, &mut relay, 1000, 0x2000)
+        .expect("process stale-ACK client FIN");
+
+    let duplicate_fin_step =
+        process_tun_tcp_session_segment(&mut sessions, &latest_ack_fin, &mut relay, 1000, 0x2000)
+            .expect("process latest-ACK duplicate client FIN");
+
+    assert_eq!(duplicate_fin_step.response_packets().len(), 2);
+    let TunTcpSessionStep::ClientFinDuplicateAck {
+        response,
+        server_response,
+        server_close,
+    } = duplicate_fin_step
+    else {
+        panic!("expected duplicate client FIN ACK with server close");
+    };
+    assert_eq!(response.sequence_number, 1009);
+    assert_eq!(response.acknowledgment_number, 12);
+    assert!(server_response.is_none());
+    let server_close = server_close.expect("server FIN response");
+    assert_eq!(server_close.sequence_number, 1009);
+    assert_eq!(server_close.acknowledgment_number, 12);
+    let server_fin = parse_tun_tcp_segment(&server_close.packet).expect("parse server FIN packet");
+    assert!(server_fin.flags.fin());
+    assert!(server_fin.flags.ack());
+    assert!(sessions.is_empty());
+    assert_eq!(relay.closed_sessions.len(), 1);
+}
+
+#[test]
 fn acknowledges_fin_payload_with_stale_known_server_ack_and_retransmits_unacked_payload() {
     let syn_packet = ipv4_packet(
         6,

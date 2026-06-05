@@ -291,6 +291,11 @@ pub enum TunTcpSessionStep {
     ServerCloseClientFinAck {
         response: TunTcpCloseFrame,
     },
+    ClientFinDuplicateAck {
+        response: TunTcpCloseFrame,
+        server_response: Option<TunTcpServerPayloadFrame>,
+        server_close: Option<TunTcpServerCloseFrame>,
+    },
     Closed {
         session: TunTcpSessionRecord,
         response: Option<TunTcpCloseFrame>,
@@ -858,6 +863,20 @@ impl TunTcpSessionStep {
                 vec![response.packet.as_slice()]
             }
             Self::ServerCloseClientFinAck { response } => vec![response.packet.as_slice()],
+            Self::ClientFinDuplicateAck {
+                response,
+                server_response,
+                server_close,
+            } => {
+                let mut packets = vec![response.packet.as_slice()];
+                if let Some(server_response) = server_response {
+                    packets.push(server_response.packet.as_slice());
+                }
+                if let Some(server_close) = server_close {
+                    packets.push(server_close.packet.as_slice());
+                }
+                packets
+            }
             Self::Closed {
                 response: Some(response),
                 ..
@@ -2414,6 +2433,15 @@ fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
                 return Ok(TunTcpSessionStep::ServerPayloadRetransmission { response });
             }
             if let Some(response) = sessions.acknowledge_duplicate_client_fin(segment)? {
+                let (server_response, server_close) =
+                    read_tun_tcp_server_event_after_client_fin(sessions, relay, &response.session)?;
+                if server_response.is_some() || server_close.is_some() {
+                    return Ok(TunTcpSessionStep::ClientFinDuplicateAck {
+                        response,
+                        server_response,
+                        server_close,
+                    });
+                }
                 return Ok(TunTcpSessionStep::ServerCloseClientFinAck { response });
             }
             if let Some((frame, response)) = sessions.accept_client_fin_with_payload(segment)? {
@@ -2440,6 +2468,15 @@ fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
                 return Ok(TunTcpSessionStep::ServerPayloadRetransmission { response });
             }
             if let Some(response) = sessions.acknowledge_duplicate_client_fin(segment)? {
+                let (server_response, server_close) =
+                    read_tun_tcp_server_event_after_client_fin(sessions, relay, &response.session)?;
+                if server_response.is_some() || server_close.is_some() {
+                    return Ok(TunTcpSessionStep::ClientFinDuplicateAck {
+                        response,
+                        server_response,
+                        server_close,
+                    });
+                }
                 return Ok(TunTcpSessionStep::ServerCloseClientFinAck { response });
             }
             if let Some(response) = sessions.acknowledge_client_fin(segment)? {
