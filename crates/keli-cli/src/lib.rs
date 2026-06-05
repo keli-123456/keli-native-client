@@ -304,23 +304,44 @@ impl Default for ConnectionMetrics {
 
 #[derive(Debug, Clone, Default)]
 pub struct ConnectionWorkerGauge {
-    active: Arc<AtomicUsize>,
+    inner: Arc<ConnectionWorkerGaugeInner>,
+}
+
+#[derive(Debug, Default)]
+struct ConnectionWorkerGaugeInner {
+    active: AtomicUsize,
+    peak: AtomicUsize,
 }
 
 impl ConnectionWorkerGauge {
     pub fn active(&self) -> usize {
-        self.active.load(Ordering::SeqCst)
+        self.inner.active.load(Ordering::SeqCst)
+    }
+
+    pub fn peak(&self) -> usize {
+        self.inner.peak.load(Ordering::SeqCst)
     }
 
     fn start_worker(&self) -> ConnectionWorkerLease {
-        self.active.fetch_add(1, Ordering::SeqCst);
+        let active = self.inner.active.fetch_add(1, Ordering::SeqCst) + 1;
+        self.record_peak(active);
         ConnectionWorkerLease {
             gauge: self.clone(),
         }
     }
 
+    fn record_peak(&self, active_count: usize) {
+        let _ = self
+            .inner
+            .peak
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |peak| {
+                (active_count > peak).then_some(active_count)
+            });
+    }
+
     fn finish_worker(&self) {
         let _ = self
+            .inner
             .active
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |active| {
                 Some(active.saturating_sub(1))
@@ -472,6 +493,10 @@ impl MixedProxyRuntime {
 
     pub fn active_connection_workers(&self) -> usize {
         self.connection_worker_gauge.active()
+    }
+
+    pub fn peak_connection_workers(&self) -> usize {
+        self.connection_worker_gauge.peak()
     }
 
     pub fn active_client_connections(&self) -> usize {
@@ -1439,6 +1464,7 @@ pub struct ManagedMixedStatusSnapshot {
     pub tun_tcp_max_active_sessions: usize,
     pub max_connection_workers: usize,
     pub active_connection_workers: usize,
+    pub peak_connection_workers: usize,
     pub active_client_connections: usize,
     pub peak_client_connections: usize,
     pub available_connection_worker_slots: usize,
@@ -1699,6 +1725,7 @@ impl ManagedMixedStatusSnapshot {
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             active_connection_workers: 0,
+            peak_connection_workers: 0,
             active_client_connections: 0,
             peak_client_connections: 0,
             available_connection_worker_slots: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
@@ -1738,6 +1765,7 @@ impl ManagedMixedStatusSnapshot {
             tun_tcp_max_active_sessions: previous.tun_tcp_max_active_sessions,
             max_connection_workers: previous.max_connection_workers,
             active_connection_workers: 0,
+            peak_connection_workers: previous.peak_connection_workers,
             active_client_connections: 0,
             peak_client_connections: previous.peak_client_connections,
             available_connection_worker_slots: previous.max_connection_workers,
@@ -1780,6 +1808,7 @@ pub fn managed_mixed_status_json_value(status: &ManagedMixedStatusSnapshot) -> s
         "tun_tcp_max_active_sessions": status.tun_tcp_max_active_sessions,
         "max_connection_workers": status.max_connection_workers,
         "active_connection_workers": status.active_connection_workers,
+        "peak_connection_workers": status.peak_connection_workers,
         "active_client_connections": status.active_client_connections,
         "peak_client_connections": status.peak_client_connections,
         "available_connection_worker_slots": status.available_connection_worker_slots,
@@ -2342,6 +2371,7 @@ impl ManagedMixedStatusSnapshot {
             tun_tcp_max_active_sessions: handle.tun_tcp_max_active_sessions,
             max_connection_workers: handle.max_connection_workers(),
             active_connection_workers: handle.active_connection_workers(),
+            peak_connection_workers: handle.peak_connection_workers(),
             active_client_connections: handle.active_client_connections(),
             peak_client_connections: handle.peak_client_connections(),
             available_connection_worker_slots: handle.available_connection_worker_slots(),
@@ -2393,6 +2423,13 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
         self.runtime
             .read()
             .map(|runtime| runtime.active_connection_workers())
+            .unwrap_or(0)
+    }
+
+    pub fn peak_connection_workers(&self) -> usize {
+        self.runtime
+            .read()
+            .map(|runtime| runtime.peak_connection_workers())
             .unwrap_or(0)
     }
 

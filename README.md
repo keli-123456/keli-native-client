@@ -48,7 +48,7 @@ so one long-lived mixed client no longer blocks subsequent connections.
 That worker fan-out is bounded and records connection-limit rejections in
 managed connection metrics for long-running resource protection. `listen-mixed`
 can tune this cap with `--max-connection-workers`, and managed status reports
-active workers, active/peak client connections, and remaining worker slots for
+active/peak workers, active/peak client connections, and remaining worker slots for
 saturation diagnostics. Managed shutdown closes active mixed client streams and
 uses a bounded worker drain, so held handshakes cannot stall core stop. That
 stop drain is also recorded as a

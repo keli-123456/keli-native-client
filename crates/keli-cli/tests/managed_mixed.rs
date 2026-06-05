@@ -514,6 +514,7 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
         DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS
     );
     assert_eq!(started.active_connection_workers, 0);
+    assert_eq!(started.peak_connection_workers, 0);
     assert_eq!(started.active_client_connections, 0);
     assert_eq!(started.peak_client_connections, 0);
     assert_eq!(
@@ -560,6 +561,7 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
         DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS
     );
     assert_eq!(reloaded.active_connection_workers, 0);
+    assert_eq!(reloaded.peak_connection_workers, 0);
     assert_eq!(reloaded.active_client_connections, 0);
     assert_eq!(reloaded.peak_client_connections, 0);
     assert_eq!(
@@ -586,6 +588,7 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
     assert!(core.status().started_at.is_none());
     assert!(core.status().uptime.is_none());
     assert_eq!(core.status().active_connection_workers, 0);
+    assert_eq!(core.status().peak_connection_workers, 0);
     assert_eq!(core.status().active_client_connections, 0);
     assert_eq!(core.status().peak_client_connections, 0);
     assert!(!core.status().system_proxy_enabled());
@@ -680,6 +683,7 @@ fn managed_mixed_background_listener_handles_next_connection_while_one_waits() {
     let stalled_client = open_socks5_handshake(listen_addr);
     let busy = wait_for_active_connection_workers(&core, 1);
     assert_eq!(busy.active_connection_workers, 1);
+    assert_eq!(busy.peak_connection_workers, 1);
     assert_eq!(busy.active_client_connections, 1);
     assert_eq!(busy.peak_client_connections, 1);
     assert_eq!(
@@ -690,6 +694,7 @@ fn managed_mixed_background_listener_handles_next_connection_while_one_waits() {
     request_blocked_socks5_domain(listen_addr, "blocked.example.com", 443);
 
     let status = core.status();
+    assert_eq!(status.peak_connection_workers, 2);
     assert_eq!(status.peak_client_connections, 2);
     assert_eq!(status.connection_metrics.total_connection_count, 1);
     assert_eq!(status.connection_metrics.failure_count, 1);
@@ -705,6 +710,7 @@ fn managed_mixed_background_listener_handles_next_connection_while_one_waits() {
     drop(stalled_client);
     let drained = wait_for_active_connection_workers(&core, 0);
     assert_eq!(drained.active_connection_workers, 0);
+    assert_eq!(drained.peak_connection_workers, 2);
     assert_eq!(drained.active_client_connections, 0);
     assert_eq!(drained.peak_client_connections, 2);
     assert_eq!(
@@ -733,6 +739,7 @@ fn managed_mixed_background_stop_closes_active_connections() {
     let mut stalled_client = open_socks5_handshake(listen_addr);
     let busy = wait_for_active_connection_workers(&core, 1);
     assert_eq!(busy.active_connection_workers, 1);
+    assert_eq!(busy.peak_connection_workers, 1);
     assert_eq!(busy.active_client_connections, 1);
     assert_eq!(busy.peak_client_connections, 1);
 
@@ -791,6 +798,7 @@ fn managed_mixed_background_stop_closes_active_connections() {
     assert!(post_stop_status.started_at.is_none());
     assert!(post_stop_status.uptime.is_none());
     assert_eq!(post_stop_status.active_connection_workers, 0);
+    assert_eq!(post_stop_status.peak_connection_workers, 1);
     assert_eq!(post_stop_status.active_client_connections, 0);
     assert_eq!(post_stop_status.peak_client_connections, 1);
     assert!(post_stop_status.recent_events.iter().any(|event| {
@@ -834,6 +842,7 @@ fn managed_mixed_background_listener_rejects_connections_above_worker_limit() {
     let busy = wait_for_active_connection_workers(&core, 1);
     assert_eq!(busy.max_connection_workers, 1);
     assert_eq!(busy.active_connection_workers, 1);
+    assert_eq!(busy.peak_connection_workers, 1);
     assert_eq!(busy.active_client_connections, 1);
     assert_eq!(busy.peak_client_connections, 1);
     assert_eq!(busy.available_connection_worker_slots, 0);
@@ -842,6 +851,7 @@ fn managed_mixed_background_listener_rejects_connections_above_worker_limit() {
     let status = wait_for_connection_count(&core, 1);
     assert_eq!(status.max_connection_workers, 1);
     assert_eq!(status.active_connection_workers, 1);
+    assert_eq!(status.peak_connection_workers, 1);
     assert_eq!(status.active_client_connections, 1);
     assert_eq!(status.peak_client_connections, 1);
     assert_eq!(status.available_connection_worker_slots, 0);
@@ -862,6 +872,7 @@ fn managed_mixed_background_listener_rejects_connections_above_worker_limit() {
     let value = managed_mixed_status_json_value(&status);
     assert_eq!(value["max_connection_workers"], 1);
     assert_eq!(value["active_connection_workers"], 1);
+    assert_eq!(value["peak_connection_workers"], 1);
     assert_eq!(value["active_client_connections"], 1);
     assert_eq!(value["peak_client_connections"], 1);
     assert_eq!(value["available_connection_worker_slots"], 0);
@@ -873,6 +884,7 @@ fn managed_mixed_background_listener_rejects_connections_above_worker_limit() {
     drop(stalled_client);
     let drained = wait_for_active_connection_workers(&core, 0);
     assert_eq!(drained.active_connection_workers, 0);
+    assert_eq!(drained.peak_connection_workers, 1);
     assert_eq!(drained.active_client_connections, 0);
     assert_eq!(drained.peak_client_connections, 1);
     assert_eq!(drained.available_connection_worker_slots, 1);
@@ -970,6 +982,7 @@ fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
         DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS
     );
     assert_eq!(value["active_connection_workers"], 0);
+    assert_eq!(value["peak_connection_workers"], 0);
     assert_eq!(value["active_client_connections"], 0);
     assert_eq!(value["peak_client_connections"], 0);
     assert_eq!(
@@ -1163,6 +1176,7 @@ fn managed_mixed_status_json_includes_tun_runtime_diagnostic() {
         tun_tcp_max_active_sessions: 17,
         max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
         active_connection_workers: 0,
+        peak_connection_workers: 0,
         active_client_connections: 0,
         peak_client_connections: 0,
         available_connection_worker_slots: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
@@ -1231,6 +1245,7 @@ fn managed_mixed_status_json_includes_stop_drain_diagnostic() {
         tun_tcp_max_active_sessions: 17,
         max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
         active_connection_workers: 0,
+        peak_connection_workers: 0,
         active_client_connections: 0,
         peak_client_connections: 0,
         available_connection_worker_slots: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
