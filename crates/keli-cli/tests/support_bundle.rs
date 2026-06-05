@@ -116,7 +116,11 @@ proxies:
         "node-health-switch-readiness"
     );
     assert_eq!(
-        report["doctor"]["managed_status_schema_capabilities"][21],
+        report["doctor"]["managed_status_schema_capabilities"][18],
+        "node-health-switch-reason"
+    );
+    assert_eq!(
+        report["doctor"]["managed_status_schema_capabilities"][22],
         "panel-state"
     );
     assert_eq!(
