@@ -140,17 +140,7 @@ proxies:
 }
 
 fn request_blocked_socks5_domain(listen_addr: SocketAddr, host: &str, port: u16) {
-    let mut client = TcpStream::connect(listen_addr).expect("connect managed mixed listener");
-    client
-        .set_read_timeout(Some(Duration::from_secs(2)))
-        .expect("set read timeout");
-    client
-        .set_write_timeout(Some(Duration::from_secs(2)))
-        .expect("set write timeout");
-    client.write_all(&[0x05, 0x01, 0x00]).expect("write hello");
-    let mut hello = [0; 2];
-    client.read_exact(&mut hello).expect("read hello");
-    assert_eq!(hello, [0x05, 0x00]);
+    let mut client = open_socks5_handshake(listen_addr);
 
     let host_len = u8::try_from(host.len()).expect("SOCKS5 host length");
     let mut request = vec![0x05, 0x01, 0x00, 0x03, host_len];
@@ -162,6 +152,21 @@ fn request_blocked_socks5_domain(listen_addr: SocketAddr, host: &str, port: u16)
     client.read_exact(&mut reply).expect("read blocked reply");
     assert_eq!(reply[0], 0x05);
     assert_eq!(reply[1], 0x02);
+}
+
+fn open_socks5_handshake(listen_addr: SocketAddr) -> TcpStream {
+    let mut client = TcpStream::connect(listen_addr).expect("connect managed mixed listener");
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("set read timeout");
+    client
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .expect("set write timeout");
+    client.write_all(&[0x05, 0x01, 0x00]).expect("write hello");
+    let mut hello = [0; 2];
+    client.read_exact(&mut hello).expect("read hello");
+    assert_eq!(hello, [0x05, 0x00]);
+    client
 }
 
 #[derive(Debug)]
@@ -583,6 +588,42 @@ fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
     assert_eq!(reloaded.connection_metrics.failure_count, 1);
     assert_eq!(reloaded.connection_metrics.retained_connection_count, 1);
 
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_background_listener_handles_next_connection_while_one_waits() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    let started = core
+        .start_from_subscription_config_text(
+            ss_config(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                block_domains: vec!["blocked.example.com".to_string()],
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+    let listen_addr = started.listen_addr.expect("managed listener addr");
+
+    let stalled_client = open_socks5_handshake(listen_addr);
+    request_blocked_socks5_domain(listen_addr, "blocked.example.com", 443);
+
+    let status = core.status();
+    assert_eq!(status.connection_metrics.total_connection_count, 1);
+    assert_eq!(status.connection_metrics.failure_count, 1);
+    assert_eq!(
+        status
+            .connection_metrics
+            .recent_connections
+            .first()
+            .map(|report| report.error_kind),
+        Some(Some(ConnectionErrorKind::RouteBlocked))
+    );
+
+    drop(stalled_client);
     core.stop().expect("stop managed mixed controller");
 }
 

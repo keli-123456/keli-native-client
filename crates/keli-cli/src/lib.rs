@@ -3905,8 +3905,10 @@ fn serve_mixed_listener_until(
     runtime: Arc<RwLock<MixedProxyRuntime>>,
     stop: Arc<AtomicBool>,
 ) -> io::Result<()> {
+    let mut workers = Vec::new();
     listener.set_nonblocking(true)?;
     while !stop.load(Ordering::SeqCst) {
+        reap_finished_mixed_connection_workers(&mut workers);
         match listener.accept() {
             Ok((mut stream, _)) => {
                 stream.set_nonblocking(false)?;
@@ -3914,9 +3916,11 @@ fn serve_mixed_listener_until(
                     .read()
                     .map_err(|_| io::Error::other("mixed runtime lock poisoned"))?
                     .clone();
-                if let Err(error) = handle_mixed_connection_with_routes(&mut stream, &runtime) {
-                    eprintln!("mixed inbound failed: {error}");
-                }
+                workers.push(thread::spawn(move || {
+                    if let Err(error) = handle_mixed_connection_with_routes(&mut stream, &runtime) {
+                        eprintln!("mixed inbound failed: {error}");
+                    }
+                }));
             }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 thread::sleep(MANAGED_ACCEPT_POLL_INTERVAL);
@@ -3924,7 +3928,22 @@ fn serve_mixed_listener_until(
             Err(error) => return Err(error),
         }
     }
+    reap_finished_mixed_connection_workers(&mut workers);
     Ok(())
+}
+
+fn reap_finished_mixed_connection_workers(workers: &mut Vec<thread::JoinHandle<()>>) {
+    let mut index = 0;
+    while index < workers.len() {
+        if workers[index].is_finished() {
+            let worker = workers.swap_remove(index);
+            if worker.join().is_err() {
+                eprintln!("mixed inbound worker panicked");
+            }
+        } else {
+            index += 1;
+        }
+    }
 }
 
 pub fn listen_mixed_with_system_proxy_controller<C: SystemProxyController + ?Sized>(

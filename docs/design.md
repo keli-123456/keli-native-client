@@ -365,7 +365,9 @@ subscription hot reload. Reload success advances generation and replaces the
 runtime used for new connections; reload rejection records a failure event
 without dropping the active plan. `ManagedMixedController` provides the
 UI-facing control surface for start/status/reload/stop while keeping the lower
-level listener handle internal to the managed core path. Its status snapshot
+level listener handle internal to the managed core path. The managed background
+listener dispatches accepted TCP connections to workers so one long-lived mixed
+client no longer blocks subsequent connections. Its status snapshot
 includes recent runtime events, the last failure reason, current generation,
 selected outbound, listener address, managed system proxy config, and
 subscription node status including supported tags, skipped entries, default
