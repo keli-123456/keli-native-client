@@ -180,6 +180,9 @@ without producing an unknown-session RST.
 If the client combines that final acknowledgment with its own FIN, the TUN TCP
 path now writes a normal ACK for the client FIN and clears the close marker
 instead of resetting the flow.
+The table then keeps a short post-close marker so duplicate final ACKs are
+absorbed and a late duplicate client FIN+ACK can be acknowledged without
+creating reset noise.
 The TCP session table also tracks last activity and packet loops prune idle
 sessions through the relay close path, with the pruned count visible in loop
 summaries and managed runtime status notes.

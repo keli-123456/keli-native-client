@@ -193,6 +193,16 @@ struct TunTcpServerClosedSession {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct TunTcpPostCloseSession {
+    session: TunTcpSessionRecord,
+    server_next_sequence_number: u32,
+    client_next_sequence_number: u32,
+    client_fin_sequence_number: Option<u32>,
+    client_fin_ack_packet: Option<Vec<u8>>,
+    last_activity_at: Instant,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TunTcpCloseFrame {
     pub session: TunTcpSessionRecord,
     pub sequence_number: u32,
@@ -279,6 +289,7 @@ pub enum TunTcpSessionStep {
 pub struct TunTcpSessionTable {
     sessions: HashMap<TunTcpSessionKey, TunTcpSessionRecord>,
     server_closed_sessions: HashMap<TunTcpSessionKey, TunTcpServerClosedSession>,
+    post_closed_sessions: HashMap<TunTcpSessionKey, TunTcpPostCloseSession>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1280,6 +1291,7 @@ impl TunTcpSessionTable {
             window_size,
         )?;
         self.server_closed_sessions.remove(&key);
+        self.post_closed_sessions.remove(&key);
         self.sessions.insert(key, session.clone());
         Ok(TunTcpSynAckResponse { session, packet })
     }
@@ -1660,7 +1672,20 @@ impl TunTcpSessionTable {
         let Some(closed) = self.server_closed_sessions.remove(&key) else {
             return Ok(None);
         };
-        Ok(Some(closed.response.session))
+        let server_next_sequence_number = server_close_next_sequence_number(&closed.response);
+        let session = closed.response.session;
+        self.post_closed_sessions.insert(
+            key,
+            TunTcpPostCloseSession {
+                session: session.clone(),
+                server_next_sequence_number,
+                client_next_sequence_number: closed.response.acknowledgment_number,
+                client_fin_sequence_number: None,
+                client_fin_ack_packet: None,
+                last_activity_at: Instant::now(),
+            },
+        );
+        Ok(Some(session))
     }
 
     pub fn acknowledge_server_close_with_client_fin(
@@ -1695,8 +1720,105 @@ impl TunTcpSessionTable {
             acknowledgment_number,
             closed.response.session.window_size,
         )?;
+        let response = TunTcpCloseFrame {
+            session: closed.response.session.clone(),
+            sequence_number,
+            acknowledgment_number,
+            packet: packet.clone(),
+        };
+        self.post_closed_sessions.insert(
+            key,
+            TunTcpPostCloseSession {
+                session: closed.response.session,
+                server_next_sequence_number: sequence_number,
+                client_next_sequence_number: acknowledgment_number,
+                client_fin_sequence_number: Some(segment.sequence_number),
+                client_fin_ack_packet: Some(packet),
+                last_activity_at: Instant::now(),
+            },
+        );
+        Ok(Some(response))
+    }
+
+    pub fn acknowledge_post_close_ack(
+        &mut self,
+        segment: &TunTcpSegment<'_>,
+    ) -> Result<Option<TunTcpSessionRecord>, TunPacketError> {
+        if !segment.flags.ack()
+            || segment.flags.syn()
+            || segment.flags.rst()
+            || segment.flags.fin()
+            || !segment.payload.is_empty()
+        {
+            return Ok(None);
+        }
+        let key = TunTcpSessionKey::from_flow(&segment.flow)?;
+        let Some(post_close) = self.post_closed_sessions.get_mut(&key) else {
+            return Ok(None);
+        };
+        let matches_client_sequence = segment.sequence_number
+            == post_close.client_next_sequence_number
+            || post_close.client_fin_sequence_number == Some(segment.sequence_number);
+        if !matches_client_sequence
+            || segment.acknowledgment_number != post_close.server_next_sequence_number
+        {
+            return Ok(None);
+        }
+        post_close.last_activity_at = Instant::now();
+        Ok(Some(post_close.session.clone()))
+    }
+
+    pub fn acknowledge_post_close_client_fin(
+        &mut self,
+        segment: &TunTcpSegment<'_>,
+    ) -> Result<Option<TunTcpCloseFrame>, TunPacketError> {
+        if !segment.flags.ack()
+            || !segment.flags.fin()
+            || segment.flags.syn()
+            || segment.flags.rst()
+            || !segment.payload.is_empty()
+        {
+            return Ok(None);
+        }
+        let key = TunTcpSessionKey::from_flow(&segment.flow)?;
+        let Some(post_close) = self.post_closed_sessions.get_mut(&key) else {
+            return Ok(None);
+        };
+        if segment.acknowledgment_number != post_close.server_next_sequence_number {
+            return Ok(None);
+        }
+        if let Some(client_fin_sequence_number) = post_close.client_fin_sequence_number {
+            if segment.sequence_number != client_fin_sequence_number {
+                return Ok(None);
+            }
+            let Some(packet) = post_close.client_fin_ack_packet.clone() else {
+                return Ok(None);
+            };
+            post_close.last_activity_at = Instant::now();
+            return Ok(Some(TunTcpCloseFrame {
+                session: post_close.session.clone(),
+                sequence_number: post_close.server_next_sequence_number,
+                acknowledgment_number: post_close.client_next_sequence_number,
+                packet,
+            }));
+        }
+        if segment.sequence_number != post_close.client_next_sequence_number {
+            return Ok(None);
+        }
+        let sequence_number = post_close.server_next_sequence_number;
+        let acknowledgment_number = tcp_segment_next_sequence_number(segment);
+        let packet = build_tun_tcp_ack_response_packet(
+            &post_close.session.flow,
+            sequence_number,
+            acknowledgment_number,
+            post_close.session.window_size,
+        )?;
+        post_close.client_next_sequence_number = acknowledgment_number;
+        post_close.client_fin_sequence_number = Some(segment.sequence_number);
+        post_close.client_fin_ack_packet = Some(packet.clone());
+        post_close.last_activity_at = Instant::now();
         Ok(Some(TunTcpCloseFrame {
-            session: closed.response.session,
+            session: post_close.session.clone(),
             sequence_number,
             acknowledgment_number,
             packet,
@@ -1780,6 +1902,17 @@ impl TunTcpSessionTable {
             .collect::<Vec<_>>();
         for key in expired_server_closed_keys {
             self.server_closed_sessions.remove(&key);
+        }
+        let expired_post_closed_keys = self
+            .post_closed_sessions
+            .iter()
+            .filter(|(_, post_close)| {
+                now.saturating_duration_since(post_close.last_activity_at) >= idle_timeout
+            })
+            .map(|(key, _)| key.clone())
+            .collect::<Vec<_>>();
+        for key in expired_post_closed_keys {
+            self.post_closed_sessions.remove(&key);
         }
         pruned_sessions
     }
@@ -2006,6 +2139,9 @@ fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
             if let Some(response) = sessions.acknowledge_server_close_with_client_fin(segment)? {
                 return Ok(TunTcpSessionStep::ServerCloseClientFinAck { response });
             }
+            if let Some(response) = sessions.acknowledge_post_close_client_fin(segment)? {
+                return Ok(TunTcpSessionStep::ServerCloseClientFinAck { response });
+            }
         }
         if segment.flags.fin()
             && !segment.flags.rst()
@@ -2117,6 +2253,10 @@ fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
         }
 
         if let Some(session) = sessions.acknowledge_server_close(segment)? {
+            return Ok(TunTcpSessionStep::ServerCloseAcknowledged { session });
+        }
+
+        if let Some(session) = sessions.acknowledge_post_close_ack(segment)? {
             return Ok(TunTcpSessionStep::ServerCloseAcknowledged { session });
         }
     }
