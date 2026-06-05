@@ -251,7 +251,8 @@ and support tooling can inspect recent relay behavior without parsing logs.
 The managed TUN runtime uses a combined UDP/TCP relay loop, so it can keep the
 registry-backed UDP path while also exercising registry-backed TCP sessions.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
-capability sets plus runtime resource limits for support and UI integration.
+capability sets plus runtime event, managed status, connection report, and TUN
+TCP session resource limits for support and UI integration.
 
 ## Protocol Matrix
 

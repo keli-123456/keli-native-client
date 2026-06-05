@@ -3388,6 +3388,7 @@ struct DoctorReport {
     tun_packet_pipeline_capabilities: Vec<&'static str>,
     runtime_event_history_limit: usize,
     managed_status_recent_event_limit: usize,
+    managed_connection_report_history_limit: usize,
     tun_tcp_max_active_sessions_default: usize,
     sample_profile_valid: bool,
     initial_phase: String,
@@ -3476,6 +3477,7 @@ fn collect_doctor_report() -> DoctorReport {
         tun_packet_pipeline_capabilities: TUN_PACKET_PIPELINE_CAPABILITIES.split(',').collect(),
         runtime_event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
         managed_status_recent_event_limit: MANAGED_MIXED_RECENT_EVENT_LIMIT,
+        managed_connection_report_history_limit: MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
         tun_tcp_max_active_sessions_default: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
         sample_profile_valid: profile.validate().is_ok(),
         initial_phase: format!("{:?}", ConnectionPhase::Idle),
@@ -3573,9 +3575,10 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     )?;
     writeln!(
         writer,
-        "resource_limits runtime_event_history={} managed_status_recent_events={} tun_tcp_max_active_sessions={}",
+        "resource_limits runtime_event_history={} managed_status_recent_events={} managed_connection_report_history={} tun_tcp_max_active_sessions={}",
         report.runtime_event_history_limit,
         report.managed_status_recent_event_limit,
+        report.managed_connection_report_history_limit,
         report.tun_tcp_max_active_sessions_default
     )?;
     writeln!(
@@ -3640,6 +3643,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         "resource_limits": {
             "runtime_event_history": report.runtime_event_history_limit,
             "managed_status_recent_events": report.managed_status_recent_event_limit,
+            "managed_connection_report_history": report.managed_connection_report_history_limit,
             "tun_tcp_max_active_sessions": report.tun_tcp_max_active_sessions_default,
         },
         "sample_profile_valid": report.sample_profile_valid,
