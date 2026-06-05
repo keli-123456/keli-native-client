@@ -2631,6 +2631,173 @@ fn acknowledges_fin_payload_with_stale_known_server_ack_and_retransmits_unacked_
 }
 
 #[test]
+fn duplicate_fin_payload_with_latest_server_ack_polls_server_eof() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    let fin_payload_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0019, 0x4000, &[], b"POST"),
+    );
+    let fin_payload =
+        parse_tun_tcp_segment(&fin_payload_packet).expect("parse FIN payload segment");
+    let latest_ack_fin_payload_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1009, 0x0019, 0x4000, &[], b"POST"),
+    );
+    let latest_ack_fin_payload = parse_tun_tcp_segment(&latest_ack_fin_payload_packet)
+        .expect("parse latest-ACK FIN payload segment");
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::with_server_reads(vec![
+        TunTcpServerRead::NoPayload,
+        TunTcpServerRead::Closed,
+    ]);
+
+    process_tun_tcp_session_segment(&mut sessions, &syn, &mut relay, 1000, 0x2000)
+        .expect("process SYN step");
+    process_tun_tcp_session_segment(&mut sessions, &ack, &mut relay, 1000, 0x2000)
+        .expect("process ACK step");
+    sessions
+        .send_server_payload(&syn.flow, b"HTTP/1.1")
+        .expect("send server payload")
+        .expect("server payload frame");
+    process_tun_tcp_session_segment(&mut sessions, &fin_payload, &mut relay, 1000, 0x2000)
+        .expect("process stale-ACK FIN payload");
+
+    let duplicate_fin_payload_step = process_tun_tcp_session_segment(
+        &mut sessions,
+        &latest_ack_fin_payload,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("process latest-ACK duplicate FIN payload");
+
+    assert_eq!(duplicate_fin_payload_step.response_packets().len(), 2);
+    let TunTcpSessionStep::ClientFinDuplicateAck {
+        response,
+        server_response,
+        server_close,
+    } = duplicate_fin_payload_step
+    else {
+        panic!("expected duplicate FIN payload ACK with server close");
+    };
+    assert_eq!(response.sequence_number, 1009);
+    assert_eq!(response.acknowledgment_number, 16);
+    assert!(server_response.is_none());
+    let server_close = server_close.expect("server FIN response");
+    assert_eq!(server_close.sequence_number, 1009);
+    assert_eq!(server_close.acknowledgment_number, 16);
+    let server_fin = parse_tun_tcp_segment(&server_close.packet).expect("parse server FIN packet");
+    assert!(server_fin.flags.fin());
+    assert!(server_fin.flags.ack());
+    assert_eq!(relay.client_payloads, vec![b"POST".to_vec()]);
+    assert!(sessions.is_empty());
+    assert_eq!(relay.closed_sessions.len(), 1);
+}
+
+#[test]
+fn duplicate_fin_payload_with_latest_server_ack_polls_server_payload() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    let fin_payload_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0019, 0x4000, &[], b"POST"),
+    );
+    let fin_payload =
+        parse_tun_tcp_segment(&fin_payload_packet).expect("parse FIN payload segment");
+    let latest_ack_fin_payload_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1009, 0x0019, 0x4000, &[], b"POST"),
+    );
+    let latest_ack_fin_payload = parse_tun_tcp_segment(&latest_ack_fin_payload_packet)
+        .expect("parse latest-ACK FIN payload segment");
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::with_server_reads(vec![
+        TunTcpServerRead::NoPayload,
+        TunTcpServerRead::Payload(b" body".to_vec()),
+    ]);
+
+    process_tun_tcp_session_segment(&mut sessions, &syn, &mut relay, 1000, 0x2000)
+        .expect("process SYN step");
+    process_tun_tcp_session_segment(&mut sessions, &ack, &mut relay, 1000, 0x2000)
+        .expect("process ACK step");
+    sessions
+        .send_server_payload(&syn.flow, b"HTTP/1.1")
+        .expect("send server payload")
+        .expect("server payload frame");
+    process_tun_tcp_session_segment(&mut sessions, &fin_payload, &mut relay, 1000, 0x2000)
+        .expect("process stale-ACK FIN payload");
+
+    let duplicate_fin_payload_step = process_tun_tcp_session_segment(
+        &mut sessions,
+        &latest_ack_fin_payload,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("process latest-ACK duplicate FIN payload");
+
+    assert_eq!(duplicate_fin_payload_step.response_packets().len(), 2);
+    let TunTcpSessionStep::ClientFinDuplicateAck {
+        response,
+        server_response,
+        server_close,
+    } = duplicate_fin_payload_step
+    else {
+        panic!("expected duplicate FIN payload ACK with server payload");
+    };
+    assert_eq!(response.sequence_number, 1009);
+    assert_eq!(response.acknowledgment_number, 16);
+    let server_response = server_response.expect("server payload response");
+    assert_eq!(server_response.sequence_number, 1009);
+    assert_eq!(server_response.acknowledgment_number, 16);
+    assert_eq!(server_response.payload, b" body");
+    assert!(server_close.is_none());
+    assert_eq!(relay.client_payloads, vec![b"POST".to_vec()]);
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(
+        sessions
+            .get(&response.session.key)
+            .expect("stored half-closed session")
+            .phase,
+        TunTcpSessionPhase::ClientFinReceived
+    );
+    assert!(relay.closed_sessions.is_empty());
+}
+
+#[test]
 fn resets_unknown_tun_tcp_session_segments_without_notifying_relay() {
     let data_packet = ipv4_packet(
         6,
@@ -3955,6 +4122,114 @@ fn registry_tun_tcp_session_relay_returns_server_payload_after_fin_payload_half_
 }
 
 #[test]
+fn registry_tun_tcp_session_relay_polls_payload_after_latest_ack_fin_payload_duplicate() {
+    let first_chunk = b"HTTP/1.1";
+    let second_chunk = b" body";
+    let server_response = b"HTTP/1.1 body";
+    let (tcp_port, tcp_server) = spawn_tcp_response_after_eof_server(b"GET /", server_response);
+    let packets = vec![
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "127.0.0.1",
+            &tcp_segment(49152, tcp_port, 10, 0, 0x0002, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "127.0.0.1",
+            &tcp_segment(49152, tcp_port, 11, 1001, 0x0010, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "127.0.0.1",
+            &tcp_segment(49152, tcp_port, 11, 1001, 0x0019, 0x4000, &[], b"GET /"),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "127.0.0.1",
+            &tcp_segment(
+                49152,
+                tcp_port,
+                11,
+                1001 + first_chunk.len() as u32,
+                0x0019,
+                0x4000,
+                &[],
+                b"GET /",
+            ),
+        ),
+    ];
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let registry = OutboundRegistry::new();
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut relay_dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut relay =
+        RegistryTunTcpSessionRelay::new(&registry, &mut relay_dns, Duration::from_secs(1))
+            .with_read_buffer_size(first_chunk.len());
+    let mut sessions = TunTcpSessionTable::new();
+    let mut device = FakeTunPacketDevice::new(packets);
+
+    let summary = run_tun_packet_loop_with_tcp_session_relay_summary(
+        &mut device,
+        &routes,
+        true,
+        &mut dns,
+        30,
+        4,
+        &mut sessions,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("run TUN loop with registry FIN payload latest-ACK duplicate poll");
+
+    assert_eq!(summary.processed_packets(), 4);
+    assert_eq!(summary.tcp_session_events, 4);
+    assert_eq!(summary.tcp_session_packets_written, 5);
+    assert_eq!(summary.tcp_session_errors, 0);
+    assert_eq!(device.writes.len(), 5);
+    let fin_payload_ack = parse_tun_tcp_segment(&device.writes[1]).expect("parse FIN payload ACK");
+    assert_eq!(fin_payload_ack.sequence_number, 1001);
+    assert_eq!(fin_payload_ack.acknowledgment_number, 17);
+    assert!(fin_payload_ack.flags.ack());
+    assert!(!fin_payload_ack.flags.rst());
+    let first_payload =
+        parse_tun_tcp_segment(&device.writes[2]).expect("parse first server payload packet");
+    assert_eq!(first_payload.sequence_number, 1001);
+    assert_eq!(first_payload.acknowledgment_number, 17);
+    assert_eq!(first_payload.payload, first_chunk);
+    let duplicate_fin_payload_ack =
+        parse_tun_tcp_segment(&device.writes[3]).expect("parse latest-ACK FIN payload ACK");
+    assert_eq!(duplicate_fin_payload_ack.sequence_number, 1009);
+    assert_eq!(duplicate_fin_payload_ack.acknowledgment_number, 17);
+    assert!(duplicate_fin_payload_ack.flags.ack());
+    assert!(!duplicate_fin_payload_ack.flags.fin());
+    assert!(!duplicate_fin_payload_ack.flags.rst());
+    assert!(duplicate_fin_payload_ack.payload.is_empty());
+    let second_payload =
+        parse_tun_tcp_segment(&device.writes[4]).expect("parse second server payload packet");
+    assert_eq!(second_payload.sequence_number, 1009);
+    assert_eq!(second_payload.acknowledgment_number, 17);
+    assert_eq!(second_payload.payload, second_chunk);
+    assert_eq!(relay.active_session_count(), 1);
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(
+        tcp_server.join().expect("TCP EOF response server"),
+        b"GET /".to_vec(),
+        "registry relay should deliver FIN payload once and poll the split response"
+    );
+}
+
+#[test]
 fn registry_tun_tcp_session_relay_polls_followup_server_payload_after_ack() {
     let first_chunk = b"HTTP/1.1";
     let second_chunk = b" body";
@@ -5064,6 +5339,113 @@ fn tun_packet_loop_duplicate_client_fin_with_latest_server_ack_polls_payload() {
     assert_eq!(second_server_payload.acknowledgment_number, 17);
     assert_eq!(second_server_payload.payload, b" body");
     assert_eq!(relay.client_payloads, vec![b"GET /".to_vec()]);
+    assert_eq!(relay.client_write_shutdown_sessions.len(), 1);
+    assert!(relay.closed_sessions.is_empty());
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(
+        sessions
+            .get_flow(&syn_flow)
+            .expect("lookup session")
+            .expect("stored half-closed session")
+            .phase,
+        TunTcpSessionPhase::ClientFinReceived
+    );
+}
+
+#[test]
+fn tun_packet_loop_duplicate_fin_payload_with_latest_server_ack_polls_payload() {
+    let packets = vec![
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 11, 1001, 0x0019, 0x4000, &[], b"POST"),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 11, 1009, 0x0019, 0x4000, &[], b"POST"),
+        ),
+    ];
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let syn_flow = parse_tun_tcp_segment(&packets[0])
+        .expect("parse SYN for session lookup")
+        .flow
+        .clone();
+    let mut device = FakeTunPacketDevice::new(packets);
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::with_server_reads(vec![
+        TunTcpServerRead::Payload(b"HTTP/1.1".to_vec()),
+        TunTcpServerRead::Payload(b" body".to_vec()),
+    ]);
+
+    let summary = run_tun_packet_loop_with_tcp_session_relay_summary(
+        &mut device,
+        &routes,
+        true,
+        &mut dns,
+        30,
+        4,
+        &mut sessions,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("run TUN loop with latest-ACK duplicate FIN payload server poll");
+
+    assert_eq!(summary.processed_packets(), 4);
+    assert_eq!(summary.tcp_session_events, 4);
+    assert_eq!(summary.tcp_session_packets_written, 5);
+    assert_eq!(summary.tcp_session_errors, 0);
+    assert_eq!(device.writes.len(), 5);
+    let syn_ack = parse_tun_tcp_segment(&device.writes[0]).expect("parse SYN-ACK");
+    assert_eq!(syn_ack.sequence_number, 1000);
+    assert_eq!(syn_ack.acknowledgment_number, 11);
+    assert!(syn_ack.flags.syn());
+    assert!(syn_ack.flags.ack());
+    let fin_payload_ack = parse_tun_tcp_segment(&device.writes[1]).expect("parse FIN payload ACK");
+    assert_eq!(fin_payload_ack.sequence_number, 1001);
+    assert_eq!(fin_payload_ack.acknowledgment_number, 16);
+    assert!(fin_payload_ack.flags.ack());
+    assert!(!fin_payload_ack.flags.fin());
+    assert!(!fin_payload_ack.flags.rst());
+    assert!(fin_payload_ack.payload.is_empty());
+    let first_server_payload =
+        parse_tun_tcp_segment(&device.writes[2]).expect("parse first server payload");
+    assert_eq!(first_server_payload.sequence_number, 1001);
+    assert_eq!(first_server_payload.acknowledgment_number, 16);
+    assert_eq!(first_server_payload.payload, b"HTTP/1.1");
+    let duplicate_fin_payload_ack =
+        parse_tun_tcp_segment(&device.writes[3]).expect("parse latest-ACK FIN payload ACK");
+    assert_eq!(duplicate_fin_payload_ack.sequence_number, 1009);
+    assert_eq!(duplicate_fin_payload_ack.acknowledgment_number, 16);
+    assert!(duplicate_fin_payload_ack.flags.ack());
+    assert!(!duplicate_fin_payload_ack.flags.fin());
+    assert!(!duplicate_fin_payload_ack.flags.rst());
+    assert!(duplicate_fin_payload_ack.payload.is_empty());
+    let second_server_payload =
+        parse_tun_tcp_segment(&device.writes[4]).expect("parse second server payload");
+    assert_eq!(second_server_payload.sequence_number, 1009);
+    assert_eq!(second_server_payload.acknowledgment_number, 16);
+    assert_eq!(second_server_payload.payload, b" body");
+    assert_eq!(relay.client_payloads, vec![b"POST".to_vec()]);
     assert_eq!(relay.client_write_shutdown_sessions.len(), 1);
     assert!(relay.closed_sessions.is_empty());
     assert_eq!(sessions.len(), 1);

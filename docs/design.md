@@ -275,6 +275,9 @@ The first implementation target is deliberately small:
    Latest-ACK duplicate client FINs also poll the relay once, so upstream EOF
    can immediately emit the server FIN or queued server payload instead of
    waiting for another client ACK.
+   The same latest-ACK polling path is covered when the duplicate FIN also
+   carries the final client payload, including registry-backed split TCP
+   responses.
    A TCP session relay device-loop entrypoint now reads TUN packets, routes
    direct or tagged TCP relay plans into that step runner, writes response
    packets back to the device, and records TCP session events, written packets,
