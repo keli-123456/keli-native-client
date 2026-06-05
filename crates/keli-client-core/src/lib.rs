@@ -338,6 +338,149 @@ pub fn preflight_subscription_config(
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubscriptionUpdateReason {
+    InitialSubscription,
+    SelectedOutboundPreserved,
+    SelectedOutboundMissingUseDefault,
+    SelectedOutboundMissingNoDefault,
+    NoSupportedOutbounds,
+}
+
+impl SubscriptionUpdateReason {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::InitialSubscription => "initial-subscription",
+            Self::SelectedOutboundPreserved => "selected-outbound-preserved",
+            Self::SelectedOutboundMissingUseDefault => "selected-outbound-missing-use-default",
+            Self::SelectedOutboundMissingNoDefault => "selected-outbound-missing-no-default",
+            Self::NoSupportedOutbounds => "no-supported-outbounds",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionUpdateReport {
+    pub current_supported_count: usize,
+    pub new_supported_count: usize,
+    pub new_skipped_count: usize,
+    pub current_default_outbound: Option<String>,
+    pub new_default_outbound: Option<String>,
+    pub current_selected_outbound: Option<String>,
+    pub planned_selected_outbound: Option<String>,
+    pub selected_outbound_preserved: bool,
+    pub selected_outbound_changed: bool,
+    pub usable: bool,
+    pub added_tags: Vec<String>,
+    pub removed_tags: Vec<String>,
+    pub retained_tags: Vec<String>,
+    pub reason: SubscriptionUpdateReason,
+}
+
+pub fn plan_subscription_update(
+    current_config_text: Option<&str>,
+    new_config_text: &str,
+    current_selected_outbound: Option<&str>,
+) -> Result<SubscriptionUpdateReport, ClientErrorKind> {
+    let current_preflight = current_config_text
+        .map(preflight_subscription_config)
+        .transpose()?;
+    let new_preflight = preflight_subscription_config(new_config_text)?;
+    Ok(subscription_update_report_from_preflights(
+        current_preflight.as_ref(),
+        &new_preflight,
+        current_selected_outbound,
+    ))
+}
+
+fn subscription_update_report_from_preflights(
+    current: Option<&SubscriptionPreflightReport>,
+    new: &SubscriptionPreflightReport,
+    current_selected_outbound: Option<&str>,
+) -> SubscriptionUpdateReport {
+    let current_tags = current
+        .map(|report| report.supported_tags())
+        .unwrap_or_default();
+    let new_tags = new.supported_tags();
+    let current_default_outbound = current
+        .and_then(SubscriptionPreflightReport::default_outbound)
+        .map(str::to_string);
+    let new_default_outbound = new.default_outbound().map(str::to_string);
+    let effective_current_selected = current_selected_outbound
+        .map(str::to_string)
+        .or_else(|| current_default_outbound.clone());
+    let usable = new.is_usable();
+
+    let (planned_selected_outbound, selected_outbound_preserved, reason) = if !usable {
+        (None, false, SubscriptionUpdateReason::NoSupportedOutbounds)
+    } else if let Some(selected) = effective_current_selected.as_ref() {
+        if new_tags.iter().any(|tag| tag == selected) {
+            (
+                Some(selected.clone()),
+                true,
+                SubscriptionUpdateReason::SelectedOutboundPreserved,
+            )
+        } else if let Some(default_outbound) = new_default_outbound.clone() {
+            (
+                Some(default_outbound),
+                false,
+                SubscriptionUpdateReason::SelectedOutboundMissingUseDefault,
+            )
+        } else {
+            (
+                None,
+                false,
+                SubscriptionUpdateReason::SelectedOutboundMissingNoDefault,
+            )
+        }
+    } else {
+        (
+            new_default_outbound.clone(),
+            false,
+            SubscriptionUpdateReason::InitialSubscription,
+        )
+    };
+
+    SubscriptionUpdateReport {
+        current_supported_count: current.map_or(0, SubscriptionPreflightReport::supported_count),
+        new_supported_count: new.supported_count(),
+        new_skipped_count: new.skipped_count(),
+        current_default_outbound,
+        new_default_outbound,
+        current_selected_outbound: effective_current_selected.clone(),
+        selected_outbound_changed: effective_current_selected != planned_selected_outbound,
+        planned_selected_outbound,
+        selected_outbound_preserved,
+        usable,
+        added_tags: tags_added(current_tags, new_tags),
+        removed_tags: tags_removed(current_tags, new_tags),
+        retained_tags: tags_retained(current_tags, new_tags),
+        reason,
+    }
+}
+
+fn tags_added(current: &[String], new: &[String]) -> Vec<String> {
+    new.iter()
+        .filter(|tag| !current.iter().any(|current_tag| current_tag == *tag))
+        .cloned()
+        .collect()
+}
+
+fn tags_removed(current: &[String], new: &[String]) -> Vec<String> {
+    current
+        .iter()
+        .filter(|tag| !new.iter().any(|new_tag| new_tag == *tag))
+        .cloned()
+        .collect()
+}
+
+fn tags_retained(current: &[String], new: &[String]) -> Vec<String> {
+    new.iter()
+        .filter(|tag| current.iter().any(|current_tag| current_tag == *tag))
+        .cloned()
+        .collect()
+}
+
 fn profile_supports_udp(profile: &OutboundProfile) -> bool {
     !matches!(profile.protocol, ProxyProtocol::Http | ProxyProtocol::Naive)
 }
@@ -812,6 +955,22 @@ proxies:
         )
     }
 
+    fn ss_config_many(tags: &[&str]) -> String {
+        let mut config = String::from("proxies:\n");
+        for tag in tags {
+            config.push_str(&format!(
+                r#"  - name: {tag}
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+"#
+            ));
+        }
+        config
+    }
+
     #[test]
     fn session_tracks_successful_relay_path() {
         let mut session = SessionState::default();
@@ -981,6 +1140,94 @@ proxies:
                 .select_outbound(Some("MISSING"))
                 .expect_err("missing"),
             ClientErrorKind::OutboundNotFound("MISSING".to_string())
+        );
+    }
+
+    #[test]
+    fn subscription_update_preserves_selected_outbound_and_reports_tag_diff() {
+        let current = ss_config_many(&["SS-OLD", "SS-STAY"]);
+        let new = ss_config_many(&["SS-STAY", "SS-NEW"]);
+
+        let report =
+            plan_subscription_update(Some(&current), &new, Some("SS-STAY")).expect("update plan");
+
+        assert!(report.usable);
+        assert_eq!(report.current_supported_count, 2);
+        assert_eq!(report.new_supported_count, 2);
+        assert_eq!(report.new_skipped_count, 0);
+        assert_eq!(report.current_default_outbound.as_deref(), Some("SS-OLD"));
+        assert_eq!(report.new_default_outbound.as_deref(), Some("SS-STAY"));
+        assert_eq!(report.current_selected_outbound.as_deref(), Some("SS-STAY"));
+        assert_eq!(report.planned_selected_outbound.as_deref(), Some("SS-STAY"));
+        assert!(report.selected_outbound_preserved);
+        assert!(!report.selected_outbound_changed);
+        assert_eq!(report.added_tags, vec!["SS-NEW".to_string()]);
+        assert_eq!(report.removed_tags, vec!["SS-OLD".to_string()]);
+        assert_eq!(report.retained_tags, vec!["SS-STAY".to_string()]);
+        assert_eq!(
+            report.reason,
+            SubscriptionUpdateReason::SelectedOutboundPreserved
+        );
+        assert_eq!(report.reason.label(), "selected-outbound-preserved");
+    }
+
+    #[test]
+    fn subscription_update_falls_back_to_new_default_when_selected_is_removed() {
+        let current = ss_config_many(&["SS-A", "SS-B"]);
+        let new = ss_config_many(&["SS-C", "SS-D"]);
+
+        let report =
+            plan_subscription_update(Some(&current), &new, Some("SS-B")).expect("update plan");
+
+        assert!(report.usable);
+        assert_eq!(report.current_selected_outbound.as_deref(), Some("SS-B"));
+        assert_eq!(report.planned_selected_outbound.as_deref(), Some("SS-C"));
+        assert!(!report.selected_outbound_preserved);
+        assert!(report.selected_outbound_changed);
+        assert_eq!(
+            report.added_tags,
+            vec!["SS-C".to_string(), "SS-D".to_string()]
+        );
+        assert_eq!(
+            report.removed_tags,
+            vec!["SS-A".to_string(), "SS-B".to_string()]
+        );
+        assert!(report.retained_tags.is_empty());
+        assert_eq!(
+            report.reason,
+            SubscriptionUpdateReason::SelectedOutboundMissingUseDefault
+        );
+    }
+
+    #[test]
+    fn subscription_update_reports_unusable_new_subscription_without_selected_outbound() {
+        let current = ss_config("SS-READY");
+        let new = r#"
+proxies:
+  - name: WG-SKIPPED
+    type: wireguard
+    server: wg.example.com
+    port: 51820
+    password: ignored
+"#;
+
+        let report =
+            plan_subscription_update(Some(&current), new, Some("SS-READY")).expect("update plan");
+
+        assert!(!report.usable);
+        assert_eq!(report.new_supported_count, 0);
+        assert_eq!(report.new_skipped_count, 1);
+        assert_eq!(
+            report.current_selected_outbound.as_deref(),
+            Some("SS-READY")
+        );
+        assert_eq!(report.planned_selected_outbound, None);
+        assert!(!report.selected_outbound_preserved);
+        assert!(report.selected_outbound_changed);
+        assert_eq!(report.removed_tags, vec!["SS-READY".to_string()]);
+        assert_eq!(
+            report.reason,
+            SubscriptionUpdateReason::NoSupportedOutbounds
         );
     }
 

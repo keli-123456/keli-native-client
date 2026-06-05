@@ -429,3 +429,9 @@ servers, credentials, Host headers, paths, or SNI values.
 HTTP/HTTPS subscription responses are fetched with timeout and byte limits,
 validated through the same profile-check summary, and reported with redacted
 source metadata that omits full paths and query tokens.
+Subscription update planning now gives panel and UI flows a core-side decision
+boundary before applying a fetched config: it reports whether the active
+selected outbound can be preserved, which tags were added, removed, or retained,
+whether fallback to the new default outbound is required, and whether the new
+subscription has no supported outbounds. The CLI exposes the same boundary as
+`subscription-update`, with redacted current/new profile summaries for support.

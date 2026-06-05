@@ -72,6 +72,14 @@ proxies:
         "profile-check-summary"
     );
     assert_eq!(
+        report["doctor"]["subscription_update_capabilities"][0],
+        "current-config"
+    );
+    assert_eq!(
+        report["doctor"]["subscription_update_capabilities"][6],
+        "redacted-profile-summary"
+    );
+    assert_eq!(
         report["doctor"]["resource_limits"]["runtime_event_history"],
         DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT
     );

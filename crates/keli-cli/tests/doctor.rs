@@ -46,6 +46,9 @@ fn doctor_report_lists_supported_outbounds() {
         "subscription_fetch_capabilities=http,https,timeout,max-bytes,redacted-source,profile-check-summary"
     ));
     assert!(output.contains(
+        "subscription_update_capabilities=current-config,new-config,current-outbound,tag-diff,selected-preservation,default-fallback,redacted-profile-summary"
+    ));
+    assert!(output.contains(
         "managed_connection_metric_capabilities=total-connection-count,success-count,failure-count,connection-limit-rejection-count,error-kind-counts,route-action-counts,inbound-counts,total-upload-bytes,total-download-bytes,total-connect-ms,timed-connect-count,average-connect-ms,total-first-byte-ms,timed-first-byte-count,average-first-byte-ms,last-connection-timestamp,last-success-timestamp,last-failure-timestamp,recent-connection-reports,history-limit"
     ));
     assert!(output.contains(
@@ -423,6 +426,15 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(
         report["subscription_fetch_capabilities"][5],
         "profile-check-summary"
+    );
+    assert_eq!(
+        report["subscription_update_capabilities"][0],
+        "current-config"
+    );
+    assert_eq!(report["subscription_update_capabilities"][3], "tag-diff");
+    assert_eq!(
+        report["subscription_update_capabilities"][6],
+        "redacted-profile-summary"
     );
     assert_eq!(
         report["managed_connection_metric_capabilities"][0],

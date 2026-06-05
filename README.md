@@ -55,6 +55,11 @@ subscription update flows: it can fetch HTTP/HTTPS subscription URLs with
 timeout and size limits, feed the result through the existing redacted
 profile-check summary, and report only a scheme/host/port/path/query-presence
 source shape instead of leaking full subscription tokens.
+The core also exposes a subscription update planning boundary, and
+`keli-cli subscription-update` reports whether a new subscription can preserve
+the currently selected outbound, which tags were added/removed/retained, when
+the core would fall back to the new default outbound, and whether the new
+subscription is unusable, all while reusing the redacted profile summary shape.
 The managed background listener dispatches accepted TCP connections to workers,
 so one long-lived mixed client no longer blocks subsequent connections.
 That worker fan-out is bounded and records connection-limit rejections in
@@ -338,4 +343,5 @@ $env:CARGO_INCREMENTAL='0'; cargo test --workspace -j 1
 cargo run -p keli-cli -- doctor
 cargo run -p keli-cli -- doctor --format json
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
+cargo run -p keli-cli -- subscription-update --current-config active.yaml --new-config subscription.yaml --current-outbound proxy --format json
 ```

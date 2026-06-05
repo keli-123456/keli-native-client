@@ -13,11 +13,11 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use keli_client_core::{
-    build_connection_plan, ClientErrorKind, ClientRuntime, ConnectionPhase, ConnectionPlan,
-    PanelState, RuntimeConfig, RuntimeDiagnostic, RuntimeEvent,
+    build_connection_plan, plan_subscription_update, ClientErrorKind, ClientRuntime,
+    ConnectionPhase, ConnectionPlan, PanelState, RuntimeConfig, RuntimeDiagnostic, RuntimeEvent,
     RuntimeManagedMixedStopDrainDiagnostic, RuntimeManagedNodeProbeSweepDiagnostic, RuntimeStatus,
     RuntimeTunPacketLoopDiagnostic, SkippedProfileSummary, SubscriptionNodeCapability,
-    DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
+    SubscriptionUpdateReport, DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
 };
 use keli_net_core::{
     build_dns_error_response, build_dns_response, encode_socks5_udp_datagram,
@@ -85,6 +85,8 @@ const MANAGED_STATUS_SCHEMA_CAPABILITIES: &str =
     "schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,node-health-udp-aware-recommendation,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state";
 const SUBSCRIPTION_FETCH_CAPABILITIES: &str =
     "http,https,timeout,max-bytes,redacted-source,profile-check-summary";
+const SUBSCRIPTION_UPDATE_CAPABILITIES: &str =
+    "current-config,new-config,current-outbound,tag-diff,selected-preservation,default-fallback,redacted-profile-summary";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
     "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic";
 
@@ -103,6 +105,12 @@ pub enum CliCommand {
         output: ProbeOutputFormat,
         timeout: Duration,
         max_bytes: usize,
+    },
+    SubscriptionUpdate {
+        current_config: Option<String>,
+        new_config: String,
+        current_outbound: Option<String>,
+        output: ProbeOutputFormat,
     },
     ListenMixed {
         listen: String,
@@ -3435,6 +3443,7 @@ pub fn parse_cli_command(
         Some("tun-preflight") => parse_tun_preflight(args),
         Some("version") => Ok(CliCommand::Version),
         Some("subscription-fetch") => parse_subscription_fetch(args),
+        Some("subscription-update") => parse_subscription_update(args),
         Some("listen-mixed") => parse_listen_mixed(args),
         Some("probe-outbound") => parse_probe_outbound(args),
         Some("smoke-mixed") => parse_smoke_mixed(args),
@@ -3468,6 +3477,30 @@ pub fn run(command: CliCommand) -> Result<(), String> {
         } => {
             let mut stdout = io::stdout();
             write_subscription_fetch_report_from_url(&url, output, timeout, max_bytes, &mut stdout)
+        }
+        CliCommand::SubscriptionUpdate {
+            current_config,
+            new_config,
+            current_outbound,
+            output,
+        } => {
+            let current_config_text = match current_config.as_deref() {
+                Some(path) => Some(
+                    fs::read_to_string(path)
+                        .map_err(|error| format!("read current profile config {path}: {error}"))?,
+                ),
+                None => None,
+            };
+            let new_config_text = fs::read_to_string(&new_config)
+                .map_err(|error| format!("read new profile config {new_config}: {error}"))?;
+            let mut stdout = io::stdout();
+            write_subscription_update_report_from_config_text(
+                current_config_text.as_deref(),
+                &new_config_text,
+                current_outbound.as_deref(),
+                output,
+                &mut stdout,
+            )
         }
         CliCommand::ListenMixed {
             listen,
@@ -3617,7 +3650,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
 pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
-        "usage: keli-cli [doctor|tun-preflight|version|subscription-fetch|listen-mixed|probe-outbound|smoke-mixed|profile-check|support-bundle]"
+        "usage: keli-cli [doctor|tun-preflight|version|subscription-fetch|subscription-update|listen-mixed|probe-outbound|smoke-mixed|profile-check|support-bundle]"
     )?;
     writeln!(writer, "       keli-cli doctor [--format text|json]")?;
     writeln!(
@@ -3627,6 +3660,10 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
         "       keli-cli subscription-fetch --url https://panel.example/subscription [--format text|json] [--timeout-ms 30000] [--max-bytes 2097152]"
+    )?;
+    writeln!(
+        writer,
+        "       keli-cli subscription-update --new-config subscription.yaml [--current-config active.yaml] [--current-outbound proxy] [--format text|json]"
     )?;
     writeln!(
         writer,
@@ -3761,6 +3798,52 @@ fn parse_subscription_fetch(args: impl Iterator<Item = String>) -> Result<CliCom
         output,
         timeout,
         max_bytes,
+    })
+}
+
+fn parse_subscription_update(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
+    let mut current_config = None;
+    let mut new_config = None;
+    let mut current_outbound = None;
+    let mut output = ProbeOutputFormat::Text;
+    let mut args = args.peekable();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--current-config" => {
+                current_config = Some(
+                    args.next()
+                        .ok_or_else(|| "--current-config requires a path".to_string())?,
+                );
+            }
+            "--new-config" => {
+                new_config = Some(
+                    args.next()
+                        .ok_or_else(|| "--new-config requires a path".to_string())?,
+                );
+            }
+            "--current-outbound" | "--current-outbound-tag" => {
+                current_outbound = Some(
+                    args.next()
+                        .ok_or_else(|| "--current-outbound requires a tag".to_string())?,
+                );
+            }
+            "--format" => {
+                output = parse_probe_output_format(
+                    args.next()
+                        .ok_or_else(|| "--format requires text or json".to_string())?,
+                )?;
+            }
+            other => return Err(format!("unknown subscription-update option: {other}")),
+        }
+    }
+
+    Ok(CliCommand::SubscriptionUpdate {
+        current_config,
+        new_config: new_config
+            .ok_or_else(|| "subscription-update requires --new-config".to_string())?,
+        current_outbound,
+        output,
     })
 }
 
@@ -4255,6 +4338,7 @@ struct DoctorReport {
     supported_udp_outbounds: Vec<&'static str>,
     protocol_capabilities: &'static str,
     subscription_fetch_capabilities: Vec<&'static str>,
+    subscription_update_capabilities: Vec<&'static str>,
     managed_connection_metric_capabilities: Vec<&'static str>,
     managed_status_schema_capabilities: Vec<&'static str>,
     tun_packet_pipeline_capabilities: Vec<&'static str>,
@@ -4351,6 +4435,7 @@ fn collect_doctor_report() -> DoctorReport {
         supported_udp_outbounds: SUPPORTED_UDP_OUTBOUNDS.split(',').collect(),
         protocol_capabilities: SUPPORTED_PROTOCOL_CAPABILITIES,
         subscription_fetch_capabilities: SUBSCRIPTION_FETCH_CAPABILITIES.split(',').collect(),
+        subscription_update_capabilities: SUBSCRIPTION_UPDATE_CAPABILITIES.split(',').collect(),
         managed_connection_metric_capabilities: MANAGED_CONNECTION_METRIC_CAPABILITIES
             .split(',')
             .collect(),
@@ -4464,6 +4549,11 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     )?;
     writeln!(
         writer,
+        "subscription_update_capabilities={}",
+        report.subscription_update_capabilities.join(",")
+    )?;
+    writeln!(
+        writer,
         "managed_connection_metric_capabilities={}",
         report.managed_connection_metric_capabilities.join(",")
     )?;
@@ -4551,6 +4641,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         "supported_udp_outbounds": &report.supported_udp_outbounds,
         "protocol_capabilities": report.protocol_capabilities,
         "subscription_fetch_capabilities": &report.subscription_fetch_capabilities,
+        "subscription_update_capabilities": &report.subscription_update_capabilities,
         "managed_connection_metric_capabilities": &report.managed_connection_metric_capabilities,
         "managed_status_schema_capabilities": &report.managed_status_schema_capabilities,
         "tun_packet_pipeline_capabilities": &report.tun_packet_pipeline_capabilities,
@@ -4883,6 +4974,134 @@ fn subscription_fetch_report_value(
                 "server_endpoints": "omitted",
             },
         }),
+    }
+}
+
+pub fn write_subscription_update_report_from_config_text(
+    current_config_text: Option<&str>,
+    new_config_text: &str,
+    current_outbound: Option<&str>,
+    output: ProbeOutputFormat,
+    mut writer: impl Write,
+) -> Result<(), String> {
+    let result = plan_subscription_update(current_config_text, new_config_text, current_outbound);
+    let report = subscription_update_report_value(result, current_config_text, new_config_text);
+
+    match output {
+        ProbeOutputFormat::Text => write_subscription_update_text_report(&mut writer, &report),
+        ProbeOutputFormat::Json => {
+            serde_json::to_writer_pretty(&mut writer, &report)
+                .map_err(|error| error.to_string())?;
+            writeln!(writer).map_err(|error| error.to_string())
+        }
+    }
+}
+
+fn write_subscription_update_text_report(
+    writer: &mut impl Write,
+    report: &serde_json::Value,
+) -> Result<(), String> {
+    let update = &report["update"];
+    if report["status"].as_str().unwrap_or("error") == "ok" {
+        writeln!(
+            writer,
+            "subscription-update status=ok usable={} reason={} current_supported={} new_supported={} new_skipped={} current_selected={} planned_selected={} preserved={} changed={} added={} removed={} retained={}",
+            update["usable"].as_bool().unwrap_or(false),
+            update["reason"].as_str().unwrap_or("-"),
+            update["current_supported_count"].as_u64().unwrap_or(0),
+            update["new_supported_count"].as_u64().unwrap_or(0),
+            update["new_skipped_count"].as_u64().unwrap_or(0),
+            update["current_selected_outbound"].as_str().unwrap_or("-"),
+            update["planned_selected_outbound"].as_str().unwrap_or("-"),
+            update["selected_outbound_preserved"].as_bool().unwrap_or(false),
+            update["selected_outbound_changed"].as_bool().unwrap_or(false),
+            json_string_array_csv(&update["added_tags"]),
+            json_string_array_csv(&update["removed_tags"]),
+            json_string_array_csv(&update["retained_tags"]),
+        )
+        .map_err(|error| error.to_string())
+    } else {
+        writeln!(
+            writer,
+            "subscription-update status=error error_kind={} error_detail={}",
+            update["error"]["kind"].as_str().unwrap_or("unknown"),
+            update["error"]["detail"].as_str().unwrap_or("-"),
+        )
+        .map_err(|error| error.to_string())
+    }
+}
+
+fn subscription_update_report_value(
+    result: Result<SubscriptionUpdateReport, ClientErrorKind>,
+    current_config_text: Option<&str>,
+    new_config_text: &str,
+) -> serde_json::Value {
+    match result {
+        Ok(report) => serde_json::json!({
+            "status": "ok",
+            "kind": "keli_subscription_update",
+            "update": subscription_update_json_value(&report),
+            "current_profile": support_bundle_profile_value(current_config_text),
+            "new_profile": support_bundle_profile_value(Some(new_config_text)),
+            "redaction": {
+                "profile_config_text": "omitted",
+                "credentials": "omitted",
+                "server_endpoints": "omitted",
+            },
+        }),
+        Err(error) => serde_json::json!({
+            "status": "error",
+            "kind": "keli_subscription_update",
+            "update": {
+                "status": "error",
+                "error": client_error_json_value(&error),
+            },
+            "current_profile": support_bundle_profile_value(current_config_text),
+            "new_profile": support_bundle_profile_value(Some(new_config_text)),
+            "redaction": {
+                "profile_config_text": "omitted",
+                "credentials": "omitted",
+                "server_endpoints": "omitted",
+            },
+        }),
+    }
+}
+
+fn subscription_update_json_value(report: &SubscriptionUpdateReport) -> serde_json::Value {
+    serde_json::json!({
+        "status": "ok",
+        "usable": report.usable,
+        "reason": report.reason.label(),
+        "current_supported_count": report.current_supported_count,
+        "new_supported_count": report.new_supported_count,
+        "new_skipped_count": report.new_skipped_count,
+        "current_default_outbound": report.current_default_outbound.as_deref(),
+        "new_default_outbound": report.new_default_outbound.as_deref(),
+        "current_selected_outbound": report.current_selected_outbound.as_deref(),
+        "planned_selected_outbound": report.planned_selected_outbound.as_deref(),
+        "selected_outbound_preserved": report.selected_outbound_preserved,
+        "selected_outbound_changed": report.selected_outbound_changed,
+        "added_tags": &report.added_tags,
+        "removed_tags": &report.removed_tags,
+        "retained_tags": &report.retained_tags,
+    })
+}
+
+fn json_string_array_csv(value: &serde_json::Value) -> String {
+    let joined = value
+        .as_array()
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_default();
+    if joined.is_empty() {
+        "-".to_string()
+    } else {
+        joined
     }
 }
 

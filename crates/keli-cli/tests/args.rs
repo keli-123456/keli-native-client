@@ -487,6 +487,32 @@ fn parses_subscription_fetch_json_command() {
 }
 
 #[test]
+fn parses_subscription_update_json_command() {
+    let command = parse_cli_command([
+        "subscription-update",
+        "--current-config",
+        "active.yaml",
+        "--new-config",
+        "next.yaml",
+        "--current-outbound",
+        "SS-READY",
+        "--format",
+        "json",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::SubscriptionUpdate {
+            current_config: Some("active.yaml".to_string()),
+            new_config: "next.yaml".to_string(),
+            current_outbound: Some("SS-READY".to_string()),
+            output: ProbeOutputFormat::Json,
+        }
+    );
+}
+
+#[test]
 fn parses_probe_outbound_udp_command() {
     let command = parse_cli_command([
         "probe-outbound",
