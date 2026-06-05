@@ -6,18 +6,21 @@ use std::thread;
 use std::time::Duration;
 
 use keli_cli::{
-    apply_system_proxy_for_listener, ManagedMixedController, ManagedMixedOptions,
-    ManagedMixedSession, ManagedNodeHealthState, ManagedNodeHealthStatus, ManagedNodeProbeOptions,
-    ManagedNodeProbeSweepOptions, MixedDnsOptions, SmokeInboundKind,
+    apply_system_proxy_for_listener, managed_mixed_status_json_value,
+    write_managed_mixed_status_json_report, ManagedMixedController, ManagedMixedOptions,
+    ManagedMixedSession, ManagedMixedStatusSnapshot, ManagedNodeHealthState,
+    ManagedNodeHealthStatus, ManagedNodeProbeOptions, ManagedNodeProbeSweepOptions,
+    MixedDnsOptions, SmokeInboundKind,
 };
 use keli_client_core::{
     ClientErrorKind, PanelAccountState, PanelRiskControlState, PanelState, PanelUserState,
-    RuntimeStatus,
+    RuntimeDiagnostic, RuntimeEvent, RuntimeStatus, RuntimeTunPacketLoopDiagnostic,
 };
 use keli_net_core::{ConnectionErrorKind, DnsAddressFamilyPolicy, DnsLocalResolutionPolicy};
 use keli_platform::{
     SystemProxyConfig, SystemProxyController, SystemProxyError, SystemProxySnapshot,
 };
+use serde_json::Value;
 use shadowsocks_crypto::kind::CipherKind;
 use shadowsocks_crypto::v1::{openssl_bytes_to_key, Cipher};
 
@@ -475,6 +478,188 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
     assert_eq!(core.status().status, RuntimeStatus::Stopped);
     assert!(!core.status().system_proxy_enabled());
     assert!(!platform_controller.restored.borrow().is_empty());
+}
+
+#[test]
+fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
+    let snapshot = SystemProxySnapshot {
+        proxy_enable: Some(0),
+        proxy_server: Some("old.proxy:8080".to_string()),
+        proxy_override: None,
+    };
+    let platform_controller = FakeSystemProxyController::new(snapshot);
+    let mut core = ManagedMixedController::new(&platform_controller);
+    core.record_panel_state(
+        PanelState::new(
+            PanelUserState {
+                account_state: PanelAccountState::Active,
+                used_bytes: Some(256),
+                total_bytes: Some(1024),
+                expires_at: None,
+            },
+            PanelRiskControlState::Clear,
+        )
+        .with_support_note("panel account active"),
+    );
+    let started = core
+        .start_from_subscription_config_text(
+            mixed_subscription_with_capability_variants(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                system_proxy: true,
+                system_proxy_bypass: vec!["localhost".to_string(), "<local>".to_string()],
+                tun_tcp_max_active_sessions: 17,
+                dns_options: MixedDnsOptions {
+                    local_resolution_policy: DnsLocalResolutionPolicy::PreventPublicLeak,
+                    address_family_policy: DnsAddressFamilyPolicy::Ipv4Only,
+                    ..MixedDnsOptions::default()
+                },
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+    let status = core
+        .record_node_health(ManagedNodeHealthStatus::healthy(
+            "SS-READY",
+            Some(42),
+            true,
+            true,
+        ))
+        .expect("record node health");
+
+    let value = managed_mixed_status_json_value(&status);
+    assert_eq!(value["status"]["state"], "running");
+    assert_eq!(value["status"]["generation"], started.generation);
+    assert_eq!(value["selected_outbound"], "SS-READY");
+    assert_eq!(value["generation"], started.generation);
+    assert!(value["listen_addr"].as_str().is_some());
+    assert!(value["event_count"]
+        .as_u64()
+        .is_some_and(|count| count >= 3));
+    assert!(value["recent_events"]
+        .as_array()
+        .is_some_and(|events| { !events.is_empty() && events.len() <= 5 }));
+    assert_eq!(
+        value["dns_options"]["local_resolution_policy"],
+        "prevent-public-leak"
+    );
+    assert_eq!(value["dns_options"]["address_family_policy"], "ipv4-only");
+    assert_eq!(value["tun_tcp_max_active_sessions"], 17);
+    assert_eq!(value["system_proxy"]["bypass"][0], "localhost");
+    assert_eq!(value["panel_state"]["account_state"], "active");
+    assert_eq!(value["panel_state"]["traffic_used_per_mille"], 250);
+    assert_eq!(value["panel_state"]["restrict_traffic"], false);
+    assert_eq!(value["subscription"]["selected_outbound"], "SS-READY");
+    assert_eq!(value["subscription"]["recommended_outbound"], "SS-READY");
+    assert_eq!(value["subscription"]["supported_count"], 2);
+    assert_eq!(value["subscription"]["supported"][1]["tag"], "VLESS-EDGE");
+    assert_eq!(value["subscription"]["supported"][1]["transport"], "ws");
+    assert_eq!(value["subscription"]["node_health"][0]["state"], "healthy");
+    assert_eq!(value["subscription"]["node_health"][0]["latency_ms"], 42);
+    assert_eq!(value["subscription"]["health_summary"]["healthy_count"], 1);
+
+    let serialized = value.to_string();
+    assert!(!serialized.contains("secret"));
+    assert!(!serialized.contains("00112233-4455-6677-8899-aabbccddeeff"));
+    assert!(!serialized.contains("ss.example.com"));
+    assert!(!serialized.contains("vless.example.com"));
+    assert!(!serialized.contains("private-sni.example.com"));
+    assert!(!serialized.contains("private-host.example.com"));
+    assert!(!serialized.contains("/private-vless-path"));
+
+    let mut output = Vec::new();
+    write_managed_mixed_status_json_report(&status, &mut output)
+        .expect("write managed status json");
+    let report: Value = serde_json::from_slice(&output).expect("parse managed status json");
+    assert_eq!(report["status"]["state"], "running");
+    assert_eq!(report["subscription"]["supported"][1]["transport"], "ws");
+
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_status_json_includes_tun_runtime_diagnostic() {
+    let diagnostic = RuntimeDiagnostic::TunPacketLoop(RuntimeTunPacketLoopDiagnostic {
+        interface_name: "keli-tun0".to_string(),
+        owns_device: true,
+        processed_packets: 3,
+        idle_events: 1,
+        exit_reason: "stop-requested".to_string(),
+        stop_requested: true,
+        packet_limit_reached: false,
+        dns_responses_written: 0,
+        udp_relay_responses_written: 1,
+        tcp_resets_written: 0,
+        tcp_session_events: 2,
+        tcp_session_packets_written: 2,
+        tcp_max_active_sessions: 17,
+        tcp_session_limit_rejections: 0,
+        tcp_sessions_pruned: 0,
+        tcp_server_closed_sessions_pruned: 0,
+        tcp_post_closed_sessions_pruned: 0,
+        tcp_server_close_marker_resets: 0,
+        tcp_post_close_marker_resets: 0,
+        tcp_sessions_open: 0,
+        tcp_server_close_markers_open: 0,
+        tcp_post_close_markers_open: 0,
+        tcp_sessions_peak: 1,
+        tcp_server_close_markers_peak: 0,
+        tcp_post_close_markers_peak: 0,
+        relay_packets: 3,
+        tcp_relay_plans: 2,
+        udp_relay_plans: 1,
+        dropped_packets: 0,
+        unsupported_packets: 0,
+        packet_errors: 1,
+        udp_relay_errors: 0,
+        tcp_session_errors: 0,
+        last_packet_error: Some("unsupported_TUN_packet_IP_version:_0".to_string()),
+        last_udp_relay_error: None,
+        last_tcp_session_error: None,
+    });
+    let snapshot = ManagedMixedStatusSnapshot {
+        status: RuntimeStatus::Running {
+            generation: 7,
+            selected_outbound: "SS-READY".to_string(),
+            listen: "127.0.0.1:7890".to_string(),
+        },
+        listen_addr: Some("127.0.0.1:7890".parse().expect("listen addr")),
+        selected_outbound: Some("SS-READY".to_string()),
+        generation: 7,
+        event_count: 1,
+        recent_events: vec![RuntimeEvent::with_diagnostic(
+            RuntimeStatus::Running {
+                generation: 7,
+                selected_outbound: "SS-READY".to_string(),
+                listen: "127.0.0.1:7890".to_string(),
+            },
+            Some("managed TUN runtime stopped"),
+            diagnostic,
+        )],
+        last_error: None,
+        system_proxy: None,
+        subscription: None,
+        dns_options: MixedDnsOptions::default(),
+        tun_tcp_max_active_sessions: 17,
+        panel_state: None,
+    };
+
+    let value = managed_mixed_status_json_value(&snapshot);
+    let diagnostic = &value["recent_events"][0]["diagnostic"];
+    assert_eq!(diagnostic["kind"], "tun-packet-loop");
+    assert_eq!(diagnostic["interface_name"], "keli-tun0");
+    assert_eq!(diagnostic["exit_reason"], "stop-requested");
+    assert_eq!(diagnostic["processed_packets"], 3);
+    assert_eq!(diagnostic["udp_relay_responses_written"], 1);
+    assert_eq!(diagnostic["tcp_session_events"], 2);
+    assert_eq!(diagnostic["tcp_max_active_sessions"], 17);
+    assert_eq!(
+        diagnostic["last_packet_error"],
+        "unsupported_TUN_packet_IP_version:_0"
+    );
+    assert_eq!(value["status"]["state"], "running");
+    assert_eq!(value["status"]["generation"], 7);
 }
 
 #[test]

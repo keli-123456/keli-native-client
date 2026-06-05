@@ -335,6 +335,10 @@ The first implementation target is deliberately small:
    Runtime events can also carry the managed TUN packet-loop report as a
    structured diagnostic payload, giving UI and support tooling direct access
    to counters and sanitized last-error fields without parsing the text note.
+   Managed mixed status snapshots can be exported as stable JSON, including
+   recent events, structured diagnostics, subscription health, DNS policy,
+   system proxy config, panel restriction state, and redacted node capability
+   metadata for UI/service integrations.
    Managed TUN packet loops now use a combined UDP/TCP relay path so the
    registry-backed UDP execution path remains active while direct and tagged
    TCP sessions can be exercised through the shared outbound registry.

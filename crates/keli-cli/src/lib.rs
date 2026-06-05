@@ -1413,6 +1413,296 @@ impl ManagedMixedStatusSnapshot {
     }
 }
 
+pub fn managed_mixed_status_json_value(status: &ManagedMixedStatusSnapshot) -> serde_json::Value {
+    serde_json::json!({
+        "status": runtime_status_json_value(&status.status),
+        "listen_addr": status.listen_addr.map(|addr| addr.to_string()),
+        "selected_outbound": status.selected_outbound.as_deref(),
+        "generation": status.generation,
+        "event_count": status.event_count,
+        "recent_events": status
+            .recent_events
+            .iter()
+            .map(runtime_event_json_value)
+            .collect::<Vec<_>>(),
+        "last_error": status.last_error.as_ref().map(client_error_json_value),
+        "system_proxy": status.system_proxy.as_ref().map(system_proxy_config_json_value),
+        "subscription": status.subscription.as_ref().map(managed_subscription_status_json_value),
+        "dns_options": mixed_dns_options_json_value(status.dns_options),
+        "tun_tcp_max_active_sessions": status.tun_tcp_max_active_sessions,
+        "panel_state": status.panel_state.as_ref().map(panel_state_json_value),
+    })
+}
+
+pub fn write_managed_mixed_status_json_report(
+    status: &ManagedMixedStatusSnapshot,
+    mut writer: impl Write,
+) -> io::Result<()> {
+    let value = managed_mixed_status_json_value(status);
+    serde_json::to_writer_pretty(&mut writer, &value).map_err(io::Error::other)?;
+    writeln!(writer)
+}
+
+fn runtime_status_json_value(status: &RuntimeStatus) -> serde_json::Value {
+    match status {
+        RuntimeStatus::Stopped => serde_json::json!({
+            "state": "stopped",
+        }),
+        RuntimeStatus::Starting => serde_json::json!({
+            "state": "starting",
+        }),
+        RuntimeStatus::Running {
+            generation,
+            selected_outbound,
+            listen,
+        } => serde_json::json!({
+            "state": "running",
+            "generation": generation,
+            "selected_outbound": selected_outbound,
+            "listen": listen,
+        }),
+        RuntimeStatus::Reloading { generation } => serde_json::json!({
+            "state": "reloading",
+            "generation": generation,
+        }),
+        RuntimeStatus::Stopping { generation } => serde_json::json!({
+            "state": "stopping",
+            "generation": generation,
+        }),
+        RuntimeStatus::Failed(error) => serde_json::json!({
+            "state": "failed",
+            "error": client_error_json_value(error),
+        }),
+    }
+}
+
+fn runtime_event_json_value(event: &RuntimeEvent) -> serde_json::Value {
+    serde_json::json!({
+        "status": runtime_status_json_value(&event.status),
+        "note": event.note.as_deref(),
+        "diagnostic": event.diagnostic.as_ref().map(runtime_diagnostic_json_value),
+        "at_unix_ms": system_time_unix_ms(event.at),
+    })
+}
+
+fn runtime_diagnostic_json_value(diagnostic: &RuntimeDiagnostic) -> serde_json::Value {
+    match diagnostic {
+        RuntimeDiagnostic::TunPacketLoop(diagnostic) => serde_json::json!({
+            "kind": "tun-packet-loop",
+            "interface_name": &diagnostic.interface_name,
+            "owns_device": diagnostic.owns_device,
+            "processed_packets": diagnostic.processed_packets,
+            "idle_events": diagnostic.idle_events,
+            "exit_reason": &diagnostic.exit_reason,
+            "stop_requested": diagnostic.stop_requested,
+            "packet_limit_reached": diagnostic.packet_limit_reached,
+            "dns_responses_written": diagnostic.dns_responses_written,
+            "udp_relay_responses_written": diagnostic.udp_relay_responses_written,
+            "tcp_resets_written": diagnostic.tcp_resets_written,
+            "tcp_session_events": diagnostic.tcp_session_events,
+            "tcp_session_packets_written": diagnostic.tcp_session_packets_written,
+            "tcp_max_active_sessions": diagnostic.tcp_max_active_sessions,
+            "tcp_session_limit_rejections": diagnostic.tcp_session_limit_rejections,
+            "tcp_sessions_pruned": diagnostic.tcp_sessions_pruned,
+            "tcp_server_closed_sessions_pruned": diagnostic.tcp_server_closed_sessions_pruned,
+            "tcp_post_closed_sessions_pruned": diagnostic.tcp_post_closed_sessions_pruned,
+            "tcp_server_close_marker_resets": diagnostic.tcp_server_close_marker_resets,
+            "tcp_post_close_marker_resets": diagnostic.tcp_post_close_marker_resets,
+            "tcp_sessions_open": diagnostic.tcp_sessions_open,
+            "tcp_server_close_markers_open": diagnostic.tcp_server_close_markers_open,
+            "tcp_post_close_markers_open": diagnostic.tcp_post_close_markers_open,
+            "tcp_sessions_peak": diagnostic.tcp_sessions_peak,
+            "tcp_server_close_markers_peak": diagnostic.tcp_server_close_markers_peak,
+            "tcp_post_close_markers_peak": diagnostic.tcp_post_close_markers_peak,
+            "relay_packets": diagnostic.relay_packets,
+            "tcp_relay_plans": diagnostic.tcp_relay_plans,
+            "udp_relay_plans": diagnostic.udp_relay_plans,
+            "dropped_packets": diagnostic.dropped_packets,
+            "unsupported_packets": diagnostic.unsupported_packets,
+            "packet_errors": diagnostic.packet_errors,
+            "udp_relay_errors": diagnostic.udp_relay_errors,
+            "tcp_session_errors": diagnostic.tcp_session_errors,
+            "last_packet_error": diagnostic.last_packet_error.as_deref(),
+            "last_udp_relay_error": diagnostic.last_udp_relay_error.as_deref(),
+            "last_tcp_session_error": diagnostic.last_tcp_session_error.as_deref(),
+        }),
+    }
+}
+
+fn client_error_json_value(error: &ClientErrorKind) -> serde_json::Value {
+    match error {
+        ClientErrorKind::CoreNotStarted => serde_json::json!({
+            "kind": "core-not-started",
+        }),
+        ClientErrorKind::DnsTimeout => serde_json::json!({
+            "kind": "dns-timeout",
+        }),
+        ClientErrorKind::TcpConnectTimeout => serde_json::json!({
+            "kind": "tcp-connect-timeout",
+        }),
+        ClientErrorKind::TlsHandshakeFailed => serde_json::json!({
+            "kind": "tls-handshake-failed",
+        }),
+        ClientErrorKind::WebSocketUpgradeFailed => serde_json::json!({
+            "kind": "websocket-upgrade-failed",
+        }),
+        ClientErrorKind::ProxyAuthFailed => serde_json::json!({
+            "kind": "proxy-auth-failed",
+        }),
+        ClientErrorKind::RelayStalled => serde_json::json!({
+            "kind": "relay-stalled",
+        }),
+        ClientErrorKind::TunPermissionMissing => serde_json::json!({
+            "kind": "tun-permission-missing",
+        }),
+        ClientErrorKind::SystemProxyLoop => serde_json::json!({
+            "kind": "system-proxy-loop",
+        }),
+        ClientErrorKind::RouteNoOutbound => serde_json::json!({
+            "kind": "route-no-outbound",
+        }),
+        ClientErrorKind::NoSupportedOutbounds => serde_json::json!({
+            "kind": "no-supported-outbounds",
+        }),
+        ClientErrorKind::OutboundNotFound(tag) => serde_json::json!({
+            "kind": "outbound-not-found",
+            "tag": tag,
+        }),
+        ClientErrorKind::PanelTrafficRestricted {
+            account_state,
+            risk_control,
+        } => serde_json::json!({
+            "kind": "panel-traffic-restricted",
+            "account_state": account_state,
+            "risk_control": risk_control,
+        }),
+        ClientErrorKind::ConfigInvalid(detail) => serde_json::json!({
+            "kind": "config-invalid",
+            "detail": detail,
+        }),
+    }
+}
+
+fn system_proxy_config_json_value(config: &SystemProxyConfig) -> serde_json::Value {
+    serde_json::json!({
+        "server": &config.server,
+        "bypass": &config.bypass,
+    })
+}
+
+fn managed_subscription_status_json_value(status: &ManagedSubscriptionStatus) -> serde_json::Value {
+    serde_json::json!({
+        "usable": status.usable,
+        "supported_count": status.supported_count(),
+        "skipped_count": status.skipped_count(),
+        "supported_tags": &status.supported_tags,
+        "supported": status
+            .supported
+            .iter()
+            .map(subscription_node_capability_json_value)
+            .collect::<Vec<_>>(),
+        "skipped": status
+            .skipped
+            .iter()
+            .map(skipped_profile_summary_json_value)
+            .collect::<Vec<_>>(),
+        "default_outbound": status.default_outbound.as_deref(),
+        "selected_outbound": &status.selected_outbound,
+        "recommended_outbound": &status.recommended_outbound,
+        "health_summary": managed_subscription_health_summary_json_value(&status.health_summary),
+        "node_health": status
+            .node_health
+            .iter()
+            .map(managed_node_health_status_json_value)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn subscription_node_capability_json_value(
+    capability: &SubscriptionNodeCapability,
+) -> serde_json::Value {
+    serde_json::json!({
+        "tag": &capability.tag,
+        "protocol": &capability.protocol,
+        "transport": &capability.transport,
+        "security": &capability.security,
+        "tls_skip_verify": capability.tls_skip_verify,
+        "udp_supported": capability.udp_supported,
+    })
+}
+
+fn skipped_profile_summary_json_value(summary: &SkippedProfileSummary) -> serde_json::Value {
+    serde_json::json!({
+        "name": &summary.name,
+        "reason": &summary.reason,
+    })
+}
+
+fn managed_subscription_health_summary_json_value(
+    summary: &ManagedSubscriptionHealthSummary,
+) -> serde_json::Value {
+    serde_json::json!({
+        "healthy_count": summary.healthy_count,
+        "unhealthy_count": summary.unhealthy_count,
+        "unknown_count": summary.unknown_count,
+        "checked_count": summary.checked_count,
+        "last_checked_at_unix_ms": summary.last_checked_at.map(system_time_unix_ms),
+        "selected_state": summary.selected_state.as_ref().map(ManagedNodeHealthState::label),
+        "recommended_state": summary.recommended_state.as_ref().map(ManagedNodeHealthState::label),
+        "recommended_is_selected": summary.recommended_is_selected,
+        "switch_recommended": summary.switch_recommended,
+        "fully_checked": summary.fully_checked,
+    })
+}
+
+fn managed_node_health_status_json_value(health: &ManagedNodeHealthStatus) -> serde_json::Value {
+    serde_json::json!({
+        "tag": &health.tag,
+        "state": health.state.label(),
+        "tcp_available": health.tcp_available,
+        "udp_available": health.udp_available,
+        "latency_ms": health.latency_ms.map(saturating_u128_to_u64),
+        "error_kind": health.error_kind.as_ref().map(|kind| format!("{kind:?}")),
+        "error_detail": health.error_detail.as_deref(),
+        "checked_at_unix_ms": health.checked_at.map(system_time_unix_ms),
+    })
+}
+
+fn mixed_dns_options_json_value(options: MixedDnsOptions) -> serde_json::Value {
+    serde_json::json!({
+        "local_resolution_policy": options.local_resolution_label(),
+        "address_family_policy": options.address_family_label(),
+        "cache_ttl_ms": saturating_u128_to_u64(options.cache_ttl.as_millis()),
+    })
+}
+
+fn panel_state_json_value(panel_state: &PanelState) -> serde_json::Value {
+    serde_json::json!({
+        "account_state": panel_state.user.account_state.label(),
+        "used_bytes": panel_state.user.used_bytes,
+        "total_bytes": panel_state.user.total_bytes,
+        "traffic_used_per_mille": panel_state.user.traffic_used_per_mille(),
+        "quota_exhausted": panel_state.user.quota_exhausted(),
+        "expires_at_unix_ms": panel_state.user.expires_at.map(system_time_unix_ms),
+        "risk_control": panel_state.risk_control.label(),
+        "updated_at_unix_ms": system_time_unix_ms(panel_state.updated_at),
+        "support_note": panel_state.support_note.as_deref(),
+        "restrict_traffic": panel_state.should_restrict_traffic(),
+    })
+}
+
+fn system_time_unix_ms(at: SystemTime) -> u64 {
+    let millis = at
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    saturating_u128_to_u64(millis)
+}
+
+fn saturating_u128_to_u64(value: u128) -> u64 {
+    value.min(u128::from(u64::MAX)) as u64
+}
+
 #[derive(Debug)]
 pub struct ManagedMixedController<'a, C: SystemProxyController + ?Sized> {
     controller: &'a C,
