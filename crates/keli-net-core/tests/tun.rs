@@ -2064,6 +2064,84 @@ fn closes_tun_tcp_session_step_and_notifies_relay() {
 }
 
 #[test]
+fn closes_tun_tcp_session_with_fin_payload_after_writing_payload_once() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    let fin_payload_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0019, 0x4000, &[], b"GET /"),
+    );
+    let fin_payload =
+        parse_tun_tcp_segment(&fin_payload_packet).expect("parse FIN payload segment");
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::default();
+
+    process_tun_tcp_session_segment(&mut sessions, &syn, &mut relay, 1000, 0x2000)
+        .expect("process SYN step");
+    process_tun_tcp_session_segment(&mut sessions, &ack, &mut relay, 1000, 0x2000)
+        .expect("process ACK step");
+
+    let close_step =
+        process_tun_tcp_session_segment(&mut sessions, &fin_payload, &mut relay, 1000, 0x2000)
+            .expect("process FIN payload step");
+
+    let TunTcpSessionStep::ClientPayloadClosed { frame, response } = close_step else {
+        panic!("expected FIN payload close step");
+    };
+    assert_eq!(frame.sequence_number, 11);
+    assert_eq!(frame.acknowledgment_number, 17);
+    assert_eq!(frame.payload, b"GET /");
+    assert_eq!(relay.client_payloads, vec![b"GET /".to_vec()]);
+    assert_eq!(relay.closed_sessions.len(), 1);
+    assert_eq!(response.sequence_number, 1001);
+    assert_eq!(response.acknowledgment_number, 17);
+    assert_eq!(frame.ack_packet, response.packet);
+    let ack = parse_tun_tcp_segment(&response.packet).expect("parse FIN payload ACK");
+    assert_eq!(ack.sequence_number, 1001);
+    assert_eq!(ack.acknowledgment_number, 17);
+    assert!(ack.flags.ack());
+    assert!(!ack.flags.rst());
+    assert!(!ack.flags.fin());
+    assert!(sessions.is_empty());
+
+    let duplicate_step =
+        process_tun_tcp_session_segment(&mut sessions, &fin_payload, &mut relay, 1000, 0x2000)
+            .expect("process duplicate FIN payload step");
+
+    let TunTcpSessionStep::ServerCloseClientFinAck { response } = duplicate_step else {
+        panic!("expected post-close FIN payload ACK");
+    };
+    assert_eq!(response.sequence_number, 1001);
+    assert_eq!(response.acknowledgment_number, 17);
+    let duplicate_ack =
+        parse_tun_tcp_segment(&response.packet).expect("parse duplicate FIN payload ACK");
+    assert_eq!(duplicate_ack.sequence_number, 1001);
+    assert_eq!(duplicate_ack.acknowledgment_number, 17);
+    assert!(duplicate_ack.flags.ack());
+    assert!(!duplicate_ack.flags.rst());
+    assert_eq!(
+        relay.client_payloads,
+        vec![b"GET /".to_vec()],
+        "duplicate FIN payload must not be written to the relay twice"
+    );
+    assert_eq!(relay.closed_sessions.len(), 1);
+}
+
+#[test]
 fn resets_unknown_tun_tcp_session_segments_without_notifying_relay() {
     let data_packet = ipv4_packet(
         6,
@@ -4198,6 +4276,79 @@ fn tun_packet_loop_reacknowledges_duplicate_client_fin_after_close_without_reset
     assert!(!duplicate_fin_ack.flags.rst());
     assert!(sessions.is_empty());
     assert_eq!(relay.closed_sessions.len(), 1);
+}
+
+#[test]
+fn tun_packet_loop_writes_fin_payload_before_close_and_reacks_retransmit() {
+    let packets = vec![
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 11, 1001, 0x0019, 0x4000, &[], b"GET /"),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 11, 1001, 0x0019, 0x4000, &[], b"GET /"),
+        ),
+    ];
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut device = FakeTunPacketDevice::new(packets);
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::default();
+
+    let summary = run_tun_packet_loop_with_tcp_session_relay_summary(
+        &mut device,
+        &routes,
+        true,
+        &mut dns,
+        30,
+        4,
+        &mut sessions,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("run TUN loop with FIN payload close");
+
+    assert_eq!(summary.processed_packets(), 4);
+    assert_eq!(summary.tcp_session_events, 4);
+    assert_eq!(summary.tcp_session_packets_written, 3);
+    assert_eq!(device.writes.len(), 3);
+    assert_eq!(relay.client_payloads, vec![b"GET /".to_vec()]);
+    assert_eq!(relay.closed_sessions.len(), 1);
+    let first_ack = parse_tun_tcp_segment(&device.writes[1]).expect("parse FIN payload ACK");
+    assert_eq!(first_ack.sequence_number, 1001);
+    assert_eq!(first_ack.acknowledgment_number, 17);
+    assert!(first_ack.flags.ack());
+    assert!(!first_ack.flags.rst());
+    assert!(!first_ack.flags.fin());
+    let retransmit_ack =
+        parse_tun_tcp_segment(&device.writes[2]).expect("parse retransmitted FIN payload ACK");
+    assert_eq!(retransmit_ack.sequence_number, 1001);
+    assert_eq!(retransmit_ack.acknowledgment_number, 17);
+    assert!(retransmit_ack.flags.ack());
+    assert!(!retransmit_ack.flags.rst());
+    assert!(!retransmit_ack.flags.fin());
+    assert!(sessions.is_empty());
 }
 
 #[test]

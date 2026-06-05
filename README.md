@@ -163,6 +163,8 @@ segment at a time: SYN creates a SYN-ACK, ACK establishes the relay callback,
 client payload is written to the relay, queued server payload is packetized
 back to TUN, FIN closes with an ACK packet, and RST closes without creating a
 reset loop.
+FIN segments that carry final client payload write that payload to the relay
+before closing, and retransmits are re-ACKed without rewriting payload.
 Client-initiated FIN close ACKs are also kept briefly so duplicate client FINs
 re-send the ACK instead of being treated as unknown sessions.
 A TCP session relay device-loop entrypoint now reads TUN packets, routes direct

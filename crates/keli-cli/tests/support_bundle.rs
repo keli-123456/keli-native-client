@@ -198,62 +198,66 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][48],
-        "tcp-client-fin-post-close-ack"
+        "tcp-fin-payload-close"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][49],
-        "tcp-close-sequence-guard"
+        "tcp-client-fin-post-close-ack"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][50],
-        "tcp-close-latest-ack-guard"
+        "tcp-close-sequence-guard"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][51],
-        "tcp-unknown-session-reset"
+        "tcp-close-latest-ack-guard"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][52],
-        "tcp-server-eof-fin-ack"
+        "tcp-unknown-session-reset"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][53],
-        "tcp-server-fin-retransmit"
+        "tcp-server-eof-fin-ack"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][54],
-        "tcp-server-fin-final-ack"
+        "tcp-server-fin-retransmit"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][55],
-        "tcp-server-fin-client-fin-ack"
+        "tcp-server-fin-final-ack"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][56],
-        "tcp-server-fin-post-close-guard"
+        "tcp-server-fin-client-fin-ack"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][57],
-        "tcp-session-idle-cleanup"
+        "tcp-server-fin-post-close-guard"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][58],
-        "registry-tcp-session-relay"
+        "tcp-session-idle-cleanup"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][59],
-        "combined-tun-relay-loop"
+        "registry-tcp-session-relay"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][60],
-        "managed-registry-tcp-session-relay"
+        "combined-tun-relay-loop"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][61],
-        "tcp-relay-plan-summary"
+        "managed-registry-tcp-session-relay"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][62],
+        "tcp-relay-plan-summary"
+    );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][63],
         "relay-plan"
     );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");
