@@ -489,6 +489,7 @@ impl RuntimeEvent {
 pub enum RuntimeDiagnostic {
     TunPacketLoop(RuntimeTunPacketLoopDiagnostic),
     ManagedMixedStopDrain(RuntimeManagedMixedStopDrainDiagnostic),
+    ManagedNodeProbeSweep(RuntimeManagedNodeProbeSweepDiagnostic),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -540,6 +541,26 @@ pub struct RuntimeManagedMixedStopDrainDiagnostic {
     pub drain_elapsed_ms: u64,
     pub drain_timeout_ms: u64,
     pub timed_out: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeManagedNodeProbeSweepDiagnostic {
+    pub target: String,
+    pub inbound: String,
+    pub elapsed_ms: u64,
+    pub attempted_nodes: usize,
+    pub successful_probes: usize,
+    pub failed_probes: usize,
+    pub node_count: usize,
+    pub healthy_count: usize,
+    pub unhealthy_count: usize,
+    pub unknown_count: usize,
+    pub checked_count: usize,
+    pub unchecked_count: usize,
+    pub selected_outbound: String,
+    pub recommended_outbound: String,
+    pub recommended_switch_ready: bool,
+    pub recommended_switch_reason: String,
 }
 
 #[derive(Debug, Clone)]

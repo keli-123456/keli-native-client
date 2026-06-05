@@ -2426,6 +2426,55 @@ fn managed_mixed_controller_probe_all_node_health_records_each_supported_node() 
     assert_eq!(subscription.health_summary.unknown_count, 0);
     assert_eq!(subscription.health_summary.checked_count, 2);
     assert!(subscription.health_summary.last_checked_at.is_some());
+    let sweep_diagnostic = status
+        .recent_events
+        .iter()
+        .rev()
+        .find_map(|event| {
+            if let Some(RuntimeDiagnostic::ManagedNodeProbeSweep(diagnostic)) = &event.diagnostic {
+                Some(diagnostic)
+            } else {
+                None
+            }
+        })
+        .expect("node probe sweep diagnostic");
+    assert_eq!(sweep_diagnostic.target, "example.com:443");
+    assert_eq!(sweep_diagnostic.inbound, "mixed-http-connect-smoke");
+    assert_eq!(sweep_diagnostic.attempted_nodes, 2);
+    assert_eq!(sweep_diagnostic.successful_probes, 1);
+    assert_eq!(sweep_diagnostic.failed_probes, 1);
+    assert_eq!(sweep_diagnostic.node_count, 2);
+    assert_eq!(sweep_diagnostic.healthy_count, 1);
+    assert_eq!(sweep_diagnostic.unhealthy_count, 1);
+    assert_eq!(sweep_diagnostic.unknown_count, 0);
+    assert_eq!(sweep_diagnostic.checked_count, 2);
+    assert_eq!(sweep_diagnostic.unchecked_count, 0);
+    assert_eq!(sweep_diagnostic.selected_outbound, "SS-NEXT");
+    assert_eq!(sweep_diagnostic.recommended_outbound, "SS-READY");
+    assert!(sweep_diagnostic.recommended_switch_ready);
+    assert_eq!(sweep_diagnostic.recommended_switch_reason, "ready");
+    assert!(status.recent_events.iter().any(|event| {
+        event.note.as_deref().is_some_and(|note| {
+            note.contains("node health sweep completed")
+                && note.contains("attempted=2")
+                && note.contains("failure=1")
+        })
+    }));
+    let status_json = managed_mixed_status_json_value(&status);
+    let json_diagnostic = status_json["recent_events"]
+        .as_array()
+        .expect("recent events")
+        .iter()
+        .find_map(|event| {
+            let diagnostic = &event["diagnostic"];
+            (diagnostic["kind"] == "managed-node-probe-sweep").then_some(diagnostic)
+        })
+        .expect("node probe sweep JSON diagnostic");
+    assert_eq!(json_diagnostic["attempted_nodes"], 2);
+    assert_eq!(json_diagnostic["successful_probes"], 1);
+    assert_eq!(json_diagnostic["failed_probes"], 1);
+    assert_eq!(json_diagnostic["recommended_switch_ready"], true);
+    assert_eq!(json_diagnostic["recommended_switch_reason"], "ready");
     assert!(!subscription.health_summary.recommended_is_selected);
     assert!(!subscription.health_summary.selected_outbound_healthy);
     assert!(subscription.health_summary.recommended_outbound_healthy);

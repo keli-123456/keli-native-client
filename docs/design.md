@@ -401,7 +401,7 @@ selected outbound, listener address, managed system proxy config, and
 subscription node status including supported tags, skipped entries, default
 outbound, selected outbound, redacted per-node protocol/transport/security
 capabilities, node health, probe coverage counts, and health-summary switch
-readiness/reason labels.
+readiness/reason labels plus structured probe-sweep diagnostics.
 Health records support unknown/healthy/unhealthy states, latency, TCP/UDP
 availability, failure reasons, and runtime events for UI listeners;
 subscription reload prunes health entries that no longer belong to the active
