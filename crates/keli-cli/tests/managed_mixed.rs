@@ -1,16 +1,17 @@
 use std::cell::RefCell;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::str::FromStr;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
 use keli_cli::{
     apply_system_proxy_for_listener, managed_mixed_status_json_value,
-    write_managed_mixed_status_json_report, ManagedMixedController, ManagedMixedOptions,
-    ManagedMixedSession, ManagedMixedStatusSnapshot, ManagedNodeHealthState,
+    write_managed_mixed_status_json_report, ConnectionMetricsSnapshot, ManagedMixedController,
+    ManagedMixedOptions, ManagedMixedSession, ManagedMixedStatusSnapshot, ManagedNodeHealthState,
     ManagedNodeHealthStatus, ManagedNodeProbeOptions, ManagedNodeProbeSweepOptions,
-    MixedDnsOptions, SmokeInboundKind, MANAGED_MIXED_RECENT_EVENT_LIMIT,
+    MixedDnsOptions, SmokeInboundKind, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
+    MANAGED_MIXED_RECENT_EVENT_LIMIT,
 };
 use keli_client_core::{
     ClientErrorKind, PanelAccountState, PanelRiskControlState, PanelState, PanelUserState,
@@ -136,6 +137,31 @@ proxies:
     port: 51820
     password: ignored
 "#
+}
+
+fn request_blocked_socks5_domain(listen_addr: SocketAddr, host: &str, port: u16) {
+    let mut client = TcpStream::connect(listen_addr).expect("connect managed mixed listener");
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("set read timeout");
+    client
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .expect("set write timeout");
+    client.write_all(&[0x05, 0x01, 0x00]).expect("write hello");
+    let mut hello = [0; 2];
+    client.read_exact(&mut hello).expect("read hello");
+    assert_eq!(hello, [0x05, 0x00]);
+
+    let host_len = u8::try_from(host.len()).expect("SOCKS5 host length");
+    let mut request = vec![0x05, 0x01, 0x00, 0x03, host_len];
+    request.extend_from_slice(host.as_bytes());
+    request.extend_from_slice(&port.to_be_bytes());
+    client.write_all(&request).expect("write blocked request");
+
+    let mut reply = [0; 10];
+    client.read_exact(&mut reply).expect("read blocked reply");
+    assert_eq!(reply[0], 0x05);
+    assert_eq!(reply[1], 0x02);
 }
 
 #[derive(Debug)]
@@ -420,6 +446,11 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
     assert_eq!(started.generation, 1);
     assert!(started.started_at.is_some());
     assert!(started.uptime.is_some());
+    assert_eq!(started.connection_metrics.total_connection_count, 0);
+    assert_eq!(
+        started.connection_metrics.connection_history_limit,
+        MANAGED_CONNECTION_REPORT_HISTORY_LIMIT
+    );
     assert!(matches!(started.status, RuntimeStatus::Running { .. }));
     assert!(started.system_proxy_enabled());
     assert_eq!(
@@ -488,6 +519,74 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
 }
 
 #[test]
+fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    let started = core
+        .start_from_subscription_config_text(
+            ss_config(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                block_domains: vec!["blocked.example.com".to_string()],
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+    let listen_addr = started.listen_addr.expect("managed listener addr");
+
+    request_blocked_socks5_domain(listen_addr, "blocked.example.com", 443);
+
+    let status = core.status();
+    assert_eq!(status.connection_metrics.total_connection_count, 1);
+    assert_eq!(status.connection_metrics.success_count, 0);
+    assert_eq!(status.connection_metrics.failure_count, 1);
+    assert_eq!(status.connection_metrics.retained_connection_count, 1);
+    assert_eq!(
+        status.connection_metrics.connection_history_limit,
+        MANAGED_CONNECTION_REPORT_HISTORY_LIMIT
+    );
+    let report = status
+        .connection_metrics
+        .recent_connections
+        .first()
+        .expect("recent connection report");
+    assert_eq!(report.inbound, "socks5");
+    assert_eq!(report.target.host, "blocked.example.com");
+    assert_eq!(report.target.port, 443);
+    assert_eq!(report.route_action, keli_net_core::RouteAction::Block);
+    assert_eq!(report.error_kind, Some(ConnectionErrorKind::RouteBlocked));
+
+    let value = managed_mixed_status_json_value(&status);
+    assert_eq!(value["connection_metrics"]["total_connection_count"], 1);
+    assert_eq!(value["connection_metrics"]["failure_count"], 1);
+    assert_eq!(
+        value["connection_metrics"]["recent_connections"][0]["target"]["host"],
+        "blocked.example.com"
+    );
+    assert_eq!(
+        value["connection_metrics"]["recent_connections"][0]["route_action"]["kind"],
+        "block"
+    );
+    assert_eq!(
+        value["connection_metrics"]["recent_connections"][0]["error_kind"],
+        "route_blocked"
+    );
+
+    let reloaded = core
+        .reload_from_subscription_config_text(
+            &ss_config_with_tag("SS-NEXT"),
+            Some("SS-NEXT".to_string()),
+        )
+        .expect("reload managed mixed controller");
+    assert_eq!(reloaded.connection_metrics.total_connection_count, 1);
+    assert_eq!(reloaded.connection_metrics.failure_count, 1);
+    assert_eq!(reloaded.connection_metrics.retained_connection_count, 1);
+
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
 fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
     let snapshot = SystemProxySnapshot {
         proxy_enable: Some(0),
@@ -542,6 +641,13 @@ fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
     assert_eq!(value["generation"], started.generation);
     assert!(value["started_at_unix_ms"].as_u64().is_some());
     assert!(value["uptime_ms"].as_u64().is_some());
+    assert_eq!(value["connection_metrics"]["total_connection_count"], 0);
+    assert_eq!(value["connection_metrics"]["success_count"], 0);
+    assert_eq!(value["connection_metrics"]["failure_count"], 0);
+    assert_eq!(
+        value["connection_metrics"]["connection_history_limit"],
+        MANAGED_CONNECTION_REPORT_HISTORY_LIMIT
+    );
     assert!(value["listen_addr"].as_str().is_some());
     assert!(value["event_count"]
         .as_u64()
@@ -732,6 +838,7 @@ fn managed_mixed_status_json_includes_tun_runtime_diagnostic() {
         generation: 7,
         started_at: Some(SystemTime::UNIX_EPOCH),
         uptime: Some(Duration::from_secs(2)),
+        connection_metrics: ConnectionMetricsSnapshot::default(),
         event_count: 1,
         retained_event_count: 1,
         event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,

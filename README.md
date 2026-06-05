@@ -245,6 +245,9 @@ diagnostics.
 Runtime event history is bounded for long-running sessions while the stable
 status snapshot still reports the total event count and retention limits for
 support timelines.
+Managed runtime status now also retains bounded recent connection reports with
+success/failure counts, route actions, byte counters, and timing fields so UI
+and support tooling can inspect recent relay behavior without parsing logs.
 The managed TUN runtime uses a combined UDP/TCP relay loop, so it can keep the
 registry-backed UDP path while also exercising registry-backed TCP sessions.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline

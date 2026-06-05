@@ -344,6 +344,9 @@ The first implementation target is deliberately small:
    Runtime event history is bounded for long-running sessions while status
    snapshots still expose the total event count and retention limits for
    support timelines.
+   Managed runtime status also retains bounded recent connection reports with
+   success/failure counts, route actions, byte counters, and timing fields so
+   UI and support tooling can inspect relay behavior without scraping logs.
    Managed TUN packet loops now use a combined UDP/TCP relay path so the
    registry-backed UDP execution path remains active while direct and tagged
    TCP sessions can be exercised through the shared outbound registry.

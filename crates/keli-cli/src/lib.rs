@@ -7,7 +7,7 @@ use std::net::{
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, RwLock,
+    Arc, Mutex, RwLock,
 };
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -62,6 +62,7 @@ const DEFAULT_TUN_PACKET_LOOP_MAX_PACKETS: usize = usize::MAX;
 const DEFAULT_TUN_TCP_SERVER_INITIAL_SEQUENCE_NUMBER: u32 = 1;
 const DEFAULT_TUN_TCP_WINDOW_SIZE: u16 = 0x4000;
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
+pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
 const SUPPORTED_UDP_OUTBOUNDS: &str =
@@ -206,6 +207,98 @@ impl MixedDnsOptions {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionMetricsSnapshot {
+    pub total_connection_count: u64,
+    pub success_count: u64,
+    pub failure_count: u64,
+    pub retained_connection_count: usize,
+    pub connection_history_limit: usize,
+    pub recent_connections: Vec<ConnectionReport>,
+}
+
+impl Default for ConnectionMetricsSnapshot {
+    fn default() -> Self {
+        Self {
+            total_connection_count: 0,
+            success_count: 0,
+            failure_count: 0,
+            retained_connection_count: 0,
+            connection_history_limit: MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
+            recent_connections: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct ConnectionMetricsState {
+    total_connection_count: u64,
+    success_count: u64,
+    failure_count: u64,
+    recent_connections: Vec<ConnectionReport>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConnectionMetrics {
+    inner: Arc<Mutex<ConnectionMetricsState>>,
+    history_limit: usize,
+}
+
+impl ConnectionMetrics {
+    pub fn new(history_limit: usize) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(ConnectionMetricsState::default())),
+            history_limit: history_limit.max(1),
+        }
+    }
+
+    pub fn record(&self, report: &ConnectionReport) {
+        let Ok(mut state) = self.inner.lock() else {
+            return;
+        };
+        state.total_connection_count = state.total_connection_count.saturating_add(1);
+        if report.error_kind.is_some() {
+            state.failure_count = state.failure_count.saturating_add(1);
+        } else {
+            state.success_count = state.success_count.saturating_add(1);
+        }
+        state.recent_connections.push(report.clone());
+        if state.recent_connections.len() > self.history_limit {
+            let overflow = state.recent_connections.len() - self.history_limit;
+            state.recent_connections.drain(0..overflow);
+        }
+    }
+
+    pub fn snapshot(&self) -> ConnectionMetricsSnapshot {
+        let Ok(state) = self.inner.lock() else {
+            return ConnectionMetricsSnapshot {
+                connection_history_limit: self.history_limit,
+                ..ConnectionMetricsSnapshot::default()
+            };
+        };
+        let recent_connections = state
+            .recent_connections
+            .iter()
+            .rev()
+            .cloned()
+            .collect::<Vec<_>>();
+        ConnectionMetricsSnapshot {
+            total_connection_count: state.total_connection_count,
+            success_count: state.success_count,
+            failure_count: state.failure_count,
+            retained_connection_count: recent_connections.len(),
+            connection_history_limit: self.history_limit,
+            recent_connections,
+        }
+    }
+}
+
+impl Default for ConnectionMetrics {
+    fn default() -> Self {
+        Self::new(MANAGED_CONNECTION_REPORT_HISTORY_LIMIT)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MixedProxyRuntime {
     pub routes: RouteEngine,
@@ -213,6 +306,7 @@ pub struct MixedProxyRuntime {
     pub outbounds: OutboundRegistry,
     pub dns_options: MixedDnsOptions,
     pub tun_tcp_max_active_sessions: usize,
+    pub connection_metrics: ConnectionMetrics,
 }
 
 impl MixedProxyRuntime {
@@ -223,6 +317,7 @@ impl MixedProxyRuntime {
             outbounds: OutboundRegistry::new(),
             dns_options: MixedDnsOptions::default(),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+            connection_metrics: ConnectionMetrics::default(),
         }
     }
 
@@ -233,7 +328,16 @@ impl MixedProxyRuntime {
             outbounds,
             dns_options: MixedDnsOptions::default(),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+            connection_metrics: ConnectionMetrics::default(),
         }
+    }
+
+    pub fn record_connection_report(&self, report: &ConnectionReport) {
+        self.connection_metrics.record(report);
+    }
+
+    pub fn connection_metrics_snapshot(&self) -> ConnectionMetricsSnapshot {
+        self.connection_metrics.snapshot()
     }
 }
 
@@ -1152,6 +1256,7 @@ pub struct ManagedMixedStatusSnapshot {
     pub generation: u64,
     pub started_at: Option<SystemTime>,
     pub uptime: Option<Duration>,
+    pub connection_metrics: ConnectionMetricsSnapshot,
     pub event_count: usize,
     pub retained_event_count: usize,
     pub event_history_limit: usize,
@@ -1406,6 +1511,7 @@ impl ManagedMixedStatusSnapshot {
             generation: 0,
             started_at: None,
             uptime: None,
+            connection_metrics: ConnectionMetricsSnapshot::default(),
             event_count: 0,
             retained_event_count: 0,
             event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
@@ -1433,6 +1539,7 @@ pub fn managed_mixed_status_json_value(status: &ManagedMixedStatusSnapshot) -> s
         "generation": status.generation,
         "started_at_unix_ms": status.started_at.map(system_time_unix_ms),
         "uptime_ms": status.uptime.map(duration_millis),
+        "connection_metrics": connection_metrics_json_value(&status.connection_metrics),
         "event_count": status.event_count,
         "retained_event_count": status.retained_event_count,
         "event_history_limit": status.event_history_limit,
@@ -1685,6 +1792,56 @@ fn managed_node_health_status_json_value(health: &ManagedNodeHealthStatus) -> se
     })
 }
 
+fn connection_metrics_json_value(metrics: &ConnectionMetricsSnapshot) -> serde_json::Value {
+    serde_json::json!({
+        "total_connection_count": metrics.total_connection_count,
+        "success_count": metrics.success_count,
+        "failure_count": metrics.failure_count,
+        "retained_connection_count": metrics.retained_connection_count,
+        "connection_history_limit": metrics.connection_history_limit,
+        "recent_connections": metrics
+            .recent_connections
+            .iter()
+            .map(connection_report_json_value)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn connection_report_json_value(report: &ConnectionReport) -> serde_json::Value {
+    serde_json::json!({
+        "inbound": &report.inbound,
+        "target": {
+            "host": &report.target.host,
+            "port": report.target.port,
+        },
+        "route_action": route_action_json_value(&report.route_action),
+        "connect_ms": report.connect_ms.map(saturating_u128_to_u64),
+        "first_byte_ms": report.first_byte_ms.map(saturating_u128_to_u64),
+        "upload_bytes": report.upload_bytes,
+        "download_bytes": report.download_bytes,
+        "error_kind": report.error_kind.map(ConnectionErrorKind::as_str),
+        "error_detail": report.error_detail.as_deref(),
+    })
+}
+
+fn route_action_json_value(action: &RouteAction) -> serde_json::Value {
+    match action {
+        RouteAction::Direct => serde_json::json!({
+            "kind": "direct",
+        }),
+        RouteAction::Block => serde_json::json!({
+            "kind": "block",
+        }),
+        RouteAction::Outbound(tag) => serde_json::json!({
+            "kind": "outbound",
+            "tag": tag,
+        }),
+        RouteAction::HijackDns => serde_json::json!({
+            "kind": "hijack-dns",
+        }),
+    }
+}
+
 fn mixed_dns_options_json_value(options: MixedDnsOptions) -> serde_json::Value {
     serde_json::json!({
         "local_resolution_policy": options.local_resolution_label(),
@@ -1918,6 +2075,7 @@ impl ManagedMixedStatusSnapshot {
             generation: handle.generation(),
             started_at: handle.started_at(),
             uptime: handle.uptime(),
+            connection_metrics: handle.connection_metrics_snapshot(),
             event_count: handle.event_count(),
             retained_event_count: handle.events().len(),
             event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
@@ -1956,6 +2114,13 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
 
     pub fn uptime(&self) -> Option<Duration> {
         self.state.uptime()
+    }
+
+    pub fn connection_metrics_snapshot(&self) -> ConnectionMetricsSnapshot {
+        self.runtime
+            .read()
+            .map(|runtime| runtime.connection_metrics_snapshot())
+            .unwrap_or_default()
     }
 
     pub fn event_count(&self) -> usize {
@@ -2157,7 +2322,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
             }
         };
         let selected_outbound = plan.selected_outbound().to_string();
-        let next_runtime = match mixed_runtime_from_subscription_config_text_with_dns_options(
+        let mut next_runtime = match mixed_runtime_from_subscription_config_text_with_dns_options(
             config_text,
             self.block_domains.clone(),
             self.relay_options,
@@ -2180,6 +2345,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
                 .runtime
                 .write()
                 .map_err(|_| "managed mixed runtime lock poisoned".to_string())?;
+            next_runtime.connection_metrics = runtime.connection_metrics.clone();
             *runtime = next_runtime;
         }
 
@@ -3739,6 +3905,7 @@ fn serve_mixed_listener_until(
     while !stop.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((mut stream, _)) => {
+                stream.set_nonblocking(false)?;
                 let runtime = runtime
                     .read()
                     .map_err(|_| io::Error::other("mixed runtime lock poisoned"))?
@@ -3931,14 +4098,14 @@ pub fn handle_socks5_connection_with_routes(
         Ok(RouteConnect::Blocked { route_action }) => {
             report.route_action = route_action;
             report.record_error(ConnectionErrorKind::RouteBlocked);
-            println!("{}", report.summary_line());
+            emit_connection_report(runtime, &report);
             stream.write_all(&socks5_reply(Socks5ReplyCode::ConnectionNotAllowed))?;
             return Ok(());
         }
         Ok(RouteConnect::UnsupportedOutbound { tag, route_action }) => {
             report.route_action = route_action;
             report.record_error(ConnectionErrorKind::UnsupportedOutbound);
-            println!("{}", report.summary_line());
+            emit_connection_report(runtime, &report);
             stream.write_all(&socks5_reply(Socks5ReplyCode::CommandNotSupported))?;
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -3947,7 +4114,7 @@ pub fn handle_socks5_connection_with_routes(
         }
         Err(error) => {
             report.record_error(ConnectionErrorKind::from_io(&error));
-            println!("{}", report.summary_line());
+            emit_connection_report(runtime, &report);
             stream.write_all(&socks5_reply(Socks5ReplyCode::HostUnreachable))?;
             return Err(error);
         }
@@ -3955,7 +4122,7 @@ pub fn handle_socks5_connection_with_routes(
 
     stream.write_all(&socks5_reply(Socks5ReplyCode::Succeeded))?;
     let client = stream.try_clone()?;
-    relay_with_report(client, remote, &mut report, runtime.relay_options)
+    relay_with_report(client, remote, &mut report, runtime)
 }
 
 fn handle_socks5_udp_associate(
@@ -4068,7 +4235,7 @@ fn relay_socks5_udp_datagram(
         RouteAction::Block => {
             report.route_action = RouteAction::Block;
             report.record_error(ConnectionErrorKind::RouteBlocked);
-            println!("{}", report.summary_line());
+            emit_connection_report(runtime, &report);
             return Ok(());
         }
         RouteAction::Outbound(tag) => {
@@ -4083,7 +4250,7 @@ fn relay_socks5_udp_datagram(
                 Ok(response) => response,
                 Err(error) => {
                     report.record_error(ConnectionErrorKind::from_io(&error));
-                    println!("{}", report.summary_line());
+                    emit_connection_report(runtime, &report);
                     return Ok(());
                 }
             };
@@ -4091,7 +4258,7 @@ fn relay_socks5_udp_datagram(
             report.record_first_byte_duration(started.elapsed());
             report.download_bytes = response.payload.len() as u64;
             send_socks5_udp_response(relay, client_udp_addr, response.source, &response.payload)?;
-            println!("{}", report.summary_line());
+            emit_connection_report(runtime, &report);
             return Ok(());
         }
         RouteAction::HijackDns => {
@@ -4105,7 +4272,7 @@ fn relay_socks5_udp_datagram(
                         ConnectionErrorKind::from_io(&error),
                         error.to_string(),
                     );
-                    println!("{}", report.summary_line());
+                    emit_connection_report(runtime, &report);
                     return Ok(());
                 }
             };
@@ -4118,7 +4285,7 @@ fn relay_socks5_udp_datagram(
                 socks5_udp_response_source_for_target(&target),
                 &response,
             )?;
-            println!("{}", report.summary_line());
+            emit_connection_report(runtime, &report);
             return Ok(());
         }
     }
@@ -4127,14 +4294,14 @@ fn relay_socks5_udp_datagram(
         Ok(remote_addr) => remote_addr,
         Err(error) => {
             report.record_error(ConnectionErrorKind::from_io(&error));
-            println!("{}", report.summary_line());
+            emit_connection_report(runtime, &report);
             return Ok(());
         }
     };
     let started = Instant::now();
     if let Err(error) = outbound.send_to(&datagram.payload, remote_addr) {
         report.record_error(ConnectionErrorKind::from_io(&error));
-        println!("{}", report.summary_line());
+        emit_connection_report(runtime, &report);
         return Ok(());
     }
     report.upload_bytes = datagram.payload.len() as u64;
@@ -4144,7 +4311,7 @@ fn relay_socks5_udp_datagram(
         Ok(response) => response,
         Err(error) => {
             report.record_error(ConnectionErrorKind::from_io(&error));
-            println!("{}", report.summary_line());
+            emit_connection_report(runtime, &report);
             return Ok(());
         }
     };
@@ -4157,7 +4324,7 @@ fn relay_socks5_udp_datagram(
         response_from,
         &response_buffer[..response_size],
     )?;
-    println!("{}", report.summary_line());
+    emit_connection_report(runtime, &report);
     Ok(())
 }
 
@@ -4327,14 +4494,14 @@ fn handle_http_connect_connection(
         Ok(RouteConnect::Blocked { route_action }) => {
             report.route_action = route_action;
             report.record_error(ConnectionErrorKind::RouteBlocked);
-            println!("{}", report.summary_line());
+            emit_connection_report(runtime, &report);
             stream.write_all(http_forbidden_response())?;
             return Ok(());
         }
         Ok(RouteConnect::UnsupportedOutbound { tag, route_action }) => {
             report.route_action = route_action;
             report.record_error(ConnectionErrorKind::UnsupportedOutbound);
-            println!("{}", report.summary_line());
+            emit_connection_report(runtime, &report);
             stream.write_all(http_connect_bad_request_response())?;
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -4343,7 +4510,7 @@ fn handle_http_connect_connection(
         }
         Err(error) => {
             report.record_error(ConnectionErrorKind::from_io(&error));
-            println!("{}", report.summary_line());
+            emit_connection_report(runtime, &report);
             stream.write_all(http_connect_bad_request_response())?;
             return Err(error);
         }
@@ -4351,7 +4518,7 @@ fn handle_http_connect_connection(
 
     stream.write_all(http_connect_success_response())?;
     let client = stream.try_clone()?;
-    relay_with_report(client, remote, &mut report, runtime.relay_options)
+    relay_with_report(client, remote, &mut report, runtime)
 }
 
 fn handle_http_proxy_connection(
@@ -4385,14 +4552,14 @@ fn handle_http_proxy_connection(
         Ok(RouteConnect::Blocked { route_action }) => {
             report.route_action = route_action;
             report.record_error(ConnectionErrorKind::RouteBlocked);
-            println!("{}", report.summary_line());
+            emit_connection_report(runtime, &report);
             stream.write_all(http_forbidden_response())?;
             return Ok(());
         }
         Ok(RouteConnect::UnsupportedOutbound { tag, route_action }) => {
             report.route_action = route_action;
             report.record_error(ConnectionErrorKind::UnsupportedOutbound);
-            println!("{}", report.summary_line());
+            emit_connection_report(runtime, &report);
             stream.write_all(http_proxy_bad_request_response())?;
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -4401,7 +4568,7 @@ fn handle_http_proxy_connection(
         }
         Err(error) => {
             report.record_error(ConnectionErrorKind::from_io(&error));
-            println!("{}", report.summary_line());
+            emit_connection_report(runtime, &report);
             stream.write_all(http_proxy_bad_request_response())?;
             return Err(error);
         }
@@ -4409,7 +4576,7 @@ fn handle_http_proxy_connection(
 
     remote.write_all(&request.rewritten_header)?;
     let client = stream.try_clone()?;
-    relay_with_report(client, remote, &mut report, runtime.relay_options)
+    relay_with_report(client, remote, &mut report, runtime)
 }
 
 enum RouteConnect {
@@ -5406,6 +5573,7 @@ fn mixed_runtime_from_parsed_profiles(
         outbounds,
         dns_options,
         tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+        connection_metrics: ConnectionMetrics::default(),
     })
 }
 
@@ -5420,6 +5588,7 @@ fn mixed_runtime_from_cli(
         outbounds: OutboundRegistry::new(),
         dns_options,
         tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+        connection_metrics: ConnectionMetrics::default(),
     }
 }
 
@@ -5471,20 +5640,25 @@ fn relay_with_report(
     client: TcpStream,
     remote: OutboundConnection,
     report: &mut ConnectionReport,
-    relay_options: RelayOptions,
+    runtime: &MixedProxyRuntime,
 ) -> io::Result<()> {
-    match relay_owned_bidirectional_with_options(client, remote, relay_options) {
+    match relay_owned_bidirectional_with_options(client, remote, runtime.relay_options) {
         Ok(stats) => {
             report.record_relay_stats(stats);
-            println!("{}", report.summary_line());
+            emit_connection_report(runtime, report);
             Ok(())
         }
         Err(error) => {
             report.record_error(error.kind);
-            println!("{}", report.summary_line());
+            emit_connection_report(runtime, report);
             Err(io::Error::new(io::ErrorKind::Other, error))
         }
     }
+}
+
+fn emit_connection_report(runtime: &MixedProxyRuntime, report: &ConnectionReport) {
+    runtime.record_connection_report(report);
+    println!("{}", report.summary_line());
 }
 
 fn default_relay_options() -> RelayOptions {
