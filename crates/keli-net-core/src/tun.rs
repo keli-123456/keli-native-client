@@ -131,6 +131,7 @@ pub struct TunTcpSessionRecord {
     pub server_next_sequence_number: u32,
     pub window_size: u16,
     pub phase: TunTcpSessionPhase,
+    pub last_activity_at: Instant,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -171,6 +172,13 @@ pub struct TunTcpCloseFrame {
 pub struct TunTcpSynAckResponse {
     pub session: TunTcpSessionRecord,
     pub packet: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TunTcpSessionPruneReport {
+    pub pruned_sessions: usize,
+    pub close_errors: usize,
+    pub last_close_error: Option<TunTcpSessionError>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -285,6 +293,7 @@ pub struct TunPacketLoopSummary {
     pub last_udp_relay_error: Option<TunUdpRelayError>,
     pub tcp_session_events: usize,
     pub tcp_session_packets_written: usize,
+    pub tcp_sessions_pruned: usize,
     pub tcp_session_errors: usize,
     pub last_tcp_session_error: Option<TunTcpSessionError>,
 }
@@ -394,6 +403,7 @@ pub trait TunTcpSessionRelay {
 
 const DEFAULT_TUN_TCP_RELAY_READ_BUFFER_SIZE: usize = 16 * 1024;
 const TUN_TCP_RELAY_READ_POLL_INTERVAL: Duration = Duration::from_millis(1);
+pub const DEFAULT_TUN_TCP_SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub trait TunUdpRelay {
     fn relay_udp_datagram(
@@ -765,6 +775,14 @@ impl TunPacketLoopSummary {
                 self.tcp_session_errors += 1;
                 self.last_tcp_session_error = Some(error.clone());
             }
+        }
+    }
+
+    pub fn record_tcp_session_prune_report(&mut self, report: &TunTcpSessionPruneReport) {
+        self.tcp_sessions_pruned += report.pruned_sessions;
+        self.tcp_session_errors += report.close_errors;
+        if let Some(error) = &report.last_close_error {
+            self.last_tcp_session_error = Some(error.clone());
         }
     }
 
@@ -1157,6 +1175,7 @@ impl TunTcpSessionTable {
             server_next_sequence_number: server_initial_sequence_number.wrapping_add(1),
             window_size,
             phase: TunTcpSessionPhase::SynReceived,
+            last_activity_at: Instant::now(),
         };
         let packet = build_tun_tcp_syn_ack_response_packet(
             segment,
@@ -1183,6 +1202,7 @@ impl TunTcpSessionTable {
             && segment.acknowledgment_number == session.server_next_sequence_number
         {
             session.phase = TunTcpSessionPhase::Established;
+            session.last_activity_at = Instant::now();
             return Ok(Some(session.clone()));
         }
         Ok(None)
@@ -1208,6 +1228,7 @@ impl TunTcpSessionTable {
         }
 
         session.client_next_sequence_number = tcp_segment_next_sequence_number(segment);
+        session.last_activity_at = Instant::now();
         let ack_packet = build_tun_tcp_ack_response_packet(
             &session.flow,
             session.server_next_sequence_number,
@@ -1248,6 +1269,7 @@ impl TunTcpSessionTable {
         session.server_next_sequence_number = session
             .server_next_sequence_number
             .wrapping_add(payload.len() as u32);
+        session.last_activity_at = Instant::now();
         Ok(Some(TunTcpServerPayloadFrame {
             session: session.clone(),
             sequence_number,
@@ -1284,7 +1306,7 @@ impl TunTcpSessionTable {
     }
 
     pub fn server_payload_poll_session(
-        &self,
+        &mut self,
         segment: &TunTcpSegment<'_>,
     ) -> Result<Option<TunTcpSessionRecord>, TunPacketError> {
         if !segment.flags.ack()
@@ -1296,16 +1318,32 @@ impl TunTcpSessionTable {
             return Ok(None);
         }
         let key = TunTcpSessionKey::from_flow(&segment.flow)?;
-        let Some(session) = self.sessions.get(&key) else {
+        let Some(session) = self.sessions.get_mut(&key) else {
             return Ok(None);
         };
         if session.phase == TunTcpSessionPhase::Established
             && segment.sequence_number == session.client_next_sequence_number
             && segment.acknowledgment_number == session.server_next_sequence_number
         {
+            session.last_activity_at = Instant::now();
             return Ok(Some(session.clone()));
         }
         Ok(None)
+    }
+
+    pub fn prune_idle(&mut self, now: Instant, idle_timeout: Duration) -> Vec<TunTcpSessionRecord> {
+        let expired_keys = self
+            .sessions
+            .iter()
+            .filter(|(_, session)| {
+                now.saturating_duration_since(session.last_activity_at) >= idle_timeout
+            })
+            .map(|(key, _)| key.clone())
+            .collect::<Vec<_>>();
+        expired_keys
+            .into_iter()
+            .filter_map(|key| self.sessions.remove(&key))
+            .collect()
     }
 
     pub fn remove_on_close(
@@ -1409,6 +1447,26 @@ pub fn process_tun_tcp_session_segment<R: TunTcpSessionRelay>(
         server_initial_sequence_number,
         window_size,
     )
+}
+
+pub fn prune_idle_tun_tcp_sessions<R: TunTcpSessionRelay>(
+    sessions: &mut TunTcpSessionTable,
+    tcp_relay: &mut R,
+    now: Instant,
+    idle_timeout: Duration,
+) -> TunTcpSessionPruneReport {
+    let pruned_sessions = sessions.prune_idle(now, idle_timeout);
+    let mut report = TunTcpSessionPruneReport {
+        pruned_sessions: pruned_sessions.len(),
+        ..TunTcpSessionPruneReport::default()
+    };
+    for session in pruned_sessions {
+        if let Err(error) = tcp_relay.close_session(&session) {
+            report.close_errors += 1;
+            report.last_close_error = Some(TunTcpSessionError::Relay(error));
+        }
+    }
+    report
 }
 
 fn close_tun_tcp_session_from_server<R: TunTcpSessionRelay>(
@@ -1949,8 +2007,45 @@ where
     R: DnsResolver,
     T: TunTcpSessionRelay,
 {
+    run_tun_packet_loop_with_tcp_session_relay_summary_with_idle_timeout(
+        device,
+        routes,
+        dns_hijack_enabled,
+        dns,
+        dns_ttl_seconds,
+        max_packets,
+        sessions,
+        tcp_relay,
+        server_initial_sequence_number,
+        window_size,
+        DEFAULT_TUN_TCP_SESSION_IDLE_TIMEOUT,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_tun_packet_loop_with_tcp_session_relay_summary_with_idle_timeout<D, R, T>(
+    device: &mut D,
+    routes: &RouteEngine,
+    dns_hijack_enabled: bool,
+    dns: &mut DnsEngine<R>,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+    sessions: &mut TunTcpSessionTable,
+    tcp_relay: &mut T,
+    server_initial_sequence_number: u32,
+    window_size: u16,
+    session_idle_timeout: Duration,
+) -> Result<TunPacketLoopSummary, TunPacketLoopError>
+where
+    D: TunPacketDevice,
+    R: DnsResolver,
+    T: TunTcpSessionRelay,
+{
     let mut summary = TunPacketLoopSummary::default();
     for _ in 0..max_packets {
+        let prune_report =
+            prune_idle_tun_tcp_sessions(sessions, tcp_relay, Instant::now(), session_idle_timeout);
+        summary.record_tcp_session_prune_report(&prune_report);
         let event = process_tun_device_packet_with_tcp_session_relay(
             device,
             routes,
@@ -1990,8 +2085,48 @@ where
     U: TunUdpRelay,
     T: TunTcpSessionRelay,
 {
+    run_tun_packet_loop_with_relays_summary_with_idle_timeout(
+        device,
+        routes,
+        dns_hijack_enabled,
+        dns,
+        dns_ttl_seconds,
+        max_packets,
+        udp_relay,
+        sessions,
+        tcp_relay,
+        server_initial_sequence_number,
+        window_size,
+        DEFAULT_TUN_TCP_SESSION_IDLE_TIMEOUT,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_tun_packet_loop_with_relays_summary_with_idle_timeout<D, R, U, T>(
+    device: &mut D,
+    routes: &RouteEngine,
+    dns_hijack_enabled: bool,
+    dns: &mut DnsEngine<R>,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+    udp_relay: &mut U,
+    sessions: &mut TunTcpSessionTable,
+    tcp_relay: &mut T,
+    server_initial_sequence_number: u32,
+    window_size: u16,
+    session_idle_timeout: Duration,
+) -> Result<TunPacketLoopSummary, TunPacketLoopError>
+where
+    D: TunPacketDevice,
+    R: DnsResolver,
+    U: TunUdpRelay,
+    T: TunTcpSessionRelay,
+{
     let mut summary = TunPacketLoopSummary::default();
     for _ in 0..max_packets {
+        let prune_report =
+            prune_idle_tun_tcp_sessions(sessions, tcp_relay, Instant::now(), session_idle_timeout);
+        summary.record_tcp_session_prune_report(&prune_report);
         let event = process_tun_device_packet_with_relays(
             device,
             routes,

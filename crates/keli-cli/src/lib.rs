@@ -22,16 +22,17 @@ use keli_net_core::{
     http_connect_bad_request_response, http_connect_success_response,
     http_proxy_bad_request_response, parse_dns_query, parse_http_connect_request,
     parse_http_proxy_request, parse_socks5_handshake, parse_socks5_request,
-    parse_socks5_udp_datagram, process_tun_device_packet_with_relays,
+    parse_socks5_udp_datagram, process_tun_device_packet_with_relays, prune_idle_tun_tcp_sessions,
     relay_owned_bidirectional_with_options, run_tun_packet_loop_summary,
-    run_tun_packet_loop_with_relays_summary, run_tun_packet_loop_with_udp_relay_summary,
-    socks5_no_auth_response, socks5_reply, ConnectionErrorKind, ConnectionReport,
-    DirectTcpConnector, DirectUdpConnector, DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsError,
-    DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, LocalInbound, OutboundConnection,
-    OutboundRegistry, OutboundTarget, RegistryTunTcpSessionRelay, RegistryTunUdpRelay,
-    RelayOptions, RouteAction, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, Socks5Address,
-    Socks5Command, Socks5ReplyCode, SystemDnsResolver, TunPacketDevice, TunPacketLoopEvent,
-    TunPacketLoopSummary, TunTcpSessionTable, TunUdpRelay,
+    run_tun_packet_loop_with_relays_summary_with_idle_timeout,
+    run_tun_packet_loop_with_udp_relay_summary, socks5_no_auth_response, socks5_reply,
+    ConnectionErrorKind, ConnectionReport, DirectTcpConnector, DirectUdpConnector,
+    DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsError, DnsLocalResolutionPolicy,
+    DnsQuestionType, DnsResolver, LocalInbound, OutboundConnection, OutboundRegistry,
+    OutboundTarget, RegistryTunTcpSessionRelay, RegistryTunUdpRelay, RelayOptions, RouteAction,
+    RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, Socks5Address, Socks5Command,
+    Socks5ReplyCode, SystemDnsResolver, TunPacketDevice, TunPacketLoopEvent, TunPacketLoopSummary,
+    TunTcpSessionTable, TunUdpRelay,
 };
 use keli_platform::{
     NativeSystemProxyController, NativeTunDeviceController, PlatformCapabilities,
@@ -68,7 +69,7 @@ const SUPPORTED_PROTOCOL_CAPABILITIES: &str =
 const ROUTE_RULE_CAPABILITIES: &str =
     "domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
-    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-session-table,tcp-client-payload-ack,tcp-server-payload-packet,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-server-eof-fin-ack,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan";
+    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-session-table,tcp-client-payload-ack,tcp-server-payload-packet,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-server-eof-fin-ack,tcp-session-idle-cleanup,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
@@ -328,7 +329,7 @@ pub struct ManagedTunPacketLoopReport {
 
 pub fn managed_tun_runtime_report_note(report: &ManagedTunPacketLoopReport) -> String {
     format!(
-        "managed TUN runtime stopped interface={} owns_device={} processed={} idle={} dns_responses={} udp_responses={} tcp_resets={} tcp_session_events={} tcp_session_writes={} relay_plans={} tcp_relay_plans={} udp_relay_plans={} drops={} unsupported={} packet_errors={} udp_relay_errors={} tcp_session_errors={}",
+        "managed TUN runtime stopped interface={} owns_device={} processed={} idle={} dns_responses={} udp_responses={} tcp_resets={} tcp_session_events={} tcp_session_writes={} tcp_sessions_pruned={} relay_plans={} tcp_relay_plans={} udp_relay_plans={} drops={} unsupported={} packet_errors={} udp_relay_errors={} tcp_session_errors={}",
         report.config.interface_name,
         report.owns_device,
         report.summary.processed_packets(),
@@ -338,6 +339,7 @@ pub fn managed_tun_runtime_report_note(report: &ManagedTunPacketLoopReport) -> S
         report.summary.tcp_resets_written,
         report.summary.tcp_session_events,
         report.summary.tcp_session_packets_written,
+        report.summary.tcp_sessions_pruned,
         report.summary.relay_packets,
         report.summary.tcp_relay_plans,
         report.summary.udp_relay_plans,
@@ -724,6 +726,10 @@ where
         .relay_options
         .first_byte_timeout
         .unwrap_or(DEFAULT_FIRST_BYTE_TIMEOUT);
+    let session_idle_timeout = runtime
+        .relay_options
+        .idle_timeout
+        .unwrap_or(DEFAULT_IDLE_TIMEOUT);
     let mut udp_relay = RegistryTunUdpRelay::new(&runtime.outbounds, &mut udp_relay_dns, timeout);
     let mut tcp_relay =
         RegistryTunTcpSessionRelay::new(&runtime.outbounds, &mut tcp_relay_dns, timeout);
@@ -733,6 +739,13 @@ where
         if stop.load(Ordering::SeqCst) {
             break;
         }
+        let prune_report = prune_idle_tun_tcp_sessions(
+            &mut sessions,
+            &mut tcp_relay,
+            Instant::now(),
+            session_idle_timeout,
+        );
+        summary.record_tcp_session_prune_report(&prune_report);
         let event = process_tun_device_packet_with_relays(
             &mut device,
             &runtime.routes,
@@ -772,6 +785,10 @@ where
         .relay_options
         .first_byte_timeout
         .unwrap_or(DEFAULT_FIRST_BYTE_TIMEOUT);
+    let session_idle_timeout = runtime
+        .relay_options
+        .idle_timeout
+        .unwrap_or(DEFAULT_IDLE_TIMEOUT);
     let mut udp_relay = RegistryTunUdpRelay::new(&runtime.outbounds, &mut udp_relay_dns, timeout);
     let mut tcp_relay =
         RegistryTunTcpSessionRelay::new(&runtime.outbounds, &mut tcp_relay_dns, timeout);
@@ -786,6 +803,7 @@ where
         &mut udp_relay,
         &mut sessions,
         &mut tcp_relay,
+        session_idle_timeout,
     )
 }
 
@@ -800,6 +818,7 @@ fn run_managed_tun_packet_loop_inner_with_relays<C, R, U, T>(
     udp_relay: &mut U,
     sessions: &mut TunTcpSessionTable,
     tcp_relay: &mut T,
+    session_idle_timeout: Duration,
 ) -> Result<TunPacketLoopSummary, String>
 where
     C: TunPacketIoController + ?Sized,
@@ -811,7 +830,7 @@ where
         .open_packet_io(config)
         .map_err(|error| format!("open TUN packet I/O: {error}"))?;
     let mut device = PlatformTunPacketDevice::new(io);
-    run_tun_packet_loop_with_relays_summary(
+    run_tun_packet_loop_with_relays_summary_with_idle_timeout(
         &mut device,
         routes,
         config.dns_hijack,
@@ -823,6 +842,7 @@ where
         tcp_relay,
         DEFAULT_TUN_TCP_SERVER_INITIAL_SEQUENCE_NUMBER,
         DEFAULT_TUN_TCP_WINDOW_SIZE,
+        session_idle_timeout,
     )
     .map_err(|error| format!("run TUN packet loop: {error}"))
 }

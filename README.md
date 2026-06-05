@@ -140,6 +140,9 @@ Established TCP sessions can also poll additional server payload on follow-up
 client ACKs, so split upstream responses can continue flowing back to TUN after
 the first response packet; remote TCP EOF is now surfaced as a server FIN+ACK
 packet back to TUN and clears the session boundary.
+The TCP session table also tracks last activity and packet loops prune idle
+sessions through the relay close path, with the pruned count visible in loop
+summaries and managed runtime status notes.
 The managed TUN runtime uses a combined UDP/TCP relay loop, so it can keep the
 registry-backed UDP path while also exercising registry-backed TCP sessions.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
