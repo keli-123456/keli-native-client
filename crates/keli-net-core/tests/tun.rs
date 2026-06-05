@@ -893,16 +893,17 @@ fn closes_tun_tcp_session_step_and_notifies_relay() {
     let close_step = process_tun_tcp_session_segment(&mut sessions, &rst, &mut relay, 1000, 0x2000)
         .expect("process close step");
 
-    let TunTcpSessionStep::Closed { session } = close_step else {
+    let TunTcpSessionStep::Closed { session, response } = close_step else {
         panic!("expected closed step");
     };
     assert_eq!(session.phase, TunTcpSessionPhase::SynReceived);
+    assert!(response.is_none());
     assert!(sessions.is_empty());
     assert_eq!(relay.closed_sessions.len(), 1);
 }
 
 #[test]
-fn removes_tun_tcp_session_on_rst_or_fin_segment() {
+fn removes_tun_tcp_session_on_rst_without_close_ack() {
     let syn_packet = ipv4_packet(
         6,
         "10.7.0.2",
@@ -927,7 +928,51 @@ fn removes_tun_tcp_session_on_rst_or_fin_segment() {
         .expect("remove closed session")
         .expect("removed session");
 
+    let (removed, response) = removed;
     assert_eq!(removed.phase, TunTcpSessionPhase::SynReceived);
+    assert!(response.is_none());
+    assert!(sessions.is_empty());
+}
+
+#[test]
+fn removes_tun_tcp_session_on_fin_and_builds_close_ack() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let mut sessions = TunTcpSessionTable::new();
+    sessions
+        .start_from_syn(&syn, 1000, 0x2000)
+        .expect("start TUN TCP session");
+    let fin_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0011, 0x4000, &[], b""),
+    );
+    let fin = parse_tun_tcp_segment(&fin_packet).expect("parse FIN segment");
+
+    let (removed, response) = sessions
+        .remove_on_close(&fin)
+        .expect("remove closed session")
+        .expect("removed session");
+
+    assert_eq!(removed.phase, TunTcpSessionPhase::SynReceived);
+    let response = response.expect("FIN close ACK");
+    assert_eq!(response.sequence_number, 1001);
+    assert_eq!(response.acknowledgment_number, 12);
+    let packet = parse_tun_tcp_segment(&response.packet).expect("parse FIN ACK");
+    assert_eq!(packet.flow.source_port, Some(443));
+    assert_eq!(packet.flow.destination_port, Some(49152));
+    assert_eq!(packet.sequence_number, 1001);
+    assert_eq!(packet.acknowledgment_number, 12);
+    assert_eq!(packet.flags.bits(), 0x0010);
+    assert!(packet.flags.ack());
+    assert!(!packet.flags.fin());
+    assert!(packet.payload.is_empty());
     assert!(sessions.is_empty());
 }
 
@@ -1822,7 +1867,7 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
             6,
             "10.7.0.2",
             "93.184.216.34",
-            &tcp_segment(49152, 443, 16, 1009, 0x0014, 0x4000, &[], b""),
+            &tcp_segment(49152, 443, 16, 1009, 0x0011, 0x4000, &[], b""),
         ),
     ];
     let routes = RouteEngine::new(RouteAction::Direct);
@@ -1850,9 +1895,9 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
 
     assert_eq!(summary.processed_packets(), 4);
     assert_eq!(summary.tcp_session_events, 4);
-    assert_eq!(summary.tcp_session_packets_written, 3);
+    assert_eq!(summary.tcp_session_packets_written, 4);
     assert_eq!(summary.tcp_session_errors, 0);
-    assert_eq!(device.writes.len(), 3);
+    assert_eq!(device.writes.len(), 4);
     let syn_ack = parse_tun_tcp_segment(&device.writes[0]).expect("parse SYN-ACK");
     assert_eq!(syn_ack.sequence_number, 1000);
     assert_eq!(syn_ack.acknowledgment_number, 11);
@@ -1867,6 +1912,12 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
     assert_eq!(server_payload.sequence_number, 1001);
     assert_eq!(server_payload.acknowledgment_number, 16);
     assert_eq!(server_payload.payload, b"HTTP/1.1");
+    let close_ack = parse_tun_tcp_segment(&device.writes[3]).expect("parse close ACK packet");
+    assert_eq!(close_ack.sequence_number, 1009);
+    assert_eq!(close_ack.acknowledgment_number, 17);
+    assert!(close_ack.flags.ack());
+    assert!(!close_ack.flags.fin());
+    assert!(close_ack.payload.is_empty());
     assert_eq!(relay.established_sessions.len(), 1);
     assert_eq!(relay.client_payloads, vec![b"GET /".to_vec()]);
     assert_eq!(relay.closed_sessions.len(), 1);

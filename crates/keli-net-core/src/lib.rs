@@ -80,7 +80,7 @@ pub use tun::{
     TunDnsHijackPlan, TunDnsHijackResponse, TunIpVersion, TunPacketDevice, TunPacketError,
     TunPacketFlow, TunPacketLoopError, TunPacketLoopEvent, TunPacketLoopSummary,
     TunPacketProcessAction, TunPacketRelayAction, TunPacketRelayPlan, TunPacketRouteDecision,
-    TunTcpClientPayloadFrame, TunTcpFlags, TunTcpResetResponse, TunTcpSegment,
+    TunTcpClientPayloadFrame, TunTcpCloseFrame, TunTcpFlags, TunTcpResetResponse, TunTcpSegment,
     TunTcpServerPayloadFrame, TunTcpSessionError, TunTcpSessionKey, TunTcpSessionPhase,
     TunTcpSessionRecord, TunTcpSessionRelay, TunTcpSessionStep, TunTcpSessionTable,
     TunTcpSynAckResponse, TunTransportProtocol, TunUdpPayload, TunUdpRelay, TunUdpRelayError,

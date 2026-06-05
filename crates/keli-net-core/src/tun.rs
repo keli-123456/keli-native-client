@@ -152,6 +152,14 @@ pub struct TunTcpServerPayloadFrame {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunTcpCloseFrame {
+    pub session: TunTcpSessionRecord,
+    pub sequence_number: u32,
+    pub acknowledgment_number: u32,
+    pub packet: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TunTcpSynAckResponse {
     pub session: TunTcpSessionRecord,
     pub packet: Vec<u8>,
@@ -175,6 +183,7 @@ pub enum TunTcpSessionStep {
     },
     Closed {
         session: TunTcpSessionRecord,
+        response: Option<TunTcpCloseFrame>,
     },
 }
 
@@ -622,6 +631,10 @@ impl TunTcpSessionStep {
                 packets
             }
             Self::ServerPayload { response } => vec![response.packet.as_slice()],
+            Self::Closed {
+                response: Some(response),
+                ..
+            } => vec![response.packet.as_slice()],
             _ => Vec::new(),
         }
     }
@@ -1208,12 +1221,33 @@ impl TunTcpSessionTable {
     pub fn remove_on_close(
         &mut self,
         segment: &TunTcpSegment<'_>,
-    ) -> Result<Option<TunTcpSessionRecord>, TunPacketError> {
+    ) -> Result<Option<(TunTcpSessionRecord, Option<TunTcpCloseFrame>)>, TunPacketError> {
         if !(segment.flags.rst() || segment.flags.fin()) {
             return Ok(None);
         }
         let key = TunTcpSessionKey::from_flow(&segment.flow)?;
-        Ok(self.sessions.remove(&key))
+        let Some(session) = self.sessions.remove(&key) else {
+            return Ok(None);
+        };
+        let response = if segment.flags.fin() && !segment.flags.rst() {
+            let sequence_number = session.server_next_sequence_number;
+            let acknowledgment_number = tcp_segment_next_sequence_number(segment);
+            let packet = build_tun_tcp_ack_response_packet(
+                &session.flow,
+                sequence_number,
+                acknowledgment_number,
+                session.window_size,
+            )?;
+            Some(TunTcpCloseFrame {
+                session: session.clone(),
+                sequence_number,
+                acknowledgment_number,
+                packet,
+            })
+        } else {
+            None
+        };
+        Ok(Some((session, response)))
     }
 }
 
@@ -1296,11 +1330,11 @@ fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
     window_size: u16,
 ) -> Result<TunTcpSessionStep, TunTcpSessionError> {
     if segment.flags.rst() || segment.flags.fin() {
-        if let Some(session) = sessions.remove_on_close(segment)? {
+        if let Some((session, response)) = sessions.remove_on_close(segment)? {
             relay
                 .close_session(&session)
                 .map_err(TunTcpSessionError::Relay)?;
-            return Ok(TunTcpSessionStep::Closed { session });
+            return Ok(TunTcpSessionStep::Closed { session, response });
         }
         return Ok(TunTcpSessionStep::Noop);
     }
