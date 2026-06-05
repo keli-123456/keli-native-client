@@ -340,7 +340,8 @@ The first implementation target is deliberately small:
    system proxy config, panel restriction state, and redacted node capability
    metadata for UI/service integrations.
    Runtime event history is bounded for long-running sessions while status
-   snapshots still expose the total event count for support timelines.
+   snapshots still expose the total event count and retention limits for
+   support timelines.
    Managed TUN packet loops now use a combined UDP/TCP relay path so the
    registry-backed UDP execution path remains active while direct and tagged
    TCP sessions can be exercised through the shared outbound registry.

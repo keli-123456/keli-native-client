@@ -10,7 +10,7 @@ use keli_cli::{
     write_managed_mixed_status_json_report, ManagedMixedController, ManagedMixedOptions,
     ManagedMixedSession, ManagedMixedStatusSnapshot, ManagedNodeHealthState,
     ManagedNodeHealthStatus, ManagedNodeProbeOptions, ManagedNodeProbeSweepOptions,
-    MixedDnsOptions, SmokeInboundKind,
+    MixedDnsOptions, SmokeInboundKind, MANAGED_MIXED_RECENT_EVENT_LIMIT,
 };
 use keli_client_core::{
     ClientErrorKind, PanelAccountState, PanelRiskControlState, PanelState, PanelUserState,
@@ -463,7 +463,7 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
     );
     assert_eq!(reloaded.tun_tcp_max_active_sessions, 17);
     assert!(reloaded.event_count >= started.event_count);
-    assert!(reloaded.recent_events.len() <= 5);
+    assert!(reloaded.recent_events.len() <= MANAGED_MIXED_RECENT_EVENT_LIMIT);
     assert!(matches!(
         reloaded.status,
         RuntimeStatus::Running {
@@ -538,9 +538,20 @@ fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
     assert!(value["event_count"]
         .as_u64()
         .is_some_and(|count| count >= 3));
-    assert!(value["recent_events"]
-        .as_array()
-        .is_some_and(|events| { !events.is_empty() && events.len() <= 5 }));
+    assert!(value["retained_event_count"]
+        .as_u64()
+        .is_some_and(|count| count >= 3 && count <= DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT as u64));
+    assert_eq!(
+        value["event_history_limit"].as_u64(),
+        Some(DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT as u64)
+    );
+    assert_eq!(
+        value["recent_event_limit"].as_u64(),
+        Some(MANAGED_MIXED_RECENT_EVENT_LIMIT as u64)
+    );
+    assert!(value["recent_events"].as_array().is_some_and(|events| {
+        !events.is_empty() && events.len() <= MANAGED_MIXED_RECENT_EVENT_LIMIT
+    }));
     assert_eq!(
         value["dns_options"]["local_resolution_policy"],
         "prevent-public-leak"
@@ -616,12 +627,21 @@ fn managed_mixed_status_reports_total_event_count_after_history_is_bounded() {
 
     assert!(status.event_count > started.event_count + DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT);
     assert!(status.event_count > status.recent_events.len());
+    assert_eq!(
+        status.retained_event_count,
+        DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT
+    );
+    assert_eq!(
+        status.event_history_limit,
+        DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT
+    );
+    assert_eq!(status.recent_event_limit, MANAGED_MIXED_RECENT_EVENT_LIMIT);
     assert_eq!(status.last_error, Some(expected_last_error));
     assert!(!status
         .recent_events
         .iter()
         .any(|event| matches!(event.status, RuntimeStatus::Failed(_))));
-    assert_eq!(status.recent_events.len(), 5);
+    assert_eq!(status.recent_events.len(), MANAGED_MIXED_RECENT_EVENT_LIMIT);
     assert!(status.recent_events.iter().all(|event| {
         event
             .note
@@ -634,9 +654,21 @@ fn managed_mixed_status_reports_total_event_count_after_history_is_bounded() {
         value["event_count"].as_u64(),
         Some(status.event_count as u64)
     );
+    assert_eq!(
+        value["retained_event_count"].as_u64(),
+        Some(DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT as u64)
+    );
+    assert_eq!(
+        value["event_history_limit"].as_u64(),
+        Some(DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT as u64)
+    );
+    assert_eq!(
+        value["recent_event_limit"].as_u64(),
+        Some(MANAGED_MIXED_RECENT_EVENT_LIMIT as u64)
+    );
     assert!(value["recent_events"]
         .as_array()
-        .is_some_and(|events| events.len() <= 5));
+        .is_some_and(|events| events.len() <= MANAGED_MIXED_RECENT_EVENT_LIMIT));
 
     core.stop().expect("stop managed mixed controller");
 }
@@ -691,6 +723,9 @@ fn managed_mixed_status_json_includes_tun_runtime_diagnostic() {
         selected_outbound: Some("SS-READY".to_string()),
         generation: 7,
         event_count: 1,
+        retained_event_count: 1,
+        event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
+        recent_event_limit: MANAGED_MIXED_RECENT_EVENT_LIMIT,
         recent_events: vec![RuntimeEvent::with_diagnostic(
             RuntimeStatus::Running {
                 generation: 7,
