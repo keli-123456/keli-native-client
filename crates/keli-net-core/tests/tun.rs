@@ -3290,6 +3290,89 @@ fn registry_tun_tcp_session_relay_relays_tagged_direct_outbound_tcp_stream_paylo
 }
 
 #[test]
+fn registry_tun_tcp_session_relay_writes_fin_payload_before_close_once() {
+    let (tcp_port, tcp_server) = spawn_tcp_collect_until_eof_server();
+    let packets = vec![
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "127.0.0.1",
+            &tcp_segment(49152, tcp_port, 10, 0, 0x0002, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "127.0.0.1",
+            &tcp_segment(49152, tcp_port, 11, 1001, 0x0010, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "127.0.0.1",
+            &tcp_segment(49152, tcp_port, 11, 1001, 0x0019, 0x4000, &[], b"GET /"),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "127.0.0.1",
+            &tcp_segment(49152, tcp_port, 11, 1001, 0x0019, 0x4000, &[], b"GET /"),
+        ),
+    ];
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let registry = OutboundRegistry::new();
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut relay_dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut relay =
+        RegistryTunTcpSessionRelay::new(&registry, &mut relay_dns, Duration::from_secs(1));
+    let mut sessions = TunTcpSessionTable::new();
+    let mut device = FakeTunPacketDevice::new(packets);
+
+    let summary = run_tun_packet_loop_with_tcp_session_relay_summary(
+        &mut device,
+        &routes,
+        true,
+        &mut dns,
+        30,
+        4,
+        &mut sessions,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("run TUN loop with registry FIN payload close");
+
+    assert_eq!(summary.processed_packets(), 4);
+    assert_eq!(summary.tcp_session_events, 4);
+    assert_eq!(summary.tcp_session_packets_written, 3);
+    assert_eq!(summary.tcp_session_errors, 0);
+    assert_eq!(device.writes.len(), 3);
+    let fin_payload_ack = parse_tun_tcp_segment(&device.writes[1]).expect("parse FIN payload ACK");
+    assert_eq!(fin_payload_ack.sequence_number, 1001);
+    assert_eq!(fin_payload_ack.acknowledgment_number, 17);
+    assert!(fin_payload_ack.flags.ack());
+    assert!(!fin_payload_ack.flags.rst());
+    let duplicate_ack =
+        parse_tun_tcp_segment(&device.writes[2]).expect("parse duplicate FIN payload ACK");
+    assert_eq!(duplicate_ack.sequence_number, 1001);
+    assert_eq!(duplicate_ack.acknowledgment_number, 17);
+    assert!(duplicate_ack.flags.ack());
+    assert!(!duplicate_ack.flags.rst());
+    assert!(relay.is_empty());
+    assert!(sessions.is_empty());
+    assert_eq!(
+        tcp_server.join().expect("TCP collect server"),
+        b"GET /".to_vec(),
+        "registry relay should deliver FIN payload once before closing"
+    );
+}
+
+#[test]
 fn registry_tun_tcp_session_relay_polls_followup_server_payload_after_ack() {
     let first_chunk = b"HTTP/1.1";
     let second_chunk = b" body";
@@ -5301,6 +5384,26 @@ fn spawn_tcp_response_server_owned(
         stream
             .write_all(&response)
             .expect("write TCP response payload");
+    });
+    (port, server)
+}
+
+fn spawn_tcp_collect_until_eof_server() -> (u16, thread::JoinHandle<Vec<u8>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind TCP collect server");
+    let port = listener
+        .local_addr()
+        .expect("TCP collect server address")
+        .port();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept TCP request");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .expect("set TCP collect server read timeout");
+        let mut request = Vec::new();
+        stream
+            .read_to_end(&mut request)
+            .expect("read TCP request through EOF");
+        request
     });
     (port, server)
 }

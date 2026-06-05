@@ -258,6 +258,8 @@ The first implementation target is deliberately small:
    FIN segments that carry final client payload write that payload to the
    relay before closing, and retransmits are re-ACKed without rewriting
    payload.
+   Registry-backed direct TCP relay tests cover that FIN payload close path
+   against a real local TCP server through EOF.
    Client-initiated FIN close ACKs are also kept briefly so duplicate client
    FINs re-send the ACK instead of being treated as unknown sessions.
    A TCP session relay device-loop entrypoint now reads TUN packets, routes
