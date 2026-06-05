@@ -53,6 +53,8 @@ shutdown closes active mixed client streams and uses a bounded worker drain, so
 held handshakes cannot stall core stop. That stop drain is also recorded as a
 structured runtime diagnostic with closed-connection, drained-worker,
 remaining-worker, timeout, and timeout-state fields for UI/support inspection.
+The managed controller also retains the most recent stopped status snapshot, so
+UI/service callers can still read stop diagnostics after the core has exited.
 The route engine now also has destination-aware keyword, CIDR, and port
 matching, and the mixed TCP/UDP paths use that richer decision surface.
 The CLI/runtime route setup exposes domain, CIDR, exact-port, and port-range

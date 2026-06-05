@@ -1671,6 +1671,48 @@ impl ManagedMixedStatusSnapshot {
         }
     }
 
+    fn from_stopped_runtime(
+        state: &ClientRuntime,
+        previous: &ManagedMixedStatusSnapshot,
+        panel_state: Option<PanelState>,
+    ) -> Self {
+        let recent_events: Vec<RuntimeEvent> = state
+            .events()
+            .iter()
+            .rev()
+            .take(MANAGED_MIXED_RECENT_EVENT_LIMIT)
+            .cloned()
+            .collect();
+        Self {
+            status: state.status().clone(),
+            listen_addr: None,
+            selected_outbound: None,
+            generation: state.generation(),
+            started_at: state.started_at(),
+            uptime: state.uptime(),
+            connection_metrics: previous.connection_metrics.clone(),
+            event_count: state.event_count(),
+            retained_event_count: state.events().len(),
+            event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
+            recent_event_limit: MANAGED_MIXED_RECENT_EVENT_LIMIT,
+            recent_events,
+            last_error: state.last_error().cloned(),
+            system_proxy: None,
+            subscription: None,
+            dns_options: previous.dns_options,
+            tun_tcp_max_active_sessions: previous.tun_tcp_max_active_sessions,
+            max_connection_workers: previous.max_connection_workers,
+            active_connection_workers: 0,
+            available_connection_worker_slots: previous.max_connection_workers,
+            panel_state,
+        }
+    }
+
+    fn with_panel_state(mut self, panel_state: Option<PanelState>) -> Self {
+        self.panel_state = panel_state;
+        self
+    }
+
     pub fn system_proxy_enabled(&self) -> bool {
         self.system_proxy.is_some()
     }
@@ -2042,6 +2084,7 @@ fn saturating_u128_to_u64(value: u128) -> u64 {
 pub struct ManagedMixedController<'a, C: SystemProxyController + ?Sized> {
     controller: &'a C,
     handle: Option<ManagedMixedHandle<'a, C>>,
+    last_stopped_status: Option<ManagedMixedStatusSnapshot>,
     panel_state: Option<PanelState>,
 }
 
@@ -2050,6 +2093,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         Self {
             controller,
             handle: None,
+            last_stopped_status: None,
             panel_state: None,
         }
     }
@@ -2062,6 +2106,11 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         self.handle
             .as_ref()
             .map(|handle| ManagedMixedStatusSnapshot::from_handle(handle, self.panel_state.clone()))
+            .or_else(|| {
+                self.last_stopped_status
+                    .as_ref()
+                    .map(|status| status.clone().with_panel_state(self.panel_state.clone()))
+            })
             .unwrap_or_else(|| ManagedMixedStatusSnapshot::stopped(self.panel_state.clone()))
     }
 
@@ -2081,6 +2130,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
             self.controller,
         )?;
         self.handle = Some(session.spawn_background()?);
+        self.last_stopped_status = None;
         Ok(self.status())
     }
 
@@ -2209,7 +2259,15 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
             .handle
             .take()
             .ok_or_else(|| "managed mixed core is not running".to_string())?;
-        handle.stop()
+        let pre_stop_status =
+            ManagedMixedStatusSnapshot::from_handle(&handle, self.panel_state.clone());
+        let state = handle.stop()?;
+        self.last_stopped_status = Some(ManagedMixedStatusSnapshot::from_stopped_runtime(
+            &state,
+            &pre_stop_status,
+            self.panel_state.clone(),
+        ));
+        Ok(state)
     }
 }
 

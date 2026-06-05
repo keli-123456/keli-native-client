@@ -768,6 +768,32 @@ fn managed_mixed_background_stop_closes_active_connections() {
     assert_eq!(diagnostic.drain_timeout_ms, 500);
     assert_eq!(diagnostic.timed_out, diagnostic.workers_remaining > 0);
 
+    let post_stop_status = core.status();
+    assert_eq!(post_stop_status.status, RuntimeStatus::Stopped);
+    assert_eq!(post_stop_status.event_count, stopped.event_count());
+    assert_eq!(
+        post_stop_status.retained_event_count,
+        stopped.events().len()
+    );
+    assert!(post_stop_status.started_at.is_none());
+    assert!(post_stop_status.uptime.is_none());
+    assert_eq!(post_stop_status.active_connection_workers, 0);
+    assert!(post_stop_status.recent_events.iter().any(|event| {
+        matches!(
+            event.diagnostic,
+            Some(RuntimeDiagnostic::ManagedMixedStopDrain(_))
+        )
+    }));
+    let post_stop_value = managed_mixed_status_json_value(&post_stop_status);
+    assert_eq!(post_stop_value["status"]["state"], "stopped");
+    assert!(post_stop_value["recent_events"]
+        .as_array()
+        .is_some_and(|events| {
+            events.iter().any(|event| {
+                event["diagnostic"]["kind"].as_str() == Some("managed-mixed-stop-drain")
+            })
+        }));
+
     let mut byte = [0; 1];
     assert!(stalled_client.read_exact(&mut byte).is_err());
 }

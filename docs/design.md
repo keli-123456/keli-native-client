@@ -377,7 +377,10 @@ Managed shutdown closes active mixed client streams and uses a bounded worker
 drain, so held handshakes cannot stall core stop. That drain result is recorded
 as a structured runtime diagnostic with closed-connection, drained-worker,
 remaining-worker, timeout, and timeout-state fields, so UI/support tooling can
-see whether stop completed cleanly without parsing stderr. It
+see whether stop completed cleanly without parsing stderr. The controller keeps
+the most recent stopped status snapshot after the handle exits, so UI/service
+callers can still inspect stop diagnostics after the core is no longer running.
+It
 includes recent runtime events, the last failure reason, current generation,
 selected outbound, listener address, managed system proxy config, and
 subscription node status including supported tags, skipped entries, default
