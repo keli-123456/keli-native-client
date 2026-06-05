@@ -379,6 +379,14 @@ impl ActiveConnectionRegistry {
         shutdown_count
     }
 
+    fn active_count(&self) -> usize {
+        self.inner
+            .streams
+            .lock()
+            .map(|streams| streams.len())
+            .unwrap_or(0)
+    }
+
     fn unregister(&self, id: usize) {
         if let Ok(mut streams) = self.inner.streams.lock() {
             streams.remove(&id);
@@ -449,6 +457,10 @@ impl MixedProxyRuntime {
 
     pub fn active_connection_workers(&self) -> usize {
         self.connection_worker_gauge.active()
+    }
+
+    pub fn active_client_connections(&self) -> usize {
+        self.active_connection_registry.active_count()
     }
 
     pub fn available_connection_worker_slots(&self) -> usize {
@@ -1408,6 +1420,7 @@ pub struct ManagedMixedStatusSnapshot {
     pub tun_tcp_max_active_sessions: usize,
     pub max_connection_workers: usize,
     pub active_connection_workers: usize,
+    pub active_client_connections: usize,
     pub available_connection_worker_slots: usize,
     pub panel_state: Option<PanelState>,
 }
@@ -1666,6 +1679,7 @@ impl ManagedMixedStatusSnapshot {
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             active_connection_workers: 0,
+            active_client_connections: 0,
             available_connection_worker_slots: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             panel_state,
         }
@@ -1703,6 +1717,7 @@ impl ManagedMixedStatusSnapshot {
             tun_tcp_max_active_sessions: previous.tun_tcp_max_active_sessions,
             max_connection_workers: previous.max_connection_workers,
             active_connection_workers: 0,
+            active_client_connections: 0,
             available_connection_worker_slots: previous.max_connection_workers,
             panel_state,
         }
@@ -1743,6 +1758,7 @@ pub fn managed_mixed_status_json_value(status: &ManagedMixedStatusSnapshot) -> s
         "tun_tcp_max_active_sessions": status.tun_tcp_max_active_sessions,
         "max_connection_workers": status.max_connection_workers,
         "active_connection_workers": status.active_connection_workers,
+        "active_client_connections": status.active_client_connections,
         "available_connection_worker_slots": status.available_connection_worker_slots,
         "panel_state": status.panel_state.as_ref().map(panel_state_json_value),
     })
@@ -2303,6 +2319,7 @@ impl ManagedMixedStatusSnapshot {
             tun_tcp_max_active_sessions: handle.tun_tcp_max_active_sessions,
             max_connection_workers: handle.max_connection_workers(),
             active_connection_workers: handle.active_connection_workers(),
+            active_client_connections: handle.active_client_connections(),
             available_connection_worker_slots: handle.available_connection_worker_slots(),
             panel_state,
         }
@@ -2352,6 +2369,13 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
         self.runtime
             .read()
             .map(|runtime| runtime.active_connection_workers())
+            .unwrap_or(0)
+    }
+
+    pub fn active_client_connections(&self) -> usize {
+        self.runtime
+            .read()
+            .map(|runtime| runtime.active_client_connections())
             .unwrap_or(0)
     }
 
