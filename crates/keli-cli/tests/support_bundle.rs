@@ -124,7 +124,11 @@ proxies:
         "node-health-sweep-diagnostic"
     );
     assert_eq!(
-        report["doctor"]["managed_status_schema_capabilities"][23],
+        report["doctor"]["managed_status_schema_capabilities"][20],
+        "node-health-udp-probe"
+    );
+    assert_eq!(
+        report["doctor"]["managed_status_schema_capabilities"][24],
         "panel-state"
     );
     assert_eq!(

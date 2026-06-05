@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::str::FromStr;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
@@ -11,8 +11,8 @@ use keli_cli::{
     ConnectionMetrics, ConnectionMetricsSnapshot, ConnectionRouteActionCount,
     ManagedMixedController, ManagedMixedOptions, ManagedMixedSession, ManagedMixedStatusSnapshot,
     ManagedNodeHealthState, ManagedNodeHealthStatus, ManagedNodeProbeOptions,
-    ManagedNodeProbeSweepOptions, ManagedRecommendedSwitchReason, MixedDnsOptions,
-    SmokeInboundKind, DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+    ManagedNodeProbeSweepOptions, ManagedNodeUdpProbeOptions, ManagedRecommendedSwitchReason,
+    MixedDnsOptions, SmokeInboundKind, DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
     MANAGED_CONNECTION_REPORT_HISTORY_LIMIT, MANAGED_MIXED_RECENT_EVENT_LIMIT,
     MANAGED_MIXED_STATUS_SCHEMA_VERSION,
 };
@@ -1756,6 +1756,7 @@ fn managed_mixed_controller_blocks_traffic_actions_when_panel_restricted() {
             inbound: SmokeInboundKind::Socks5,
             first_byte_timeout: Duration::from_millis(20),
             udp_available: None,
+            udp_probe: None,
         })
         .expect_err("restricted panel should block probe");
     assert!(probe_error.contains("PanelTrafficRestricted"));
@@ -1767,6 +1768,7 @@ fn managed_mixed_controller_blocks_traffic_actions_when_panel_restricted() {
             inbound: SmokeInboundKind::Socks5,
             first_byte_timeout: Duration::from_millis(20),
             udp_available: None,
+            udp_probe: None,
         })
         .expect_err("restricted panel should block probe all")
         .contains("PanelTrafficRestricted"));
@@ -1778,6 +1780,7 @@ fn managed_mixed_controller_blocks_traffic_actions_when_panel_restricted() {
             inbound: SmokeInboundKind::Socks5,
             first_byte_timeout: Duration::from_millis(20),
             udp_available: None,
+            udp_probe: None,
         })
         .expect_err("restricted panel should block probe all and apply")
         .contains("PanelTrafficRestricted"));
@@ -2404,6 +2407,7 @@ fn managed_mixed_controller_probe_all_node_health_records_each_supported_node() 
             inbound: SmokeInboundKind::HttpConnect,
             first_byte_timeout: Duration::from_secs(2),
             udp_available: None,
+            udp_probe: None,
         })
         .expect("probe all node health");
     let subscription = status.subscription.as_ref().expect("subscription status");
@@ -2516,6 +2520,7 @@ fn managed_mixed_controller_probe_all_node_health_can_apply_recommended_outbound
             inbound: SmokeInboundKind::HttpConnect,
             first_byte_timeout: Duration::from_secs(2),
             udp_available: None,
+            udp_probe: None,
         })
         .expect("probe all node health and apply recommendation");
     let subscription = switched.subscription.as_ref().expect("subscription status");
@@ -2573,6 +2578,7 @@ fn managed_mixed_controller_probe_node_health_records_success() {
             inbound: SmokeInboundKind::HttpConnect,
             first_byte_timeout: Duration::from_secs(2),
             udp_available: None,
+            udp_probe: None,
         })
         .expect("probe node health");
     let health = status
@@ -2596,6 +2602,105 @@ fn managed_mixed_controller_probe_node_health_records_success() {
             .and_then(|event| event.note.as_deref()),
         Some("node health recorded: SS-READY=healthy")
     );
+
+    ss_thread.join().expect("ss tcp echo server");
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_controller_probe_node_health_records_udp_probe_success() {
+    let (ss_port, tcp_thread, udp_thread) = spawn_shadowsocks_tcp_udp_echo_server();
+    let config = ss_config_for_port(ss_port);
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    core.start_from_subscription_config_text(
+        &config,
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-READY".to_string()),
+            ..ManagedMixedOptions::default()
+        },
+    )
+    .expect("start managed mixed controller");
+
+    let status = core
+        .probe_node_health(ManagedNodeProbeOptions {
+            outbound_tag: "SS-READY".to_string(),
+            target: "example.com:443".to_string(),
+            payload: b"ping".to_vec(),
+            expect: b"pong".to_vec(),
+            inbound: SmokeInboundKind::HttpConnect,
+            first_byte_timeout: Duration::from_secs(2),
+            udp_available: None,
+            udp_probe: Some(ManagedNodeUdpProbeOptions {
+                target: "example.com:53".to_string(),
+                payload: b"ping".to_vec(),
+                expect: b"pong".to_vec(),
+            }),
+        })
+        .expect("probe node health with UDP");
+    let health = status
+        .subscription
+        .as_ref()
+        .expect("subscription status")
+        .health_for("SS-READY")
+        .expect("SS-READY health");
+
+    assert_eq!(health.state, ManagedNodeHealthState::Healthy);
+    assert_eq!(health.tcp_available, Some(true));
+    assert_eq!(health.udp_available, Some(true));
+    assert_eq!(health.error_kind, None);
+    assert_eq!(health.error_detail, None);
+
+    tcp_thread.join().expect("ss tcp echo server");
+    udp_thread.join().expect("ss udp echo server");
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_controller_probe_node_health_records_udp_probe_failure_without_failing_tcp() {
+    let (ss_port, ss_thread) = spawn_shadowsocks_tcp_echo_server();
+    let config = ss_config_for_port(ss_port);
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    core.start_from_subscription_config_text(
+        &config,
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-READY".to_string()),
+            ..ManagedMixedOptions::default()
+        },
+    )
+    .expect("start managed mixed controller");
+
+    let status = core
+        .probe_node_health(ManagedNodeProbeOptions {
+            outbound_tag: "SS-READY".to_string(),
+            target: "example.com:443".to_string(),
+            payload: b"ping".to_vec(),
+            expect: b"pong".to_vec(),
+            inbound: SmokeInboundKind::HttpConnect,
+            first_byte_timeout: Duration::from_millis(50),
+            udp_available: None,
+            udp_probe: Some(ManagedNodeUdpProbeOptions {
+                target: "example.com:53".to_string(),
+                payload: b"ping".to_vec(),
+                expect: b"pong".to_vec(),
+            }),
+        })
+        .expect("TCP health should survive UDP failure");
+    let health = status
+        .subscription
+        .as_ref()
+        .expect("subscription status")
+        .health_for("SS-READY")
+        .expect("SS-READY health");
+
+    assert_eq!(health.state, ManagedNodeHealthState::Healthy);
+    assert_eq!(health.tcp_available, Some(true));
+    assert_eq!(health.udp_available, Some(false));
+    assert_eq!(health.error_kind, None);
+    assert_eq!(health.error_detail, None);
 
     ss_thread.join().expect("ss tcp echo server");
     core.stop().expect("stop managed mixed controller");
@@ -2626,6 +2731,7 @@ fn managed_mixed_controller_probe_node_health_records_failure() {
             inbound: SmokeInboundKind::HttpConnect,
             first_byte_timeout: Duration::from_secs(2),
             udp_available: Some(false),
+            udp_probe: None,
         })
         .expect_err("probe should fail on mismatched response");
     let status = core.status();
@@ -2684,6 +2790,7 @@ fn managed_mixed_controller_rejects_node_health_before_start() {
             inbound: SmokeInboundKind::HttpConnect,
             first_byte_timeout: Duration::from_secs(1),
             udp_available: None,
+            udp_probe: None,
         })
         .expect_err("probing health should require running core");
 
@@ -2697,6 +2804,7 @@ fn managed_mixed_controller_rejects_node_health_before_start() {
             inbound: SmokeInboundKind::HttpConnect,
             first_byte_timeout: Duration::from_secs(1),
             udp_available: None,
+            udp_probe: None,
         })
         .expect_err("probing all health should require running core");
 
@@ -2710,6 +2818,7 @@ fn managed_mixed_controller_rejects_node_health_before_start() {
             inbound: SmokeInboundKind::HttpConnect,
             first_byte_timeout: Duration::from_secs(1),
             udp_available: None,
+            udp_probe: None,
         })
         .expect_err("probing all health and applying recommendation should require running core");
 
@@ -2773,6 +2882,54 @@ fn spawn_shadowsocks_tcp_echo_server() -> (u16, thread::JoinHandle<()>) {
     (port, handle)
 }
 
+fn spawn_shadowsocks_tcp_udp_echo_server() -> (u16, thread::JoinHandle<()>, thread::JoinHandle<()>)
+{
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind ss tcp server");
+    let port = listener.local_addr().expect("ss tcp addr").port();
+    let socket = UdpSocket::bind(("127.0.0.1", port)).expect("bind ss udp server");
+    socket
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("ss udp timeout");
+
+    let tcp_handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept ss tcp server");
+        let kind = CipherKind::from_str("aes-256-gcm").expect("cipher");
+        let key = shadowsocks_key(kind, "secret");
+
+        let mut client_salt = vec![0; kind.salt_len()];
+        stream
+            .read_exact(&mut client_salt)
+            .expect("read client salt");
+        let mut client_cipher = Cipher::new(kind, &key, &client_salt);
+        let request_header = read_ss_chunk(&mut stream, &mut client_cipher);
+        assert_eq!(request_header, b"\x03\x0bexample.com\x01\xbb");
+        let payload = read_ss_chunk(&mut stream, &mut client_cipher);
+        assert_eq!(&payload, b"ping");
+
+        let server_salt = vec![7; kind.salt_len()];
+        stream.write_all(&server_salt).expect("write server salt");
+        let mut server_cipher = Cipher::new(kind, &key, &server_salt);
+        write_ss_chunk(&mut stream, &mut server_cipher, b"pong");
+    });
+
+    let udp_handle = thread::spawn(move || {
+        let kind = CipherKind::from_str("aes-256-gcm").expect("cipher");
+        let key = shadowsocks_key(kind, "secret");
+        let mut request = [0; 1500];
+        let (size, from) = socket.recv_from(&mut request).expect("read ss udp request");
+        let plaintext = decrypt_ss_udp_packet(kind, &key, &request[..size]);
+        assert_eq!(plaintext, b"\x03\x0bexample.com\x005ping");
+
+        let salt = vec![9; kind.salt_len()];
+        let response = encrypt_ss_udp_packet(kind, &key, &salt, b"\x01\x7f\x00\x00\x01\x005pong");
+        socket
+            .send_to(&response, from)
+            .expect("write ss udp response");
+    });
+
+    (port, tcp_handle, udp_handle)
+}
+
 fn unused_tcp_port() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind unused tcp port");
     listener.local_addr().expect("unused tcp addr").port()
@@ -2815,4 +2972,26 @@ fn write_ss_chunk(stream: &mut TcpStream, cipher: &mut Cipher, payload: &[u8]) {
     stream
         .write_all(&encrypted_payload)
         .expect("write encrypted ss chunk payload");
+}
+
+fn decrypt_ss_udp_packet(kind: CipherKind, key: &[u8], packet: &[u8]) -> Vec<u8> {
+    let salt_len = kind.salt_len();
+    let tag_len = kind.tag_len();
+    let (salt, payload) = packet.split_at(salt_len);
+    let mut payload = payload.to_vec();
+    let mut cipher = Cipher::new(kind, key, salt);
+    assert!(cipher.decrypt_packet(&mut payload));
+    payload.truncate(payload.len() - tag_len);
+    payload
+}
+
+fn encrypt_ss_udp_packet(kind: CipherKind, key: &[u8], salt: &[u8], plaintext: &[u8]) -> Vec<u8> {
+    let tag_len = kind.tag_len();
+    let mut payload = vec![0; plaintext.len() + tag_len];
+    payload[..plaintext.len()].copy_from_slice(plaintext);
+    let mut cipher = Cipher::new(kind, key, salt);
+    cipher.encrypt_packet(&mut payload);
+    let mut packet = salt.to_vec();
+    packet.extend_from_slice(&payload);
+    packet
 }

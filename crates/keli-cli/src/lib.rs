@@ -80,7 +80,7 @@ const ROUTE_RULE_CAPABILITIES: &str =
 const MANAGED_CONNECTION_METRIC_CAPABILITIES: &str =
     "total-connection-count,success-count,failure-count,connection-limit-rejection-count,error-kind-counts,route-action-counts,inbound-counts,total-upload-bytes,total-download-bytes,total-connect-ms,timed-connect-count,average-connect-ms,total-first-byte-ms,timed-first-byte-count,average-first-byte-ms,last-connection-timestamp,last-success-timestamp,last-failure-timestamp,recent-connection-reports,history-limit";
 const MANAGED_STATUS_SCHEMA_CAPABILITIES: &str =
-    "schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state";
+    "schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
     "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic";
 
@@ -698,6 +698,7 @@ pub struct ManagedNodeProbeOptions {
     pub inbound: SmokeInboundKind,
     pub first_byte_timeout: Duration,
     pub udp_available: Option<bool>,
+    pub udp_probe: Option<ManagedNodeUdpProbeOptions>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -708,6 +709,14 @@ pub struct ManagedNodeProbeSweepOptions {
     pub inbound: SmokeInboundKind,
     pub first_byte_timeout: Duration,
     pub udp_available: Option<bool>,
+    pub udp_probe: Option<ManagedNodeUdpProbeOptions>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedNodeUdpProbeOptions {
+    pub target: String,
+    pub payload: Vec<u8>,
+    pub expect: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -2837,11 +2846,30 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
 
         match result {
             Ok(report) => {
+                let udp_available = if let Some(udp_probe) = options.udp_probe {
+                    let mut udp_output = Vec::new();
+                    Some(
+                        probe_outbound_from_subscription_config_text_with_format(
+                            &config_text,
+                            Some(options.outbound_tag.clone()),
+                            &udp_probe.target,
+                            &udp_probe.payload,
+                            Some(&udp_probe.expect),
+                            true,
+                            options.first_byte_timeout,
+                            ProbeOutputFormat::Json,
+                            &mut udp_output,
+                        )
+                        .is_ok(),
+                    )
+                } else {
+                    options.udp_available
+                };
                 self.set_node_health(ManagedNodeHealthStatus {
                     tag: options.outbound_tag,
                     state: ManagedNodeHealthState::Healthy,
                     tcp_available: Some(true),
-                    udp_available: options.udp_available,
+                    udp_available,
                     latency_ms: report.first_byte_ms.or(report.connect_ms),
                     error_kind: None,
                     error_detail: None,
@@ -2904,6 +2932,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
                 inbound: options.inbound,
                 first_byte_timeout: options.first_byte_timeout,
                 udp_available: options.udp_available,
+                udp_probe: options.udp_probe.clone(),
             }) {
                 Ok(()) => successful_probes += 1,
                 Err(_) => failed_probes += 1,

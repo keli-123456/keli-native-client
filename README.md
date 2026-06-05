@@ -44,7 +44,9 @@ proxy details for support diagnostics. Subscription status is also exposed with
 supported nodes, skipped nodes, default outbound, selected outbound, and node
 health records for latency, TCP/UDP availability, failure reasons, and probe
 coverage counts plus recommendation switch readiness, reason labels, and
-structured sweep diagnostics.
+structured sweep diagnostics. Managed node probes can also run an optional real
+UDP outbound probe after TCP health succeeds, so UDP availability no longer has
+to be injected by callers.
 The managed background listener dispatches accepted TCP connections to workers,
 so one long-lived mixed client no longer blocks subsequent connections.
 That worker fan-out is bounded and records connection-limit rejections in
