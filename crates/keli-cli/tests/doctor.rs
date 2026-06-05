@@ -1,3 +1,7 @@
+use keli_cli::MANAGED_MIXED_RECENT_EVENT_LIMIT;
+use keli_client_core::DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT;
+use keli_net_core::DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS;
+
 #[test]
 fn doctor_report_lists_supported_outbounds() {
     let mut output = Vec::new();
@@ -28,6 +32,12 @@ fn doctor_report_lists_supported_outbounds() {
     assert!(output.contains(
         "protocol_capabilities=trojan=tcp,udp;vless=tcp,udp;vmess=tcp,udp;shadowsocks=tcp,udp;anytls=tcp,udp;naive=tcp;mieru=tcp,udp;hy2=tcp,udp;tuic=tcp,udp;socks=tcp,udp;http=tcp"
     ));
+    assert!(output.contains(&format!(
+        "resource_limits runtime_event_history={} managed_status_recent_events={} tun_tcp_max_active_sessions={}",
+        DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
+        MANAGED_MIXED_RECENT_EVENT_LIMIT,
+        DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS
+    )));
 }
 
 #[test]
@@ -374,6 +384,18 @@ fn doctor_json_report_is_machine_readable() {
     );
     assert_eq!(report["supported_outbounds"][0], "direct");
     assert_eq!(report["supported_udp_outbounds"][0], "direct");
+    assert_eq!(
+        report["resource_limits"]["runtime_event_history"],
+        DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT
+    );
+    assert_eq!(
+        report["resource_limits"]["managed_status_recent_events"],
+        MANAGED_MIXED_RECENT_EVENT_LIMIT
+    );
+    assert_eq!(
+        report["resource_limits"]["tun_tcp_max_active_sessions"],
+        DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS
+    );
     assert_eq!(report["sample_profile_valid"], true);
     assert_eq!(report["initial_phase"], "Idle");
 }

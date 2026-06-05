@@ -16,6 +16,7 @@ use keli_client_core::{
     build_connection_plan, ClientErrorKind, ClientRuntime, ConnectionPhase, ConnectionPlan,
     PanelState, RuntimeConfig, RuntimeDiagnostic, RuntimeEvent, RuntimeStatus,
     RuntimeTunPacketLoopDiagnostic, SkippedProfileSummary, SubscriptionNodeCapability,
+    DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
 };
 use keli_net_core::{
     build_dns_error_response, build_dns_response, encode_socks5_udp_datagram,
@@ -60,6 +61,7 @@ const DEFAULT_TUN_DNS_TTL_SECONDS: u32 = 30;
 const DEFAULT_TUN_PACKET_LOOP_MAX_PACKETS: usize = usize::MAX;
 const DEFAULT_TUN_TCP_SERVER_INITIAL_SEQUENCE_NUMBER: u32 = 1;
 const DEFAULT_TUN_TCP_WINDOW_SIZE: u16 = 0x4000;
+pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
 const SUPPORTED_UDP_OUTBOUNDS: &str =
@@ -1883,8 +1885,13 @@ impl ManagedMixedStatusSnapshot {
         handle: &ManagedMixedHandle<'_, C>,
         panel_state: Option<PanelState>,
     ) -> Self {
-        let recent_events: Vec<RuntimeEvent> =
-            handle.events().iter().rev().take(5).cloned().collect();
+        let recent_events: Vec<RuntimeEvent> = handle
+            .events()
+            .iter()
+            .rev()
+            .take(MANAGED_MIXED_RECENT_EVENT_LIMIT)
+            .cloned()
+            .collect();
         Self {
             status: handle.status().clone(),
             listen_addr: Some(handle.listen_addr()),
@@ -3181,6 +3188,9 @@ struct DoctorReport {
     supported_udp_outbounds: Vec<&'static str>,
     protocol_capabilities: &'static str,
     tun_packet_pipeline_capabilities: Vec<&'static str>,
+    runtime_event_history_limit: usize,
+    managed_status_recent_event_limit: usize,
+    tun_tcp_max_active_sessions_default: usize,
     sample_profile_valid: bool,
     initial_phase: String,
 }
@@ -3266,6 +3276,9 @@ fn collect_doctor_report() -> DoctorReport {
         supported_udp_outbounds: SUPPORTED_UDP_OUTBOUNDS.split(',').collect(),
         protocol_capabilities: SUPPORTED_PROTOCOL_CAPABILITIES,
         tun_packet_pipeline_capabilities: TUN_PACKET_PIPELINE_CAPABILITIES.split(',').collect(),
+        runtime_event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
+        managed_status_recent_event_limit: MANAGED_MIXED_RECENT_EVENT_LIMIT,
+        tun_tcp_max_active_sessions_default: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
         sample_profile_valid: profile.validate().is_ok(),
         initial_phase: format!("{:?}", ConnectionPhase::Idle),
     }
@@ -3362,6 +3375,13 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     )?;
     writeln!(
         writer,
+        "resource_limits runtime_event_history={} managed_status_recent_events={} tun_tcp_max_active_sessions={}",
+        report.runtime_event_history_limit,
+        report.managed_status_recent_event_limit,
+        report.tun_tcp_max_active_sessions_default
+    )?;
+    writeln!(
+        writer,
         "sample_profile_valid={}",
         report.sample_profile_valid
     )?;
@@ -3419,6 +3439,11 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         "supported_udp_outbounds": &report.supported_udp_outbounds,
         "protocol_capabilities": report.protocol_capabilities,
         "tun_packet_pipeline_capabilities": &report.tun_packet_pipeline_capabilities,
+        "resource_limits": {
+            "runtime_event_history": report.runtime_event_history_limit,
+            "managed_status_recent_events": report.managed_status_recent_event_limit,
+            "tun_tcp_max_active_sessions": report.tun_tcp_max_active_sessions_default,
+        },
         "sample_profile_valid": report.sample_profile_valid,
         "initial_phase": &report.initial_phase,
     })

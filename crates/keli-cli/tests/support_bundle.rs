@@ -1,3 +1,6 @@
+use keli_cli::MANAGED_MIXED_RECENT_EVENT_LIMIT;
+use keli_client_core::DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT;
+use keli_net_core::DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS;
 use serde_json::Value;
 
 #[test]
@@ -40,6 +43,18 @@ proxies:
     assert_eq!(report["doctor"]["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(report["doctor"]["platform"], "Windows");
     assert_eq!(report["doctor"]["route_rule_capabilities"][3], "ip-cidr");
+    assert_eq!(
+        report["doctor"]["resource_limits"]["runtime_event_history"],
+        DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT
+    );
+    assert_eq!(
+        report["doctor"]["resource_limits"]["managed_status_recent_events"],
+        MANAGED_MIXED_RECENT_EVENT_LIMIT
+    );
+    assert_eq!(
+        report["doctor"]["resource_limits"]["tun_tcp_max_active_sessions"],
+        DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS
+    );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
