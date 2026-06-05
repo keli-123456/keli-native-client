@@ -92,6 +92,10 @@ proxies:
     assert_eq!(report["doctor"]["tun_backend"]["supported"], true);
     assert_eq!(report["doctor"]["tun_backend"]["lifecycle_wired"], true);
     assert_eq!(report["doctor"]["tun_backend"]["packet_io_wired"], true);
+    assert_eq!(
+        report["doctor"]["tun_backend"]["route_takeover_wired"],
+        true
+    );
     assert!(report["doctor"]["tun_backend"]["driver_api_available"].is_boolean());
     assert_eq!(report["doctor"]["route_rule_capabilities"][3], "ip-cidr");
     assert_eq!(
@@ -243,7 +247,11 @@ proxies:
         "driver-api-load"
     );
     assert_eq!(
-        report["doctor"]["tun_backend_check_capabilities"][7],
+        report["doctor"]["tun_backend_check_capabilities"][6],
+        "route-takeover-wiring"
+    );
+    assert_eq!(
+        report["doctor"]["tun_backend_check_capabilities"][8],
         "readiness-blocker-detail"
     );
     assert_eq!(

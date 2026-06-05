@@ -55,6 +55,10 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
         .as_str()
         .expect("tun backend detail")
         .contains("backend=wintun"));
+    assert!(tun_backend["detail"]
+        .as_str()
+        .expect("tun backend detail")
+        .contains("route_takeover_wired=true"));
 }
 
 #[test]

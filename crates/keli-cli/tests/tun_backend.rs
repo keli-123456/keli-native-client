@@ -16,6 +16,7 @@ fn tun_backend_check_json_reports_native_backend_wiring_state() {
     assert_eq!(report["backend"]["supported"], true);
     assert_eq!(report["backend"]["lifecycle_wired"], true);
     assert_eq!(report["backend"]["packet_io_wired"], true);
+    assert_eq!(report["backend"]["route_takeover_wired"], true);
     assert!(report["backend"]["driver_api_available"].is_boolean());
     assert_eq!(
         report["status"].as_str().expect("status") == "ready",
@@ -48,5 +49,6 @@ fn tun_backend_check_text_reports_install_or_wiring_detail() {
     assert!(output.contains("driver_api_available="));
     assert!(output.contains("lifecycle_wired=true"));
     assert!(output.contains("packet_io_wired=true"));
+    assert!(output.contains("route_takeover_wired=true"));
     assert!(output.contains("searched_path="));
 }

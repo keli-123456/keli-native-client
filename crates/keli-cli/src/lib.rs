@@ -71,7 +71,7 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 5;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 6;
 pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 2;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 1;
@@ -101,7 +101,7 @@ const INTEROP_MATRIX_CAPABILITIES: &str =
 const READINESS_CHECK_CAPABILITIES: &str =
     "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
-    "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,searched-paths,readiness-blocker-detail";
+    "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -5190,7 +5190,7 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     )?;
     writeln!(
         writer,
-        "tun_backend platform={} backend={} supported={} driver_library_present={} driver_api_available={} install_required={} lifecycle_wired={} packet_io_wired={} driver_library_path={} driver_api_error={} reason={}",
+        "tun_backend platform={} backend={} supported={} driver_library_present={} driver_api_available={} install_required={} lifecycle_wired={} packet_io_wired={} route_takeover_wired={} driver_library_path={} driver_api_error={} reason={}",
         format!("{:?}", report.tun_backend.platform),
         report.tun_backend.backend_label(),
         report.tun_backend.supported,
@@ -5199,6 +5199,7 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
         report.tun_backend.install_required,
         report.tun_backend.lifecycle_wired,
         report.tun_backend.packet_io_wired,
+        report.tun_backend.route_takeover_wired,
         report.tun_backend.driver_library_path.as_deref().unwrap_or("-"),
         report.tun_backend.driver_api_error.as_deref().unwrap_or("-"),
         report.tun_backend.reason.as_deref().unwrap_or("-")
@@ -5410,7 +5411,7 @@ fn write_tun_backend_check_text_report(
 ) -> Result<(), String> {
     writeln!(
         writer,
-        "tun_backend status={} platform={:?} backend={} supported={} driver_library_present={} driver_api_available={} install_required={} lifecycle_wired={} packet_io_wired={} driver_library_path={} driver_api_error={} reason={}",
+        "tun_backend status={} platform={:?} backend={} supported={} driver_library_present={} driver_api_available={} install_required={} lifecycle_wired={} packet_io_wired={} route_takeover_wired={} driver_library_path={} driver_api_error={} reason={}",
         if status.is_ready() {
             "ready"
         } else {
@@ -5424,6 +5425,7 @@ fn write_tun_backend_check_text_report(
         status.install_required,
         status.lifecycle_wired,
         status.packet_io_wired,
+        status.route_takeover_wired,
         status.driver_library_path.as_deref().unwrap_or("-"),
         status.driver_api_error.as_deref().unwrap_or("-"),
         status.reason.as_deref().unwrap_or("-")
@@ -5455,6 +5457,7 @@ fn tun_backend_json_value(status: &TunBackendStatus) -> serde_json::Value {
         "supported": status.supported,
         "lifecycle_wired": status.lifecycle_wired,
         "packet_io_wired": status.packet_io_wired,
+        "route_takeover_wired": status.route_takeover_wired,
         "driver_library_present": status.driver_library_present,
         "driver_api_available": status.driver_api_available,
         "driver_library_path": status.driver_library_path.as_deref(),
@@ -6202,7 +6205,7 @@ fn collect_readiness_check_report(
             "platform",
             doctor.tun_backend.is_ready(),
             format!(
-                "platform={:?} backend={} supported={} driver_library_present={} driver_api_available={} install_required={} lifecycle_wired={} packet_io_wired={} driver_api_error={} reason={}",
+                "platform={:?} backend={} supported={} driver_library_present={} driver_api_available={} install_required={} lifecycle_wired={} packet_io_wired={} route_takeover_wired={} driver_api_error={} reason={}",
                 doctor.tun_backend.platform,
                 doctor.tun_backend.backend_label(),
                 doctor.tun_backend.supported,
@@ -6211,6 +6214,7 @@ fn collect_readiness_check_report(
                 doctor.tun_backend.install_required,
                 doctor.tun_backend.lifecycle_wired,
                 doctor.tun_backend.packet_io_wired,
+                doctor.tun_backend.route_takeover_wired,
                 doctor.tun_backend.driver_api_error.as_deref().unwrap_or("-"),
                 doctor.tun_backend.reason.as_deref().unwrap_or("-")
             ),

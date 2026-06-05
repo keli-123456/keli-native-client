@@ -129,10 +129,11 @@ The first implementation target is deliberately small:
    is present, validates that the Wintun API can be loaded, and exposes install
    requirements separately from Rust-side wiring. The Rust-side bridge now
    dynamically loads Wintun, owns adapter/session handles, configures address
-   and MTU with `netsh`, and feeds packet I/O into the existing net-core TUN
-   loop. Doctor, support bundles, and readiness gates include this backend
-   status so packagers and UI flows can distinguish missing driver assets from
-   runtime API availability.
+   and MTU with `netsh`, installs split-default route takeover entries for the
+   active address family, removes them on stop, and feeds packet I/O into the
+   existing net-core TUN loop. Doctor, support bundles, and readiness gates
+   include this backend status so packagers and UI flows can distinguish missing
+   driver assets from runtime API availability.
    DNS hijack now has a local SOCKS5 UDP path for A/AAAA wire queries, using the
    existing DNS engine and policy controls to return synthetic DNS responses
    instead of relaying hijacked DNS traffic to the original resolver.
@@ -392,9 +393,10 @@ The first implementation target is deliberately small:
    explicit default-core gate. It combines doctor schema coverage, interop
    validation/registry coverage, local mixed soak gates, resource limits,
    managed panel/subscription state, system proxy support, TUN backend wiring,
-   and TUN preflight state into one text or JSON report. Gates can pass, fail,
-   or be skipped, so CI and desktop integrations can see exactly why the native
-   core is or is not ready to become the default Keli core on a given machine.
+   route takeover wiring, and TUN preflight state into one text or JSON report.
+   Gates can pass, fail, or be skipped, so CI and desktop integrations can see
+   exactly why the native core is or is not ready to become the default Keli core
+   on a given machine.
 
 The managed mixed runtime now supports a background handle with runtime status,
 generation tracking, event history, explicit stop, system proxy restoration, and

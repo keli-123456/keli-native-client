@@ -132,9 +132,12 @@ it probes for Wintun (`wintun.dll`) through standard bundle/system paths,
 validates that the Wintun API can be loaded, and reports whether installation is
 still required. The Rust-side lifecycle and packet I/O bridge now loads Wintun
 at runtime, creates or opens the adapter, starts packet sessions, and hands
-packets to the net-core TUN loop. Doctor, support bundles, and readiness checks
-include this backend detail so the default-core blocker is actionable instead of
-a generic unavailable state.
+packets to the net-core TUN loop. Windows TUN start also installs split-default
+route takeover entries (`0.0.0.0/1` plus `128.0.0.0/1`, or IPv6 equivalents for
+IPv6 TUN addresses) and removes them on stop so traffic capture is paired with
+cleanup. Doctor, support bundles, and readiness checks include this backend
+detail so the default-core blocker is actionable instead of a generic
+unavailable state.
 A bounded managed TUN packet-loop runner now ties lifecycle guard, packet I/O,
 net-core loop summary, and owned-device cleanup into one tested control path.
 Direct UDP TUN relay can execute an injected UDP relay, wrap the relay payload
@@ -334,10 +337,11 @@ and support flows can inspect protocol readiness without scraping this document.
 `readiness-check` adds a default-core gate for CI and desktop integration: it
 combines doctor schema coverage, interop matrix coverage, resource limits,
 panel/subscription status surfaces, system proxy support, TUN preflight state,
-TUN backend wiring, and optional local mixed soak gates into one text or JSON
-report. The report is allowed to say `not-ready` when the local platform still
-lacks a required handoff such as Wintun packaging, lifecycle control, or packet
-I/O, making remaining default-core blockers explicit.
+TUN backend wiring, route takeover wiring, and optional local mixed soak gates
+into one text or JSON report. The report is allowed to say `not-ready` when the
+local platform still lacks a required handoff such as Wintun packaging,
+lifecycle control, or packet I/O, making remaining default-core blockers
+explicit.
 
 ## Protocol Matrix
 

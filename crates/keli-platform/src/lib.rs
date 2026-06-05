@@ -270,6 +270,7 @@ pub struct TunBackendStatus {
     pub supported: bool,
     pub lifecycle_wired: bool,
     pub packet_io_wired: bool,
+    pub route_takeover_wired: bool,
     pub driver_library_present: bool,
     pub driver_api_available: bool,
     pub driver_library_path: Option<String>,
@@ -292,6 +293,7 @@ impl TunBackendStatus {
         self.supported
             && self.lifecycle_wired
             && self.packet_io_wired
+            && self.route_takeover_wired
             && self.driver_api_available
             && !self.install_required
     }
@@ -455,6 +457,8 @@ struct NativeTunControllerState {
     active_config: Option<TunDeviceConfig>,
     #[cfg(windows)]
     windows_adapter: Option<Arc<windows_tun::WintunAdapter>>,
+    #[cfg(windows)]
+    windows_route_takeover: Option<WindowsTunRouteTakeoverState>,
 }
 
 #[derive(Debug)]
@@ -488,6 +492,7 @@ impl NativeTunDeviceController {
                 supported: true,
                 lifecycle_wired: false,
                 packet_io_wired: false,
+                route_takeover_wired: false,
                 driver_library_present: false,
                 driver_api_available: false,
                 driver_library_path: None,
@@ -502,6 +507,7 @@ impl NativeTunDeviceController {
                 supported: false,
                 lifecycle_wired: false,
                 packet_io_wired: false,
+                route_takeover_wired: false,
                 driver_library_present: false,
                 driver_api_available: false,
                 driver_library_path: None,
@@ -616,12 +622,13 @@ impl TunDeviceController for NativeTunDeviceController {
                 #[cfg(windows)]
                 {
                     let adapter = windows_tun::WintunAdapter::open_or_create(config)?;
-                    windows_configure_tun_interface(config)?;
+                    let route_takeover = windows_configure_tun_interface(config)?;
                     let mut state = self.state.lock().map_err(|_| {
                         TunDeviceError::Io("TUN controller state lock poisoned".to_string())
                     })?;
                     state.active_config = Some(config.clone());
                     state.windows_adapter = Some(Arc::new(adapter));
+                    state.windows_route_takeover = Some(route_takeover);
                     Ok(TunDeviceSnapshot::running(config))
                 }
                 #[cfg(not(windows))]
@@ -639,11 +646,20 @@ impl TunDeviceController for NativeTunDeviceController {
     fn stop(&self) -> Result<TunDeviceSnapshot, TunDeviceError> {
         match self.platform {
             PlatformKind::Windows => {
-                let mut state = self.state.lock().map_err(|_| {
-                    TunDeviceError::Io("TUN controller state lock poisoned".to_string())
-                })?;
-                state.windows_adapter = None;
-                state.active_config = None;
+                let (route_takeover, adapter) = {
+                    let mut state = self.state.lock().map_err(|_| {
+                        TunDeviceError::Io("TUN controller state lock poisoned".to_string())
+                    })?;
+                    state.active_config = None;
+                    (
+                        state.windows_route_takeover.take(),
+                        state.windows_adapter.take(),
+                    )
+                };
+                if let Some(route_takeover) = route_takeover {
+                    route_takeover.restore()?;
+                }
+                drop(adapter);
                 Ok(windows_tun_stopped_snapshot())
             }
             PlatformKind::Android => self.snapshot(),
@@ -671,6 +687,7 @@ fn windows_tun_backend_status(search_paths: Vec<PathBuf>) -> TunBackendStatus {
         supported: true,
         lifecycle_wired: true,
         packet_io_wired: true,
+        route_takeover_wired: true,
         driver_library_present,
         driver_api_available,
         driver_library_path: found_path.map(|path| path.display().to_string()),
@@ -750,14 +767,65 @@ fn dedup_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
     deduped
 }
 
-fn windows_configure_tun_interface(config: &TunDeviceConfig) -> Result<(), TunDeviceError> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WindowsTunCommand {
+    program: &'static str,
+    args: Vec<String>,
+}
+
+impl WindowsTunCommand {
+    fn new(program: &'static str, args: impl IntoIterator<Item = String>) -> Self {
+        Self {
+            program,
+            args: args.into_iter().collect(),
+        }
+    }
+
+    fn run(&self) -> Result<(), TunDeviceError> {
+        run_tun_command_checked(self.program, &self.args)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WindowsTunRouteTakeoverState {
+    restore_commands: Vec<WindowsTunCommand>,
+}
+
+impl WindowsTunRouteTakeoverState {
+    fn restore(self) -> Result<(), TunDeviceError> {
+        let mut errors = Vec::new();
+        for command in self.restore_commands.into_iter().rev() {
+            if let Err(error) = command.run() {
+                errors.push(error.to_string());
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(TunDeviceError::Io(format!(
+                "restore TUN routes: {}",
+                errors.join("; ")
+            )))
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WindowsTunRouteTakeoverStep {
+    add: WindowsTunCommand,
+    remove: WindowsTunCommand,
+}
+
+fn windows_configure_tun_interface(
+    config: &TunDeviceConfig,
+) -> Result<WindowsTunRouteTakeoverState, TunDeviceError> {
     let (address, prefix) = parse_tun_address_cidr_parts(&config.address_cidr)?;
     match address {
         IpAddr::V4(address) => {
             let netmask = ipv4_prefix_to_netmask(prefix)?;
-            run_tun_command_checked(
+            WindowsTunCommand::new(
                 "netsh",
-                &[
+                [
                     "interface".to_string(),
                     "ipv4".to_string(),
                     "set".to_string(),
@@ -767,10 +835,11 @@ fn windows_configure_tun_interface(config: &TunDeviceConfig) -> Result<(), TunDe
                     address.to_string(),
                     netmask.to_string(),
                 ],
-            )?;
-            run_tun_command_checked(
+            )
+            .run()?;
+            WindowsTunCommand::new(
                 "netsh",
-                &[
+                [
                     "interface".to_string(),
                     "ipv4".to_string(),
                     "set".to_string(),
@@ -780,11 +849,12 @@ fn windows_configure_tun_interface(config: &TunDeviceConfig) -> Result<(), TunDe
                     "store=active".to_string(),
                 ],
             )
+            .run()?;
         }
         IpAddr::V6(address) => {
-            run_tun_command_checked(
+            WindowsTunCommand::new(
                 "netsh",
-                &[
+                [
                     "interface".to_string(),
                     "ipv6".to_string(),
                     "set".to_string(),
@@ -792,10 +862,11 @@ fn windows_configure_tun_interface(config: &TunDeviceConfig) -> Result<(), TunDe
                     format!("interface={}", config.interface_name),
                     format!("address={address}/{prefix}"),
                 ],
-            )?;
-            run_tun_command_checked(
+            )
+            .run()?;
+            WindowsTunCommand::new(
                 "netsh",
-                &[
+                [
                     "interface".to_string(),
                     "ipv6".to_string(),
                     "set".to_string(),
@@ -805,7 +876,81 @@ fn windows_configure_tun_interface(config: &TunDeviceConfig) -> Result<(), TunDe
                     "store=active".to_string(),
                 ],
             )
+            .run()?;
         }
+    };
+    apply_windows_tun_route_takeover(config)
+}
+
+fn apply_windows_tun_route_takeover(
+    config: &TunDeviceConfig,
+) -> Result<WindowsTunRouteTakeoverState, TunDeviceError> {
+    let steps = windows_tun_route_takeover_steps(config)?;
+    let mut restore_commands = Vec::new();
+    for step in steps {
+        if let Err(error) = step.add.run() {
+            let state = WindowsTunRouteTakeoverState { restore_commands };
+            let restore_error = state.restore().err().map(|error| error.to_string());
+            return Err(match restore_error {
+                Some(restore_error) => TunDeviceError::Io(format!("{error}; {restore_error}")),
+                None => error,
+            });
+        }
+        restore_commands.push(step.remove);
+    }
+    Ok(WindowsTunRouteTakeoverState { restore_commands })
+}
+
+fn windows_tun_route_takeover_steps(
+    config: &TunDeviceConfig,
+) -> Result<Vec<WindowsTunRouteTakeoverStep>, TunDeviceError> {
+    let (address, _) = parse_tun_address_cidr_parts(&config.address_cidr)?;
+    let prefixes = match address {
+        IpAddr::V4(_) => vec!["0.0.0.0/1".to_string(), "128.0.0.0/1".to_string()],
+        IpAddr::V6(_) => vec!["::/1".to_string(), "8000::/1".to_string()],
+    };
+    Ok(prefixes
+        .into_iter()
+        .map(|prefix| windows_tun_route_takeover_step(&config.interface_name, address, prefix))
+        .collect())
+}
+
+fn windows_tun_route_takeover_step(
+    interface_name: &str,
+    address: IpAddr,
+    prefix: String,
+) -> WindowsTunRouteTakeoverStep {
+    let family = match address {
+        IpAddr::V4(_) => "ipv4",
+        IpAddr::V6(_) => "ipv6",
+    };
+    let mut add_args = vec![
+        "interface".to_string(),
+        family.to_string(),
+        "add".to_string(),
+        "route".to_string(),
+        format!("prefix={prefix}"),
+        format!("interface={interface_name}"),
+        "metric=1".to_string(),
+        "store=active".to_string(),
+    ];
+    if matches!(address, IpAddr::V4(_)) {
+        add_args.insert(6, "nexthop=0.0.0.0".to_string());
+    }
+    let mut remove_args = vec![
+        "interface".to_string(),
+        family.to_string(),
+        "delete".to_string(),
+        "route".to_string(),
+        format!("prefix={prefix}"),
+        format!("interface={interface_name}"),
+    ];
+    if matches!(address, IpAddr::V4(_)) {
+        remove_args.push("nexthop=0.0.0.0".to_string());
+    }
+    WindowsTunRouteTakeoverStep {
+        add: WindowsTunCommand::new("netsh", add_args),
+        remove: WindowsTunCommand::new("netsh", remove_args),
     }
 }
 
@@ -1558,6 +1703,10 @@ fn parse_reg_dword(value: &str) -> Option<u32> {
 mod tests {
     use super::*;
 
+    fn strings(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
     #[derive(Debug)]
     struct StaticTunController {
         snapshot: Result<TunDeviceSnapshot, TunDeviceError>,
@@ -1722,6 +1871,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         assert!(status.supported);
         assert!(status.lifecycle_wired);
         assert!(status.packet_io_wired);
+        assert!(status.route_takeover_wired);
         assert!(!status.driver_library_present);
         assert!(!status.driver_api_available);
         assert_eq!(status.driver_api_error, None);
@@ -1763,11 +1913,110 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         );
         assert!(status.lifecycle_wired);
         assert!(status.packet_io_wired);
+        assert!(status.route_takeover_wired);
         assert!(status
             .reason
             .as_deref()
             .expect("reason")
             .contains("API could not be loaded"));
+    }
+
+    #[test]
+    fn windows_tun_route_takeover_steps_use_ipv4_split_default_routes() {
+        let config =
+            TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500).expect("valid TUN config");
+
+        let steps = windows_tun_route_takeover_steps(&config).expect("route takeover steps");
+
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].add.program, "netsh");
+        assert_eq!(
+            steps[0].add.args,
+            strings(&[
+                "interface",
+                "ipv4",
+                "add",
+                "route",
+                "prefix=0.0.0.0/1",
+                "interface=keli-tun0",
+                "nexthop=0.0.0.0",
+                "metric=1",
+                "store=active"
+            ])
+        );
+        assert_eq!(
+            steps[1].add.args,
+            strings(&[
+                "interface",
+                "ipv4",
+                "add",
+                "route",
+                "prefix=128.0.0.0/1",
+                "interface=keli-tun0",
+                "nexthop=0.0.0.0",
+                "metric=1",
+                "store=active"
+            ])
+        );
+        assert_eq!(
+            steps[0].remove.args,
+            strings(&[
+                "interface",
+                "ipv4",
+                "delete",
+                "route",
+                "prefix=0.0.0.0/1",
+                "interface=keli-tun0",
+                "nexthop=0.0.0.0"
+            ])
+        );
+    }
+
+    #[test]
+    fn windows_tun_route_takeover_steps_use_ipv6_split_default_routes() {
+        let config =
+            TunDeviceConfig::new("keli-tun0", "fd00::1/64", 1500).expect("valid TUN config");
+
+        let steps = windows_tun_route_takeover_steps(&config).expect("route takeover steps");
+
+        assert_eq!(steps.len(), 2);
+        assert_eq!(
+            steps[0].add.args,
+            strings(&[
+                "interface",
+                "ipv6",
+                "add",
+                "route",
+                "prefix=::/1",
+                "interface=keli-tun0",
+                "metric=1",
+                "store=active"
+            ])
+        );
+        assert_eq!(
+            steps[1].add.args,
+            strings(&[
+                "interface",
+                "ipv6",
+                "add",
+                "route",
+                "prefix=8000::/1",
+                "interface=keli-tun0",
+                "metric=1",
+                "store=active"
+            ])
+        );
+        assert_eq!(
+            steps[1].remove.args,
+            strings(&[
+                "interface",
+                "ipv6",
+                "delete",
+                "route",
+                "prefix=8000::/1",
+                "interface=keli-tun0"
+            ])
+        );
     }
 
     #[test]
