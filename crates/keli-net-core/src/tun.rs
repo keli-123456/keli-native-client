@@ -1952,6 +1952,19 @@ impl TunTcpSessionTable {
         } else {
             None
         };
+        if let Some(response) = &response {
+            self.post_closed_sessions.insert(
+                key,
+                TunTcpPostCloseSession {
+                    session: response.session.clone(),
+                    server_next_sequence_number: response.sequence_number,
+                    client_next_sequence_number: response.acknowledgment_number,
+                    client_fin_sequence_number: Some(segment.sequence_number),
+                    client_fin_ack_packet: Some(response.packet.clone()),
+                    last_activity_at: Instant::now(),
+                },
+            );
+        }
         Ok(Some((session, response)))
     }
 }

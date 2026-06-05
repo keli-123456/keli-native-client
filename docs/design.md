@@ -255,6 +255,8 @@ The first implementation target is deliberately small:
    client payload is written to the relay, queued server payload is packetized
    back to TUN, FIN closes with an ACK packet, and RST closes without creating
    a reset loop.
+   Client-initiated FIN close ACKs are also kept briefly so duplicate client
+   FINs re-send the ACK instead of being treated as unknown sessions.
    A TCP session relay device-loop entrypoint now reads TUN packets, routes
    direct or tagged TCP relay plans into that step runner, writes response
    packets back to the device, and records TCP session events, written packets,
