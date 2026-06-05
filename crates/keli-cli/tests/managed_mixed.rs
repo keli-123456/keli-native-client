@@ -7,11 +7,12 @@ use std::time::{Duration, Instant, SystemTime};
 
 use keli_cli::{
     apply_system_proxy_for_listener, managed_mixed_status_json_value,
-    write_managed_mixed_status_json_report, ConnectionMetricsSnapshot, ManagedMixedController,
-    ManagedMixedOptions, ManagedMixedSession, ManagedMixedStatusSnapshot, ManagedNodeHealthState,
-    ManagedNodeHealthStatus, ManagedNodeProbeOptions, ManagedNodeProbeSweepOptions,
-    MixedDnsOptions, SmokeInboundKind, DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
-    MANAGED_CONNECTION_REPORT_HISTORY_LIMIT, MANAGED_MIXED_RECENT_EVENT_LIMIT,
+    write_managed_mixed_status_json_report, ConnectionErrorKindCount, ConnectionMetricsSnapshot,
+    ManagedMixedController, ManagedMixedOptions, ManagedMixedSession, ManagedMixedStatusSnapshot,
+    ManagedNodeHealthState, ManagedNodeHealthStatus, ManagedNodeProbeOptions,
+    ManagedNodeProbeSweepOptions, MixedDnsOptions, SmokeInboundKind,
+    DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
+    MANAGED_MIXED_RECENT_EVENT_LIMIT,
 };
 use keli_client_core::{
     ClientErrorKind, PanelAccountState, PanelRiskControlState, PanelState, PanelUserState,
@@ -622,6 +623,13 @@ fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
         status.connection_metrics.connection_limit_rejection_count,
         0
     );
+    assert_eq!(
+        status.connection_metrics.error_kind_counts,
+        vec![ConnectionErrorKindCount {
+            error_kind: ConnectionErrorKind::RouteBlocked,
+            count: 1,
+        }]
+    );
     assert_eq!(status.connection_metrics.retained_connection_count, 1);
     assert_eq!(
         status.connection_metrics.connection_history_limit,
@@ -644,6 +652,10 @@ fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
     assert_eq!(
         value["connection_metrics"]["connection_limit_rejection_count"],
         0
+    );
+    assert_eq!(
+        value["connection_metrics"]["error_kind_counts"]["route_blocked"],
+        1
     );
     assert_eq!(
         value["connection_metrics"]["recent_connections"][0]["target"]["host"],
@@ -669,6 +681,13 @@ fn managed_mixed_status_records_recent_connection_metrics_across_reload() {
     assert_eq!(
         reloaded.connection_metrics.connection_limit_rejection_count,
         0
+    );
+    assert_eq!(
+        reloaded.connection_metrics.error_kind_counts,
+        vec![ConnectionErrorKindCount {
+            error_kind: ConnectionErrorKind::RouteBlocked,
+            count: 1,
+        }]
     );
     assert_eq!(reloaded.connection_metrics.retained_connection_count, 1);
 
@@ -876,6 +895,13 @@ fn managed_mixed_background_listener_rejects_connections_above_worker_limit() {
         status.connection_metrics.connection_limit_rejection_count,
         1
     );
+    assert_eq!(
+        status.connection_metrics.error_kind_counts,
+        vec![ConnectionErrorKindCount {
+            error_kind: ConnectionErrorKind::ConnectionLimitReached,
+            count: 1,
+        }]
+    );
     let report = status
         .connection_metrics
         .recent_connections
@@ -897,6 +923,10 @@ fn managed_mixed_background_listener_rejects_connections_above_worker_limit() {
     assert_eq!(value["available_connection_worker_slots"], 0);
     assert_eq!(
         value["connection_metrics"]["connection_limit_rejection_count"],
+        1
+    );
+    assert_eq!(
+        value["connection_metrics"]["error_kind_counts"]["connection_limit_reached"],
         1
     );
     assert_eq!(
@@ -976,6 +1006,9 @@ fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
         value["connection_metrics"]["connection_limit_rejection_count"],
         0
     );
+    assert!(value["connection_metrics"]["error_kind_counts"]
+        .as_object()
+        .is_some_and(|counts| counts.is_empty()));
     assert_eq!(
         value["connection_metrics"]["connection_history_limit"],
         MANAGED_CONNECTION_REPORT_HISTORY_LIMIT

@@ -216,9 +216,16 @@ pub struct ConnectionMetricsSnapshot {
     pub success_count: u64,
     pub failure_count: u64,
     pub connection_limit_rejection_count: u64,
+    pub error_kind_counts: Vec<ConnectionErrorKindCount>,
     pub retained_connection_count: usize,
     pub connection_history_limit: usize,
     pub recent_connections: Vec<ConnectionReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionErrorKindCount {
+    pub error_kind: ConnectionErrorKind,
+    pub count: u64,
 }
 
 impl Default for ConnectionMetricsSnapshot {
@@ -228,6 +235,7 @@ impl Default for ConnectionMetricsSnapshot {
             success_count: 0,
             failure_count: 0,
             connection_limit_rejection_count: 0,
+            error_kind_counts: Vec::new(),
             retained_connection_count: 0,
             connection_history_limit: MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
             recent_connections: Vec::new(),
@@ -241,6 +249,7 @@ struct ConnectionMetricsState {
     success_count: u64,
     failure_count: u64,
     connection_limit_rejection_count: u64,
+    error_kind_counts: Vec<ConnectionErrorKindCount>,
     recent_connections: Vec<ConnectionReport>,
 }
 
@@ -263,9 +272,21 @@ impl ConnectionMetrics {
             return;
         };
         state.total_connection_count = state.total_connection_count.saturating_add(1);
-        if report.error_kind.is_some() {
+        if let Some(error_kind) = report.error_kind {
             state.failure_count = state.failure_count.saturating_add(1);
-            if report.error_kind == Some(ConnectionErrorKind::ConnectionLimitReached) {
+            if let Some(entry) = state
+                .error_kind_counts
+                .iter_mut()
+                .find(|entry| entry.error_kind == error_kind)
+            {
+                entry.count = entry.count.saturating_add(1);
+            } else {
+                state.error_kind_counts.push(ConnectionErrorKindCount {
+                    error_kind,
+                    count: 1,
+                });
+            }
+            if error_kind == ConnectionErrorKind::ConnectionLimitReached {
                 state.connection_limit_rejection_count =
                     state.connection_limit_rejection_count.saturating_add(1);
             }
@@ -292,11 +313,14 @@ impl ConnectionMetrics {
             .rev()
             .cloned()
             .collect::<Vec<_>>();
+        let mut error_kind_counts = state.error_kind_counts.clone();
+        error_kind_counts.sort_by_key(|entry| entry.error_kind.as_str());
         ConnectionMetricsSnapshot {
             total_connection_count: state.total_connection_count,
             success_count: state.success_count,
             failure_count: state.failure_count,
             connection_limit_rejection_count: state.connection_limit_rejection_count,
+            error_kind_counts,
             retained_connection_count: recent_connections.len(),
             connection_history_limit: self.history_limit,
             recent_connections,
@@ -2070,11 +2094,22 @@ fn managed_node_health_status_json_value(health: &ManagedNodeHealthStatus) -> se
 }
 
 fn connection_metrics_json_value(metrics: &ConnectionMetricsSnapshot) -> serde_json::Value {
+    let error_kind_counts = metrics
+        .error_kind_counts
+        .iter()
+        .map(|entry| {
+            (
+                entry.error_kind.as_str().to_string(),
+                serde_json::json!(entry.count),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
     serde_json::json!({
         "total_connection_count": metrics.total_connection_count,
         "success_count": metrics.success_count,
         "failure_count": metrics.failure_count,
         "connection_limit_rejection_count": metrics.connection_limit_rejection_count,
+        "error_kind_counts": error_kind_counts,
         "retained_connection_count": metrics.retained_connection_count,
         "connection_history_limit": metrics.connection_history_limit,
         "recent_connections": metrics
