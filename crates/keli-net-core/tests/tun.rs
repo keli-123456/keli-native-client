@@ -20,9 +20,10 @@ use keli_net_core::{
     RegistryTunTcpSessionRelay, RegistryTunUdpRelay, RouteAction, RouteDestination, RouteEngine,
     RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketDevice,
     TunPacketError, TunPacketLoopEvent, TunPacketLoopSummary, TunPacketProcessAction,
-    TunPacketRelayAction, TunPacketRelayPlan, TunTcpFlags, TunTcpServerRead, TunTcpSessionKey,
-    TunTcpSessionPhase, TunTcpSessionRecord, TunTcpSessionRelay, TunTcpSessionStep,
-    TunTcpSessionTable, TunTransportProtocol, TunUdpRelay, TunUdpRelayError, UdpRelayResponse,
+    TunPacketRelayAction, TunPacketRelayPlan, TunTcpCloseMarkerResetKind, TunTcpFlags,
+    TunTcpServerRead, TunTcpSessionKey, TunTcpSessionPhase, TunTcpSessionRecord,
+    TunTcpSessionRelay, TunTcpSessionStep, TunTcpSessionTable, TunTransportProtocol, TunUdpRelay,
+    TunUdpRelayError, UdpRelayResponse,
 };
 
 #[test]
@@ -2166,9 +2167,10 @@ fn clears_tun_tcp_server_close_marker_on_rst_without_reset_or_reclosing_relay() 
             .expect("process RST+ACK after server FIN");
 
     assert!(rst_step.response_packets().is_empty());
-    let TunTcpSessionStep::CloseMarkerReset { session } = rst_step else {
+    let TunTcpSessionStep::CloseMarkerReset { session, kind } = rst_step else {
         panic!("expected close-marker reset cleanup");
     };
+    assert_eq!(kind, TunTcpCloseMarkerResetKind::ServerClose);
     assert_eq!(session.client_next_sequence_number, 16);
     assert_eq!(session.server_next_sequence_number, 1001);
     assert!(sessions.is_empty());
@@ -2250,9 +2252,10 @@ fn clears_tun_tcp_post_close_marker_on_rst_without_reset_or_reclosing_relay() {
             .expect("process RST+ACK after post close");
 
     assert!(rst_step.response_packets().is_empty());
-    let TunTcpSessionStep::CloseMarkerReset { session } = rst_step else {
+    let TunTcpSessionStep::CloseMarkerReset { session, kind } = rst_step else {
         panic!("expected post-close marker reset cleanup");
     };
+    assert_eq!(kind, TunTcpCloseMarkerResetKind::PostClose);
     assert_eq!(session.client_next_sequence_number, 16);
     assert_eq!(session.server_next_sequence_number, 1001);
     assert!(sessions.is_empty());
@@ -5686,6 +5689,8 @@ fn tun_packet_loop_clears_server_close_marker_on_rst_without_reset() {
     assert_eq!(summary.processed_packets(), 4);
     assert_eq!(summary.tcp_session_events, 4);
     assert_eq!(summary.tcp_session_packets_written, 3);
+    assert_eq!(summary.tcp_server_close_marker_resets, 1);
+    assert_eq!(summary.tcp_post_close_marker_resets, 0);
     assert_eq!(summary.tcp_session_errors, 0);
     assert_eq!(device.writes.len(), 3);
     let server_fin = parse_tun_tcp_segment(&device.writes[2]).expect("parse server FIN packet");
@@ -5701,6 +5706,95 @@ fn tun_packet_loop_clears_server_close_marker_on_rst_without_reset() {
                 .rst()
         }),
         "server-close RST cleanup must not produce a reset"
+    );
+    assert!(sessions.is_empty());
+    assert_eq!(relay.closed_sessions.len(), 1);
+
+    let report = prune_idle_tun_tcp_sessions(
+        &mut sessions,
+        &mut relay,
+        Instant::now() + Duration::from_secs(10),
+        Duration::from_secs(5),
+    );
+    assert_eq!(report.pruned_sessions, 0);
+    assert_eq!(report.pruned_server_closed_sessions, 0);
+    assert_eq!(report.pruned_post_closed_sessions, 0);
+    assert_eq!(report.close_errors, 0);
+    assert_eq!(relay.closed_sessions.len(), 1);
+}
+
+#[test]
+fn tun_packet_loop_clears_post_close_marker_on_rst_without_reset() {
+    let packets = vec![
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 16, 1002, 0x0010, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 16, 1002, 0x0014, 0x4000, &[], b""),
+        ),
+    ];
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut device = FakeTunPacketDevice::new(packets);
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::with_server_reads(vec![TunTcpServerRead::Closed]);
+
+    let summary = run_tun_packet_loop_with_tcp_session_relay_summary(
+        &mut device,
+        &routes,
+        true,
+        &mut dns,
+        30,
+        5,
+        &mut sessions,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("run TUN loop with post-close RST cleanup");
+
+    assert_eq!(summary.processed_packets(), 5);
+    assert_eq!(summary.tcp_session_events, 5);
+    assert_eq!(summary.tcp_session_packets_written, 3);
+    assert_eq!(summary.tcp_server_close_marker_resets, 0);
+    assert_eq!(summary.tcp_post_close_marker_resets, 1);
+    assert_eq!(summary.tcp_session_errors, 0);
+    assert_eq!(device.writes.len(), 3);
+    assert!(
+        device.writes.iter().all(|packet| {
+            !parse_tun_tcp_segment(packet)
+                .expect("parse TUN TCP write")
+                .flags
+                .rst()
+        }),
+        "post-close RST cleanup must not produce a reset"
     );
     assert!(sessions.is_empty());
     assert_eq!(relay.closed_sessions.len(), 1);

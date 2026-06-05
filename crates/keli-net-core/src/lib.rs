@@ -84,13 +84,13 @@ pub use tun::{
     TunDnsHijackPlan, TunDnsHijackResponse, TunIpVersion, TunPacketDevice, TunPacketError,
     TunPacketFlow, TunPacketLoopError, TunPacketLoopEvent, TunPacketLoopSummary,
     TunPacketProcessAction, TunPacketRelayAction, TunPacketRelayPlan, TunPacketRouteDecision,
-    TunTcpClientPayloadFrame, TunTcpCloseFrame, TunTcpDuplicateClientPayloadAck, TunTcpFlags,
-    TunTcpOutOfOrderClientPayloadAck, TunTcpResetResponse, TunTcpSegment, TunTcpServerCloseFrame,
-    TunTcpServerPayloadFrame, TunTcpServerRead, TunTcpSessionError, TunTcpSessionKey,
-    TunTcpSessionPhase, TunTcpSessionPruneReport, TunTcpSessionRecord, TunTcpSessionRelay,
-    TunTcpSessionStep, TunTcpSessionTable, TunTcpSynAckResponse, TunTransportProtocol,
-    TunUdpPayload, TunUdpRelay, TunUdpRelayError, TunUdpRelayResponse,
-    DEFAULT_TUN_TCP_SESSION_IDLE_TIMEOUT,
+    TunTcpClientPayloadFrame, TunTcpCloseFrame, TunTcpCloseMarkerResetKind,
+    TunTcpDuplicateClientPayloadAck, TunTcpFlags, TunTcpOutOfOrderClientPayloadAck,
+    TunTcpResetResponse, TunTcpSegment, TunTcpServerCloseFrame, TunTcpServerPayloadFrame,
+    TunTcpServerRead, TunTcpSessionError, TunTcpSessionKey, TunTcpSessionPhase,
+    TunTcpSessionPruneReport, TunTcpSessionRecord, TunTcpSessionRelay, TunTcpSessionStep,
+    TunTcpSessionTable, TunTcpSynAckResponse, TunTransportProtocol, TunUdpPayload, TunUdpRelay,
+    TunUdpRelayError, TunUdpRelayResponse, DEFAULT_TUN_TCP_SESSION_IDLE_TIMEOUT,
 };
 pub use websocket::{websocket_accept_for_key, OwnedWebSocketClientStream, WebSocketClientStream};
 

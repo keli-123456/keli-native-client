@@ -206,6 +206,8 @@ Late post-close client FINs that carry final payload are also ACKed and cached
 without reopening or writing to the already closed relay.
 Matching client RSTs now clear both server-close and post-close markers
 immediately without writing reset packets or closing the relay a second time.
+Loop summaries and managed runtime notes count those server-close and
+post-close RST marker clears separately from idle marker pruning.
 The TCP session table also tracks last activity and packet loops prune idle
 sessions through the relay close path, with the pruned count visible in loop
 summaries and managed runtime status notes.

@@ -292,6 +292,7 @@ pub enum TunTcpSessionStep {
     },
     CloseMarkerReset {
         session: TunTcpSessionRecord,
+        kind: TunTcpCloseMarkerResetKind,
     },
     ServerCloseClientFinAck {
         response: TunTcpCloseFrame,
@@ -305,6 +306,12 @@ pub enum TunTcpSessionStep {
         session: TunTcpSessionRecord,
         response: Option<TunTcpCloseFrame>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TunTcpCloseMarkerResetKind {
+    ServerClose,
+    PostClose,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -398,6 +405,8 @@ pub struct TunPacketLoopSummary {
     pub tcp_sessions_pruned: usize,
     pub tcp_server_closed_sessions_pruned: usize,
     pub tcp_post_closed_sessions_pruned: usize,
+    pub tcp_server_close_marker_resets: usize,
+    pub tcp_post_close_marker_resets: usize,
     pub tcp_session_errors: usize,
     pub last_tcp_session_error: Option<TunTcpSessionError>,
 }
@@ -917,10 +926,22 @@ impl TunPacketLoopSummary {
                 self.tcp_resets_written += 1;
             }
             TunPacketLoopEvent::TcpSession {
-                packets_written, ..
+                step,
+                packets_written,
+                ..
             } => {
                 self.tcp_session_events += 1;
                 self.tcp_session_packets_written += packets_written;
+                if let TunTcpSessionStep::CloseMarkerReset { kind, .. } = step {
+                    match kind {
+                        TunTcpCloseMarkerResetKind::ServerClose => {
+                            self.tcp_server_close_marker_resets += 1;
+                        }
+                        TunTcpCloseMarkerResetKind::PostClose => {
+                            self.tcp_post_close_marker_resets += 1;
+                        }
+                    }
+                }
             }
             TunPacketLoopEvent::Relay(plan) => {
                 self.relay_packets += 1;
@@ -2589,10 +2610,16 @@ fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
         }
         if segment.flags.rst() {
             if let Some(session) = sessions.remove_server_close_on_rst(segment)? {
-                return Ok(TunTcpSessionStep::CloseMarkerReset { session });
+                return Ok(TunTcpSessionStep::CloseMarkerReset {
+                    session,
+                    kind: TunTcpCloseMarkerResetKind::ServerClose,
+                });
             }
             if let Some(session) = sessions.remove_post_close_on_rst(segment)? {
-                return Ok(TunTcpSessionStep::CloseMarkerReset { session });
+                return Ok(TunTcpSessionStep::CloseMarkerReset {
+                    session,
+                    kind: TunTcpCloseMarkerResetKind::PostClose,
+                });
             }
         }
         return Ok(TunTcpSessionStep::Noop);
