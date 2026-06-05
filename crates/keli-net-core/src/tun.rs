@@ -433,6 +433,10 @@ pub trait TunTcpSessionRelay {
     }
 }
 
+const DEFAULT_TUN_PACKET_MTU: usize = 1500;
+const IPV4_HEADER_LEN: usize = 20;
+const IPV6_HEADER_LEN: usize = 40;
+const TCP_HEADER_LEN: usize = 20;
 const DEFAULT_TUN_TCP_RELAY_READ_BUFFER_SIZE: usize = 16 * 1024;
 const TUN_TCP_RELAY_READ_POLL_INTERVAL: Duration = Duration::from_millis(1);
 pub const DEFAULT_TUN_TCP_SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
@@ -595,7 +599,9 @@ impl<'a, R: DnsResolver> RegistryTunTcpSessionRelay<'a, R> {
         session: &TunTcpSessionRecord,
         deadline: Option<Instant>,
     ) -> Result<TunTcpServerRead, String> {
-        let mut buffer = vec![0; self.read_buffer_size];
+        let read_buffer_size =
+            tun_tcp_relay_read_buffer_size_for_flow(&session.flow, self.read_buffer_size);
+        let mut buffer = vec![0; read_buffer_size];
         loop {
             let read_result = match self.sessions.get_mut(&session.key) {
                 Some(connection) => connection.read(&mut buffer),
@@ -632,6 +638,14 @@ impl<'a, R: DnsResolver> RegistryTunTcpSessionRelay<'a, R> {
             }
         }
     }
+}
+
+fn tun_tcp_relay_read_buffer_size_for_flow(flow: &TunPacketFlow, configured_size: usize) -> usize {
+    let max_payload_len = match flow.ip_version {
+        TunIpVersion::Ipv4 => DEFAULT_TUN_PACKET_MTU - IPV4_HEADER_LEN - TCP_HEADER_LEN,
+        TunIpVersion::Ipv6 => DEFAULT_TUN_PACKET_MTU - IPV6_HEADER_LEN - TCP_HEADER_LEN,
+    };
+    configured_size.max(1).min(max_payload_len)
 }
 
 pub struct RegistryTunUdpRelay<'a, R: DnsResolver> {
@@ -2751,6 +2765,56 @@ fn tcp_segment_sequence_len(segment: &TunTcpSegment<'_>) -> u32 {
 
 fn is_initial_tcp_syn_segment(segment: &TunTcpSegment<'_>) -> bool {
     segment.flags.syn() && !segment.flags.ack() && !segment.flags.rst()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tcp_flow(ip_version: TunIpVersion) -> TunPacketFlow {
+        let (source_ip, destination_ip) = match ip_version {
+            TunIpVersion::Ipv4 => (
+                IpAddr::V4(Ipv4Addr::new(10, 7, 0, 2)),
+                IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)),
+            ),
+            TunIpVersion::Ipv6 => (
+                IpAddr::V6(Ipv6Addr::LOCALHOST),
+                IpAddr::V6(Ipv6Addr::LOCALHOST),
+            ),
+        };
+        TunPacketFlow {
+            ip_version,
+            protocol: TunTransportProtocol::Tcp,
+            source_ip,
+            destination_ip,
+            source_port: Some(49152),
+            destination_port: Some(443),
+        }
+    }
+
+    #[test]
+    fn tun_tcp_relay_read_buffer_size_uses_default_mtu_payload_limit() {
+        assert_eq!(
+            tun_tcp_relay_read_buffer_size_for_flow(&tcp_flow(TunIpVersion::Ipv4), 16 * 1024),
+            1460
+        );
+        assert_eq!(
+            tun_tcp_relay_read_buffer_size_for_flow(&tcp_flow(TunIpVersion::Ipv6), 16 * 1024),
+            1440
+        );
+    }
+
+    #[test]
+    fn tun_tcp_relay_read_buffer_size_keeps_smaller_configured_limit() {
+        assert_eq!(
+            tun_tcp_relay_read_buffer_size_for_flow(&tcp_flow(TunIpVersion::Ipv4), 512),
+            512
+        );
+        assert_eq!(
+            tun_tcp_relay_read_buffer_size_for_flow(&tcp_flow(TunIpVersion::Ipv4), 0),
+            1
+        );
+    }
 }
 
 fn loop_event_for_relay_plan(plan: TunPacketRelayPlan) -> TunPacketLoopEvent {

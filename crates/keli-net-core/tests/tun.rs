@@ -2557,6 +2557,133 @@ fn registry_tun_tcp_session_relay_polls_followup_server_payload_after_ack() {
 }
 
 #[test]
+fn registry_tun_tcp_session_relay_clamps_server_reads_to_ipv4_mss() {
+    let ipv4_mss = 1500 - 20 - 20;
+    let server_response = (0..(ipv4_mss + 37))
+        .map(|index| (index % 251) as u8)
+        .collect::<Vec<_>>();
+    let (tcp_port, tcp_server) =
+        spawn_tcp_response_server_owned(b"GET /".to_vec(), server_response.clone());
+    let packets = vec![
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "127.0.0.1",
+            &tcp_segment(49152, tcp_port, 10, 0, 0x0002, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "127.0.0.1",
+            &tcp_segment(49152, tcp_port, 11, 1001, 0x0010, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "127.0.0.1",
+            &tcp_segment(49152, tcp_port, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+        ),
+    ];
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let registry = OutboundRegistry::new();
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut relay_dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("127.0.0.1".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut relay =
+        RegistryTunTcpSessionRelay::new(&registry, &mut relay_dns, Duration::from_secs(1))
+            .with_read_buffer_size(ipv4_mss + 512);
+    let mut sessions = TunTcpSessionTable::new();
+    let mut device = FakeTunPacketDevice::new(packets);
+
+    for _ in 0..3 {
+        let event = process_tun_device_packet_with_tcp_session_relay(
+            &mut device,
+            &routes,
+            true,
+            &mut dns,
+            30,
+            &mut sessions,
+            &mut relay,
+            1000,
+            0x2000,
+        )
+        .expect("process registry TCP packet");
+        assert!(matches!(event, TunPacketLoopEvent::TcpSession { .. }));
+    }
+
+    assert_eq!(device.writes.len(), 3);
+    let first_payload =
+        parse_tun_tcp_segment(&device.writes[2]).expect("parse first server payload packet");
+    let first_payload_len = first_payload.payload.len();
+    assert!(first_payload_len <= ipv4_mss);
+    assert!(first_payload_len < server_response.len());
+    assert_eq!(first_payload.sequence_number, 1001);
+    assert_eq!(first_payload.acknowledgment_number, 16);
+    assert_eq!(first_payload.payload, &server_response[..first_payload_len]);
+
+    device.reads.push_back(ipv4_packet(
+        6,
+        "10.7.0.2",
+        "127.0.0.1",
+        &tcp_segment(
+            49152,
+            tcp_port,
+            16,
+            1001 + first_payload_len as u32,
+            0x0010,
+            0x4000,
+            &[],
+            b"",
+        ),
+    ));
+
+    let event = process_tun_device_packet_with_tcp_session_relay(
+        &mut device,
+        &routes,
+        true,
+        &mut dns,
+        30,
+        &mut sessions,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("process registry TCP follow-up ACK");
+
+    let TunPacketLoopEvent::TcpSession {
+        step,
+        packets_written,
+        ..
+    } = event
+    else {
+        panic!("expected TCP session event");
+    };
+    assert_eq!(packets_written, 1);
+    let TunTcpSessionStep::ServerPayload { response } = step else {
+        panic!("expected follow-up server payload");
+    };
+    let second_payload = parse_tun_tcp_segment(&response.packet).expect("parse second payload");
+    let second_payload_len = second_payload.payload.len();
+    assert!(second_payload_len <= ipv4_mss);
+    assert!(second_payload_len > 0);
+    assert_eq!(
+        second_payload.sequence_number,
+        1001 + first_payload_len as u32
+    );
+    assert_eq!(second_payload.acknowledgment_number, 16);
+    assert_eq!(
+        second_payload.payload,
+        &server_response[first_payload_len..first_payload_len + second_payload_len]
+    );
+    tcp_server.join().expect("tcp response server");
+}
+
+#[test]
 fn registry_tun_tcp_session_relay_reports_server_eof_as_fin_ack() {
     let server_response = b"HTTP/1.1";
     let (tcp_port, tcp_server) = spawn_tcp_response_server(b"GET /", server_response);
@@ -3714,6 +3841,13 @@ fn spawn_tcp_response_server(
     expected_request: &'static [u8],
     response: &'static [u8],
 ) -> (u16, thread::JoinHandle<()>) {
+    spawn_tcp_response_server_owned(expected_request.to_vec(), response.to_vec())
+}
+
+fn spawn_tcp_response_server_owned(
+    expected_request: Vec<u8>,
+    response: Vec<u8>,
+) -> (u16, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind TCP response server");
     let port = listener
         .local_addr()
@@ -3733,7 +3867,7 @@ fn spawn_tcp_response_server(
             .expect("read TCP request payload");
         assert_eq!(request, expected_request);
         stream
-            .write_all(response)
+            .write_all(&response)
             .expect("write TCP response payload");
     });
     (port, server)

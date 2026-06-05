@@ -234,6 +234,9 @@ The first implementation target is deliberately small:
    The same session boundary can packetize server-side payload bytes with
    PSH+ACK, advance the tracked server sequence number, and return swapped
    IPv4/IPv6 TCP packets for the future TUN write-back side.
+   Registry-backed TUN TCP relay server reads are capped to the default TUN
+   MTU payload budget, so large upstream responses are packetized into
+   MSS-sized chunks and continue through follow-up client ACK polling.
    A packet-level TCP session step runner now wires those pieces together for
    one segment at a time: SYN emits SYN-ACK, ACK establishes the relay callback,
    client payload is written to the relay, queued server payload is packetized
