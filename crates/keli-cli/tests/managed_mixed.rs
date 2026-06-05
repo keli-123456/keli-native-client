@@ -1322,7 +1322,13 @@ fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
     assert_eq!(value["subscription"]["supported"][1]["transport"], "ws");
     assert_eq!(value["subscription"]["node_health"][0]["state"], "healthy");
     assert_eq!(value["subscription"]["node_health"][0]["latency_ms"], 42);
+    assert_eq!(value["subscription"]["health_summary"]["node_count"], 2);
     assert_eq!(value["subscription"]["health_summary"]["healthy_count"], 1);
+    assert_eq!(value["subscription"]["health_summary"]["checked_count"], 1);
+    assert_eq!(
+        value["subscription"]["health_summary"]["unchecked_count"],
+        1
+    );
 
     let serialized = value.to_string();
     assert!(!serialized.contains("secret"));
@@ -1899,10 +1905,12 @@ fn managed_mixed_controller_status_reports_subscription_nodes() {
     assert_eq!(subscription.default_outbound.as_deref(), Some("SS-READY"));
     assert_eq!(subscription.selected_outbound, "SS-NEXT");
     assert_eq!(subscription.recommended_outbound, "SS-NEXT");
+    assert_eq!(subscription.health_summary.node_count, 2);
     assert_eq!(subscription.health_summary.healthy_count, 0);
     assert_eq!(subscription.health_summary.unhealthy_count, 0);
     assert_eq!(subscription.health_summary.unknown_count, 2);
     assert_eq!(subscription.health_summary.checked_count, 0);
+    assert_eq!(subscription.health_summary.unchecked_count, 2);
     assert_eq!(subscription.health_summary.last_checked_at, None);
     assert_eq!(
         subscription.health_summary.selected_state,
@@ -1934,8 +1942,10 @@ fn managed_mixed_controller_status_reports_subscription_nodes() {
     assert_eq!(subscription.selected_outbound, "SS-READY");
     assert_eq!(subscription.default_outbound.as_deref(), Some("SS-READY"));
     assert_eq!(subscription.recommended_outbound, "SS-READY");
+    assert_eq!(subscription.health_summary.node_count, 1);
     assert_eq!(subscription.health_summary.unknown_count, 1);
     assert_eq!(subscription.health_summary.checked_count, 0);
+    assert_eq!(subscription.health_summary.unchecked_count, 1);
     assert_eq!(
         subscription.health_summary.selected_state,
         Some(ManagedNodeHealthState::Unknown)
@@ -1977,8 +1987,10 @@ fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
     assert_eq!(ready.checked_at, None);
     assert_eq!(next.state, ManagedNodeHealthState::Unknown);
     assert_eq!(next.checked_at, None);
+    assert_eq!(subscription.health_summary.node_count, 2);
     assert_eq!(subscription.health_summary.unknown_count, 2);
     assert_eq!(subscription.health_summary.checked_count, 0);
+    assert_eq!(subscription.health_summary.unchecked_count, 2);
     assert_eq!(
         subscription.health_summary.selected_state,
         Some(ManagedNodeHealthState::Unknown)
@@ -2017,6 +2029,7 @@ fn managed_mixed_controller_records_node_health_and_prunes_on_reload() {
     assert_eq!(subscription.health_summary.unhealthy_count, 1);
     assert_eq!(subscription.health_summary.unknown_count, 0);
     assert_eq!(subscription.health_summary.checked_count, 2);
+    assert_eq!(subscription.health_summary.unchecked_count, 0);
     assert!(subscription.health_summary.last_checked_at.is_some());
     assert_eq!(
         subscription.health_summary.selected_state,

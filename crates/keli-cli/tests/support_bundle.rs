@@ -108,7 +108,11 @@ proxies:
         "runtime-event-diagnostics"
     );
     assert_eq!(
-        report["doctor"]["managed_status_schema_capabilities"][19],
+        report["doctor"]["managed_status_schema_capabilities"][16],
+        "node-health-coverage"
+    );
+    assert_eq!(
+        report["doctor"]["managed_status_schema_capabilities"][20],
         "panel-state"
     );
     assert_eq!(
