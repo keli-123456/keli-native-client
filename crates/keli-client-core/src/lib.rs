@@ -536,8 +536,12 @@ pub struct ClientRuntime {
     active_plan: Option<ConnectionPlan>,
     active_config: Option<RuntimeConfig>,
     generation: u64,
+    last_error: Option<ClientErrorKind>,
+    event_count: usize,
     events: Vec<RuntimeEvent>,
 }
+
+pub const DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT: usize = 256;
 
 impl Default for ClientRuntime {
     fn default() -> Self {
@@ -546,6 +550,8 @@ impl Default for ClientRuntime {
             active_plan: None,
             active_config: None,
             generation: 0,
+            last_error: None,
+            event_count: 1,
             events: vec![RuntimeEvent::new(
                 RuntimeStatus::Stopped,
                 Some("runtime initialized"),
@@ -569,6 +575,14 @@ impl ClientRuntime {
 
     pub fn generation(&self) -> u64 {
         self.generation
+    }
+
+    pub fn event_count(&self) -> usize {
+        self.event_count
+    }
+
+    pub fn last_error(&self) -> Option<&ClientErrorKind> {
+        self.last_error.as_ref()
     }
 
     pub fn events(&self) -> &[RuntimeEvent] {
@@ -597,7 +611,7 @@ impl ClientRuntime {
         };
         self.active_plan = Some(plan);
         self.active_config = Some(config);
-        self.events.push(RuntimeEvent::new(
+        self.push_event(RuntimeEvent::new(
             self.status.clone(),
             Some("runtime running"),
         ));
@@ -629,7 +643,7 @@ impl ClientRuntime {
                 };
                 self.active_plan = Some(plan);
                 self.active_config = Some(config);
-                self.events.push(RuntimeEvent::new(
+                self.push_event(RuntimeEvent::new(
                     self.status.clone(),
                     Some("runtime reload applied"),
                 ));
@@ -639,7 +653,7 @@ impl ClientRuntime {
                 self.status = previous_status;
                 self.active_plan = previous_plan;
                 self.active_config = previous_config;
-                self.events.push(RuntimeEvent::new(
+                self.push_event(RuntimeEvent::new(
                     RuntimeStatus::Failed(error.clone()),
                     Some("runtime reload rejected"),
                 ));
@@ -661,7 +675,7 @@ impl ClientRuntime {
         self.active_plan = None;
         self.active_config = None;
         self.status = RuntimeStatus::Stopped;
-        self.events.push(RuntimeEvent::new(
+        self.push_event(RuntimeEvent::new(
             RuntimeStatus::Stopped,
             Some("runtime stopped"),
         ));
@@ -672,20 +686,18 @@ impl ClientRuntime {
     }
 
     pub fn record_reload_rejected(&mut self, error: ClientErrorKind) {
-        self.events.push(RuntimeEvent::new(
+        self.push_event(RuntimeEvent::new(
             RuntimeStatus::Failed(error),
             Some("runtime reload rejected"),
         ));
     }
 
     pub fn record_control_rejected(&mut self, error: ClientErrorKind, note: impl Into<String>) {
-        self.events
-            .push(RuntimeEvent::new(RuntimeStatus::Failed(error), Some(note)));
+        self.push_event(RuntimeEvent::new(RuntimeStatus::Failed(error), Some(note)));
     }
 
     pub fn record_status_note(&mut self, note: impl Into<String>) {
-        self.events
-            .push(RuntimeEvent::new(self.status.clone(), Some(note.into())));
+        self.push_event(RuntimeEvent::new(self.status.clone(), Some(note.into())));
     }
 
     pub fn record_status_diagnostic(
@@ -693,7 +705,7 @@ impl ClientRuntime {
         note: impl Into<String>,
         diagnostic: RuntimeDiagnostic,
     ) {
-        self.events.push(RuntimeEvent::with_diagnostic(
+        self.push_event(RuntimeEvent::with_diagnostic(
             self.status.clone(),
             Some(note.into()),
             diagnostic,
@@ -704,7 +716,7 @@ impl ClientRuntime {
         self.active_plan = None;
         self.active_config = None;
         self.status = RuntimeStatus::Failed(error.clone());
-        self.events.push(RuntimeEvent::new(
+        self.push_event(RuntimeEvent::new(
             RuntimeStatus::Failed(error),
             Some("runtime failed"),
         ));
@@ -712,7 +724,19 @@ impl ClientRuntime {
 
     fn record(&mut self, status: RuntimeStatus, note: Option<&str>) {
         self.status = status.clone();
-        self.events.push(RuntimeEvent::new(status, note));
+        self.push_event(RuntimeEvent::new(status, note));
+    }
+
+    fn push_event(&mut self, event: RuntimeEvent) {
+        if let RuntimeStatus::Failed(error) = &event.status {
+            self.last_error = Some(error.clone());
+        }
+        self.event_count += 1;
+        self.events.push(event);
+        if self.events.len() > DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT {
+            let excess = self.events.len() - DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT;
+            self.events.drain(0..excess);
+        }
     }
 }
 
@@ -1187,6 +1211,49 @@ proxies:
             Some("node health recorded: SS-READY=healthy")
         );
         assert_eq!(runtime.events().last().expect("event").status, status);
+    }
+
+    #[test]
+    fn runtime_event_history_is_bounded_but_total_count_keeps_growing() {
+        let mut runtime = ClientRuntime::default();
+        runtime
+            .start(RuntimeConfig::new(
+                ss_config("SS-READY"),
+                Some("SS-READY"),
+                "127.0.0.1:7890",
+            ))
+            .expect("runtime start");
+        let status = runtime.status().clone();
+        let generation = runtime.generation();
+        let expected_last_error = ClientErrorKind::ConfigInvalid("late failure".to_string());
+        runtime.record_reload_rejected(expected_last_error.clone());
+        let base_event_count = runtime.event_count();
+        assert_eq!(runtime.last_error(), Some(&expected_last_error));
+
+        for index in 0..(DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT + 5) {
+            runtime.record_status_note(format!("health event {index}"));
+        }
+
+        assert_eq!(runtime.status(), &status);
+        assert_eq!(runtime.generation(), generation);
+        assert_eq!(
+            runtime.event_count(),
+            base_event_count + DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT + 5
+        );
+        assert_eq!(runtime.last_error(), Some(&expected_last_error));
+        assert!(!runtime
+            .events()
+            .iter()
+            .any(|event| matches!(event.status, RuntimeStatus::Failed(_))));
+        assert_eq!(runtime.events().len(), DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT);
+        assert_eq!(
+            runtime.events().first().expect("event").note.as_deref(),
+            Some("health event 5")
+        );
+        assert_eq!(
+            runtime.events().last().expect("event").note.as_deref(),
+            Some("health event 260")
+        );
     }
 
     #[test]

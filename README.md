@@ -240,6 +240,8 @@ Managed mixed status snapshots can now be exported as stable JSON, including
 recent runtime events, structured diagnostics, subscription health, DNS policy,
 system proxy config, panel restriction state, and redacted node capability
 metadata for UI/service integrations.
+Runtime event history is bounded for long-running sessions while the stable
+status snapshot still reports the total event count for support timelines.
 The managed TUN runtime uses a combined UDP/TCP relay loop, so it can keep the
 registry-backed UDP path while also exercising registry-backed TCP sessions.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline

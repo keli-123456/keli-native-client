@@ -1885,22 +1885,14 @@ impl ManagedMixedStatusSnapshot {
     ) -> Self {
         let recent_events: Vec<RuntimeEvent> =
             handle.events().iter().rev().take(5).cloned().collect();
-        let last_error = handle
-            .events()
-            .iter()
-            .rev()
-            .find_map(|event| match &event.status {
-                RuntimeStatus::Failed(error) => Some(error.clone()),
-                _ => None,
-            });
         Self {
             status: handle.status().clone(),
             listen_addr: Some(handle.listen_addr()),
             selected_outbound: handle.selected_outbound().map(str::to_string),
             generation: handle.generation(),
-            event_count: handle.events().len(),
+            event_count: handle.event_count(),
             recent_events,
-            last_error,
+            last_error: handle.last_error().cloned(),
             system_proxy: handle.system_proxy_config().cloned(),
             subscription: handle.subscription_status(),
             dns_options: handle.dns_options,
@@ -1925,6 +1917,14 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
 
     pub fn generation(&self) -> u64 {
         self.state.generation()
+    }
+
+    pub fn event_count(&self) -> usize {
+        self.state.event_count()
+    }
+
+    pub fn last_error(&self) -> Option<&ClientErrorKind> {
+        self.state.last_error()
     }
 
     pub fn events(&self) -> &[RuntimeEvent] {

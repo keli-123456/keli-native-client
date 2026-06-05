@@ -15,6 +15,7 @@ use keli_cli::{
 use keli_client_core::{
     ClientErrorKind, PanelAccountState, PanelRiskControlState, PanelState, PanelUserState,
     RuntimeDiagnostic, RuntimeEvent, RuntimeStatus, RuntimeTunPacketLoopDiagnostic,
+    DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
 };
 use keli_net_core::{ConnectionErrorKind, DnsAddressFamilyPolicy, DnsLocalResolutionPolicy};
 use keli_platform::{
@@ -574,6 +575,68 @@ fn managed_mixed_status_json_reports_ui_snapshot_without_secrets() {
     let report: Value = serde_json::from_slice(&output).expect("parse managed status json");
     assert_eq!(report["status"]["state"], "running");
     assert_eq!(report["subscription"]["supported"][1]["transport"], "ws");
+
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_status_reports_total_event_count_after_history_is_bounded() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    let started = core
+        .start_from_subscription_config_text(
+            ss_config(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+    core.reload_from_subscription_config_text(ss_config(), Some("MISSING".to_string()))
+        .expect_err("reload should reject missing outbound");
+    let expected_last_error = ClientErrorKind::OutboundNotFound("MISSING".to_string());
+    let failed_status = core.status();
+    assert_eq!(failed_status.last_error, Some(expected_last_error.clone()));
+
+    let panel_state = PanelState::new(
+        PanelUserState {
+            account_state: PanelAccountState::Active,
+            used_bytes: Some(128),
+            total_bytes: Some(1024),
+            expires_at: None,
+        },
+        PanelRiskControlState::Clear,
+    );
+    let mut status = failed_status.clone();
+
+    for _ in 0..(DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT + 7) {
+        status = core.record_panel_state(panel_state.clone());
+    }
+
+    assert!(status.event_count > started.event_count + DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT);
+    assert!(status.event_count > status.recent_events.len());
+    assert_eq!(status.last_error, Some(expected_last_error));
+    assert!(!status
+        .recent_events
+        .iter()
+        .any(|event| matches!(event.status, RuntimeStatus::Failed(_))));
+    assert_eq!(status.recent_events.len(), 5);
+    assert!(status.recent_events.iter().all(|event| {
+        event
+            .note
+            .as_deref()
+            .is_some_and(|note| note.starts_with("panel state recorded:"))
+    }));
+
+    let value = managed_mixed_status_json_value(&status);
+    assert_eq!(
+        value["event_count"].as_u64(),
+        Some(status.event_count as u64)
+    );
+    assert!(value["recent_events"]
+        .as_array()
+        .is_some_and(|events| events.len() <= 5));
 
     core.stop().expect("stop managed mixed controller");
 }
