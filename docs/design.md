@@ -304,6 +304,9 @@ The first implementation target is deliberately small:
    The TCP session table also tracks last activity and packet loops prune idle
    sessions through the relay close path, with the pruned count visible in loop
    summaries and managed runtime status notes.
+   Those summaries now separately count expired server-close and post-close TCP
+   markers, so long-running diagnostics can distinguish active relay cleanup
+   from close-tail marker cleanup.
    Managed TUN packet loops now use a combined UDP/TCP relay path so the
    registry-backed UDP execution path remains active while direct and tagged
    TCP sessions can be exercised through the shared outbound registry.

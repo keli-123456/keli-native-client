@@ -3391,6 +3391,151 @@ fn prunes_idle_tun_tcp_sessions_and_closes_relay_state() {
 }
 
 #[test]
+fn prune_report_counts_closed_tun_tcp_markers_without_reclosing_relay() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    let data_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+    );
+    let data = parse_tun_tcp_segment(&data_packet).expect("parse TCP data segment");
+    let final_ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1002, 0x0010, 0x4000, &[], b""),
+    );
+    let final_ack = parse_tun_tcp_segment(&final_ack_packet).expect("parse final ACK segment");
+
+    let mut server_closed_sessions = TunTcpSessionTable::new();
+    let mut server_closed_relay =
+        FakeTunTcpSessionRelay::with_server_reads(vec![TunTcpServerRead::Closed]);
+    process_tun_tcp_session_segment(
+        &mut server_closed_sessions,
+        &syn,
+        &mut server_closed_relay,
+        1000,
+        0x2000,
+    )
+    .expect("process SYN");
+    process_tun_tcp_session_segment(
+        &mut server_closed_sessions,
+        &ack,
+        &mut server_closed_relay,
+        1000,
+        0x2000,
+    )
+    .expect("process ACK");
+    let server_close_step = process_tun_tcp_session_segment(
+        &mut server_closed_sessions,
+        &data,
+        &mut server_closed_relay,
+        1000,
+        0x2000,
+    )
+    .expect("process data with server close");
+    assert!(matches!(
+        server_close_step,
+        TunTcpSessionStep::ClientPayload {
+            server_close: Some(_),
+            ..
+        }
+    ));
+    assert!(server_closed_sessions.is_empty());
+    assert_eq!(server_closed_relay.closed_sessions.len(), 1);
+
+    let report = prune_idle_tun_tcp_sessions(
+        &mut server_closed_sessions,
+        &mut server_closed_relay,
+        Instant::now() + Duration::from_secs(10),
+        Duration::from_secs(5),
+    );
+
+    assert_eq!(report.pruned_sessions, 0);
+    assert_eq!(report.pruned_server_closed_sessions, 1);
+    assert_eq!(report.pruned_post_closed_sessions, 0);
+    assert_eq!(report.close_errors, 0);
+    assert_eq!(
+        server_closed_relay.closed_sessions.len(),
+        1,
+        "server-close marker cleanup must not close the relay again"
+    );
+
+    let mut post_closed_sessions = TunTcpSessionTable::new();
+    let mut post_closed_relay =
+        FakeTunTcpSessionRelay::with_server_reads(vec![TunTcpServerRead::Closed]);
+    process_tun_tcp_session_segment(
+        &mut post_closed_sessions,
+        &syn,
+        &mut post_closed_relay,
+        1000,
+        0x2000,
+    )
+    .expect("process post-close SYN");
+    process_tun_tcp_session_segment(
+        &mut post_closed_sessions,
+        &ack,
+        &mut post_closed_relay,
+        1000,
+        0x2000,
+    )
+    .expect("process post-close ACK");
+    process_tun_tcp_session_segment(
+        &mut post_closed_sessions,
+        &data,
+        &mut post_closed_relay,
+        1000,
+        0x2000,
+    )
+    .expect("process post-close data with server close");
+    let acknowledged_step = process_tun_tcp_session_segment(
+        &mut post_closed_sessions,
+        &final_ack,
+        &mut post_closed_relay,
+        1000,
+        0x2000,
+    )
+    .expect("process final server close ACK");
+    assert!(matches!(
+        acknowledged_step,
+        TunTcpSessionStep::ServerCloseAcknowledged { .. }
+    ));
+    assert!(post_closed_sessions.is_empty());
+    assert_eq!(post_closed_relay.closed_sessions.len(), 1);
+
+    let report = prune_idle_tun_tcp_sessions(
+        &mut post_closed_sessions,
+        &mut post_closed_relay,
+        Instant::now() + Duration::from_secs(10),
+        Duration::from_secs(5),
+    );
+
+    assert_eq!(report.pruned_sessions, 0);
+    assert_eq!(report.pruned_server_closed_sessions, 0);
+    assert_eq!(report.pruned_post_closed_sessions, 1);
+    assert_eq!(report.close_errors, 0);
+    assert_eq!(
+        post_closed_relay.closed_sessions.len(),
+        1,
+        "post-close marker cleanup must not close the relay again"
+    );
+}
+
+#[test]
 fn process_tun_packet_writes_tcp_reset_for_blocked_tcp_route() {
     let mut routes = RouteEngine::new(RouteAction::Direct);
     routes.add_rule(RouteRule {

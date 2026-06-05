@@ -69,7 +69,7 @@ const SUPPORTED_PROTOCOL_CAPABILITIES: &str =
 const ROUTE_RULE_CAPABILITIES: &str =
     "domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
-    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan";
+    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
@@ -329,7 +329,7 @@ pub struct ManagedTunPacketLoopReport {
 
 pub fn managed_tun_runtime_report_note(report: &ManagedTunPacketLoopReport) -> String {
     format!(
-        "managed TUN runtime stopped interface={} owns_device={} processed={} idle={} dns_responses={} udp_responses={} tcp_resets={} tcp_session_events={} tcp_session_writes={} tcp_sessions_pruned={} relay_plans={} tcp_relay_plans={} udp_relay_plans={} drops={} unsupported={} packet_errors={} udp_relay_errors={} tcp_session_errors={}",
+        "managed TUN runtime stopped interface={} owns_device={} processed={} idle={} dns_responses={} udp_responses={} tcp_resets={} tcp_session_events={} tcp_session_writes={} tcp_sessions_pruned={} tcp_server_closed_pruned={} tcp_post_closed_pruned={} relay_plans={} tcp_relay_plans={} udp_relay_plans={} drops={} unsupported={} packet_errors={} udp_relay_errors={} tcp_session_errors={}",
         report.config.interface_name,
         report.owns_device,
         report.summary.processed_packets(),
@@ -340,6 +340,8 @@ pub fn managed_tun_runtime_report_note(report: &ManagedTunPacketLoopReport) -> S
         report.summary.tcp_session_events,
         report.summary.tcp_session_packets_written,
         report.summary.tcp_sessions_pruned,
+        report.summary.tcp_server_closed_sessions_pruned,
+        report.summary.tcp_post_closed_sessions_pruned,
         report.summary.relay_packets,
         report.summary.tcp_relay_plans,
         report.summary.udp_relay_plans,

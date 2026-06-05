@@ -227,6 +227,8 @@ pub struct TunTcpSessionResetFrame {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TunTcpSessionPruneReport {
     pub pruned_sessions: usize,
+    pub pruned_server_closed_sessions: usize,
+    pub pruned_post_closed_sessions: usize,
     pub close_errors: usize,
     pub last_close_error: Option<TunTcpSessionError>,
 }
@@ -391,6 +393,8 @@ pub struct TunPacketLoopSummary {
     pub tcp_session_events: usize,
     pub tcp_session_packets_written: usize,
     pub tcp_sessions_pruned: usize,
+    pub tcp_server_closed_sessions_pruned: usize,
+    pub tcp_post_closed_sessions_pruned: usize,
     pub tcp_session_errors: usize,
     pub last_tcp_session_error: Option<TunTcpSessionError>,
 }
@@ -952,6 +956,8 @@ impl TunPacketLoopSummary {
 
     pub fn record_tcp_session_prune_report(&mut self, report: &TunTcpSessionPruneReport) {
         self.tcp_sessions_pruned += report.pruned_sessions;
+        self.tcp_server_closed_sessions_pruned += report.pruned_server_closed_sessions;
+        self.tcp_post_closed_sessions_pruned += report.pruned_post_closed_sessions;
         self.tcp_session_errors += report.close_errors;
         if let Some(error) = &report.last_close_error {
             self.last_tcp_session_error = Some(error.clone());
@@ -2338,9 +2344,15 @@ pub fn prune_idle_tun_tcp_sessions<R: TunTcpSessionRelay>(
     now: Instant,
     idle_timeout: Duration,
 ) -> TunTcpSessionPruneReport {
+    let server_closed_sessions_before = sessions.server_closed_sessions.len();
+    let post_closed_sessions_before = sessions.post_closed_sessions.len();
     let pruned_sessions = sessions.prune_idle(now, idle_timeout);
     let mut report = TunTcpSessionPruneReport {
         pruned_sessions: pruned_sessions.len(),
+        pruned_server_closed_sessions: server_closed_sessions_before
+            .saturating_sub(sessions.server_closed_sessions.len()),
+        pruned_post_closed_sessions: post_closed_sessions_before
+            .saturating_sub(sessions.post_closed_sessions.len()),
         ..TunTcpSessionPruneReport::default()
     };
     for session in pruned_sessions {

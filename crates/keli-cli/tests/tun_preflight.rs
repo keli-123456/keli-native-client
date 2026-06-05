@@ -546,6 +546,8 @@ fn managed_tun_packet_loop_with_runtime_relays_tagged_tcp_via_registry() {
     assert_eq!(report.summary.tcp_session_events, 4);
     assert_eq!(report.summary.tcp_session_packets_written, 3);
     assert_eq!(report.summary.tcp_sessions_pruned, 0);
+    assert_eq!(report.summary.tcp_server_closed_sessions_pruned, 0);
+    assert_eq!(report.summary.tcp_post_closed_sessions_pruned, 0);
     assert_eq!(report.summary.tcp_session_errors, 0);
     assert_eq!(report.summary.udp_relay_responses_written, 0);
     let writes = writes.lock().expect("TUN writes lock");
@@ -894,6 +896,8 @@ fn managed_mixed_session_records_tun_runtime_status_note_after_serve() {
     assert!(note.contains("tcp_session_events=0"));
     assert!(note.contains("tcp_session_writes=0"));
     assert!(note.contains("tcp_sessions_pruned=0"));
+    assert!(note.contains("tcp_server_closed_pruned=0"));
+    assert!(note.contains("tcp_post_closed_pruned=0"));
     assert!(note.contains("tcp_relay_plans=0"));
     assert!(note.contains("udp_relay_plans=0"));
     assert!(note.contains("packet_errors=1"));
