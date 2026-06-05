@@ -172,6 +172,18 @@ proxies:
         "subscription-url-update-status"
     );
     assert_eq!(
+        report["doctor"]["stability_diagnostic_capabilities"][0],
+        "local-mixed-soak"
+    );
+    assert_eq!(
+        report["doctor"]["stability_diagnostic_capabilities"][2],
+        "managed-metrics"
+    );
+    assert_eq!(
+        report["doctor"]["stability_diagnostic_capabilities"][5],
+        "http-connect"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );

@@ -65,6 +65,8 @@ const DEFAULT_TUN_DNS_TTL_SECONDS: u32 = 30;
 const DEFAULT_TUN_PACKET_LOOP_MAX_PACKETS: usize = usize::MAX;
 const DEFAULT_TUN_TCP_SERVER_INITIAL_SEQUENCE_NUMBER: u32 = 1;
 const DEFAULT_TUN_TCP_WINDOW_SIZE: u16 = 0x4000;
+const DEFAULT_MIXED_SOAK_CONNECTIONS: usize = 25;
+const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
@@ -89,6 +91,8 @@ const SUBSCRIPTION_UPDATE_CAPABILITIES: &str =
     "current-config,new-config,current-outbound,tag-diff,selected-preservation,default-fallback,redacted-profile-summary,managed-reload-plan,managed-url-reload,managed-url-update-status";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
     "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic";
+const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
+    "local-mixed-soak,loopback-echo,managed-metrics,worker-drain,socks5,http-connect";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
@@ -147,6 +151,13 @@ pub enum CliCommand {
         output: ProbeOutputFormat,
         first_byte_timeout: Duration,
     },
+    SoakMixed {
+        connections: usize,
+        inbound: SmokeInboundKind,
+        output: ProbeOutputFormat,
+        first_byte_timeout: Duration,
+        max_connection_workers: usize,
+    },
     ProfileCheck {
         profile_config: String,
         output: ProbeOutputFormat,
@@ -191,6 +202,33 @@ impl SmokeInboundKind {
             Self::HttpConnect => "mixed-http-connect-smoke",
         }
     }
+
+    fn cli_value(self) -> &'static str {
+        match self {
+            Self::Socks5 => "socks5",
+            Self::HttpConnect => "http-connect",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MixedSoakReport {
+    pub requested_connections: usize,
+    pub completed_connections: usize,
+    pub failed_connections: usize,
+    pub inbound: SmokeInboundKind,
+    pub listen_addr: SocketAddr,
+    pub target_addr: SocketAddr,
+    pub elapsed: Duration,
+    pub payload_bytes_per_connection: usize,
+    pub connection_metrics: ConnectionMetricsSnapshot,
+    pub max_connection_workers: usize,
+    pub active_connection_workers: usize,
+    pub peak_connection_workers: usize,
+    pub active_client_connections: usize,
+    pub peak_client_connections: usize,
+    pub available_connection_worker_slots: usize,
+    pub stop_drain: RuntimeManagedMixedStopDrainDiagnostic,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3854,6 +3892,7 @@ pub fn parse_cli_command(
         Some("listen-mixed") => parse_listen_mixed(args),
         Some("probe-outbound") => parse_probe_outbound(args),
         Some("smoke-mixed") => parse_smoke_mixed(args),
+        Some("soak-mixed") => parse_soak_mixed(args),
         Some("profile-check") => parse_profile_check(args),
         Some("support-bundle") => parse_support_bundle(args),
         Some(other) => Err(format!("unknown command: {other}")),
@@ -4027,6 +4066,23 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 &mut stdout,
             )
         }
+        CliCommand::SoakMixed {
+            connections,
+            inbound,
+            output,
+            first_byte_timeout,
+            max_connection_workers,
+        } => {
+            let mut stdout = io::stdout();
+            write_soak_mixed_report(
+                connections,
+                inbound,
+                first_byte_timeout,
+                max_connection_workers,
+                output,
+                &mut stdout,
+            )
+        }
         CliCommand::ProfileCheck {
             profile_config,
             output,
@@ -4057,7 +4113,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
 pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
-        "usage: keli-cli [doctor|tun-preflight|version|subscription-fetch|subscription-update|listen-mixed|probe-outbound|smoke-mixed|profile-check|support-bundle]"
+        "usage: keli-cli [doctor|tun-preflight|version|subscription-fetch|subscription-update|listen-mixed|probe-outbound|smoke-mixed|soak-mixed|profile-check|support-bundle]"
     )?;
     writeln!(writer, "       keli-cli doctor [--format text|json]")?;
     writeln!(
@@ -4087,6 +4143,10 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
         "       keli-cli smoke-mixed --profile-config subscription.yaml [--outbound-tag proxy] --target example.com:443 [--inbound socks5|http-connect] [--payload ping] [--expect pong] [--format text|json] [--first-byte-timeout-ms 30000]"
+    )?;
+    writeln!(
+        writer,
+        "       keli-cli soak-mixed [--connections 25] [--inbound socks5|http-connect] [--format text|json] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024]"
     )?;
     writeln!(
         writer,
@@ -4634,9 +4694,10 @@ fn parse_smoke_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, S
                 );
             }
             "--inbound" => {
-                inbound = parse_smoke_inbound_kind(
+                inbound = parse_mixed_inbound_kind(
                     args.next()
                         .ok_or_else(|| "--inbound requires socks5 or http-connect".to_string())?,
+                    "smoke-mixed",
                 )?;
             }
             "--format" => {
@@ -4669,11 +4730,68 @@ fn parse_smoke_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, S
     })
 }
 
-fn parse_smoke_inbound_kind(value: String) -> Result<SmokeInboundKind, String> {
+fn parse_soak_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
+    let mut connections = DEFAULT_MIXED_SOAK_CONNECTIONS;
+    let mut inbound = SmokeInboundKind::Socks5;
+    let mut output = ProbeOutputFormat::Text;
+    let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
+    let mut max_connection_workers = DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS;
+    let mut args = args.peekable();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--connections" => {
+                connections = parse_positive_usize(
+                    args.next()
+                        .ok_or_else(|| "--connections requires a value".to_string())?,
+                    "--connections",
+                )?;
+            }
+            "--inbound" => {
+                inbound = parse_mixed_inbound_kind(
+                    args.next()
+                        .ok_or_else(|| "--inbound requires socks5 or http-connect".to_string())?,
+                    "soak-mixed",
+                )?;
+            }
+            "--format" => {
+                output = parse_probe_output_format(
+                    args.next()
+                        .ok_or_else(|| "--format requires text or json".to_string())?,
+                )?;
+            }
+            "--first-byte-timeout-ms" => {
+                first_byte_timeout = parse_duration_ms(
+                    args.next()
+                        .ok_or_else(|| "--first-byte-timeout-ms requires a value".to_string())?,
+                    "--first-byte-timeout-ms",
+                )?;
+            }
+            "--max-connection-workers" => {
+                max_connection_workers = parse_positive_usize(
+                    args.next()
+                        .ok_or_else(|| "--max-connection-workers requires a value".to_string())?,
+                    "--max-connection-workers",
+                )?;
+            }
+            other => return Err(format!("unknown soak-mixed option: {other}")),
+        }
+    }
+
+    Ok(CliCommand::SoakMixed {
+        connections,
+        inbound,
+        output,
+        first_byte_timeout,
+        max_connection_workers,
+    })
+}
+
+fn parse_mixed_inbound_kind(value: String, command: &str) -> Result<SmokeInboundKind, String> {
     match value.as_str() {
         "socks5" => Ok(SmokeInboundKind::Socks5),
         "http-connect" => Ok(SmokeInboundKind::HttpConnect),
-        other => Err(format!("unknown smoke-mixed inbound: {other}")),
+        other => Err(format!("unknown {command} inbound: {other}")),
     }
 }
 
@@ -4749,6 +4867,7 @@ struct DoctorReport {
     managed_connection_metric_capabilities: Vec<&'static str>,
     managed_status_schema_capabilities: Vec<&'static str>,
     tun_packet_pipeline_capabilities: Vec<&'static str>,
+    stability_diagnostic_capabilities: Vec<&'static str>,
     runtime_event_history_limit: usize,
     managed_status_recent_event_limit: usize,
     managed_connection_report_history_limit: usize,
@@ -4848,6 +4967,7 @@ fn collect_doctor_report() -> DoctorReport {
             .collect(),
         managed_status_schema_capabilities: MANAGED_STATUS_SCHEMA_CAPABILITIES.split(',').collect(),
         tun_packet_pipeline_capabilities: TUN_PACKET_PIPELINE_CAPABILITIES.split(',').collect(),
+        stability_diagnostic_capabilities: STABILITY_DIAGNOSTIC_CAPABILITIES.split(',').collect(),
         runtime_event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
         managed_status_recent_event_limit: MANAGED_MIXED_RECENT_EVENT_LIMIT,
         managed_connection_report_history_limit: MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
@@ -4976,6 +5096,11 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     )?;
     writeln!(
         writer,
+        "stability_diagnostic_capabilities={}",
+        report.stability_diagnostic_capabilities.join(",")
+    )?;
+    writeln!(
+        writer,
         "resource_limits runtime_event_history={} managed_status_recent_events={} managed_connection_report_history={} managed_connection_workers={} tun_tcp_max_active_sessions={}",
         report.runtime_event_history_limit,
         report.managed_status_recent_event_limit,
@@ -5052,6 +5177,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         "managed_connection_metric_capabilities": &report.managed_connection_metric_capabilities,
         "managed_status_schema_capabilities": &report.managed_status_schema_capabilities,
         "tun_packet_pipeline_capabilities": &report.tun_packet_pipeline_capabilities,
+        "stability_diagnostic_capabilities": &report.stability_diagnostic_capabilities,
         "resource_limits": {
             "runtime_event_history": report.runtime_event_history_limit,
             "managed_status_recent_events": report.managed_status_recent_event_limit,
@@ -6278,7 +6404,7 @@ pub fn handle_socks5_connection_with_routes(
 
     stream.write_all(&socks5_no_auth_response())?;
     let request = parse_socks5_request(stream).map_err(to_io_error)?;
-    println!(
+    eprintln!(
         "socks5 request command={:?} address={:?} port={}",
         request.command, request.address, request.port
     );
@@ -6685,7 +6811,7 @@ fn handle_http_connect_connection(
             return Err(to_io_error(error));
         }
     };
-    println!(
+    eprintln!(
         "http connect request address={} port={}",
         request.host, request.port
     );
@@ -6743,7 +6869,7 @@ fn handle_http_proxy_connection(
             return Err(to_io_error(error));
         }
     };
-    println!(
+    eprintln!(
         "http proxy request method={} address={} port={} path={}",
         request.method, request.host, request.port, request.path_and_query
     );
@@ -7109,6 +7235,265 @@ pub fn write_smoke_mixed_socks5_report_from_subscription_config_text(
         first_byte_timeout,
     )?;
     write_smoke_result(&mut writer, "ok", &report, output)
+}
+
+pub fn write_soak_mixed_report(
+    connections: usize,
+    inbound: SmokeInboundKind,
+    first_byte_timeout: Duration,
+    max_connection_workers: usize,
+    output: ProbeOutputFormat,
+    mut writer: impl Write,
+) -> Result<(), String> {
+    let report = run_soak_mixed(
+        connections,
+        inbound,
+        first_byte_timeout,
+        max_connection_workers,
+    )?;
+    write_soak_mixed_result(&mut writer, &report, output)
+}
+
+pub fn run_soak_mixed(
+    connections: usize,
+    inbound: SmokeInboundKind,
+    first_byte_timeout: Duration,
+    max_connection_workers: usize,
+) -> Result<MixedSoakReport, String> {
+    if connections == 0 {
+        return Err("soak-mixed connections must be greater than 0".to_string());
+    }
+    if max_connection_workers == 0 {
+        return Err("soak-mixed max connection workers must be greater than 0".to_string());
+    }
+
+    let echo_stop = Arc::new(AtomicBool::new(false));
+    let (target_addr, echo_thread) = spawn_mixed_soak_echo_server(
+        connections,
+        MIXED_SOAK_PAYLOAD.len(),
+        first_byte_timeout,
+        Arc::clone(&echo_stop),
+    )?;
+    let relay_options = RelayOptions {
+        first_byte_timeout: Some(first_byte_timeout),
+        idle_timeout: Some(first_byte_timeout),
+    };
+    let mut runtime = mixed_runtime_from_cli(Vec::new(), relay_options, MixedDnsOptions::default());
+    runtime.max_connection_workers = max_connection_workers;
+    let runtime = Arc::new(RwLock::new(runtime));
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|error| format!("bind soak mixed listener: {error}"))?;
+    let listen_addr = listener
+        .local_addr()
+        .map_err(|error| format!("read soak mixed listener addr: {error}"))?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let server_runtime = Arc::clone(&runtime);
+    let server_stop = Arc::clone(&stop);
+    let server =
+        thread::spawn(move || serve_mixed_listener_until(listener, server_runtime, server_stop));
+    let target = OutboundTarget::new(target_addr.ip().to_string(), target_addr.port());
+    let started = Instant::now();
+    let mut completed_connections = 0;
+    let mut first_error = None;
+
+    for index in 0..connections {
+        match run_mixed_soak_iteration(listen_addr, &target, inbound, first_byte_timeout) {
+            Ok(()) => completed_connections += 1,
+            Err(error) => {
+                first_error = Some(format!("soak connection {} failed: {error}", index + 1));
+                break;
+            }
+        }
+    }
+
+    echo_stop.store(true, Ordering::SeqCst);
+    stop.store(true, Ordering::SeqCst);
+    let stop_drain = server
+        .join()
+        .map_err(|_| "soak mixed listener thread panicked".to_string())?
+        .map_err(|error| format!("soak mixed listener failed: {error}"))?;
+    let echo_connections = echo_thread
+        .join()
+        .map_err(|_| "soak echo server thread panicked".to_string())??;
+    let runtime_snapshot = runtime
+        .read()
+        .map_err(|_| "soak mixed runtime lock poisoned".to_string())?;
+    let connection_metrics = runtime_snapshot.connection_metrics_snapshot();
+    let max_connection_workers = runtime_snapshot.max_connection_workers;
+    let active_connection_workers = runtime_snapshot.active_connection_workers();
+    let peak_connection_workers = runtime_snapshot.peak_connection_workers();
+    let active_client_connections = runtime_snapshot.active_client_connections();
+    let peak_client_connections = runtime_snapshot.peak_client_connections();
+    let available_connection_worker_slots = runtime_snapshot.available_connection_worker_slots();
+    drop(runtime_snapshot);
+    let failed_connections = connections.saturating_sub(completed_connections);
+
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+    if echo_connections != connections {
+        return Err(format!(
+            "soak echo server handled {echo_connections} of {connections} connections"
+        ));
+    }
+
+    Ok(MixedSoakReport {
+        requested_connections: connections,
+        completed_connections,
+        failed_connections,
+        inbound,
+        listen_addr,
+        target_addr,
+        elapsed: started.elapsed(),
+        payload_bytes_per_connection: MIXED_SOAK_PAYLOAD.len(),
+        connection_metrics,
+        max_connection_workers,
+        active_connection_workers,
+        peak_connection_workers,
+        active_client_connections,
+        peak_client_connections,
+        available_connection_worker_slots,
+        stop_drain,
+    })
+}
+
+fn spawn_mixed_soak_echo_server(
+    expected_connections: usize,
+    payload_len: usize,
+    timeout: Duration,
+    stop: Arc<AtomicBool>,
+) -> Result<(SocketAddr, thread::JoinHandle<Result<usize, String>>), String> {
+    let listener =
+        TcpListener::bind("127.0.0.1:0").map_err(|error| format!("bind soak echo: {error}"))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| format!("set soak echo nonblocking: {error}"))?;
+    let addr = listener
+        .local_addr()
+        .map_err(|error| format!("read soak echo addr: {error}"))?;
+    let handle = thread::spawn(move || -> Result<usize, String> {
+        let mut accepted = 0;
+        while accepted < expected_connections && !stop.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream
+                        .set_read_timeout(Some(timeout))
+                        .map_err(|error| format!("set soak echo read timeout: {error}"))?;
+                    stream
+                        .set_write_timeout(Some(timeout))
+                        .map_err(|error| format!("set soak echo write timeout: {error}"))?;
+                    let mut payload = vec![0; payload_len];
+                    stream
+                        .read_exact(&mut payload)
+                        .map_err(|error| format!("read soak echo payload: {error}"))?;
+                    stream
+                        .write_all(&payload)
+                        .map_err(|error| format!("write soak echo payload: {error}"))?;
+                    accepted += 1;
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(MANAGED_ACCEPT_POLL_INTERVAL);
+                }
+                Err(error) => return Err(format!("accept soak echo connection: {error}")),
+            }
+        }
+        Ok(accepted)
+    });
+    Ok((addr, handle))
+}
+
+fn run_mixed_soak_iteration(
+    listen_addr: SocketAddr,
+    target: &OutboundTarget,
+    inbound: SmokeInboundKind,
+    timeout: Duration,
+) -> Result<(), String> {
+    let mut client = TcpStream::connect(listen_addr)
+        .map_err(|error| format!("connect soak mixed listener {listen_addr}: {error}"))?;
+    client
+        .set_read_timeout(Some(timeout))
+        .map_err(|error| format!("set soak read timeout: {error}"))?;
+    client
+        .set_write_timeout(Some(timeout))
+        .map_err(|error| format!("set soak write timeout: {error}"))?;
+    write_smoke_connect(&mut client, target, inbound)?;
+    client
+        .write_all(MIXED_SOAK_PAYLOAD)
+        .map_err(|error| format!("write soak payload: {error}"))?;
+    let mut received = vec![0; MIXED_SOAK_PAYLOAD.len()];
+    client
+        .read_exact(&mut received)
+        .map_err(|error| format!("read soak response: {error}"))?;
+    if received != MIXED_SOAK_PAYLOAD {
+        return Err(format!(
+            "soak response mismatch: expected {:?}, got {:?}",
+            String::from_utf8_lossy(MIXED_SOAK_PAYLOAD),
+            String::from_utf8_lossy(&received)
+        ));
+    }
+    client.shutdown(Shutdown::Both).ok();
+    Ok(())
+}
+
+fn write_soak_mixed_result(
+    writer: &mut impl Write,
+    report: &MixedSoakReport,
+    output: ProbeOutputFormat,
+) -> Result<(), String> {
+    match output {
+        ProbeOutputFormat::Text => {
+            writeln!(
+                writer,
+                "soak status=ok inbound={} requested_connections={} completed_connections={} failed_connections={} elapsed_ms={} total_connection_count={} success_count={} failure_count={} peak_connection_workers={} peak_client_connections={} stop_workers_remaining={} stop_timed_out={}",
+                report.inbound.cli_value(),
+                report.requested_connections,
+                report.completed_connections,
+                report.failed_connections,
+                duration_millis(report.elapsed),
+                report.connection_metrics.total_connection_count,
+                report.connection_metrics.success_count,
+                report.connection_metrics.failure_count,
+                report.peak_connection_workers,
+                report.peak_client_connections,
+                report.stop_drain.workers_remaining,
+                report.stop_drain.timed_out
+            )
+            .map_err(|error| error.to_string())
+        }
+        ProbeOutputFormat::Json => {
+            let value = serde_json::json!({
+                "status": "ok",
+                "kind": "keli_mixed_soak",
+                "inbound": report.inbound.cli_value(),
+                "requested_connections": report.requested_connections,
+                "completed_connections": report.completed_connections,
+                "failed_connections": report.failed_connections,
+                "listen_addr": report.listen_addr.to_string(),
+                "target_addr": report.target_addr.to_string(),
+                "elapsed_ms": duration_millis(report.elapsed),
+                "payload_bytes_per_connection": report.payload_bytes_per_connection,
+                "connection_metrics": connection_metrics_json_value(&report.connection_metrics),
+                "worker_gauge": {
+                    "max_connection_workers": report.max_connection_workers,
+                    "active_connection_workers": report.active_connection_workers,
+                    "peak_connection_workers": report.peak_connection_workers,
+                    "active_client_connections": report.active_client_connections,
+                    "peak_client_connections": report.peak_client_connections,
+                    "available_connection_worker_slots": report.available_connection_worker_slots,
+                },
+                "stop_drain": {
+                    "active_connections_shutdown": report.stop_drain.active_connections_shutdown,
+                    "workers_before_shutdown": report.stop_drain.workers_before_shutdown,
+                    "workers_drained": report.stop_drain.workers_drained,
+                    "workers_remaining": report.stop_drain.workers_remaining,
+                    "drain_elapsed_ms": report.stop_drain.drain_elapsed_ms,
+                    "drain_timeout_ms": report.stop_drain.drain_timeout_ms,
+                    "timed_out": report.stop_drain.timed_out,
+                },
+            });
+            writeln!(writer, "{value}").map_err(|error| error.to_string())
+        }
+    }
 }
 
 pub fn probe_outbound_from_subscription_config_text_with_format(
@@ -7875,7 +8260,7 @@ fn relay_with_report(
 
 fn emit_connection_report(runtime: &MixedProxyRuntime, report: &ConnectionReport) {
     runtime.record_connection_report(report);
-    println!("{}", report.summary_line());
+    eprintln!("{}", report.summary_line());
 }
 
 fn default_relay_options() -> RelayOptions {

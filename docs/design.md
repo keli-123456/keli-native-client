@@ -369,6 +369,11 @@ The first implementation target is deliberately small:
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,
    crash recovery, UI-facing APIs, packaging hooks, and support bundle export.
+   The first deterministic soak boundary is now `soak-mixed`: it runs repeated
+   loopback echo traffic through one managed mixed runtime and reports
+   completed/failed connections, aggregate managed connection metrics,
+   worker/client peaks, and stop-drain state as text or JSON. Doctor and
+   support bundles advertise this stability diagnostic surface.
 
 The managed mixed runtime now supports a background handle with runtime status,
 generation tracking, event history, explicit stop, system proxy restoration, and

@@ -313,6 +313,11 @@ session resource limits for support and UI integration.
 Doctor also reports the schema versions for doctor output, support bundles,
 and managed status snapshots, so integrations can negotiate diagnostic JSON
 shapes without inspecting each payload separately.
+The CLI now also exposes `soak-mixed`, a deterministic local stability
+diagnostic that runs repeated loopback echo traffic through one managed mixed
+runtime, then reports connection metrics, worker/client peaks, and stop-drain
+state in text or JSON. Doctor and support bundles advertise this stability
+diagnostic surface so CI, UI, and support tooling can discover it.
 
 ## Protocol Matrix
 
@@ -355,4 +360,5 @@ cargo run -p keli-cli -- doctor
 cargo run -p keli-cli -- doctor --format json
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
 cargo run -p keli-cli -- subscription-update --current-config active.yaml --new-config subscription.yaml --current-outbound proxy --format json
+cargo run -p keli-cli -- soak-mixed --connections 25 --format json
 ```
