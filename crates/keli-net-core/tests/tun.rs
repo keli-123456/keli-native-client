@@ -1636,6 +1636,70 @@ fn closes_tun_tcp_session_step_and_notifies_relay() {
 }
 
 #[test]
+fn resets_unknown_tun_tcp_session_segments_without_notifying_relay() {
+    let data_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+    );
+    let data = parse_tun_tcp_segment(&data_packet).expect("parse data segment");
+    let fin_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1001, 0x0011, 0x4000, &[], b""),
+    );
+    let fin = parse_tun_tcp_segment(&fin_packet).expect("parse FIN segment");
+    let rst_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1001, 0x0014, 0x4000, &[], b""),
+    );
+    let rst = parse_tun_tcp_segment(&rst_packet).expect("parse RST segment");
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::default();
+
+    let data_step = process_tun_tcp_session_segment(&mut sessions, &data, &mut relay, 1000, 0x2000)
+        .expect("process unknown data");
+    let TunTcpSessionStep::Reset { response } = data_step else {
+        panic!("expected reset for unknown data segment");
+    };
+    assert_eq!(response.sequence_number, 1001);
+    assert_eq!(response.acknowledgment_number, 16);
+    let reset = parse_tun_tcp_segment(&response.packet).expect("parse data reset");
+    assert!(reset.flags.rst());
+    assert!(reset.flags.ack());
+    assert_eq!(reset.sequence_number, 1001);
+    assert_eq!(reset.acknowledgment_number, 16);
+    assert!(sessions.is_empty());
+    assert!(relay.closed_sessions.is_empty());
+    assert!(relay.established_sessions.is_empty());
+
+    let fin_step = process_tun_tcp_session_segment(&mut sessions, &fin, &mut relay, 1000, 0x2000)
+        .expect("process unknown FIN");
+    let TunTcpSessionStep::Reset { response } = fin_step else {
+        panic!("expected reset for unknown FIN");
+    };
+    assert_eq!(response.sequence_number, 1001);
+    assert_eq!(response.acknowledgment_number, 17);
+    let reset = parse_tun_tcp_segment(&response.packet).expect("parse FIN reset");
+    assert!(reset.flags.rst());
+    assert!(reset.flags.ack());
+    assert_eq!(reset.sequence_number, 1001);
+    assert_eq!(reset.acknowledgment_number, 17);
+    assert!(relay.closed_sessions.is_empty());
+
+    let rst_step = process_tun_tcp_session_segment(&mut sessions, &rst, &mut relay, 1000, 0x2000)
+        .expect("process unknown RST");
+    assert!(matches!(rst_step, TunTcpSessionStep::Noop));
+    assert!(rst_step.response_packets().is_empty());
+    assert!(sessions.is_empty());
+    assert!(relay.closed_sessions.is_empty());
+}
+
+#[test]
 fn ignores_unexpected_established_tun_tcp_close_step_without_notifying_relay() {
     let syn_packet = ipv4_packet(
         6,
@@ -3118,6 +3182,62 @@ fn tun_packet_loop_writes_tcp_reset_for_blocked_tcp_to_device() {
     assert_eq!(reset.acknowledgment_number, 11);
     assert!(reset.flags.rst());
     assert!(reset.flags.ack());
+}
+
+#[test]
+fn tun_packet_loop_with_tcp_session_relay_resets_unknown_session_segment() {
+    let packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+    );
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut device = FakeTunPacketDevice::new(vec![packet]);
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::default();
+
+    let event = process_tun_device_packet_with_tcp_session_relay(
+        &mut device,
+        &routes,
+        true,
+        &mut dns,
+        30,
+        &mut sessions,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("process unknown TCP session segment");
+
+    let TunPacketLoopEvent::TcpSession {
+        step,
+        packets_written,
+        ..
+    } = event
+    else {
+        panic!("expected TCP session event");
+    };
+    let TunTcpSessionStep::Reset { response } = step else {
+        panic!("expected reset step");
+    };
+    assert_eq!(packets_written, 1);
+    assert_eq!(response.sequence_number, 1001);
+    assert_eq!(response.acknowledgment_number, 16);
+    assert_eq!(device.writes.len(), 1);
+    let reset = parse_tun_tcp_segment(&device.writes[0]).expect("parse unknown-session reset");
+    assert_eq!(reset.flow.source_port, Some(443));
+    assert_eq!(reset.flow.destination_port, Some(49152));
+    assert_eq!(reset.sequence_number, 1001);
+    assert_eq!(reset.acknowledgment_number, 16);
+    assert!(reset.flags.rst());
+    assert!(reset.flags.ack());
+    assert!(sessions.is_empty());
+    assert!(relay.established_sessions.is_empty());
 }
 
 #[test]

@@ -143,6 +143,9 @@ Established FIN/RST close packets must also match the tracked client cursor and
 acknowledge the latest tracked server sequence before they can tear down
 session state, so close traffic with unacknowledged server bytes cannot
 prematurely drop an active relay.
+TUN TCP ACK/data/FIN packets that no longer have a tracked session now receive
+RST+ACK packets through the session relay path, while stray RST packets remain
+silent to avoid reset loops.
 The same session boundary can packetize server-side payload bytes with PSH+ACK,
 advance the server-side sequence cursor, and return swapped IPv4/IPv6 TCP
 packets that the eventual stream runner can write back to TUN.

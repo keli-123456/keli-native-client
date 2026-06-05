@@ -192,6 +192,13 @@ pub struct TunTcpSynAckResponse {
     pub packet: Vec<u8>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunTcpSessionResetFrame {
+    pub sequence_number: u32,
+    pub acknowledgment_number: u32,
+    pub packet: Vec<u8>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TunTcpSessionPruneReport {
     pub pruned_sessions: usize,
@@ -204,6 +211,9 @@ pub enum TunTcpSessionStep {
     Noop,
     SynAck {
         response: TunTcpSynAckResponse,
+    },
+    Reset {
+        response: TunTcpSessionResetFrame,
     },
     Established {
         session: TunTcpSessionRecord,
@@ -735,6 +745,7 @@ impl TunTcpSessionStep {
     pub fn response_packets(&self) -> Vec<&[u8]> {
         match self {
             Self::SynAck { response } => vec![response.packet.as_slice()],
+            Self::Reset { response } => vec![response.packet.as_slice()],
             Self::ClientPayload {
                 frame,
                 server_response,
@@ -1727,6 +1738,27 @@ fn close_tun_tcp_session_from_server<R: TunTcpSessionRelay>(
     Ok(response)
 }
 
+fn build_tun_tcp_session_reset_frame(
+    segment: &TunTcpSegment<'_>,
+) -> Result<TunTcpSessionResetFrame, TunPacketError> {
+    let sequence_number = tcp_reset_sequence_number(segment);
+    let acknowledgment_number = tcp_reset_acknowledgment_number(segment);
+    let packet = build_tun_tcp_reset_response_packet(segment)?;
+    Ok(TunTcpSessionResetFrame {
+        sequence_number,
+        acknowledgment_number,
+        packet,
+    })
+}
+
+fn should_reset_unknown_tun_tcp_session_segment(segment: &TunTcpSegment<'_>) -> bool {
+    !segment.flags.rst()
+        && (segment.flags.syn()
+            || segment.flags.fin()
+            || segment.flags.ack()
+            || !segment.payload.is_empty())
+}
+
 fn read_tun_tcp_server_event_after_client_payload<R: TunTcpSessionRelay>(
     sessions: &mut TunTcpSessionTable,
     relay: &mut R,
@@ -1768,6 +1800,13 @@ fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
                 .close_session(&session)
                 .map_err(TunTcpSessionError::Relay)?;
             return Ok(TunTcpSessionStep::Closed { session, response });
+        }
+        if segment.flags.fin()
+            && !segment.flags.rst()
+            && sessions.get_flow(&segment.flow)?.is_none()
+        {
+            let response = build_tun_tcp_session_reset_frame(segment)?;
+            return Ok(TunTcpSessionStep::Reset { response });
         }
         return Ok(TunTcpSessionStep::Noop);
     }
@@ -1866,6 +1905,13 @@ fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
 
     if let Some(session) = established {
         return Ok(TunTcpSessionStep::Established { session });
+    }
+
+    if should_reset_unknown_tun_tcp_session_segment(segment)
+        && sessions.get_flow(&segment.flow)?.is_none()
+    {
+        let response = build_tun_tcp_session_reset_frame(segment)?;
+        return Ok(TunTcpSessionStep::Reset { response });
     }
 
     Ok(TunTcpSessionStep::Noop)

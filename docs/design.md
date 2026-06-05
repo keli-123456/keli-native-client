@@ -235,6 +235,9 @@ The first implementation target is deliberately small:
    acknowledge the latest tracked server sequence before they can tear down
    session state, preventing close traffic with unacknowledged server bytes
    from dropping active relays early.
+   TUN TCP ACK/data/FIN packets without a tracked session now receive RST+ACK
+   packets through the session relay path, while stray RST packets remain
+   silent to avoid reset loops.
    The same session boundary can packetize server-side payload bytes with
    PSH+ACK, advance the tracked server sequence number, and return swapped
    IPv4/IPv6 TCP packets for the future TUN write-back side.
