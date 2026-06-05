@@ -439,6 +439,55 @@ fn starts_tun_tcp_session_from_syn_and_establishes_on_matching_ack() {
 }
 
 #[test]
+fn acknowledges_retransmitted_tun_tcp_syn_without_restarting_session() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let mut sessions = TunTcpSessionTable::new();
+    sessions
+        .start_from_syn(&syn, 1000, 0x2000)
+        .expect("start TUN TCP session");
+
+    let response = sessions
+        .acknowledge_retransmitted_syn(&syn)
+        .expect("ack retransmitted SYN")
+        .expect("SYN-ACK response");
+
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(response.session.phase, TunTcpSessionPhase::SynReceived);
+    assert_eq!(response.session.client_initial_sequence_number, 10);
+    assert_eq!(response.session.client_next_sequence_number, 11);
+    assert_eq!(response.session.server_initial_sequence_number, 1000);
+    assert_eq!(response.session.server_next_sequence_number, 1001);
+    let syn_ack = parse_tun_tcp_segment(&response.packet).expect("parse retransmitted SYN-ACK");
+    assert_eq!(syn_ack.sequence_number, 1000);
+    assert_eq!(syn_ack.acknowledgment_number, 11);
+    assert!(syn_ack.flags.syn());
+    assert!(syn_ack.flags.ack());
+
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    sessions
+        .apply_ack(&ack)
+        .expect("apply session ACK")
+        .expect("session established");
+
+    assert!(sessions
+        .acknowledge_retransmitted_syn(&syn)
+        .expect("ignore established duplicate SYN")
+        .is_none());
+}
+
+#[test]
 fn accepts_established_tun_tcp_client_payload_and_acknowledges_it() {
     let syn_packet = ipv4_packet(
         6,
@@ -1309,6 +1358,69 @@ fn processes_tun_tcp_session_steps_with_relay_callbacks_and_response_packets() {
         vec![b"GET /".to_vec(), b"more".to_vec()],
         "ACK-only traffic must not write payload to the relay"
     );
+}
+
+#[test]
+fn handles_retransmitted_tun_tcp_syn_without_reconnecting_relay() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    let data_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+    );
+    let data = parse_tun_tcp_segment(&data_packet).expect("parse TCP data segment");
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::default();
+
+    process_tun_tcp_session_segment(&mut sessions, &syn, &mut relay, 1000, 0x2000)
+        .expect("process initial SYN");
+    let retransmitted_syn_step =
+        process_tun_tcp_session_segment(&mut sessions, &syn, &mut relay, 5000, 0x3000)
+            .expect("process retransmitted SYN");
+    let TunTcpSessionStep::SynAck { response } = retransmitted_syn_step else {
+        panic!("expected SYN-ACK for retransmitted SYN");
+    };
+    assert_eq!(response.session.phase, TunTcpSessionPhase::SynReceived);
+    let retransmitted_syn_ack =
+        parse_tun_tcp_segment(&response.packet).expect("parse retransmitted SYN-ACK");
+    assert_eq!(retransmitted_syn_ack.sequence_number, 1000);
+    assert_eq!(retransmitted_syn_ack.acknowledgment_number, 11);
+    assert!(relay.established_sessions.is_empty());
+
+    process_tun_tcp_session_segment(&mut sessions, &ack, &mut relay, 1000, 0x2000)
+        .expect("process ACK");
+    process_tun_tcp_session_segment(&mut sessions, &data, &mut relay, 1000, 0x2000)
+        .expect("process data");
+    assert_eq!(relay.established_sessions.len(), 1);
+    assert_eq!(relay.client_payloads, vec![b"GET /".to_vec()]);
+
+    let established_syn_step =
+        process_tun_tcp_session_segment(&mut sessions, &syn, &mut relay, 5000, 0x3000)
+            .expect("process duplicate SYN after established");
+    assert!(matches!(established_syn_step, TunTcpSessionStep::Noop));
+    assert_eq!(relay.established_sessions.len(), 1);
+    assert_eq!(relay.client_payloads, vec![b"GET /".to_vec()]);
+    let stored = sessions
+        .get_flow(&syn.flow)
+        .expect("lookup session")
+        .expect("session should remain");
+    assert_eq!(stored.phase, TunTcpSessionPhase::Established);
+    assert_eq!(stored.server_initial_sequence_number, 1000);
+    assert_eq!(stored.server_next_sequence_number, 1001);
 }
 
 #[test]
@@ -2963,6 +3075,12 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
             6,
             "10.7.0.2",
             "93.184.216.34",
+            &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
             &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
         ),
         ipv4_packet(
@@ -2999,7 +3117,7 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
         true,
         &mut dns,
         30,
-        8,
+        9,
         &mut sessions,
         &mut relay,
         1000,
@@ -3007,8 +3125,8 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
     )
     .expect("run TUN loop with TCP session relay");
 
-    assert_eq!(summary.processed_packets(), 8);
-    assert_eq!(summary.tcp_session_events, 8);
+    assert_eq!(summary.processed_packets(), 9);
+    assert_eq!(summary.tcp_session_events, 9);
     assert_eq!(summary.tcp_session_packets_written, 7);
     assert_eq!(summary.tcp_session_errors, 0);
     assert_eq!(device.writes.len(), 7);

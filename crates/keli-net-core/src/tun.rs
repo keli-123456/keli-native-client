@@ -1239,6 +1239,34 @@ impl TunTcpSessionTable {
         Ok(TunTcpSynAckResponse { session, packet })
     }
 
+    pub fn acknowledge_retransmitted_syn(
+        &mut self,
+        segment: &TunTcpSegment<'_>,
+    ) -> Result<Option<TunTcpSynAckResponse>, TunPacketError> {
+        if !is_initial_tcp_syn_segment(segment) {
+            return Ok(None);
+        }
+        let key = TunTcpSessionKey::from_flow(&segment.flow)?;
+        let Some(session) = self.sessions.get_mut(&key) else {
+            return Ok(None);
+        };
+        if session.phase != TunTcpSessionPhase::SynReceived
+            || segment.sequence_number != session.client_initial_sequence_number
+        {
+            return Ok(None);
+        }
+        session.last_activity_at = Instant::now();
+        let packet = build_tun_tcp_syn_ack_response_packet(
+            segment,
+            session.server_initial_sequence_number,
+            session.window_size,
+        )?;
+        Ok(Some(TunTcpSynAckResponse {
+            session: session.clone(),
+            packet,
+        }))
+    }
+
     pub fn apply_ack(
         &mut self,
         segment: &TunTcpSegment<'_>,
@@ -1745,6 +1773,15 @@ fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
     }
 
     if is_initial_tcp_syn_segment(segment) {
+        if let Some(response) = sessions.acknowledge_retransmitted_syn(segment)? {
+            return Ok(TunTcpSessionStep::SynAck { response });
+        }
+        if matches!(
+            sessions.get_flow(&segment.flow)?,
+            Some(session) if session.phase == TunTcpSessionPhase::Established
+        ) {
+            return Ok(TunTcpSessionStep::Noop);
+        }
         let response =
             sessions.start_from_syn(segment, server_initial_sequence_number, window_size)?;
         return Ok(TunTcpSessionStep::SynAck { response });

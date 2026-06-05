@@ -134,86 +134,90 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][32],
-        "tcp-session-table"
+        "tcp-syn-retransmit-guard"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][33],
-        "tcp-client-payload-ack"
+        "tcp-session-table"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][34],
-        "tcp-client-duplicate-ack"
+        "tcp-client-payload-ack"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][35],
-        "tcp-client-out-of-order-ack"
+        "tcp-client-duplicate-ack"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][36],
-        "tcp-client-overlap-ack"
+        "tcp-client-out-of-order-ack"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][37],
-        "tcp-client-stale-server-ack"
+        "tcp-client-overlap-ack"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][38],
-        "tcp-client-ack-keepalive"
+        "tcp-client-stale-server-ack"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][39],
-        "tcp-server-payload-packet"
+        "tcp-client-ack-keepalive"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][40],
-        "tcp-server-mss-read-clamp"
+        "tcp-server-payload-packet"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][41],
-        "tcp-session-step-runner"
+        "tcp-server-mss-read-clamp"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][42],
-        "tcp-session-device-loop"
+        "tcp-session-step-runner"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][43],
-        "tcp-server-payload-poll"
+        "tcp-session-device-loop"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][44],
-        "tcp-fin-close-ack"
+        "tcp-server-payload-poll"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][45],
-        "tcp-close-sequence-guard"
+        "tcp-fin-close-ack"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][46],
-        "tcp-server-eof-fin-ack"
+        "tcp-close-sequence-guard"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][47],
-        "tcp-session-idle-cleanup"
+        "tcp-server-eof-fin-ack"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][48],
-        "registry-tcp-session-relay"
+        "tcp-session-idle-cleanup"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][49],
-        "combined-tun-relay-loop"
+        "registry-tcp-session-relay"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][50],
-        "managed-registry-tcp-session-relay"
+        "combined-tun-relay-loop"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][51],
-        "tcp-relay-plan-summary"
+        "managed-registry-tcp-session-relay"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][52],
+        "tcp-relay-plan-summary"
+    );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][53],
         "relay-plan"
     );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");

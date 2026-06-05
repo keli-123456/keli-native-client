@@ -117,6 +117,9 @@ The TCP/TUN path also has a lightweight session table that records initial SYN
 flows, builds SYN-ACK packets, marks sessions established on matching ACKs, and
 removes sessions on FIN/RST, giving the future user-space TCP relay a concrete
 state boundary.
+Half-open TUN TCP sessions now answer retransmitted initial SYNs with the
+original SYN-ACK without restarting state, and established sessions ignore
+delayed old SYNs so active relay state is not rebuilt mid-stream.
 Established TUN TCP sessions can now accept in-order client payload segments,
 advance the client-side sequence cursor, and build empty ACK packets back to
 the TUN peer, creating the packet-level handoff point for a future TCP outbound

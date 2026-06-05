@@ -210,6 +210,9 @@ The first implementation target is deliberately small:
    SYN flows, builds SYN-ACK packets, marks sessions established on matching
    ACKs, and removes sessions on FIN/RST, giving the future user-space TCP
    relay a concrete state boundary before stream forwarding is attached.
+   Half-open TUN TCP sessions answer retransmitted initial SYNs with the
+   original SYN-ACK without restarting state, and established sessions ignore
+   delayed old SYNs so active relay state is not rebuilt mid-stream.
    Established sessions can accept in-order client payload segments, advance
    the tracked client sequence number, and build ACK packets back to the TUN
    peer, creating the packet-level handoff point that a future TCP outbound
