@@ -216,6 +216,9 @@ The first implementation target is deliberately small:
    stream relay can consume.
    Duplicate client payload retransmits already covered by the tracked client
    cursor receive an ACK without replaying bytes into the outbound stream.
+   Out-of-order client payload segments that jump past the tracked client
+   cursor receive an ACK for the current cursor without advancing state or
+   writing bytes into the outbound stream.
    The same session boundary can packetize server-side payload bytes with
    PSH+ACK, advance the tracked server sequence number, and return swapped
    IPv4/IPv6 TCP packets for the future TUN write-back side.

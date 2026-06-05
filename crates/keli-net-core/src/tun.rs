@@ -153,6 +153,15 @@ pub struct TunTcpDuplicateClientPayloadAck {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunTcpOutOfOrderClientPayloadAck {
+    pub session: TunTcpSessionRecord,
+    pub sequence_number: u32,
+    pub acknowledgment_number: u32,
+    pub payload: Vec<u8>,
+    pub ack_packet: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TunTcpServerPayloadFrame {
     pub session: TunTcpSessionRecord,
     pub sequence_number: u32,
@@ -206,6 +215,9 @@ pub enum TunTcpSessionStep {
     },
     DuplicateClientPayload {
         ack: TunTcpDuplicateClientPayloadAck,
+    },
+    OutOfOrderClientPayload {
+        ack: TunTcpOutOfOrderClientPayloadAck,
     },
     ServerPayload {
         response: TunTcpServerPayloadFrame,
@@ -716,6 +728,7 @@ impl TunTcpSessionStep {
                 packets
             }
             Self::DuplicateClientPayload { ack } => vec![ack.ack_packet.as_slice()],
+            Self::OutOfOrderClientPayload { ack } => vec![ack.ack_packet.as_slice()],
             Self::ServerPayload { response } => vec![response.packet.as_slice()],
             Self::ServerClosed { response } => vec![response.packet.as_slice()],
             Self::Closed {
@@ -1295,6 +1308,42 @@ impl TunTcpSessionTable {
         }))
     }
 
+    pub fn acknowledge_out_of_order_client_payload(
+        &mut self,
+        segment: &TunTcpSegment<'_>,
+    ) -> Result<Option<TunTcpOutOfOrderClientPayloadAck>, TunPacketError> {
+        let key = TunTcpSessionKey::from_flow(&segment.flow)?;
+        let Some(session) = self.sessions.get_mut(&key) else {
+            return Ok(None);
+        };
+        if session.phase != TunTcpSessionPhase::Established
+            || segment.payload.is_empty()
+            || !segment.flags.ack()
+            || segment.flags.syn()
+            || segment.flags.rst()
+            || segment.flags.fin()
+            || segment.sequence_number <= session.client_next_sequence_number
+            || segment.acknowledgment_number > session.server_next_sequence_number
+        {
+            return Ok(None);
+        }
+
+        session.last_activity_at = Instant::now();
+        let ack_packet = build_tun_tcp_ack_response_packet(
+            &session.flow,
+            session.server_next_sequence_number,
+            session.client_next_sequence_number,
+            session.window_size,
+        )?;
+        Ok(Some(TunTcpOutOfOrderClientPayloadAck {
+            session: session.clone(),
+            sequence_number: segment.sequence_number,
+            acknowledgment_number: session.client_next_sequence_number,
+            payload: segment.payload.to_vec(),
+            ack_packet,
+        }))
+    }
+
     pub fn send_server_payload(
         &mut self,
         flow: &TunPacketFlow,
@@ -1599,6 +1648,10 @@ fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
 
     if let Some(ack) = sessions.acknowledge_duplicate_client_payload(segment)? {
         return Ok(TunTcpSessionStep::DuplicateClientPayload { ack });
+    }
+
+    if let Some(ack) = sessions.acknowledge_out_of_order_client_payload(segment)? {
+        return Ok(TunTcpSessionStep::OutOfOrderClientPayload { ack });
     }
 
     if established.is_none() {
