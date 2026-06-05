@@ -70,7 +70,7 @@ pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
 pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 1;
 pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 1;
-pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 1;
+pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 2;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
 const SUPPORTED_UDP_OUTBOUNDS: &str =
@@ -82,11 +82,11 @@ const ROUTE_RULE_CAPABILITIES: &str =
 const MANAGED_CONNECTION_METRIC_CAPABILITIES: &str =
     "total-connection-count,success-count,failure-count,connection-limit-rejection-count,error-kind-counts,route-action-counts,inbound-counts,total-upload-bytes,total-download-bytes,total-connect-ms,timed-connect-count,average-connect-ms,total-first-byte-ms,timed-first-byte-count,average-first-byte-ms,last-connection-timestamp,last-success-timestamp,last-failure-timestamp,recent-connection-reports,history-limit";
 const MANAGED_STATUS_SCHEMA_CAPABILITIES: &str =
-    "schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,node-health-udp-aware-recommendation,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state";
+    "schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,node-health-udp-aware-recommendation,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state,subscription-url-update-status";
 const SUBSCRIPTION_FETCH_CAPABILITIES: &str =
     "http,https,timeout,max-bytes,redacted-source,profile-check-summary";
 const SUBSCRIPTION_UPDATE_CAPABILITIES: &str =
-    "current-config,new-config,current-outbound,tag-diff,selected-preservation,default-fallback,redacted-profile-summary,managed-reload-plan,managed-url-reload";
+    "current-config,new-config,current-outbound,tag-diff,selected-preservation,default-fallback,redacted-profile-summary,managed-reload-plan,managed-url-reload,managed-url-update-status";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
     "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic";
 
@@ -1606,6 +1606,7 @@ pub struct ManagedMixedHandle<'a, C: SystemProxyController + ?Sized> {
     dns_options: MixedDnsOptions,
     tun_tcp_max_active_sessions: usize,
     node_health: HashMap<String, ManagedNodeHealthStatus>,
+    last_subscription_url_update: Option<ManagedSubscriptionUrlUpdateStatus>,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<io::Result<RuntimeManagedMixedStopDrainDiagnostic>>>,
     system_proxy_guard: Option<ManagedSystemProxyGuard<'a, C>>,
@@ -1628,6 +1629,7 @@ pub struct ManagedMixedStatusSnapshot {
     pub last_error: Option<ClientErrorKind>,
     pub system_proxy: Option<SystemProxyConfig>,
     pub subscription: Option<ManagedSubscriptionStatus>,
+    pub last_subscription_url_update: Option<ManagedSubscriptionUrlUpdateStatus>,
     pub dns_options: MixedDnsOptions,
     pub tun_tcp_max_active_sessions: usize,
     pub max_connection_workers: usize,
@@ -1657,6 +1659,15 @@ pub struct ManagedSubscriptionUrlUpdateOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedSubscriptionUrlUpdateStatus {
+    pub at: SystemTime,
+    pub fetch: ManagedSubscriptionUrlFetchOutcome,
+    pub update: Option<SubscriptionUpdateReport>,
+    pub applied: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedSubscriptionUrlFetchOutcome {
     pub ok: bool,
     pub source: Option<ManagedSubscriptionUrlSource>,
@@ -1675,6 +1686,23 @@ pub struct ManagedSubscriptionUrlSource {
     pub default_port: bool,
     pub path_present: bool,
     pub query_present: bool,
+}
+
+impl ManagedSubscriptionUrlUpdateStatus {
+    fn new(
+        fetch: ManagedSubscriptionUrlFetchOutcome,
+        update: Option<SubscriptionUpdateReport>,
+        applied: bool,
+        error: Option<String>,
+    ) -> Self {
+        Self {
+            at: SystemTime::now(),
+            fetch,
+            update,
+            applied,
+            error,
+        }
+    }
 }
 
 impl ManagedSubscriptionUrlFetchOutcome {
@@ -2091,6 +2119,7 @@ impl ManagedMixedStatusSnapshot {
             last_error: None,
             system_proxy: None,
             subscription: None,
+            last_subscription_url_update: None,
             dns_options: MixedDnsOptions::default(),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
@@ -2131,6 +2160,7 @@ impl ManagedMixedStatusSnapshot {
             last_error: state.last_error().cloned(),
             system_proxy: None,
             subscription: None,
+            last_subscription_url_update: previous.last_subscription_url_update.clone(),
             dns_options: previous.dns_options,
             tun_tcp_max_active_sessions: previous.tun_tcp_max_active_sessions,
             max_connection_workers: previous.max_connection_workers,
@@ -2175,6 +2205,10 @@ pub fn managed_mixed_status_json_value(status: &ManagedMixedStatusSnapshot) -> s
         "last_error": status.last_error.as_ref().map(client_error_json_value),
         "system_proxy": status.system_proxy.as_ref().map(system_proxy_config_json_value),
         "subscription": status.subscription.as_ref().map(managed_subscription_status_json_value),
+        "last_subscription_url_update": status
+            .last_subscription_url_update
+            .as_ref()
+            .map(managed_subscription_url_update_status_json_value),
         "dns_options": mixed_dns_options_json_value(status.dns_options),
         "tun_tcp_max_active_sessions": status.tun_tcp_max_active_sessions,
         "max_connection_workers": status.max_connection_workers,
@@ -2198,6 +2232,25 @@ pub fn managed_subscription_url_update_outcome_json_value(
         "fetch": managed_subscription_url_fetch_outcome_json_value(&outcome.fetch),
         "update": outcome.update.as_ref().map(subscription_update_json_value),
         "runtime_status": managed_mixed_status_json_value(&outcome.status),
+        "redaction": {
+            "source_url": "scheme-host-port-flags-only",
+            "profile_config_text": "omitted",
+            "credentials": "omitted",
+            "server_endpoints": "omitted",
+        },
+    })
+}
+
+fn managed_subscription_url_update_status_json_value(
+    status: &ManagedSubscriptionUrlUpdateStatus,
+) -> serde_json::Value {
+    serde_json::json!({
+        "status": if status.applied { "ok" } else { "error" },
+        "at_unix_ms": system_time_unix_ms(status.at),
+        "applied": status.applied,
+        "error": status.error.as_deref(),
+        "fetch": managed_subscription_url_fetch_outcome_json_value(&status.fetch),
+        "update": status.update.as_ref().map(subscription_update_json_value),
         "redaction": {
             "source_url": "scheme-host-port-flags-only",
             "profile_config_text": "omitted",
@@ -2774,15 +2827,44 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         match fetch_result {
             Ok(response) => {
                 let fetch = ManagedSubscriptionUrlFetchOutcome::from_response(&response);
-                let update =
-                    self.reload_from_subscription_config_text_with_update_plan(&response.body)?;
-                Ok(ManagedSubscriptionUrlUpdateOutcome {
-                    fetch,
-                    update: Some(update.report),
-                    status: update.status,
-                    applied: update.applied,
-                    error: update.error,
-                })
+                match self.reload_from_subscription_config_text_with_update_plan(&response.body) {
+                    Ok(update) => {
+                        let url_update_status = ManagedSubscriptionUrlUpdateStatus::new(
+                            fetch.clone(),
+                            Some(update.report.clone()),
+                            update.applied,
+                            update.error.clone(),
+                        );
+                        if let Some(handle) = self.handle.as_mut() {
+                            handle.record_subscription_url_update_status(url_update_status);
+                        }
+                        Ok(ManagedSubscriptionUrlUpdateOutcome {
+                            fetch,
+                            update: Some(update.report),
+                            status: self.status(),
+                            applied: update.applied,
+                            error: update.error,
+                        })
+                    }
+                    Err(error) => {
+                        let url_update_status = ManagedSubscriptionUrlUpdateStatus::new(
+                            fetch.clone(),
+                            None,
+                            false,
+                            Some(error.clone()),
+                        );
+                        if let Some(handle) = self.handle.as_mut() {
+                            handle.record_subscription_url_update_status(url_update_status);
+                        }
+                        Ok(ManagedSubscriptionUrlUpdateOutcome {
+                            fetch,
+                            update: None,
+                            status: self.status(),
+                            applied: false,
+                            error: Some(error),
+                        })
+                    }
+                }
             }
             Err(error) => {
                 let fetch = ManagedSubscriptionUrlFetchOutcome::from_error(&error);
@@ -2790,8 +2872,15 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
                     "subscription URL fetch failed: {}",
                     fetch.error_kind.as_deref().unwrap_or("unknown")
                 );
+                let url_update_status = ManagedSubscriptionUrlUpdateStatus::new(
+                    fetch.clone(),
+                    None,
+                    false,
+                    Some(error_message.clone()),
+                );
                 if let Some(handle) = self.handle.as_mut() {
-                    handle.record_subscription_url_fetch_rejected(&fetch, &error_message);
+                    handle
+                        .record_subscription_url_fetch_rejected(&url_update_status, &error_message);
                 }
                 Ok(ManagedSubscriptionUrlUpdateOutcome {
                     fetch,
@@ -2953,6 +3042,7 @@ impl ManagedMixedStatusSnapshot {
             last_error: handle.last_error().cloned(),
             system_proxy: handle.system_proxy_config().cloned(),
             subscription: handle.subscription_status(),
+            last_subscription_url_update: handle.last_subscription_url_update.clone(),
             dns_options: handle.dns_options,
             tun_tcp_max_active_sessions: handle.tun_tcp_max_active_sessions,
             max_connection_workers: handle.max_connection_workers(),
@@ -3084,20 +3174,47 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
 
     fn record_subscription_url_fetch_rejected(
         &mut self,
-        fetch: &ManagedSubscriptionUrlFetchOutcome,
+        status: &ManagedSubscriptionUrlUpdateStatus,
         error_message: &str,
     ) {
         self.state
             .record_reload_rejected(ClientErrorKind::ConfigInvalid(error_message.to_string()));
         self.state.record_status_note(format!(
             "subscription URL update rejected: fetch_status=error error_kind={} source={}",
-            fetch.error_kind.as_deref().unwrap_or("unknown"),
-            fetch
+            status.fetch.error_kind.as_deref().unwrap_or("unknown"),
+            status
+                .fetch
                 .source
                 .as_ref()
                 .map(ManagedSubscriptionUrlSource::label)
                 .unwrap_or_else(|| "-".to_string())
         ));
+        self.last_subscription_url_update = Some(status.clone());
+    }
+
+    fn record_subscription_url_update_status(
+        &mut self,
+        status: ManagedSubscriptionUrlUpdateStatus,
+    ) {
+        let fetch_status = if status.fetch.ok { "ok" } else { "error" };
+        let update_reason = status
+            .update
+            .as_ref()
+            .map(|report| report.reason.label())
+            .unwrap_or("-");
+        self.state.record_status_note(format!(
+            "subscription URL update status recorded: fetch_status={} applied={} update_reason={} source={}",
+            fetch_status,
+            status.applied,
+            update_reason,
+            status
+                .fetch
+                .source
+                .as_ref()
+                .map(ManagedSubscriptionUrlSource::label)
+                .unwrap_or_else(|| "-".to_string())
+        ));
+        self.last_subscription_url_update = Some(status);
     }
 
     pub fn record_node_health(&mut self, health: ManagedNodeHealthStatus) -> Result<(), String> {
@@ -3703,6 +3820,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
             dns_options: self.dns_options,
             tun_tcp_max_active_sessions: self.tun_tcp_max_active_sessions,
             node_health: HashMap::new(),
+            last_subscription_url_update: None,
             stop,
             thread: Some(thread),
             system_proxy_guard: self.system_proxy_guard,

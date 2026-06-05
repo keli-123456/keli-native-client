@@ -46,13 +46,13 @@ fn doctor_report_lists_supported_outbounds() {
         "subscription_fetch_capabilities=http,https,timeout,max-bytes,redacted-source,profile-check-summary"
     ));
     assert!(output.contains(
-        "subscription_update_capabilities=current-config,new-config,current-outbound,tag-diff,selected-preservation,default-fallback,redacted-profile-summary,managed-reload-plan,managed-url-reload"
+        "subscription_update_capabilities=current-config,new-config,current-outbound,tag-diff,selected-preservation,default-fallback,redacted-profile-summary,managed-reload-plan,managed-url-reload,managed-url-update-status"
     ));
     assert!(output.contains(
         "managed_connection_metric_capabilities=total-connection-count,success-count,failure-count,connection-limit-rejection-count,error-kind-counts,route-action-counts,inbound-counts,total-upload-bytes,total-download-bytes,total-connect-ms,timed-connect-count,average-connect-ms,total-first-byte-ms,timed-first-byte-count,average-first-byte-ms,last-connection-timestamp,last-success-timestamp,last-failure-timestamp,recent-connection-reports,history-limit"
     ));
     assert!(output.contains(
-        "managed_status_schema_capabilities=schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,node-health-udp-aware-recommendation,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state"
+        "managed_status_schema_capabilities=schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,node-health-udp-aware-recommendation,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state,subscription-url-update-status"
     ));
     assert!(output.contains(&format!(
         "resource_limits runtime_event_history={} managed_status_recent_events={} managed_connection_report_history={} managed_connection_workers={} tun_tcp_max_active_sessions={}",
@@ -445,6 +445,10 @@ fn doctor_json_report_is_machine_readable() {
         "managed-url-reload"
     );
     assert_eq!(
+        report["subscription_update_capabilities"][9],
+        "managed-url-update-status"
+    );
+    assert_eq!(
         report["managed_connection_metric_capabilities"][0],
         "total-connection-count"
     );
@@ -507,6 +511,10 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(
         report["managed_status_schema_capabilities"][25],
         "panel-state"
+    );
+    assert_eq!(
+        report["managed_status_schema_capabilities"][26],
+        "subscription-url-update-status"
     );
     assert_eq!(
         report["resource_limits"]["runtime_event_history"],

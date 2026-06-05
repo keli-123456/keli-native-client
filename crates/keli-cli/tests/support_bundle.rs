@@ -88,6 +88,10 @@ proxies:
         "managed-url-reload"
     );
     assert_eq!(
+        report["doctor"]["subscription_update_capabilities"][9],
+        "managed-url-update-status"
+    );
+    assert_eq!(
         report["doctor"]["resource_limits"]["runtime_event_history"],
         DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT
     );
@@ -162,6 +166,10 @@ proxies:
     assert_eq!(
         report["doctor"]["managed_status_schema_capabilities"][25],
         "panel-state"
+    );
+    assert_eq!(
+        report["doctor"]["managed_status_schema_capabilities"][26],
+        "subscription-url-update-status"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],

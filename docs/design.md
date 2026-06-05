@@ -443,3 +443,7 @@ The same controller can now fetch a subscription URL and run that planned
 reload in one path, returning redacted fetch metadata, update outcome, and the
 current runtime snapshot while preserving the active runtime on fetch failure
 or unusable updates.
+Managed status snapshots retain the latest subscription URL update result in
+the same redacted shape, so desktop/service integrations can show the most
+recent fetch/update evidence even after the call boundary or after a managed
+stop snapshot.

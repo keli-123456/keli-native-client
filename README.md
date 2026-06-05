@@ -67,6 +67,10 @@ runtime.
 It can also fetch a panel subscription URL and apply the planned reload in one
 managed path, returning a structured outcome with redacted source metadata,
 fetch status, update decision, and the post-update runtime snapshot.
+Managed status now also retains the last subscription URL update result as a
+redacted snapshot, so UI/service callers and support bundles can inspect the
+latest fetch/update outcome after the original update call has returned or the
+managed core has stopped.
 The managed background listener dispatches accepted TCP connections to workers,
 so one long-lived mixed client no longer blocks subsequent connections.
 That worker fan-out is bounded and records connection-limit rejections in

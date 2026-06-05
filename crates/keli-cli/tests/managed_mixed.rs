@@ -370,6 +370,7 @@ fn connection_metrics_summarize_totals_after_recent_history_trims() {
         last_error: None,
         system_proxy: None,
         subscription: None,
+        last_subscription_url_update: None,
         dns_options: MixedDnsOptions::default(),
         tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
         max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
@@ -1029,6 +1030,23 @@ fn managed_mixed_controller_updates_from_subscription_url_and_redacts_source() {
     assert_eq!(update.planned_selected_outbound.as_deref(), Some("SS-STAY"));
     assert_eq!(outcome.status.selected_outbound.as_deref(), Some("SS-STAY"));
     assert_eq!(outcome.status.generation, 2);
+    let last_update = outcome
+        .status
+        .last_subscription_url_update
+        .as_ref()
+        .expect("last subscription URL update status");
+    assert!(last_update.applied);
+    assert_eq!(last_update.error, None);
+    assert!(last_update.fetch.ok);
+    assert_eq!(last_update.fetch.http_status, Some(200));
+    assert_eq!(
+        last_update
+            .update
+            .as_ref()
+            .expect("last update report")
+            .reason,
+        SubscriptionUpdateReason::SelectedOutboundPreserved
+    );
 
     let value = managed_subscription_url_update_outcome_json_value(&outcome);
     assert_eq!(value["status"], "ok");
@@ -1040,6 +1058,20 @@ fn managed_mixed_controller_updates_from_subscription_url_and_redacts_source() {
         value["runtime_status"]["subscription"]["selected_outbound"],
         "SS-STAY"
     );
+    assert_eq!(
+        value["runtime_status"]["last_subscription_url_update"]["status"],
+        "ok"
+    );
+    assert_eq!(
+        value["runtime_status"]["last_subscription_url_update"]["fetch"]["source"]["path_present"],
+        true
+    );
+    let status_value = managed_mixed_status_json_value(&outcome.status);
+    assert_eq!(status_value["last_subscription_url_update"]["status"], "ok");
+    assert_eq!(
+        status_value["last_subscription_url_update"]["update"]["reason"],
+        "selected-outbound-preserved"
+    );
     let serialized = value.to_string();
     assert!(!serialized.contains("/panel/private/sub"));
     assert!(!serialized.contains("super-secret-token"));
@@ -1047,6 +1079,11 @@ fn managed_mixed_controller_updates_from_subscription_url_and_redacts_source() {
     assert!(!serialized.contains("ss.example.com"));
 
     core.stop().expect("stop managed mixed controller");
+    let stopped_status = core.status();
+    assert!(stopped_status
+        .last_subscription_url_update
+        .as_ref()
+        .is_some_and(|update| update.applied));
 }
 
 #[test]
@@ -1098,9 +1135,30 @@ fn managed_mixed_controller_subscription_url_fetch_failure_keeps_runtime() {
     assert!(outcome.status.last_error.as_ref().is_some_and(|error| {
         matches!(error, ClientErrorKind::ConfigInvalid(detail) if detail == "subscription URL fetch failed: http-status")
     }));
+    let last_update = outcome
+        .status
+        .last_subscription_url_update
+        .as_ref()
+        .expect("last subscription URL update status");
+    assert!(!last_update.applied);
+    assert_eq!(last_update.update, None);
+    assert!(!last_update.fetch.ok);
+    assert_eq!(last_update.fetch.error_kind.as_deref(), Some("http-status"));
+    assert_eq!(
+        last_update.error.as_deref(),
+        Some("subscription URL fetch failed: http-status")
+    );
     let value = managed_subscription_url_update_outcome_json_value(&outcome);
     assert_eq!(value["status"], "error");
     assert_eq!(value["fetch"]["error_kind"], "http-status");
+    assert_eq!(
+        value["runtime_status"]["last_subscription_url_update"]["status"],
+        "error"
+    );
+    assert_eq!(
+        value["runtime_status"]["last_subscription_url_update"]["fetch"]["error_kind"],
+        "http-status"
+    );
     let serialized = value.to_string();
     assert!(!serialized.contains("/panel/private/sub"));
     assert!(!serialized.contains("super-secret-token"));
@@ -1160,6 +1218,99 @@ proxies:
         outcome.status.last_error,
         Some(ClientErrorKind::NoSupportedOutbounds)
     );
+    let last_update = outcome
+        .status
+        .last_subscription_url_update
+        .as_ref()
+        .expect("last subscription URL update status");
+    assert!(!last_update.applied);
+    assert!(last_update.fetch.ok);
+    assert_eq!(
+        last_update
+            .update
+            .as_ref()
+            .expect("last update report")
+            .reason,
+        SubscriptionUpdateReason::NoSupportedOutbounds
+    );
+    assert_eq!(
+        last_update.error.as_deref(),
+        Some("subscription update rejected: no supported outbounds")
+    );
+    let value = managed_mixed_status_json_value(&outcome.status);
+    assert_eq!(value["last_subscription_url_update"]["status"], "error");
+    assert_eq!(
+        value["last_subscription_url_update"]["update"]["reason"],
+        "no-supported-outbounds"
+    );
+
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_controller_subscription_url_invalid_update_keeps_runtime() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    let started = core
+        .start_from_subscription_config_text(
+            ss_config(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+    let (url, request_thread) = spawn_subscription_http_server(
+        200,
+        "OK",
+        "proxies:\n  - name: BROKEN\n    type: ss\n    port: nope\n".to_string(),
+    );
+
+    let outcome = core
+        .reload_from_subscription_url_with_update_plan(&url, Duration::from_secs(2), 4096)
+        .expect("subscription URL invalid update outcome");
+    request_thread.join().expect("subscription request");
+
+    assert!(!outcome.applied);
+    assert!(outcome.fetch.ok);
+    assert_eq!(outcome.fetch.http_status, Some(200));
+    assert!(outcome.update.is_none());
+    assert!(outcome
+        .error
+        .as_deref()
+        .is_some_and(|error| error.contains("subscription update plan failed")));
+    assert_eq!(outcome.status.generation, started.generation);
+    assert_eq!(
+        outcome.status.selected_outbound.as_deref(),
+        Some("SS-READY")
+    );
+    assert!(outcome.status.last_error.as_ref().is_some_and(|error| {
+        matches!(error, ClientErrorKind::ConfigInvalid(detail) if detail.contains("subscription update plan failed"))
+    }));
+    let last_update = outcome
+        .status
+        .last_subscription_url_update
+        .as_ref()
+        .expect("last subscription URL update status");
+    assert!(!last_update.applied);
+    assert!(last_update.fetch.ok);
+    assert_eq!(last_update.update, None);
+    assert!(last_update
+        .error
+        .as_deref()
+        .is_some_and(|error| error.contains("subscription update plan failed")));
+    let value = managed_subscription_url_update_outcome_json_value(&outcome);
+    assert_eq!(value["status"], "error");
+    assert_eq!(value["fetch"]["status"], "ok");
+    assert!(value["update"].is_null());
+    assert_eq!(
+        value["runtime_status"]["last_subscription_url_update"]["status"],
+        "error"
+    );
+    let serialized = value.to_string();
+    assert!(!serialized.contains("/panel/private/sub"));
+    assert!(!serialized.contains("super-secret-token"));
 
     core.stop().expect("stop managed mixed controller");
 }
@@ -1940,6 +2091,7 @@ fn managed_mixed_status_json_includes_tun_runtime_diagnostic() {
         last_error: None,
         system_proxy: None,
         subscription: None,
+        last_subscription_url_update: None,
         dns_options: MixedDnsOptions::default(),
         tun_tcp_max_active_sessions: 17,
         max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
@@ -2010,6 +2162,7 @@ fn managed_mixed_status_json_includes_stop_drain_diagnostic() {
         last_error: None,
         system_proxy: None,
         subscription: None,
+        last_subscription_url_update: None,
         dns_options: MixedDnsOptions::default(),
         tun_tcp_max_active_sessions: 17,
         max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
