@@ -35,6 +35,9 @@ fn doctor_report_lists_supported_outbounds() {
     assert!(output.contains(
         "protocol_capabilities=trojan=tcp,udp;vless=tcp,udp;vmess=tcp,udp;shadowsocks=tcp,udp;anytls=tcp,udp;naive=tcp;mieru=tcp,udp;hy2=tcp,udp;tuic=tcp,udp;socks=tcp,udp;http=tcp"
     ));
+    assert!(output.contains(
+        "managed_connection_metric_capabilities=total-connection-count,success-count,failure-count,connection-limit-rejection-count,error-kind-counts,route-action-counts,inbound-counts,total-upload-bytes,total-download-bytes,total-connect-ms,timed-connect-count,average-connect-ms,total-first-byte-ms,timed-first-byte-count,average-first-byte-ms,last-connection-timestamp,last-success-timestamp,last-failure-timestamp,recent-connection-reports,history-limit"
+    ));
     assert!(output.contains(&format!(
         "resource_limits runtime_event_history={} managed_status_recent_events={} managed_connection_report_history={} managed_connection_workers={} tun_tcp_max_active_sessions={}",
         DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
@@ -389,6 +392,26 @@ fn doctor_json_report_is_machine_readable() {
     );
     assert_eq!(report["supported_outbounds"][0], "direct");
     assert_eq!(report["supported_udp_outbounds"][0], "direct");
+    assert_eq!(
+        report["managed_connection_metric_capabilities"][0],
+        "total-connection-count"
+    );
+    assert_eq!(
+        report["managed_connection_metric_capabilities"][4],
+        "error-kind-counts"
+    );
+    assert_eq!(
+        report["managed_connection_metric_capabilities"][5],
+        "route-action-counts"
+    );
+    assert_eq!(
+        report["managed_connection_metric_capabilities"][6],
+        "inbound-counts"
+    );
+    assert_eq!(
+        report["managed_connection_metric_capabilities"][19],
+        "history-limit"
+    );
     assert_eq!(
         report["resource_limits"]["runtime_event_history"],
         DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT

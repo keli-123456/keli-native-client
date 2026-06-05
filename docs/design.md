@@ -357,9 +357,9 @@ The first implementation target is deliberately small:
    TCP sessions can be exercised through the shared outbound registry.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets plus runtime event, managed status, connection
-   report, managed connection worker, and TUN TCP session resource limits so UI
-   and support tooling can see this data-plane readiness without inspecting
-   code.
+   report, managed connection metric schema, managed connection worker, and
+   TUN TCP session resource limits so UI and support tooling can see this
+   data-plane readiness without inspecting code.
 4. Keli panel integration: subscription fetch/update, user state, node
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,

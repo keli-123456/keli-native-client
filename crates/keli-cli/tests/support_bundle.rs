@@ -67,6 +67,22 @@ proxies:
         DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS
     );
     assert_eq!(
+        report["doctor"]["managed_connection_metric_capabilities"][0],
+        "total-connection-count"
+    );
+    assert_eq!(
+        report["doctor"]["managed_connection_metric_capabilities"][5],
+        "route-action-counts"
+    );
+    assert_eq!(
+        report["doctor"]["managed_connection_metric_capabilities"][6],
+        "inbound-counts"
+    );
+    assert_eq!(
+        report["doctor"]["managed_connection_metric_capabilities"][19],
+        "history-limit"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
