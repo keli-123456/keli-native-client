@@ -140,8 +140,9 @@ ACK-only packets with known server acknowledgments now refresh TCP session
 activity without writing packets or relay bytes, preventing active flows from
 being pruned as idle.
 Established FIN/RST close packets must also match the tracked client cursor and
-acknowledge a known server sequence before they can tear down session state, so
-stale close traffic cannot prematurely drop an active relay.
+acknowledge the latest tracked server sequence before they can tear down
+session state, so close traffic with unacknowledged server bytes cannot
+prematurely drop an active relay.
 The same session boundary can packetize server-side payload bytes with PSH+ACK,
 advance the server-side sequence cursor, and return swapped IPv4/IPv6 TCP
 packets that the eventual stream runner can write back to TUN.

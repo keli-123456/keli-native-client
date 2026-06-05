@@ -1659,7 +1659,7 @@ fn ignores_unexpected_established_tun_tcp_close_step_without_notifying_relay() {
     );
     let data = parse_tun_tcp_segment(&data_packet).expect("parse TCP data segment");
     let mut sessions = TunTcpSessionTable::new();
-    let mut relay = FakeTunTcpSessionRelay::default();
+    let mut relay = FakeTunTcpSessionRelay::with_server_payloads(vec![b"HTTP/1.1".to_vec()]);
     process_tun_tcp_session_segment(&mut sessions, &syn, &mut relay, 1000, 0x2000)
         .expect("process SYN step");
     process_tun_tcp_session_segment(&mut sessions, &ack, &mut relay, 1000, 0x2000)
@@ -1682,6 +1682,22 @@ fn ignores_unexpected_established_tun_tcp_close_step_without_notifying_relay() {
         &tcp_segment(49152, 443, 16, 1000, 0x0014, 0x4000, &[], b""),
     );
     let wrong_ack = parse_tun_tcp_segment(&wrong_ack_packet).expect("parse wrong-ack RST");
+    let stale_server_ack_fin_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1001, 0x0011, 0x4000, &[], b""),
+    );
+    let stale_server_ack_fin =
+        parse_tun_tcp_segment(&stale_server_ack_fin_packet).expect("parse stale-ack FIN");
+    let stale_server_ack_rst_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1001, 0x0014, 0x4000, &[], b""),
+    );
+    let stale_server_ack_rst =
+        parse_tun_tcp_segment(&stale_server_ack_rst_packet).expect("parse stale-ack RST");
 
     let wrong_sequence_step =
         process_tun_tcp_session_segment(&mut sessions, &wrong_sequence, &mut relay, 1000, 0x2000)
@@ -1695,12 +1711,34 @@ fn ignores_unexpected_established_tun_tcp_close_step_without_notifying_relay() {
     assert!(matches!(wrong_ack_step, TunTcpSessionStep::Noop));
     assert_eq!(sessions.len(), 1);
     assert!(relay.closed_sessions.is_empty());
+    let stale_fin_step = process_tun_tcp_session_segment(
+        &mut sessions,
+        &stale_server_ack_fin,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("process stale server ACK FIN");
+    assert!(matches!(stale_fin_step, TunTcpSessionStep::Noop));
+    assert_eq!(sessions.len(), 1);
+    assert!(relay.closed_sessions.is_empty());
+    let stale_rst_step = process_tun_tcp_session_segment(
+        &mut sessions,
+        &stale_server_ack_rst,
+        &mut relay,
+        1000,
+        0x2000,
+    )
+    .expect("process stale server ACK RST");
+    assert!(matches!(stale_rst_step, TunTcpSessionStep::Noop));
+    assert_eq!(sessions.len(), 1);
+    assert!(relay.closed_sessions.is_empty());
 
     let valid_fin_packet = ipv4_packet(
         6,
         "10.7.0.2",
         "93.184.216.34",
-        &tcp_segment(49152, 443, 16, 1001, 0x0011, 0x4000, &[], b""),
+        &tcp_segment(49152, 443, 16, 1009, 0x0011, 0x4000, &[], b""),
     );
     let valid_fin = parse_tun_tcp_segment(&valid_fin_packet).expect("parse valid FIN");
     let close_step =
@@ -1846,6 +1884,22 @@ fn ignores_established_tun_tcp_close_with_unexpected_sequence_or_ack() {
         &tcp_segment(49152, 443, 16, 1000, 0x0014, 0x4000, &[], b""),
     );
     let wrong_ack = parse_tun_tcp_segment(&wrong_ack_packet).expect("parse wrong-ack RST");
+    let stale_server_ack_fin_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1001, 0x0011, 0x4000, &[], b""),
+    );
+    let stale_server_ack_fin =
+        parse_tun_tcp_segment(&stale_server_ack_fin_packet).expect("parse stale-server-ack FIN");
+    let stale_server_ack_rst_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1001, 0x0014, 0x4000, &[], b""),
+    );
+    let stale_server_ack_rst =
+        parse_tun_tcp_segment(&stale_server_ack_rst_packet).expect("parse stale-server-ack RST");
 
     assert!(sessions
         .remove_on_close(&wrong_sequence)
@@ -1866,6 +1920,28 @@ fn ignores_established_tun_tcp_close_with_unexpected_sequence_or_ack() {
         sessions
             .get(&key)
             .expect("session should survive wrong ACK")
+            .server_next_sequence_number,
+        1009
+    );
+    assert!(sessions
+        .remove_on_close(&stale_server_ack_fin)
+        .expect("ignore stale server ACK FIN")
+        .is_none());
+    assert_eq!(
+        sessions
+            .get(&key)
+            .expect("session should survive stale FIN")
+            .server_next_sequence_number,
+        1009
+    );
+    assert!(sessions
+        .remove_on_close(&stale_server_ack_rst)
+        .expect("ignore stale server ACK RST")
+        .is_none());
+    assert_eq!(
+        sessions
+            .get(&key)
+            .expect("session should survive stale RST")
             .server_next_sequence_number,
         1009
     );

@@ -1620,7 +1620,7 @@ fn tcp_close_segment_matches_session(
     }
     segment.flags.ack()
         && segment.sequence_number == session.client_next_sequence_number
-        && tcp_segment_acknowledges_known_server_sequence(segment, session)
+        && segment.acknowledgment_number == session.server_next_sequence_number
 }
 
 pub fn parse_tun_packet_flow(packet: &[u8]) -> Result<TunPacketFlow, TunPacketError> {
