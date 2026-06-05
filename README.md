@@ -60,6 +60,10 @@ The core also exposes a subscription update planning boundary, and
 the currently selected outbound, which tags were added/removed/retained, when
 the core would fall back to the new default outbound, and whether the new
 subscription is unusable, all while reusing the redacted profile summary shape.
+The managed controller can now apply that same plan during subscription reload:
+running sessions preserve the selected node when possible, fall back to the new
+default when necessary, or reject unusable updates without replacing the active
+runtime.
 The managed background listener dispatches accepted TCP connections to workers,
 so one long-lived mixed client no longer blocks subsequent connections.
 That worker fan-out is bounded and records connection-limit rejections in

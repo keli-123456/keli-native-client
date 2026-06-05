@@ -86,7 +86,7 @@ const MANAGED_STATUS_SCHEMA_CAPABILITIES: &str =
 const SUBSCRIPTION_FETCH_CAPABILITIES: &str =
     "http,https,timeout,max-bytes,redacted-source,profile-check-summary";
 const SUBSCRIPTION_UPDATE_CAPABILITIES: &str =
-    "current-config,new-config,current-outbound,tag-diff,selected-preservation,default-fallback,redacted-profile-summary";
+    "current-config,new-config,current-outbound,tag-diff,selected-preservation,default-fallback,redacted-profile-summary,managed-reload-plan";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
     "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic";
 
@@ -1640,6 +1640,14 @@ pub struct ManagedMixedStatusSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedSubscriptionUpdateOutcome {
+    pub report: SubscriptionUpdateReport,
+    pub status: ManagedMixedStatusSnapshot,
+    pub applied: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedSubscriptionStatus {
     pub usable: bool,
     pub supported_tags: Vec<String>,
@@ -2594,6 +2602,26 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         Ok(self.status())
     }
 
+    pub fn reload_from_subscription_config_text_with_update_plan(
+        &mut self,
+        config_text: &str,
+    ) -> Result<ManagedSubscriptionUpdateOutcome, String> {
+        self.ensure_panel_allows_traffic()?;
+        let (report, applied, error) = {
+            let handle = self
+                .handle
+                .as_mut()
+                .ok_or_else(|| "managed mixed core is not running".to_string())?;
+            handle.reload_from_subscription_config_text_with_update_plan(config_text)?
+        };
+        Ok(ManagedSubscriptionUpdateOutcome {
+            report,
+            status: self.status(),
+            applied,
+            error,
+        })
+    }
+
     pub fn record_node_health(
         &mut self,
         health: ManagedNodeHealthStatus,
@@ -3092,6 +3120,67 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
         Err(format!(
             "node health tag is not in active subscription: {tag}"
         ))
+    }
+
+    pub fn subscription_update_report_from_config_text(
+        &self,
+        config_text: &str,
+    ) -> Result<SubscriptionUpdateReport, String> {
+        let current_config_text = self
+            .state
+            .active_config()
+            .ok_or_else(|| "managed mixed core has no active subscription".to_string())?
+            .config_text()
+            .to_string();
+        let current_selected_outbound = self
+            .state
+            .active_plan()
+            .map(|plan| plan.selected_outbound().to_string());
+        plan_subscription_update(
+            Some(&current_config_text),
+            config_text,
+            current_selected_outbound.as_deref(),
+        )
+        .map_err(|error| format!("subscription update plan failed: {error:?}"))
+    }
+
+    pub fn reload_from_subscription_config_text_with_update_plan(
+        &mut self,
+        config_text: &str,
+    ) -> Result<(SubscriptionUpdateReport, bool, Option<String>), String> {
+        let report = match self.subscription_update_report_from_config_text(config_text) {
+            Ok(report) => report,
+            Err(error) => {
+                self.state
+                    .record_reload_rejected(ClientErrorKind::ConfigInvalid(error.clone()));
+                return Err(error);
+            }
+        };
+
+        let Some(planned_selected_outbound) = report.planned_selected_outbound.clone() else {
+            let error = "subscription update rejected: no supported outbounds".to_string();
+            self.state
+                .record_reload_rejected(ClientErrorKind::NoSupportedOutbounds);
+            self.state.record_status_note(format!(
+                "{error} reason={} new_supported={} new_skipped={}",
+                report.reason.label(),
+                report.new_supported_count,
+                report.new_skipped_count
+            ));
+            return Ok((report, false, Some(error)));
+        };
+
+        self.reload_from_subscription_config_text(config_text, Some(planned_selected_outbound))?;
+        self.state.record_status_note(format!(
+            "subscription update applied: reason={} preserved={} changed={} added={} removed={} retained={}",
+            report.reason.label(),
+            report.selected_outbound_preserved,
+            report.selected_outbound_changed,
+            report.added_tags.len(),
+            report.removed_tags.len(),
+            report.retained_tags.len()
+        ));
+        Ok((report, true, None))
     }
 
     pub fn reload_from_subscription_config_text(

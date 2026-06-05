@@ -435,3 +435,7 @@ selected outbound can be preserved, which tags were added, removed, or retained,
 whether fallback to the new default outbound is required, and whether the new
 subscription has no supported outbounds. The CLI exposes the same boundary as
 `subscription-update`, with redacted current/new profile summaries for support.
+Managed reload now consumes that plan directly: `ManagedMixedController` can
+reload with the planned selected outbound, keep the active selected node when it
+survives the update, fall back to the new default when it does not, and record a
+rejected update when the fetched subscription has no supported nodes.

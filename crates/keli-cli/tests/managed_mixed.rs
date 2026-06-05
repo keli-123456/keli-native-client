@@ -19,7 +19,7 @@ use keli_cli::{
 use keli_client_core::{
     ClientErrorKind, PanelAccountState, PanelRiskControlState, PanelState, PanelUserState,
     RuntimeDiagnostic, RuntimeEvent, RuntimeManagedMixedStopDrainDiagnostic, RuntimeStatus,
-    RuntimeTunPacketLoopDiagnostic, DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
+    RuntimeTunPacketLoopDiagnostic, SubscriptionUpdateReason, DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
 };
 use keli_net_core::{
     ConnectionErrorKind, ConnectionReport, DnsAddressFamilyPolicy, DnsLocalResolutionPolicy,
@@ -56,6 +56,22 @@ proxies:
     password: secret
 "#
     )
+}
+
+fn ss_config_with_tags(tags: &[&str]) -> String {
+    let mut config = String::from("proxies:\n");
+    for tag in tags {
+        config.push_str(&format!(
+            r#"  - name: {tag}
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+"#
+        ));
+    }
+    config
 }
 
 fn ss_config_for_port(port: u16) -> String {
@@ -759,6 +775,179 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
     assert_eq!(core.status().peak_client_connections, 0);
     assert!(!core.status().system_proxy_enabled());
     assert!(!platform_controller.restored.borrow().is_empty());
+}
+
+#[test]
+fn managed_mixed_controller_update_plan_reload_preserves_selected_outbound() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    core.start_from_subscription_config_text(
+        &ss_config_with_tags(&["SS-OLD", "SS-STAY"]),
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-STAY".to_string()),
+            ..ManagedMixedOptions::default()
+        },
+    )
+    .expect("start managed mixed controller");
+    core.record_node_health(ManagedNodeHealthStatus::healthy(
+        "SS-OLD",
+        Some(80),
+        true,
+        true,
+    ))
+    .expect("record old health");
+
+    let outcome = core
+        .reload_from_subscription_config_text_with_update_plan(&ss_config_with_tags(&[
+            "SS-STAY", "SS-NEW",
+        ]))
+        .expect("planned subscription update");
+
+    assert!(outcome.applied);
+    assert_eq!(outcome.error, None);
+    assert_eq!(
+        outcome.report.reason,
+        SubscriptionUpdateReason::SelectedOutboundPreserved
+    );
+    assert_eq!(
+        outcome.report.current_selected_outbound.as_deref(),
+        Some("SS-STAY")
+    );
+    assert_eq!(
+        outcome.report.planned_selected_outbound.as_deref(),
+        Some("SS-STAY")
+    );
+    assert!(outcome.report.selected_outbound_preserved);
+    assert!(!outcome.report.selected_outbound_changed);
+    assert_eq!(outcome.report.added_tags, vec!["SS-NEW".to_string()]);
+    assert_eq!(outcome.report.removed_tags, vec!["SS-OLD".to_string()]);
+    assert_eq!(outcome.report.retained_tags, vec!["SS-STAY".to_string()]);
+    assert_eq!(outcome.status.selected_outbound.as_deref(), Some("SS-STAY"));
+    assert_eq!(outcome.status.generation, 2);
+    let subscription = outcome.status.subscription.as_ref().expect("subscription");
+    assert!(subscription.health_for("SS-OLD").is_none());
+    assert!(subscription.health_for("SS-STAY").is_some());
+    assert!(subscription.health_for("SS-NEW").is_some());
+    assert!(outcome.status.recent_events.iter().any(|event| {
+        event.note.as_deref().is_some_and(|note| {
+            note.starts_with("subscription update applied: reason=selected-outbound-preserved")
+        })
+    }));
+
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_controller_update_plan_reload_falls_back_to_new_default() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    core.start_from_subscription_config_text(
+        &ss_config_with_tags(&["SS-A", "SS-B"]),
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-B".to_string()),
+            ..ManagedMixedOptions::default()
+        },
+    )
+    .expect("start managed mixed controller");
+
+    let outcome = core
+        .reload_from_subscription_config_text_with_update_plan(&ss_config_with_tags(&[
+            "SS-C", "SS-D",
+        ]))
+        .expect("planned subscription update");
+
+    assert!(outcome.applied);
+    assert_eq!(
+        outcome.report.reason,
+        SubscriptionUpdateReason::SelectedOutboundMissingUseDefault
+    );
+    assert_eq!(
+        outcome.report.current_selected_outbound.as_deref(),
+        Some("SS-B")
+    );
+    assert_eq!(
+        outcome.report.planned_selected_outbound.as_deref(),
+        Some("SS-C")
+    );
+    assert!(!outcome.report.selected_outbound_preserved);
+    assert!(outcome.report.selected_outbound_changed);
+    assert_eq!(outcome.status.selected_outbound.as_deref(), Some("SS-C"));
+    assert!(matches!(
+        outcome.status.status,
+        RuntimeStatus::Running {
+            selected_outbound,
+            ..
+        } if selected_outbound == "SS-C"
+    ));
+
+    core.stop().expect("stop managed mixed controller");
+}
+
+#[test]
+fn managed_mixed_controller_update_plan_rejects_unusable_new_subscription() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    let started = core
+        .start_from_subscription_config_text(
+            ss_config(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                ..ManagedMixedOptions::default()
+            },
+        )
+        .expect("start managed mixed controller");
+    let unusable = r#"
+proxies:
+  - name: WG-SKIPPED
+    type: wireguard
+    server: wg.example.com
+    port: 51820
+    password: ignored
+"#;
+
+    let outcome = core
+        .reload_from_subscription_config_text_with_update_plan(unusable)
+        .expect("planned unusable subscription update");
+
+    assert!(!outcome.applied);
+    assert_eq!(
+        outcome.error.as_deref(),
+        Some("subscription update rejected: no supported outbounds")
+    );
+    assert_eq!(
+        outcome.report.reason,
+        SubscriptionUpdateReason::NoSupportedOutbounds
+    );
+    assert!(!outcome.report.usable);
+    assert_eq!(outcome.report.new_supported_count, 0);
+    assert_eq!(outcome.report.new_skipped_count, 1);
+    assert_eq!(outcome.report.planned_selected_outbound, None);
+    assert_eq!(outcome.status.generation, started.generation);
+    assert_eq!(
+        outcome.status.selected_outbound.as_deref(),
+        Some("SS-READY")
+    );
+    assert_eq!(
+        outcome.status.last_error,
+        Some(ClientErrorKind::NoSupportedOutbounds)
+    );
+    assert!(matches!(
+        outcome.status.status,
+        RuntimeStatus::Running {
+            selected_outbound,
+            ..
+        } if selected_outbound == "SS-READY"
+    ));
+    assert!(outcome.status.recent_events.iter().any(|event| {
+        event.note.as_deref().is_some_and(|note| {
+            note.starts_with("subscription update rejected: no supported outbounds")
+        })
+    }));
+
+    core.stop().expect("stop managed mixed controller");
 }
 
 #[test]
