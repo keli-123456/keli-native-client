@@ -332,6 +332,9 @@ The first implementation target is deliberately small:
    bounded loop termination.
    The summary exposes that state as a stable exit-reason label for UI and
    support tooling.
+   Runtime events can also carry the managed TUN packet-loop report as a
+   structured diagnostic payload, giving UI and support tooling direct access
+   to counters and sanitized last-error fields without parsing the text note.
    Managed TUN packet loops now use a combined UDP/TCP relay path so the
    registry-backed UDP execution path remains active while direct and tagged
    TCP sessions can be exercised through the shared outbound registry.

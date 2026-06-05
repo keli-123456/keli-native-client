@@ -14,8 +14,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use keli_client_core::{
     build_connection_plan, ClientErrorKind, ClientRuntime, ConnectionPhase, ConnectionPlan,
-    PanelState, RuntimeConfig, RuntimeEvent, RuntimeStatus, SkippedProfileSummary,
-    SubscriptionNodeCapability,
+    PanelState, RuntimeConfig, RuntimeDiagnostic, RuntimeEvent, RuntimeStatus,
+    RuntimeTunPacketLoopDiagnostic, SkippedProfileSummary, SubscriptionNodeCapability,
 };
 use keli_net_core::{
     build_dns_error_response, build_dns_response, encode_socks5_udp_datagram,
@@ -69,7 +69,7 @@ const SUPPORTED_PROTOCOL_CAPABILITIES: &str =
 const ROUTE_RULE_CAPABILITIES: &str =
     "domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
-    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label";
+    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
@@ -378,6 +378,61 @@ pub fn managed_tun_runtime_report_note(report: &ManagedTunPacketLoopReport) -> S
         last_udp_relay_error,
         last_tcp_session_error,
     )
+}
+
+pub fn managed_tun_runtime_report_diagnostic(
+    report: &ManagedTunPacketLoopReport,
+) -> RuntimeDiagnostic {
+    RuntimeDiagnostic::TunPacketLoop(RuntimeTunPacketLoopDiagnostic {
+        interface_name: report.config.interface_name.clone(),
+        owns_device: report.owns_device,
+        processed_packets: report.summary.processed_packets(),
+        idle_events: report.summary.idle_events,
+        exit_reason: report.summary.exit_reason_label().to_string(),
+        stop_requested: report.summary.stop_requested,
+        packet_limit_reached: report.summary.packet_limit_reached,
+        dns_responses_written: report.summary.dns_responses_written,
+        udp_relay_responses_written: report.summary.udp_relay_responses_written,
+        tcp_resets_written: report.summary.tcp_resets_written,
+        tcp_session_events: report.summary.tcp_session_events,
+        tcp_session_packets_written: report.summary.tcp_session_packets_written,
+        tcp_max_active_sessions: report.summary.tcp_max_active_sessions,
+        tcp_session_limit_rejections: report.summary.tcp_session_limit_rejections,
+        tcp_sessions_pruned: report.summary.tcp_sessions_pruned,
+        tcp_server_closed_sessions_pruned: report.summary.tcp_server_closed_sessions_pruned,
+        tcp_post_closed_sessions_pruned: report.summary.tcp_post_closed_sessions_pruned,
+        tcp_server_close_marker_resets: report.summary.tcp_server_close_marker_resets,
+        tcp_post_close_marker_resets: report.summary.tcp_post_close_marker_resets,
+        tcp_sessions_open: report.summary.tcp_sessions_open,
+        tcp_server_close_markers_open: report.summary.tcp_server_close_markers_open,
+        tcp_post_close_markers_open: report.summary.tcp_post_close_markers_open,
+        tcp_sessions_peak: report.summary.tcp_sessions_peak,
+        tcp_server_close_markers_peak: report.summary.tcp_server_close_markers_peak,
+        tcp_post_close_markers_peak: report.summary.tcp_post_close_markers_peak,
+        relay_packets: report.summary.relay_packets,
+        tcp_relay_plans: report.summary.tcp_relay_plans,
+        udp_relay_plans: report.summary.udp_relay_plans,
+        dropped_packets: report.summary.dropped_packets,
+        unsupported_packets: report.summary.unsupported_packets,
+        packet_errors: report.summary.packet_errors,
+        udp_relay_errors: report.summary.udp_relay_errors,
+        tcp_session_errors: report.summary.tcp_session_errors,
+        last_packet_error: report
+            .summary
+            .last_packet_error
+            .as_ref()
+            .map(|error| sanitize_runtime_note_value(&error.to_string())),
+        last_udp_relay_error: report
+            .summary
+            .last_udp_relay_error
+            .as_ref()
+            .map(|error| sanitize_runtime_note_value(&error.to_string())),
+        last_tcp_session_error: report
+            .summary
+            .last_tcp_session_error
+            .as_ref()
+            .map(|error| sanitize_runtime_note_value(&error.to_string())),
+    })
 }
 
 fn tun_runtime_note_error_value<E: std::fmt::Display>(error: Option<&E>) -> String {
@@ -2024,7 +2079,10 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
         match (serve_result, stop_result) {
             (Ok(((), tun_report)), Ok(mut state)) => {
                 if let Some(report) = tun_report.as_ref() {
-                    state.record_status_note(managed_tun_runtime_report_note(report));
+                    state.record_status_diagnostic(
+                        managed_tun_runtime_report_note(report),
+                        managed_tun_runtime_report_diagnostic(report),
+                    );
                 }
                 Ok((state, tun_report))
             }

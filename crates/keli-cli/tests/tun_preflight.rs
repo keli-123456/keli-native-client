@@ -16,6 +16,7 @@ use keli_cli::{
     write_tun_preflight_report_with_controller, ManagedMixedOptions, ManagedMixedSession,
     MixedProxyRuntime, PlatformTunPacketDevice, ProbeOutputFormat,
 };
+use keli_client_core::RuntimeDiagnostic;
 use keli_net_core::{
     parse_tun_tcp_segment, parse_tun_udp_payload, DnsCache, DnsEngine, OutboundRegistry,
     RelayOptions, RouteAction, RouteEngine, SystemDnsResolver, TunPacketDevice,
@@ -938,6 +939,38 @@ fn managed_mixed_session_records_tun_runtime_status_note_after_serve() {
     assert!(note.contains("last_packet_error=unsupported_TUN_packet_IP_version:_0"));
     assert!(note.contains("last_udp_relay_error=none"));
     assert!(note.contains("last_tcp_session_error=none"));
+
+    let diagnostic = state
+        .events()
+        .iter()
+        .rev()
+        .find_map(|event| event.diagnostic.as_ref())
+        .expect("runtime diagnostic");
+    let RuntimeDiagnostic::TunPacketLoop(diagnostic) = diagnostic;
+    assert_eq!(diagnostic.interface_name, "keli-tun0");
+    assert!(diagnostic.owns_device);
+    assert_eq!(
+        diagnostic.processed_packets,
+        report.summary.processed_packets()
+    );
+    assert_eq!(diagnostic.idle_events, report.summary.idle_events);
+    assert_eq!(diagnostic.exit_reason, "stop-requested");
+    assert!(diagnostic.stop_requested);
+    assert!(!diagnostic.packet_limit_reached);
+    assert_eq!(diagnostic.tcp_resets_written, 0);
+    assert_eq!(diagnostic.tcp_session_events, 0);
+    assert_eq!(diagnostic.tcp_session_packets_written, 0);
+    assert_eq!(
+        diagnostic.tcp_max_active_sessions,
+        DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS
+    );
+    assert_eq!(diagnostic.packet_errors, 1);
+    assert_eq!(
+        diagnostic.last_packet_error.as_deref(),
+        Some("unsupported_TUN_packet_IP_version:_0")
+    );
+    assert_eq!(diagnostic.last_udp_relay_error, None);
+    assert_eq!(diagnostic.last_tcp_session_error, None);
 }
 
 #[test]

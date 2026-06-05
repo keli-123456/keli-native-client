@@ -336,6 +336,10 @@ proxies:
         report["doctor"]["tun_packet_pipeline_capabilities"][82],
         "tun-runtime-exit-reason-label"
     );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][83],
+        "tun-runtime-structured-diagnostic"
+    );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");
     assert_eq!(report["tun_preflight"]["ready"], false);
     assert_eq!(

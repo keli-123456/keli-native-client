@@ -457,6 +457,7 @@ pub enum RuntimeStatus {
 pub struct RuntimeEvent {
     pub status: RuntimeStatus,
     pub note: Option<String>,
+    pub diagnostic: Option<RuntimeDiagnostic>,
     pub at: SystemTime,
 }
 
@@ -465,9 +466,68 @@ impl RuntimeEvent {
         Self {
             status,
             note: note.map(Into::into),
+            diagnostic: None,
             at: SystemTime::now(),
         }
     }
+
+    pub fn with_diagnostic(
+        status: RuntimeStatus,
+        note: Option<impl Into<String>>,
+        diagnostic: RuntimeDiagnostic,
+    ) -> Self {
+        Self {
+            status,
+            note: note.map(Into::into),
+            diagnostic: Some(diagnostic),
+            at: SystemTime::now(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuntimeDiagnostic {
+    TunPacketLoop(RuntimeTunPacketLoopDiagnostic),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeTunPacketLoopDiagnostic {
+    pub interface_name: String,
+    pub owns_device: bool,
+    pub processed_packets: usize,
+    pub idle_events: usize,
+    pub exit_reason: String,
+    pub stop_requested: bool,
+    pub packet_limit_reached: bool,
+    pub dns_responses_written: usize,
+    pub udp_relay_responses_written: usize,
+    pub tcp_resets_written: usize,
+    pub tcp_session_events: usize,
+    pub tcp_session_packets_written: usize,
+    pub tcp_max_active_sessions: usize,
+    pub tcp_session_limit_rejections: usize,
+    pub tcp_sessions_pruned: usize,
+    pub tcp_server_closed_sessions_pruned: usize,
+    pub tcp_post_closed_sessions_pruned: usize,
+    pub tcp_server_close_marker_resets: usize,
+    pub tcp_post_close_marker_resets: usize,
+    pub tcp_sessions_open: usize,
+    pub tcp_server_close_markers_open: usize,
+    pub tcp_post_close_markers_open: usize,
+    pub tcp_sessions_peak: usize,
+    pub tcp_server_close_markers_peak: usize,
+    pub tcp_post_close_markers_peak: usize,
+    pub relay_packets: usize,
+    pub tcp_relay_plans: usize,
+    pub udp_relay_plans: usize,
+    pub dropped_packets: usize,
+    pub unsupported_packets: usize,
+    pub packet_errors: usize,
+    pub udp_relay_errors: usize,
+    pub tcp_session_errors: usize,
+    pub last_packet_error: Option<String>,
+    pub last_udp_relay_error: Option<String>,
+    pub last_tcp_session_error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -626,6 +686,18 @@ impl ClientRuntime {
     pub fn record_status_note(&mut self, note: impl Into<String>) {
         self.events
             .push(RuntimeEvent::new(self.status.clone(), Some(note.into())));
+    }
+
+    pub fn record_status_diagnostic(
+        &mut self,
+        note: impl Into<String>,
+        diagnostic: RuntimeDiagnostic,
+    ) {
+        self.events.push(RuntimeEvent::with_diagnostic(
+            self.status.clone(),
+            Some(note.into()),
+            diagnostic,
+        ));
     }
 
     fn fail(&mut self, error: ClientErrorKind) {
@@ -1115,6 +1187,67 @@ proxies:
             Some("node health recorded: SS-READY=healthy")
         );
         assert_eq!(runtime.events().last().expect("event").status, status);
+    }
+
+    #[test]
+    fn runtime_can_record_status_diagnostic_without_changing_status() {
+        let mut runtime = ClientRuntime::default();
+        runtime
+            .start(RuntimeConfig::new(
+                ss_config("SS-READY"),
+                Some("SS-READY"),
+                "127.0.0.1:7890",
+            ))
+            .expect("runtime start");
+        let status = runtime.status().clone();
+        let generation = runtime.generation();
+        let diagnostic = RuntimeDiagnostic::TunPacketLoop(RuntimeTunPacketLoopDiagnostic {
+            interface_name: "keli-tun0".to_string(),
+            owns_device: true,
+            processed_packets: 1,
+            idle_events: 0,
+            exit_reason: "stop-requested".to_string(),
+            stop_requested: true,
+            packet_limit_reached: false,
+            dns_responses_written: 0,
+            udp_relay_responses_written: 0,
+            tcp_resets_written: 0,
+            tcp_session_events: 0,
+            tcp_session_packets_written: 0,
+            tcp_max_active_sessions: 4096,
+            tcp_session_limit_rejections: 0,
+            tcp_sessions_pruned: 0,
+            tcp_server_closed_sessions_pruned: 0,
+            tcp_post_closed_sessions_pruned: 0,
+            tcp_server_close_marker_resets: 0,
+            tcp_post_close_marker_resets: 0,
+            tcp_sessions_open: 0,
+            tcp_server_close_markers_open: 0,
+            tcp_post_close_markers_open: 0,
+            tcp_sessions_peak: 0,
+            tcp_server_close_markers_peak: 0,
+            tcp_post_close_markers_peak: 0,
+            relay_packets: 0,
+            tcp_relay_plans: 0,
+            udp_relay_plans: 0,
+            dropped_packets: 0,
+            unsupported_packets: 0,
+            packet_errors: 1,
+            udp_relay_errors: 0,
+            tcp_session_errors: 0,
+            last_packet_error: Some("unsupported_TUN_packet_IP_version:_0".to_string()),
+            last_udp_relay_error: None,
+            last_tcp_session_error: None,
+        });
+
+        runtime.record_status_diagnostic("managed TUN runtime stopped", diagnostic.clone());
+
+        let event = runtime.events().last().expect("event");
+        assert_eq!(runtime.status(), &status);
+        assert_eq!(runtime.generation(), generation);
+        assert_eq!(event.note.as_deref(), Some("managed TUN runtime stopped"));
+        assert_eq!(event.diagnostic, Some(diagnostic));
+        assert_eq!(event.status, status);
     }
 
     #[test]
