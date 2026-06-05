@@ -228,6 +228,9 @@ The first implementation target is deliberately small:
    ACK-only packets with known server acknowledgments refresh TCP session
    activity without writing packets or relay bytes, preventing active flows
    from being pruned as idle.
+   Established FIN/RST close packets must match the tracked client cursor and
+   acknowledge a known server sequence before they can tear down session state,
+   preventing stale close traffic from dropping active relays early.
    The same session boundary can packetize server-side payload bytes with
    PSH+ACK, advance the tracked server sequence number, and return swapped
    IPv4/IPv6 TCP packets for the future TUN write-back side.

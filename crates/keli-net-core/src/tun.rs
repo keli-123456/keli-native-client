@@ -1538,6 +1538,12 @@ impl TunTcpSessionTable {
             return Ok(None);
         }
         let key = TunTcpSessionKey::from_flow(&segment.flow)?;
+        let Some(session) = self.sessions.get(&key) else {
+            return Ok(None);
+        };
+        if !tcp_close_segment_matches_session(segment, session) {
+            return Ok(None);
+        }
         let Some(session) = self.sessions.remove(&key) else {
             return Ok(None);
         };
@@ -1561,6 +1567,18 @@ impl TunTcpSessionTable {
         };
         Ok(Some((session, response)))
     }
+}
+
+fn tcp_close_segment_matches_session(
+    segment: &TunTcpSegment<'_>,
+    session: &TunTcpSessionRecord,
+) -> bool {
+    if session.phase != TunTcpSessionPhase::Established {
+        return true;
+    }
+    segment.flags.ack()
+        && segment.sequence_number == session.client_next_sequence_number
+        && tcp_segment_acknowledges_known_server_sequence(segment, session)
 }
 
 pub fn parse_tun_packet_flow(packet: &[u8]) -> Result<TunPacketFlow, TunPacketError> {

@@ -1524,6 +1524,87 @@ fn closes_tun_tcp_session_step_and_notifies_relay() {
 }
 
 #[test]
+fn ignores_unexpected_established_tun_tcp_close_step_without_notifying_relay() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    let data_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+    );
+    let data = parse_tun_tcp_segment(&data_packet).expect("parse TCP data segment");
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay = FakeTunTcpSessionRelay::default();
+    process_tun_tcp_session_segment(&mut sessions, &syn, &mut relay, 1000, 0x2000)
+        .expect("process SYN step");
+    process_tun_tcp_session_segment(&mut sessions, &ack, &mut relay, 1000, 0x2000)
+        .expect("process ACK step");
+    process_tun_tcp_session_segment(&mut sessions, &data, &mut relay, 1000, 0x2000)
+        .expect("process data step");
+
+    let wrong_sequence_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 15, 1001, 0x0011, 0x4000, &[], b""),
+    );
+    let wrong_sequence =
+        parse_tun_tcp_segment(&wrong_sequence_packet).expect("parse wrong-sequence FIN");
+    let wrong_ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1000, 0x0014, 0x4000, &[], b""),
+    );
+    let wrong_ack = parse_tun_tcp_segment(&wrong_ack_packet).expect("parse wrong-ack RST");
+
+    let wrong_sequence_step =
+        process_tun_tcp_session_segment(&mut sessions, &wrong_sequence, &mut relay, 1000, 0x2000)
+            .expect("process wrong sequence FIN");
+    assert!(matches!(wrong_sequence_step, TunTcpSessionStep::Noop));
+    assert_eq!(sessions.len(), 1);
+    assert!(relay.closed_sessions.is_empty());
+    let wrong_ack_step =
+        process_tun_tcp_session_segment(&mut sessions, &wrong_ack, &mut relay, 1000, 0x2000)
+            .expect("process wrong ACK RST");
+    assert!(matches!(wrong_ack_step, TunTcpSessionStep::Noop));
+    assert_eq!(sessions.len(), 1);
+    assert!(relay.closed_sessions.is_empty());
+
+    let valid_fin_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1001, 0x0011, 0x4000, &[], b""),
+    );
+    let valid_fin = parse_tun_tcp_segment(&valid_fin_packet).expect("parse valid FIN");
+    let close_step =
+        process_tun_tcp_session_segment(&mut sessions, &valid_fin, &mut relay, 1000, 0x2000)
+            .expect("process valid FIN");
+
+    let TunTcpSessionStep::Closed { session, response } = close_step else {
+        panic!("expected closed step");
+    };
+    assert_eq!(session.phase, TunTcpSessionPhase::Established);
+    assert!(response.is_some());
+    assert!(sessions.is_empty());
+    assert_eq!(relay.closed_sessions.len(), 1);
+}
+
+#[test]
 fn removes_tun_tcp_session_on_rst_without_close_ack() {
     let syn_packet = ipv4_packet(
         6,
@@ -1594,6 +1675,125 @@ fn removes_tun_tcp_session_on_fin_and_builds_close_ack() {
     assert!(packet.flags.ack());
     assert!(!packet.flags.fin());
     assert!(packet.payload.is_empty());
+    assert!(sessions.is_empty());
+}
+
+#[test]
+fn ignores_established_tun_tcp_close_with_unexpected_sequence_or_ack() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let key = TunTcpSessionKey::from_flow(&syn.flow).expect("session key");
+    let mut sessions = TunTcpSessionTable::new();
+    sessions
+        .start_from_syn(&syn, 1000, 0x2000)
+        .expect("start TUN TCP session");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    sessions
+        .apply_ack(&ack)
+        .expect("apply session ACK")
+        .expect("session established");
+    let data_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+    );
+    let data = parse_tun_tcp_segment(&data_packet).expect("parse TCP data segment");
+    sessions
+        .accept_client_payload(&data)
+        .expect("accept client payload")
+        .expect("payload frame");
+    sessions
+        .send_server_payload(&data.flow, b"HTTP/1.1")
+        .expect("send server payload")
+        .expect("server frame");
+
+    let wrong_sequence_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 15, 1009, 0x0011, 0x4000, &[], b""),
+    );
+    let wrong_sequence =
+        parse_tun_tcp_segment(&wrong_sequence_packet).expect("parse wrong-sequence FIN");
+    let wrong_ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1000, 0x0014, 0x4000, &[], b""),
+    );
+    let wrong_ack = parse_tun_tcp_segment(&wrong_ack_packet).expect("parse wrong-ack RST");
+
+    assert!(sessions
+        .remove_on_close(&wrong_sequence)
+        .expect("ignore wrong sequence FIN")
+        .is_none());
+    assert_eq!(
+        sessions
+            .get(&key)
+            .expect("session should survive wrong sequence")
+            .client_next_sequence_number,
+        16
+    );
+    assert!(sessions
+        .remove_on_close(&wrong_ack)
+        .expect("ignore wrong ACK RST")
+        .is_none());
+    assert_eq!(
+        sessions
+            .get(&key)
+            .expect("session should survive wrong ACK")
+            .server_next_sequence_number,
+        1009
+    );
+
+    let mut rst_sessions = sessions.clone();
+    let valid_rst_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1009, 0x0014, 0x4000, &[], b""),
+    );
+    let valid_rst = parse_tun_tcp_segment(&valid_rst_packet).expect("parse valid RST");
+    let (rst_removed, rst_response) = rst_sessions
+        .remove_on_close(&valid_rst)
+        .expect("remove valid RST")
+        .expect("removed RST session");
+    assert_eq!(rst_removed.phase, TunTcpSessionPhase::Established);
+    assert!(rst_response.is_none());
+    assert!(rst_sessions.is_empty());
+
+    let valid_fin_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1009, 0x0011, 0x4000, &[], b""),
+    );
+    let valid_fin = parse_tun_tcp_segment(&valid_fin_packet).expect("parse valid FIN");
+    let (removed, response) = sessions
+        .remove_on_close(&valid_fin)
+        .expect("remove valid close")
+        .expect("removed session");
+
+    assert_eq!(removed.phase, TunTcpSessionPhase::Established);
+    let response = response.expect("valid FIN close ACK");
+    assert_eq!(response.sequence_number, 1009);
+    assert_eq!(response.acknowledgment_number, 17);
+    let packet = parse_tun_tcp_segment(&response.packet).expect("parse valid close ACK");
+    assert_eq!(packet.sequence_number, 1009);
+    assert_eq!(packet.acknowledgment_number, 17);
+    assert!(packet.flags.ack());
     assert!(sessions.is_empty());
 }
 
@@ -2648,6 +2848,12 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
             6,
             "10.7.0.2",
             "93.184.216.34",
+            &tcp_segment(49152, 443, 19, 1009, 0x0011, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
             &tcp_segment(49152, 443, 20, 1009, 0x0011, 0x4000, &[], b""),
         ),
     ];
@@ -2666,7 +2872,7 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
         true,
         &mut dns,
         30,
-        7,
+        8,
         &mut sessions,
         &mut relay,
         1000,
@@ -2674,8 +2880,8 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
     )
     .expect("run TUN loop with TCP session relay");
 
-    assert_eq!(summary.processed_packets(), 7);
-    assert_eq!(summary.tcp_session_events, 7);
+    assert_eq!(summary.processed_packets(), 8);
+    assert_eq!(summary.tcp_session_events, 8);
     assert_eq!(summary.tcp_session_packets_written, 7);
     assert_eq!(summary.tcp_session_errors, 0);
     assert_eq!(device.writes.len(), 7);
