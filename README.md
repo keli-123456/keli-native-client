@@ -210,6 +210,9 @@ summaries and managed runtime status notes.
 Those summaries now separately count expired server-close and post-close TCP
 markers, so long-running diagnostics can distinguish active relay cleanup from
 close-tail marker cleanup.
+Managed TUN runtime notes also include sanitized last-error fields for packet,
+UDP relay, and TCP session failures, giving support tooling the final failure
+reason without splitting the status line format.
 The managed TUN runtime uses a combined UDP/TCP relay loop, so it can keep the
 registry-backed UDP path while also exercising registry-backed TCP sessions.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline

@@ -300,6 +300,10 @@ proxies:
         report["doctor"]["tun_packet_pipeline_capabilities"][73],
         "relay-plan"
     );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][74],
+        "tun-runtime-last-error-note"
+    );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");
     assert_eq!(report["tun_preflight"]["ready"], false);
     assert_eq!(

@@ -902,6 +902,9 @@ fn managed_mixed_session_records_tun_runtime_status_note_after_serve() {
     assert!(note.contains("udp_relay_plans=0"));
     assert!(note.contains("packet_errors=1"));
     assert!(note.contains("tcp_session_errors=0"));
+    assert!(note.contains("last_packet_error=unsupported_TUN_packet_IP_version:_0"));
+    assert!(note.contains("last_udp_relay_error=none"));
+    assert!(note.contains("last_tcp_session_error=none"));
 }
 
 #[test]
