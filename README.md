@@ -45,6 +45,8 @@ supported nodes, skipped nodes, default outbound, selected outbound, and node
 health records for latency, TCP/UDP availability, and failure reasons.
 The managed background listener dispatches accepted TCP connections to workers,
 so one long-lived mixed client no longer blocks subsequent connections.
+That worker fan-out is bounded and records connection-limit rejections in
+managed connection metrics for long-running resource protection.
 The route engine now also has destination-aware keyword, CIDR, and port
 matching, and the mixed TCP/UDP paths use that richer decision surface.
 The CLI/runtime route setup exposes domain, CIDR, exact-port, and port-range
@@ -253,8 +255,9 @@ and support tooling can inspect recent relay behavior without parsing logs.
 The managed TUN runtime uses a combined UDP/TCP relay loop, so it can keep the
 registry-backed UDP path while also exercising registry-backed TCP sessions.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline
-capability sets plus runtime event, managed status, connection report, and TUN
-TCP session resource limits for support and UI integration.
+capability sets plus runtime event, managed status, connection report, managed
+connection worker, and TUN TCP session resource limits for support and UI
+integration.
 
 ## Protocol Matrix
 

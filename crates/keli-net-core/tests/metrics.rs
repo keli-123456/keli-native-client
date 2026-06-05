@@ -64,6 +64,24 @@ fn connection_report_formats_error_detail_for_single_line_logs() {
 }
 
 #[test]
+fn connection_report_formats_connection_limit_rejections() {
+    let mut report = ConnectionReport::new(
+        "mixed",
+        OutboundTarget::new("connection-worker-limit", 0),
+        RouteAction::Direct,
+    );
+    report.record_error_detail(
+        ConnectionErrorKind::ConnectionLimitReached,
+        "managed mixed connection worker limit reached",
+    );
+
+    let line = report.summary_line();
+
+    assert!(line.contains("error_kind=connection_limit_reached"));
+    assert!(line.contains("error_detail=managed_mixed_connection_worker_limit_reached"));
+}
+
+#[test]
 fn classifies_common_io_errors() {
     assert_eq!(
         ConnectionErrorKind::from_io(&io::Error::new(io::ErrorKind::TimedOut, "timeout")),

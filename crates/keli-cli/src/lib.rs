@@ -63,6 +63,7 @@ const DEFAULT_TUN_TCP_SERVER_INITIAL_SEQUENCE_NUMBER: u32 = 1;
 const DEFAULT_TUN_TCP_WINDOW_SIZE: u16 = 0x4000;
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
+pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
 const SUPPORTED_UDP_OUTBOUNDS: &str =
@@ -307,6 +308,7 @@ pub struct MixedProxyRuntime {
     pub dns_options: MixedDnsOptions,
     pub tun_tcp_max_active_sessions: usize,
     pub connection_metrics: ConnectionMetrics,
+    pub max_connection_workers: usize,
 }
 
 impl MixedProxyRuntime {
@@ -318,6 +320,7 @@ impl MixedProxyRuntime {
             dns_options: MixedDnsOptions::default(),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             connection_metrics: ConnectionMetrics::default(),
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
         }
     }
 
@@ -329,6 +332,7 @@ impl MixedProxyRuntime {
             dns_options: MixedDnsOptions::default(),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             connection_metrics: ConnectionMetrics::default(),
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
         }
     }
 
@@ -357,6 +361,7 @@ pub struct ManagedMixedOptions {
     pub system_proxy_bypass: Vec<String>,
     pub dns_options: MixedDnsOptions,
     pub tun_tcp_max_active_sessions: usize,
+    pub max_connection_workers: usize,
 }
 
 impl Default for ManagedMixedOptions {
@@ -370,6 +375,7 @@ impl Default for ManagedMixedOptions {
             system_proxy_bypass: Vec::new(),
             dns_options: MixedDnsOptions::default(),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
         }
     }
 }
@@ -1267,6 +1273,7 @@ pub struct ManagedMixedStatusSnapshot {
     pub subscription: Option<ManagedSubscriptionStatus>,
     pub dns_options: MixedDnsOptions,
     pub tun_tcp_max_active_sessions: usize,
+    pub max_connection_workers: usize,
     pub panel_state: Option<PanelState>,
 }
 
@@ -1522,6 +1529,7 @@ impl ManagedMixedStatusSnapshot {
             subscription: None,
             dns_options: MixedDnsOptions::default(),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             panel_state,
         }
     }
@@ -1554,6 +1562,7 @@ pub fn managed_mixed_status_json_value(status: &ManagedMixedStatusSnapshot) -> s
         "subscription": status.subscription.as_ref().map(managed_subscription_status_json_value),
         "dns_options": mixed_dns_options_json_value(status.dns_options),
         "tun_tcp_max_active_sessions": status.tun_tcp_max_active_sessions,
+        "max_connection_workers": status.max_connection_workers,
         "panel_state": status.panel_state.as_ref().map(panel_state_json_value),
     })
 }
@@ -2086,6 +2095,7 @@ impl ManagedMixedStatusSnapshot {
             subscription: handle.subscription_status(),
             dns_options: handle.dns_options,
             tun_tcp_max_active_sessions: handle.tun_tcp_max_active_sessions,
+            max_connection_workers: handle.max_connection_workers(),
             panel_state,
         }
     }
@@ -2121,6 +2131,13 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
             .read()
             .map(|runtime| runtime.connection_metrics_snapshot())
             .unwrap_or_default()
+    }
+
+    pub fn max_connection_workers(&self) -> usize {
+        self.runtime
+            .read()
+            .map(|runtime| runtime.max_connection_workers)
+            .unwrap_or(DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS)
     }
 
     pub fn event_count(&self) -> usize {
@@ -2346,6 +2363,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
                 .write()
                 .map_err(|_| "managed mixed runtime lock poisoned".to_string())?;
             next_runtime.connection_metrics = runtime.connection_metrics.clone();
+            next_runtime.max_connection_workers = runtime.max_connection_workers;
             *runtime = next_runtime;
         }
 
@@ -2439,6 +2457,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
         let relay_options = options.relay_options;
         let dns_options = options.dns_options;
         let tun_tcp_max_active_sessions = options.tun_tcp_max_active_sessions;
+        let max_connection_workers = options.max_connection_workers.max(1);
         let mut state = ClientRuntime::default();
         let selected_outbound = match state.start(RuntimeConfig::new(
             config_text,
@@ -2457,6 +2476,7 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
         ) {
             Ok(mut runtime) => {
                 runtime.tun_tcp_max_active_sessions = tun_tcp_max_active_sessions;
+                runtime.max_connection_workers = max_connection_workers;
                 runtime
             }
             Err(error) => {
@@ -2700,6 +2720,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                         system_proxy_bypass,
                         dns_options,
                         tun_tcp_max_active_sessions,
+                        max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
                     },
                     &controller,
                 )?;
@@ -3389,6 +3410,7 @@ struct DoctorReport {
     runtime_event_history_limit: usize,
     managed_status_recent_event_limit: usize,
     managed_connection_report_history_limit: usize,
+    managed_connection_worker_limit: usize,
     tun_tcp_max_active_sessions_default: usize,
     sample_profile_valid: bool,
     initial_phase: String,
@@ -3478,6 +3500,7 @@ fn collect_doctor_report() -> DoctorReport {
         runtime_event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
         managed_status_recent_event_limit: MANAGED_MIXED_RECENT_EVENT_LIMIT,
         managed_connection_report_history_limit: MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
+        managed_connection_worker_limit: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
         tun_tcp_max_active_sessions_default: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
         sample_profile_valid: profile.validate().is_ok(),
         initial_phase: format!("{:?}", ConnectionPhase::Idle),
@@ -3575,10 +3598,11 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     )?;
     writeln!(
         writer,
-        "resource_limits runtime_event_history={} managed_status_recent_events={} managed_connection_report_history={} tun_tcp_max_active_sessions={}",
+        "resource_limits runtime_event_history={} managed_status_recent_events={} managed_connection_report_history={} managed_connection_workers={} tun_tcp_max_active_sessions={}",
         report.runtime_event_history_limit,
         report.managed_status_recent_event_limit,
         report.managed_connection_report_history_limit,
+        report.managed_connection_worker_limit,
         report.tun_tcp_max_active_sessions_default
     )?;
     writeln!(
@@ -3644,6 +3668,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
             "runtime_event_history": report.runtime_event_history_limit,
             "managed_status_recent_events": report.managed_status_recent_event_limit,
             "managed_connection_report_history": report.managed_connection_report_history_limit,
+            "managed_connection_workers": report.managed_connection_worker_limit,
             "tun_tcp_max_active_sessions": report.tun_tcp_max_active_sessions_default,
         },
         "sample_profile_valid": report.sample_profile_valid,
@@ -3916,6 +3941,10 @@ fn serve_mixed_listener_until(
                     .read()
                     .map_err(|_| io::Error::other("mixed runtime lock poisoned"))?
                     .clone();
+                if workers.len() >= runtime.max_connection_workers.max(1) {
+                    record_mixed_connection_worker_limit_rejection(stream, &runtime);
+                    continue;
+                }
                 workers.push(thread::spawn(move || {
                     if let Err(error) = handle_mixed_connection_with_routes(&mut stream, &runtime) {
                         eprintln!("mixed inbound failed: {error}");
@@ -3930,6 +3959,20 @@ fn serve_mixed_listener_until(
     }
     reap_finished_mixed_connection_workers(&mut workers);
     Ok(())
+}
+
+fn record_mixed_connection_worker_limit_rejection(stream: TcpStream, runtime: &MixedProxyRuntime) {
+    let mut report = ConnectionReport::new(
+        "mixed",
+        OutboundTarget::new("connection-worker-limit", 0),
+        RouteAction::Direct,
+    );
+    report.record_error_detail(
+        ConnectionErrorKind::ConnectionLimitReached,
+        "managed mixed connection worker limit reached",
+    );
+    emit_connection_report(runtime, &report);
+    let _ = stream.shutdown(Shutdown::Both);
 }
 
 fn reap_finished_mixed_connection_workers(workers: &mut Vec<thread::JoinHandle<()>>) {
@@ -5597,6 +5640,7 @@ fn mixed_runtime_from_parsed_profiles(
         dns_options,
         tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
         connection_metrics: ConnectionMetrics::default(),
+        max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
     })
 }
 
@@ -5612,6 +5656,7 @@ fn mixed_runtime_from_cli(
         dns_options,
         tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
         connection_metrics: ConnectionMetrics::default(),
+        max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
     }
 }
 

@@ -352,8 +352,9 @@ The first implementation target is deliberately small:
    TCP sessions can be exercised through the shared outbound registry.
    Doctor and support-bundle output report the route-rule and TUN packet
    pipeline capability sets plus runtime event, managed status, connection
-   report, and TUN TCP session resource limits so UI and support tooling can see
-   this data-plane readiness without inspecting code.
+   report, managed connection worker, and TUN TCP session resource limits so UI
+   and support tooling can see this data-plane readiness without inspecting
+   code.
 4. Keli panel integration: subscription fetch/update, user state, node
    selection, node health, risk-control state, and support-friendly errors.
 5. Production readiness: real interop matrix, long soak tests, resource limits,
@@ -367,7 +368,9 @@ without dropping the active plan. `ManagedMixedController` provides the
 UI-facing control surface for start/status/reload/stop while keeping the lower
 level listener handle internal to the managed core path. The managed background
 listener dispatches accepted TCP connections to workers so one long-lived mixed
-client no longer blocks subsequent connections. Its status snapshot
+client no longer blocks subsequent connections. That worker fan-out is bounded
+and records connection-limit rejections in managed connection metrics for
+long-running resource protection. Its status snapshot
 includes recent runtime events, the last failure reason, current generation,
 selected outbound, listener address, managed system proxy config, and
 subscription node status including supported tags, skipped entries, default

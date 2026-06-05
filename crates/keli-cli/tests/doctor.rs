@@ -1,4 +1,7 @@
-use keli_cli::{MANAGED_CONNECTION_REPORT_HISTORY_LIMIT, MANAGED_MIXED_RECENT_EVENT_LIMIT};
+use keli_cli::{
+    DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
+    MANAGED_MIXED_RECENT_EVENT_LIMIT,
+};
 use keli_client_core::DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT;
 use keli_net_core::DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS;
 
@@ -33,10 +36,11 @@ fn doctor_report_lists_supported_outbounds() {
         "protocol_capabilities=trojan=tcp,udp;vless=tcp,udp;vmess=tcp,udp;shadowsocks=tcp,udp;anytls=tcp,udp;naive=tcp;mieru=tcp,udp;hy2=tcp,udp;tuic=tcp,udp;socks=tcp,udp;http=tcp"
     ));
     assert!(output.contains(&format!(
-        "resource_limits runtime_event_history={} managed_status_recent_events={} managed_connection_report_history={} tun_tcp_max_active_sessions={}",
+        "resource_limits runtime_event_history={} managed_status_recent_events={} managed_connection_report_history={} managed_connection_workers={} tun_tcp_max_active_sessions={}",
         DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
         MANAGED_MIXED_RECENT_EVENT_LIMIT,
         MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
+        DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
         DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS
     )));
 }
@@ -396,6 +400,10 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(
         report["resource_limits"]["managed_connection_report_history"],
         MANAGED_CONNECTION_REPORT_HISTORY_LIMIT
+    );
+    assert_eq!(
+        report["resource_limits"]["managed_connection_workers"],
+        DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS
     );
     assert_eq!(
         report["resource_limits"]["tun_tcp_max_active_sessions"],

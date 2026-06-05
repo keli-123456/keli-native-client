@@ -1,4 +1,7 @@
-use keli_cli::{MANAGED_CONNECTION_REPORT_HISTORY_LIMIT, MANAGED_MIXED_RECENT_EVENT_LIMIT};
+use keli_cli::{
+    DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
+    MANAGED_MIXED_RECENT_EVENT_LIMIT,
+};
 use keli_client_core::DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT;
 use keli_net_core::DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS;
 use serde_json::Value;
@@ -54,6 +57,10 @@ proxies:
     assert_eq!(
         report["doctor"]["resource_limits"]["managed_connection_report_history"],
         MANAGED_CONNECTION_REPORT_HISTORY_LIMIT
+    );
+    assert_eq!(
+        report["doctor"]["resource_limits"]["managed_connection_workers"],
+        DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS
     );
     assert_eq!(
         report["doctor"]["resource_limits"]["tun_tcp_max_active_sessions"],

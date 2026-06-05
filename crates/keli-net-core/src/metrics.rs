@@ -13,6 +13,7 @@ pub enum ConnectionErrorKind {
     IdleTimeout,
     RouteBlocked,
     UnsupportedOutbound,
+    ConnectionLimitReached,
     RelayIo,
     ProtocolError,
 }
@@ -38,6 +39,7 @@ impl ConnectionErrorKind {
             Self::IdleTimeout => "idle_timeout",
             Self::RouteBlocked => "route_blocked",
             Self::UnsupportedOutbound => "unsupported_outbound",
+            Self::ConnectionLimitReached => "connection_limit_reached",
             Self::RelayIo => "relay_io",
             Self::ProtocolError => "protocol_error",
         }
