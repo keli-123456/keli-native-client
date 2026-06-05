@@ -330,6 +330,8 @@ The first implementation target is deliberately small:
    TUN packet loop summaries also mark managed stop-signal exits separately
    from packet-cap exits, so support can tell normal listener shutdowns from
    bounded loop termination.
+   The summary exposes that state as a stable exit-reason label for UI and
+   support tooling.
    Managed TUN packet loops now use a combined UDP/TCP relay path so the
    registry-backed UDP execution path remains active while direct and tagged
    TCP sessions can be exercised through the shared outbound registry.

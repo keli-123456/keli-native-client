@@ -231,6 +231,8 @@ reason without splitting the status line format.
 Those runtime summaries now also mark whether the TUN loop exited because a
 managed stop signal arrived or because its packet cap was reached, making
 normal shutdowns distinguishable from bounded-loop exits.
+They expose the same state as a stable exit-reason label for UI and support
+tooling.
 The managed TUN runtime uses a combined UDP/TCP relay loop, so it can keep the
 registry-backed UDP path while also exercising registry-backed TCP sessions.
 Doctor and support-bundle output report the route-rule and TUN packet pipeline

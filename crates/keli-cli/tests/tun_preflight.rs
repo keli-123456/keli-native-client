@@ -910,6 +910,7 @@ fn managed_mixed_session_records_tun_runtime_status_note_after_serve() {
         .find_map(|event| event.note.as_deref())
         .expect("runtime note");
     assert!(note.contains("managed TUN runtime stopped"));
+    assert!(note.contains("exit_reason=stop-requested"));
     assert!(note.contains("stop_requested=true"));
     assert!(note.contains("packet_limit_reached=false"));
     assert!(note.contains("tcp_resets=0"));

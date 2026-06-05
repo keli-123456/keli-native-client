@@ -430,6 +430,25 @@ pub struct TunPacketLoopSummary {
     pub last_tcp_session_error: Option<TunTcpSessionError>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TunPacketLoopExitReason {
+    Unknown,
+    Idle,
+    StopRequested,
+    PacketLimitReached,
+}
+
+impl TunPacketLoopExitReason {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Idle => "idle",
+            Self::StopRequested => "stop-requested",
+            Self::PacketLimitReached => "packet-limit-reached",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TunUdpRelayError {
     UnsupportedRelayAction(TunPacketRelayAction),
@@ -1041,6 +1060,22 @@ impl TunPacketLoopSummary {
         self.tcp_post_close_markers_peak = self
             .tcp_post_close_markers_peak
             .max(state.post_close_markers);
+    }
+
+    pub fn exit_reason(&self) -> TunPacketLoopExitReason {
+        if self.stop_requested {
+            TunPacketLoopExitReason::StopRequested
+        } else if self.packet_limit_reached {
+            TunPacketLoopExitReason::PacketLimitReached
+        } else if self.idle_events > 0 {
+            TunPacketLoopExitReason::Idle
+        } else {
+            TunPacketLoopExitReason::Unknown
+        }
+    }
+
+    pub fn exit_reason_label(&self) -> &'static str {
+        self.exit_reason().label()
     }
 
     pub fn processed_packets(&self) -> usize {

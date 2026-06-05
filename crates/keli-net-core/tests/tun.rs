@@ -19,9 +19,9 @@ use keli_net_core::{
     DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, OutboundRegistry, OutboundTarget,
     RegistryTunTcpSessionRelay, RegistryTunUdpRelay, RouteAction, RouteDestination, RouteEngine,
     RouteIpCidr, RouteMatcher, RouteRule, RouteTarget, TunIpVersion, TunPacketDevice,
-    TunPacketError, TunPacketLoopEvent, TunPacketLoopSummary, TunPacketProcessAction,
-    TunPacketRelayAction, TunPacketRelayPlan, TunTcpCloseMarkerResetKind, TunTcpFlags,
-    TunTcpServerRead, TunTcpSessionError, TunTcpSessionKey, TunTcpSessionPhase,
+    TunPacketError, TunPacketLoopEvent, TunPacketLoopExitReason, TunPacketLoopSummary,
+    TunPacketProcessAction, TunPacketRelayAction, TunPacketRelayPlan, TunTcpCloseMarkerResetKind,
+    TunTcpFlags, TunTcpServerRead, TunTcpSessionError, TunTcpSessionKey, TunTcpSessionPhase,
     TunTcpSessionRecord, TunTcpSessionRelay, TunTcpSessionStep, TunTcpSessionTable,
     TunTransportProtocol, TunUdpRelay, TunUdpRelayError, UdpRelayResponse,
     DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
@@ -5124,6 +5124,11 @@ fn tun_packet_loop_writes_tcp_reset_for_blocked_tcp_to_device() {
     assert_eq!(summary.processed_packets(), 1);
     assert!(!summary.stop_requested);
     assert!(summary.packet_limit_reached);
+    assert_eq!(
+        summary.exit_reason(),
+        TunPacketLoopExitReason::PacketLimitReached
+    );
+    assert_eq!(summary.exit_reason_label(), "packet-limit-reached");
     assert_eq!(summary.tcp_resets_written, 1);
     assert_eq!(summary.dropped_packets, 0);
     assert_eq!(device.writes.len(), 1);
@@ -5133,6 +5138,26 @@ fn tun_packet_loop_writes_tcp_reset_for_blocked_tcp_to_device() {
     assert_eq!(reset.acknowledgment_number, 11);
     assert!(reset.flags.rst());
     assert!(reset.flags.ack());
+}
+
+#[test]
+fn tun_packet_loop_summary_reports_idle_exit_reason() {
+    let routes = RouteEngine::new(RouteAction::Direct);
+    let mut dns = DnsEngine::new(
+        StaticResolver::new(vec![IpAddr::V4("203.0.113.7".parse().expect("valid IP"))]),
+        DnsCache::new(Duration::from_secs(60)),
+    );
+    let mut device = FakeTunPacketDevice::new(Vec::new());
+
+    let summary = run_tun_packet_loop_summary(&mut device, &routes, true, &mut dns, 30, 3)
+        .expect("run idle TUN loop");
+
+    assert_eq!(summary.processed_packets(), 0);
+    assert_eq!(summary.idle_events, 1);
+    assert!(!summary.stop_requested);
+    assert!(!summary.packet_limit_reached);
+    assert_eq!(summary.exit_reason(), TunPacketLoopExitReason::Idle);
+    assert_eq!(summary.exit_reason_label(), "idle");
 }
 
 #[test]
