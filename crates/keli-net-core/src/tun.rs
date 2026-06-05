@@ -208,6 +208,9 @@ pub enum TunTcpSessionStep {
     Established {
         session: TunTcpSessionRecord,
     },
+    ClientAck {
+        session: TunTcpSessionRecord,
+    },
     ClientPayload {
         frame: TunTcpClientPayloadFrame,
         server_response: Option<TunTcpServerPayloadFrame>,
@@ -1486,6 +1489,32 @@ impl TunTcpSessionTable {
         Ok(None)
     }
 
+    pub fn acknowledge_client_ack(
+        &mut self,
+        segment: &TunTcpSegment<'_>,
+    ) -> Result<Option<TunTcpSessionRecord>, TunPacketError> {
+        if !segment.flags.ack()
+            || segment.flags.syn()
+            || segment.flags.rst()
+            || segment.flags.fin()
+            || !segment.payload.is_empty()
+        {
+            return Ok(None);
+        }
+        let key = TunTcpSessionKey::from_flow(&segment.flow)?;
+        let Some(session) = self.sessions.get_mut(&key) else {
+            return Ok(None);
+        };
+        if session.phase == TunTcpSessionPhase::Established
+            && segment.sequence_number == session.client_next_sequence_number
+            && tcp_segment_acknowledges_known_server_sequence(segment, session)
+        {
+            session.last_activity_at = Instant::now();
+            return Ok(Some(session.clone()));
+        }
+        Ok(None)
+    }
+
     pub fn prune_idle(&mut self, now: Instant, idle_timeout: Duration) -> Vec<TunTcpSessionRecord> {
         let expired_keys = self
             .sessions
@@ -1755,8 +1784,14 @@ fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
                         return Ok(TunTcpSessionStep::ServerClosed { response });
                     }
                 }
-                TunTcpServerRead::NoPayload => {}
+                TunTcpServerRead::NoPayload => {
+                    return Ok(TunTcpSessionStep::ClientAck { session });
+                }
             }
+        }
+
+        if let Some(session) = sessions.acknowledge_client_ack(segment)? {
+            return Ok(TunTcpSessionStep::ClientAck { session });
         }
     }
 

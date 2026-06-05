@@ -133,6 +133,9 @@ advanced client cursor.
 In-order client payload can also carry a stale but known server ACK while
 server bytes are still in flight, so duplex traffic does not stall waiting for
 the client to acknowledge every packetized server byte first.
+ACK-only packets with known server acknowledgments now refresh TCP session
+activity without writing packets or relay bytes, preventing active flows from
+being pruned as idle.
 The same session boundary can packetize server-side payload bytes with PSH+ACK,
 advance the server-side sequence cursor, and return swapped IPv4/IPv6 TCP
 packets that the eventual stream runner can write back to TUN.

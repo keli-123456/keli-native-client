@@ -943,6 +943,89 @@ fn accepts_tun_tcp_client_payload_with_stale_known_server_ack() {
 }
 
 #[test]
+fn acknowledges_tun_tcp_client_ack_with_stale_known_server_ack_and_keeps_session_active() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let key = TunTcpSessionKey::from_flow(&syn.flow).expect("session key");
+    let mut sessions = TunTcpSessionTable::new();
+    sessions
+        .start_from_syn(&syn, 1000, 0x2000)
+        .expect("start TUN TCP session");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    sessions
+        .apply_ack(&ack)
+        .expect("apply session ACK")
+        .expect("session established");
+    let data_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"GET /"),
+    );
+    let data = parse_tun_tcp_segment(&data_packet).expect("parse TCP data segment");
+    sessions
+        .accept_client_payload(&data)
+        .expect("accept TCP client payload")
+        .expect("payload frame");
+    sessions
+        .send_server_payload(&syn.flow, b"HTTP/1.1")
+        .expect("send TCP server payload")
+        .expect("server payload frame");
+    let invalid_ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1000, 0x0010, 0x4000, &[], b""),
+    );
+    let invalid_ack =
+        parse_tun_tcp_segment(&invalid_ack_packet).expect("parse invalid ACK segment");
+    assert!(sessions
+        .acknowledge_client_ack(&invalid_ack)
+        .expect("try invalid client ACK")
+        .is_none());
+
+    let stale_ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 16, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let stale_ack = parse_tun_tcp_segment(&stale_ack_packet).expect("parse stale ACK segment");
+
+    let session = sessions
+        .acknowledge_client_ack(&stale_ack)
+        .expect("ack client ACK")
+        .expect("client ACK session");
+
+    assert_eq!(session.client_next_sequence_number, 16);
+    assert_eq!(session.server_next_sequence_number, 1009);
+    assert_eq!(
+        sessions.get(&key).expect("stored session").last_activity_at,
+        session.last_activity_at
+    );
+    let pruned = sessions.prune_idle(
+        session.last_activity_at + Duration::from_secs(4),
+        Duration::from_secs(5),
+    );
+    assert!(
+        pruned.is_empty(),
+        "known ACK-only traffic should keep the TCP session active"
+    );
+    assert!(sessions.get(&key).is_some());
+}
+
+#[test]
 fn ignores_tun_tcp_server_payload_before_established_or_empty_payload() {
     let syn_packet = ipv4_packet(
         6,
@@ -1083,6 +1166,13 @@ fn processes_tun_tcp_session_steps_with_relay_callbacks_and_response_packets() {
     );
     let overlapping =
         parse_tun_tcp_segment(&overlapping_packet).expect("parse overlapping TCP segment");
+    let stale_ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 20, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let stale_ack = parse_tun_tcp_segment(&stale_ack_packet).expect("parse stale ACK segment");
     let mut sessions = TunTcpSessionTable::new();
     let mut relay = FakeTunTcpSessionRelay::with_server_payloads(vec![b"HTTP/1.1".to_vec()]);
 
@@ -1204,6 +1294,21 @@ fn processes_tun_tcp_session_steps_with_relay_callbacks_and_response_packets() {
     assert_eq!(overlapping_ack.acknowledgment_number, 20);
     assert!(overlapping_ack.flags.ack());
     assert!(overlapping_ack.payload.is_empty());
+
+    let stale_ack_step =
+        process_tun_tcp_session_segment(&mut sessions, &stale_ack, &mut relay, 1000, 0x2000)
+            .expect("process stale ACK step");
+    assert!(stale_ack_step.response_packets().is_empty());
+    let TunTcpSessionStep::ClientAck { session } = stale_ack_step else {
+        panic!("expected client ACK step");
+    };
+    assert_eq!(session.client_next_sequence_number, 20);
+    assert_eq!(session.server_next_sequence_number, 1009);
+    assert_eq!(
+        relay.client_payloads,
+        vec![b"GET /".to_vec(), b"more".to_vec()],
+        "ACK-only traffic must not write payload to the relay"
+    );
 }
 
 #[test]
@@ -2652,6 +2757,12 @@ fn tun_packet_loop_accepts_client_payload_with_stale_server_ack() {
             6,
             "10.7.0.2",
             "93.184.216.34",
+            &tcp_segment(49152, 443, 20, 1001, 0x0010, 0x4000, &[], b""),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
             &tcp_segment(49152, 443, 20, 1009, 0x0011, 0x4000, &[], b""),
         ),
     ];
@@ -2670,7 +2781,7 @@ fn tun_packet_loop_accepts_client_payload_with_stale_server_ack() {
         true,
         &mut dns,
         30,
-        5,
+        6,
         &mut sessions,
         &mut relay,
         1000,
@@ -2678,8 +2789,8 @@ fn tun_packet_loop_accepts_client_payload_with_stale_server_ack() {
     )
     .expect("run TUN loop with stale server ACK TCP session relay");
 
-    assert_eq!(summary.processed_packets(), 5);
-    assert_eq!(summary.tcp_session_events, 5);
+    assert_eq!(summary.processed_packets(), 6);
+    assert_eq!(summary.tcp_session_events, 6);
     assert_eq!(summary.tcp_session_packets_written, 5);
     assert_eq!(summary.tcp_session_errors, 0);
     assert_eq!(device.writes.len(), 5);
