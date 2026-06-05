@@ -564,6 +564,77 @@ fn acknowledges_duplicate_tun_tcp_client_payload_without_advancing_session() {
 }
 
 #[test]
+fn accepts_partially_overlapping_tun_tcp_client_payload_suffix_only() {
+    let syn_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 10, 0, 0x0002, 0x4000, &[], b""),
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet).expect("parse SYN segment");
+    let key = TunTcpSessionKey::from_flow(&syn.flow).expect("session key");
+    let mut sessions = TunTcpSessionTable::new();
+    sessions
+        .start_from_syn(&syn, 1000, 0x2000)
+        .expect("start TUN TCP session");
+    let ack_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0010, 0x4000, &[], b""),
+    );
+    let ack = parse_tun_tcp_segment(&ack_packet).expect("parse ACK segment");
+    sessions
+        .apply_ack(&ack)
+        .expect("apply session ACK")
+        .expect("session established");
+    let first_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 11, 1001, 0x0018, 0x4000, &[], b"hello"),
+    );
+    let first = parse_tun_tcp_segment(&first_packet).expect("parse first TCP data segment");
+    sessions
+        .accept_client_payload(&first)
+        .expect("accept first TCP client payload")
+        .expect("first payload frame");
+    let overlapping_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 13, 1001, 0x0018, 0x4000, &[], b"llo world"),
+    );
+    let overlapping =
+        parse_tun_tcp_segment(&overlapping_packet).expect("parse overlapping TCP segment");
+
+    let frame = sessions
+        .accept_overlapping_client_payload(&overlapping)
+        .expect("accept overlapping TCP client payload")
+        .expect("overlapping payload frame");
+
+    assert_eq!(frame.sequence_number, 16);
+    assert_eq!(frame.acknowledgment_number, 22);
+    assert_eq!(frame.payload, b" world");
+    assert_eq!(
+        sessions
+            .get(&key)
+            .expect("stored session")
+            .client_next_sequence_number,
+        22,
+        "overlapping payload should advance by the new suffix only"
+    );
+    let response =
+        parse_tun_tcp_segment(&frame.ack_packet).expect("parse overlapping payload ACK packet");
+    assert_eq!(response.flow.source_port, Some(443));
+    assert_eq!(response.flow.destination_port, Some(49152));
+    assert_eq!(response.sequence_number, 1001);
+    assert_eq!(response.acknowledgment_number, 22);
+    assert!(response.flags.ack());
+    assert!(response.payload.is_empty());
+}
+
+#[test]
 fn acknowledges_out_of_order_tun_tcp_client_payload_without_advancing_session() {
     let syn_packet = ipv4_packet(
         6,
@@ -920,6 +991,14 @@ fn processes_tun_tcp_session_steps_with_relay_callbacks_and_response_packets() {
     );
     let out_of_order =
         parse_tun_tcp_segment(&out_of_order_packet).expect("parse out-of-order TCP segment");
+    let overlapping_packet = ipv4_packet(
+        6,
+        "10.7.0.2",
+        "93.184.216.34",
+        &tcp_segment(49152, 443, 14, 1009, 0x0018, 0x4000, &[], b" /more"),
+    );
+    let overlapping =
+        parse_tun_tcp_segment(&overlapping_packet).expect("parse overlapping TCP segment");
     let mut sessions = TunTcpSessionTable::new();
     let mut relay = FakeTunTcpSessionRelay::with_server_payloads(vec![b"HTTP/1.1".to_vec()]);
 
@@ -1012,6 +1091,35 @@ fn processes_tun_tcp_session_steps_with_relay_callbacks_and_response_packets() {
     assert_eq!(duplicate_ack.acknowledgment_number, 16);
     assert!(duplicate_ack.flags.ack());
     assert!(duplicate_ack.payload.is_empty());
+
+    let overlapping_step =
+        process_tun_tcp_session_segment(&mut sessions, &overlapping, &mut relay, 1000, 0x2000)
+            .expect("process overlapping data step");
+    assert_eq!(overlapping_step.response_packets().len(), 1);
+    let TunTcpSessionStep::OverlappingClientPayload {
+        frame,
+        server_response,
+        server_close,
+    } = overlapping_step
+    else {
+        panic!("expected overlapping client payload step");
+    };
+    assert_eq!(frame.sequence_number, 16);
+    assert_eq!(frame.acknowledgment_number, 20);
+    assert_eq!(frame.payload, b"more");
+    assert!(server_response.is_none());
+    assert!(server_close.is_none());
+    assert_eq!(
+        relay.client_payloads,
+        vec![b"GET /".to_vec(), b"more".to_vec()],
+        "overlapping payload should only write the new suffix to the relay"
+    );
+    let overlapping_ack =
+        parse_tun_tcp_segment(&frame.ack_packet).expect("parse overlapping payload ACK");
+    assert_eq!(overlapping_ack.sequence_number, 1009);
+    assert_eq!(overlapping_ack.acknowledgment_number, 20);
+    assert!(overlapping_ack.flags.ack());
+    assert!(overlapping_ack.payload.is_empty());
 }
 
 #[test]
@@ -2345,7 +2453,13 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
             6,
             "10.7.0.2",
             "93.184.216.34",
-            &tcp_segment(49152, 443, 16, 1009, 0x0011, 0x4000, &[], b""),
+            &tcp_segment(49152, 443, 14, 1009, 0x0018, 0x4000, &[], b" /more"),
+        ),
+        ipv4_packet(
+            6,
+            "10.7.0.2",
+            "93.184.216.34",
+            &tcp_segment(49152, 443, 20, 1009, 0x0011, 0x4000, &[], b""),
         ),
     ];
     let routes = RouteEngine::new(RouteAction::Direct);
@@ -2363,7 +2477,7 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
         true,
         &mut dns,
         30,
-        6,
+        7,
         &mut sessions,
         &mut relay,
         1000,
@@ -2371,11 +2485,11 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
     )
     .expect("run TUN loop with TCP session relay");
 
-    assert_eq!(summary.processed_packets(), 6);
-    assert_eq!(summary.tcp_session_events, 6);
-    assert_eq!(summary.tcp_session_packets_written, 6);
+    assert_eq!(summary.processed_packets(), 7);
+    assert_eq!(summary.tcp_session_events, 7);
+    assert_eq!(summary.tcp_session_packets_written, 7);
     assert_eq!(summary.tcp_session_errors, 0);
-    assert_eq!(device.writes.len(), 6);
+    assert_eq!(device.writes.len(), 7);
     let syn_ack = parse_tun_tcp_segment(&device.writes[0]).expect("parse SYN-ACK");
     assert_eq!(syn_ack.sequence_number, 1000);
     assert_eq!(syn_ack.acknowledgment_number, 11);
@@ -2402,14 +2516,23 @@ fn tun_packet_loop_with_tcp_session_relay_writes_session_response_packets() {
     assert_eq!(duplicate_ack.acknowledgment_number, 16);
     assert!(duplicate_ack.flags.ack());
     assert!(duplicate_ack.payload.is_empty());
-    let close_ack = parse_tun_tcp_segment(&device.writes[5]).expect("parse close ACK packet");
+    let overlapping_ack =
+        parse_tun_tcp_segment(&device.writes[5]).expect("parse overlapping payload ACK packet");
+    assert_eq!(overlapping_ack.sequence_number, 1009);
+    assert_eq!(overlapping_ack.acknowledgment_number, 20);
+    assert!(overlapping_ack.flags.ack());
+    assert!(overlapping_ack.payload.is_empty());
+    let close_ack = parse_tun_tcp_segment(&device.writes[6]).expect("parse close ACK packet");
     assert_eq!(close_ack.sequence_number, 1009);
-    assert_eq!(close_ack.acknowledgment_number, 17);
+    assert_eq!(close_ack.acknowledgment_number, 21);
     assert!(close_ack.flags.ack());
     assert!(!close_ack.flags.fin());
     assert!(close_ack.payload.is_empty());
     assert_eq!(relay.established_sessions.len(), 1);
-    assert_eq!(relay.client_payloads, vec![b"GET /".to_vec()]);
+    assert_eq!(
+        relay.client_payloads,
+        vec![b"GET /".to_vec(), b"more".to_vec()]
+    );
     assert_eq!(relay.closed_sessions.len(), 1);
     assert!(sessions.is_empty());
 }

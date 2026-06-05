@@ -213,6 +213,11 @@ pub enum TunTcpSessionStep {
         server_response: Option<TunTcpServerPayloadFrame>,
         server_close: Option<TunTcpServerCloseFrame>,
     },
+    OverlappingClientPayload {
+        frame: TunTcpClientPayloadFrame,
+        server_response: Option<TunTcpServerPayloadFrame>,
+        server_close: Option<TunTcpServerCloseFrame>,
+    },
     DuplicateClientPayload {
         ack: TunTcpDuplicateClientPayloadAck,
     },
@@ -714,6 +719,11 @@ impl TunTcpSessionStep {
         match self {
             Self::SynAck { response } => vec![response.packet.as_slice()],
             Self::ClientPayload {
+                frame,
+                server_response,
+                server_close,
+            }
+            | Self::OverlappingClientPayload {
                 frame,
                 server_response,
                 server_close,
@@ -1270,6 +1280,51 @@ impl TunTcpSessionTable {
         }))
     }
 
+    pub fn accept_overlapping_client_payload(
+        &mut self,
+        segment: &TunTcpSegment<'_>,
+    ) -> Result<Option<TunTcpClientPayloadFrame>, TunPacketError> {
+        let key = TunTcpSessionKey::from_flow(&segment.flow)?;
+        let Some(session) = self.sessions.get_mut(&key) else {
+            return Ok(None);
+        };
+        let segment_next_sequence_number = tcp_segment_next_sequence_number(segment);
+        if session.phase != TunTcpSessionPhase::Established
+            || segment.payload.is_empty()
+            || !segment.flags.ack()
+            || segment.flags.syn()
+            || segment.flags.rst()
+            || segment.flags.fin()
+            || segment.sequence_number >= session.client_next_sequence_number
+            || segment_next_sequence_number <= session.client_next_sequence_number
+            || segment.acknowledgment_number > session.server_next_sequence_number
+        {
+            return Ok(None);
+        }
+
+        let payload_offset =
+            (session.client_next_sequence_number - segment.sequence_number) as usize;
+        let Some(payload) = segment.payload.get(payload_offset..) else {
+            return Ok(None);
+        };
+        let sequence_number = session.client_next_sequence_number;
+        session.client_next_sequence_number = segment_next_sequence_number;
+        session.last_activity_at = Instant::now();
+        let ack_packet = build_tun_tcp_ack_response_packet(
+            &session.flow,
+            session.server_next_sequence_number,
+            session.client_next_sequence_number,
+            session.window_size,
+        )?;
+        Ok(Some(TunTcpClientPayloadFrame {
+            session: session.clone(),
+            sequence_number,
+            acknowledgment_number: session.client_next_sequence_number,
+            payload: payload.to_vec(),
+            ack_packet,
+        }))
+    }
+
     pub fn acknowledge_duplicate_client_payload(
         &mut self,
         segment: &TunTcpSegment<'_>,
@@ -1583,6 +1638,33 @@ fn close_tun_tcp_session_from_server<R: TunTcpSessionRelay>(
     Ok(response)
 }
 
+fn read_tun_tcp_server_event_after_client_payload<R: TunTcpSessionRelay>(
+    sessions: &mut TunTcpSessionTable,
+    relay: &mut R,
+    frame: &TunTcpClientPayloadFrame,
+) -> Result<
+    (
+        Option<TunTcpServerPayloadFrame>,
+        Option<TunTcpServerCloseFrame>,
+    ),
+    TunTcpSessionError,
+> {
+    match relay
+        .read_server_event(&frame.session)
+        .map_err(TunTcpSessionError::Relay)?
+    {
+        TunTcpServerRead::Payload(payload) => Ok((
+            sessions.send_server_payload(&frame.session.flow, &payload)?,
+            None,
+        )),
+        TunTcpServerRead::Closed => Ok((
+            None,
+            close_tun_tcp_session_from_server(sessions, relay, &frame.session)?,
+        )),
+        TunTcpServerRead::NoPayload => Ok((None, None)),
+    }
+}
+
 fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
     sessions: &mut TunTcpSessionTable,
     segment: &TunTcpSegment<'_>,
@@ -1625,21 +1707,22 @@ fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
         relay
             .write_client_payload(&frame)
             .map_err(TunTcpSessionError::Relay)?;
-        let (server_response, server_close) = match relay
-            .read_server_event(&frame.session)
-            .map_err(TunTcpSessionError::Relay)?
-        {
-            TunTcpServerRead::Payload(payload) => (
-                sessions.send_server_payload(&frame.session.flow, &payload)?,
-                None,
-            ),
-            TunTcpServerRead::Closed => (
-                None,
-                close_tun_tcp_session_from_server(sessions, relay, &frame.session)?,
-            ),
-            TunTcpServerRead::NoPayload => (None, None),
-        };
+        let (server_response, server_close) =
+            read_tun_tcp_server_event_after_client_payload(sessions, relay, &frame)?;
         return Ok(TunTcpSessionStep::ClientPayload {
+            frame,
+            server_response,
+            server_close,
+        });
+    }
+
+    if let Some(frame) = sessions.accept_overlapping_client_payload(segment)? {
+        relay
+            .write_client_payload(&frame)
+            .map_err(TunTcpSessionError::Relay)?;
+        let (server_response, server_close) =
+            read_tun_tcp_server_event_after_client_payload(sessions, relay, &frame)?;
+        return Ok(TunTcpSessionStep::OverlappingClientPayload {
             frame,
             server_response,
             server_close,

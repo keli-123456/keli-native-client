@@ -219,6 +219,9 @@ The first implementation target is deliberately small:
    Out-of-order client payload segments that jump past the tracked client
    cursor receive an ACK for the current cursor without advancing state or
    writing bytes into the outbound stream.
+   Partially overlapping client payload retransmits trim the already accepted
+   prefix, write only the new suffix into the outbound stream, and ACK the
+   advanced client cursor.
    The same session boundary can packetize server-side payload bytes with
    PSH+ACK, advance the tracked server sequence number, and return swapped
    IPv4/IPv6 TCP packets for the future TUN write-back side.
