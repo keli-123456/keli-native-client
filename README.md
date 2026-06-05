@@ -173,6 +173,8 @@ server FIN responses while duplicate client FINs re-send the ACK instead of
 being treated as unknown sessions.
 Client FIN also accepts stale but known server ACKs, keeping unacknowledged
 server payload available for retransmission after the client write side closes.
+Duplicate client FINs that still stale-ACK that payload retransmit the server
+payload packet instead of only emitting another empty ACK.
 A TCP session relay device-loop entrypoint now reads TUN packets, routes direct
 or tagged TCP relay plans into that step runner, writes response packets back
 to the device, and records TCP session events, written packets, and relay

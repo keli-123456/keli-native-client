@@ -1635,6 +1635,48 @@ impl TunTcpSessionTable {
         }))
     }
 
+    pub fn retransmit_server_payload_for_duplicate_client_fin(
+        &mut self,
+        segment: &TunTcpSegment<'_>,
+    ) -> Result<Option<TunTcpServerPayloadFrame>, TunPacketError> {
+        if !segment.flags.ack()
+            || !segment.flags.fin()
+            || segment.flags.syn()
+            || segment.flags.rst()
+        {
+            return Ok(None);
+        }
+        let key = TunTcpSessionKey::from_flow(&segment.flow)?;
+        let Some(session) = self.sessions.get_mut(&key) else {
+            return Ok(None);
+        };
+        let Some(unacked) = session.server_unacked_payload.clone() else {
+            return Ok(None);
+        };
+        if session.phase != TunTcpSessionPhase::ClientFinReceived
+            || tcp_segment_next_sequence_number(segment) != session.client_next_sequence_number
+            || segment.acknowledgment_number != unacked.sequence_number
+        {
+            return Ok(None);
+        }
+        let acknowledgment_number = session.client_next_sequence_number;
+        let packet = build_tun_tcp_payload_response_packet(
+            &session.flow,
+            unacked.sequence_number,
+            acknowledgment_number,
+            session.window_size,
+            &unacked.payload,
+        )?;
+        session.last_activity_at = Instant::now();
+        Ok(Some(TunTcpServerPayloadFrame {
+            session: session.clone(),
+            sequence_number: unacked.sequence_number,
+            acknowledgment_number,
+            payload: unacked.payload,
+            packet,
+        }))
+    }
+
     pub fn close_server_side(
         &mut self,
         key: &TunTcpSessionKey,
@@ -2365,6 +2407,11 @@ fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
 ) -> Result<TunTcpSessionStep, TunTcpSessionError> {
     if segment.flags.rst() || segment.flags.fin() {
         if segment.flags.fin() && !segment.flags.rst() && !segment.payload.is_empty() {
+            if let Some(response) =
+                sessions.retransmit_server_payload_for_duplicate_client_fin(segment)?
+            {
+                return Ok(TunTcpSessionStep::ServerPayloadRetransmission { response });
+            }
             if let Some(response) = sessions.acknowledge_duplicate_client_fin(segment)? {
                 return Ok(TunTcpSessionStep::ServerCloseClientFinAck { response });
             }
@@ -2386,6 +2433,11 @@ fn process_tun_tcp_session_segment_with_relay_plan<R: TunTcpSessionRelay>(
             }
         }
         if segment.flags.fin() && !segment.flags.rst() && segment.payload.is_empty() {
+            if let Some(response) =
+                sessions.retransmit_server_payload_for_duplicate_client_fin(segment)?
+            {
+                return Ok(TunTcpSessionStep::ServerPayloadRetransmission { response });
+            }
             if let Some(response) = sessions.acknowledge_duplicate_client_fin(segment)? {
                 return Ok(TunTcpSessionStep::ServerCloseClientFinAck { response });
             }

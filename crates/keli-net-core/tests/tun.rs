@@ -2276,6 +2276,17 @@ fn acknowledges_client_fin_with_stale_known_server_ack_and_retransmits_unacked_p
     assert_eq!(relay.client_write_shutdown_sessions.len(), 1);
     assert!(relay.closed_sessions.is_empty());
 
+    let duplicate_fin_step =
+        process_tun_tcp_session_segment(&mut sessions, &fin, &mut relay, 1000, 0x2000)
+            .expect("process duplicate stale-ACK client FIN");
+
+    let TunTcpSessionStep::ServerPayloadRetransmission { response } = duplicate_fin_step else {
+        panic!("expected server payload retransmission for duplicate FIN");
+    };
+    assert_eq!(response.sequence_number, 1001);
+    assert_eq!(response.acknowledgment_number, 12);
+    assert_eq!(response.payload, b"HTTP/1.1");
+
     let retransmit_step =
         process_tun_tcp_session_segment(&mut sessions, &stale_ack, &mut relay, 1000, 0x2000)
             .expect("process stale ACK after client FIN");
@@ -2359,6 +2370,18 @@ fn acknowledges_fin_payload_with_stale_known_server_ack_and_retransmits_unacked_
     assert!(relay.closed_sessions.is_empty());
     assert!(server_response.is_none());
     assert!(server_close.is_none());
+
+    let duplicate_fin_payload_step =
+        process_tun_tcp_session_segment(&mut sessions, &fin_payload, &mut relay, 1000, 0x2000)
+            .expect("process duplicate stale-ACK FIN payload");
+
+    let TunTcpSessionStep::ServerPayloadRetransmission { response } = duplicate_fin_payload_step
+    else {
+        panic!("expected server payload retransmission for duplicate FIN payload");
+    };
+    assert_eq!(response.sequence_number, 1001);
+    assert_eq!(response.acknowledgment_number, 16);
+    assert_eq!(response.payload, b"HTTP/1.1");
 
     let retransmit_step =
         process_tun_tcp_session_segment(&mut sessions, &stale_ack, &mut relay, 1000, 0x2000)
@@ -3686,12 +3709,14 @@ fn registry_tun_tcp_session_relay_returns_server_payload_after_fin_payload_half_
     assert_eq!(server_payload.sequence_number, 1001);
     assert_eq!(server_payload.acknowledgment_number, 17);
     assert_eq!(server_payload.payload, b"HTTP/1.1");
-    let duplicate_ack = parse_tun_tcp_segment(&device.writes[3]).expect("parse duplicate FIN ACK");
-    assert_eq!(duplicate_ack.sequence_number, 1009);
-    assert_eq!(duplicate_ack.acknowledgment_number, 17);
-    assert!(duplicate_ack.flags.ack());
-    assert!(!duplicate_ack.flags.fin());
-    assert!(!duplicate_ack.flags.rst());
+    let retransmitted_payload =
+        parse_tun_tcp_segment(&device.writes[3]).expect("parse retransmitted server payload");
+    assert_eq!(retransmitted_payload.sequence_number, 1001);
+    assert_eq!(retransmitted_payload.acknowledgment_number, 17);
+    assert_eq!(retransmitted_payload.payload, b"HTTP/1.1");
+    assert!(retransmitted_payload.flags.ack());
+    assert!(!retransmitted_payload.flags.fin());
+    assert!(!retransmitted_payload.flags.rst());
     assert_eq!(relay.active_session_count(), 1);
     assert_eq!(sessions.len(), 1);
     assert_eq!(
