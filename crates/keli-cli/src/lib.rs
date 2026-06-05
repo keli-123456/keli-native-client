@@ -346,6 +346,7 @@ pub struct ActiveConnectionRegistry {
 #[derive(Debug, Default)]
 struct ActiveConnectionRegistryInner {
     next_id: AtomicUsize,
+    peak: AtomicUsize,
     streams: Mutex<HashMap<usize, TcpStream>>,
 }
 
@@ -359,10 +360,20 @@ impl ActiveConnectionRegistry {
             .lock()
             .map_err(|_| io::Error::other("active connection registry lock poisoned"))?;
         streams.insert(id, shutdown_stream);
+        self.record_peak(streams.len());
         Ok(ActiveConnectionLease {
             registry: self.clone(),
             id,
         })
+    }
+
+    fn record_peak(&self, active_count: usize) {
+        let _ = self
+            .inner
+            .peak
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |peak| {
+                (active_count > peak).then_some(active_count)
+            });
     }
 
     fn shutdown_all(&self) -> usize {
@@ -385,6 +396,10 @@ impl ActiveConnectionRegistry {
             .lock()
             .map(|streams| streams.len())
             .unwrap_or(0)
+    }
+
+    fn peak_count(&self) -> usize {
+        self.inner.peak.load(Ordering::SeqCst)
     }
 
     fn unregister(&self, id: usize) {
@@ -461,6 +476,10 @@ impl MixedProxyRuntime {
 
     pub fn active_client_connections(&self) -> usize {
         self.active_connection_registry.active_count()
+    }
+
+    pub fn peak_client_connections(&self) -> usize {
+        self.active_connection_registry.peak_count()
     }
 
     pub fn available_connection_worker_slots(&self) -> usize {
@@ -1421,6 +1440,7 @@ pub struct ManagedMixedStatusSnapshot {
     pub max_connection_workers: usize,
     pub active_connection_workers: usize,
     pub active_client_connections: usize,
+    pub peak_client_connections: usize,
     pub available_connection_worker_slots: usize,
     pub panel_state: Option<PanelState>,
 }
@@ -1680,6 +1700,7 @@ impl ManagedMixedStatusSnapshot {
             max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             active_connection_workers: 0,
             active_client_connections: 0,
+            peak_client_connections: 0,
             available_connection_worker_slots: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             panel_state,
         }
@@ -1718,6 +1739,7 @@ impl ManagedMixedStatusSnapshot {
             max_connection_workers: previous.max_connection_workers,
             active_connection_workers: 0,
             active_client_connections: 0,
+            peak_client_connections: previous.peak_client_connections,
             available_connection_worker_slots: previous.max_connection_workers,
             panel_state,
         }
@@ -1759,6 +1781,7 @@ pub fn managed_mixed_status_json_value(status: &ManagedMixedStatusSnapshot) -> s
         "max_connection_workers": status.max_connection_workers,
         "active_connection_workers": status.active_connection_workers,
         "active_client_connections": status.active_client_connections,
+        "peak_client_connections": status.peak_client_connections,
         "available_connection_worker_slots": status.available_connection_worker_slots,
         "panel_state": status.panel_state.as_ref().map(panel_state_json_value),
     })
@@ -2320,6 +2343,7 @@ impl ManagedMixedStatusSnapshot {
             max_connection_workers: handle.max_connection_workers(),
             active_connection_workers: handle.active_connection_workers(),
             active_client_connections: handle.active_client_connections(),
+            peak_client_connections: handle.peak_client_connections(),
             available_connection_worker_slots: handle.available_connection_worker_slots(),
             panel_state,
         }
@@ -2376,6 +2400,13 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
         self.runtime
             .read()
             .map(|runtime| runtime.active_client_connections())
+            .unwrap_or(0)
+    }
+
+    pub fn peak_client_connections(&self) -> usize {
+        self.runtime
+            .read()
+            .map(|runtime| runtime.peak_client_connections())
             .unwrap_or(0)
     }
 
