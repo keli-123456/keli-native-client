@@ -12,6 +12,7 @@ chacha20poly1305.workspace = true
 crc32fast.workspace = true
 h3.workspace = true
 h3-quinn.workspace = true
+h2.workspace = true
 hmac.workspace = true
 http.workspace = true
 keli-client-core.workspace = true
@@ -26,12 +27,11 @@ serde_json.workspace = true
 sha2.workspace = true
 shadowsocks-crypto.workspace = true
 tokio.workspace = true
+tokio-rustls.workspace = true
 url.workspace = true
 webpki-roots.workspace = true
 
 [dev-dependencies]
 base64.workspace = true
-h2.workspace = true
 rustls.workspace = true
 sha3.workspace = true
-tokio-rustls.workspace = true
