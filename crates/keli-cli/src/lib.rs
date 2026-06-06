@@ -75,11 +75,11 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 14;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 4;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 15;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 5;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 4;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 4;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 5;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 5;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 2;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -104,11 +104,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -128,6 +128,7 @@ pub enum CliCommand {
         max_connection_workers: usize,
         soak_min_duration: Duration,
         skip_soak: bool,
+        include_tun_runtime_smoke: bool,
     },
     DefaultCoreCertify {
         output: ProbeOutputFormat,
@@ -135,6 +136,7 @@ pub enum CliCommand {
         first_byte_timeout: Duration,
         max_connection_workers: usize,
         soak_min_duration: Duration,
+        include_tun_runtime_smoke: bool,
     },
     TunPreflight {
         config: TunDeviceConfig,
@@ -215,6 +217,7 @@ pub enum CliCommand {
         certification_first_byte_timeout: Duration,
         certification_max_connection_workers: usize,
         certification_soak_min_duration: Duration,
+        certification_include_tun_runtime_smoke: bool,
     },
 }
 
@@ -3980,15 +3983,17 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             max_connection_workers,
             soak_min_duration,
             skip_soak,
+            include_tun_runtime_smoke,
         } => {
             let mut stdout = io::stdout();
-            write_readiness_check_report_with_soak_min_duration(
+            write_readiness_check_report_with_options(
                 output,
                 soak_connections,
                 first_byte_timeout,
                 max_connection_workers,
                 soak_min_duration,
                 skip_soak,
+                include_tun_runtime_smoke,
                 &mut stdout,
             )
         }
@@ -3998,14 +4003,16 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             first_byte_timeout,
             max_connection_workers,
             soak_min_duration,
+            include_tun_runtime_smoke,
         } => {
             let mut stdout = io::stdout();
-            write_default_core_certification_report_with_soak_min_duration(
+            write_default_core_certification_report_with_options(
                 output,
                 soak_connections,
                 first_byte_timeout,
                 max_connection_workers,
                 soak_min_duration,
+                include_tun_runtime_smoke,
                 &mut stdout,
             )
         }
@@ -4221,6 +4228,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             certification_first_byte_timeout,
             certification_max_connection_workers,
             certification_soak_min_duration,
+            certification_include_tun_runtime_smoke,
         } => {
             let config_text = profile_config
                 .as_deref()
@@ -4238,6 +4246,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                     certification_first_byte_timeout,
                     certification_max_connection_workers,
                     certification_soak_min_duration,
+                    certification_include_tun_runtime_smoke,
                 },
                 &mut stdout,
             )
@@ -4257,11 +4266,11 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli readiness-check [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1] [--skip-soak]"
+        "       keli-cli readiness-check [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1] [--skip-soak] [--include-tun-runtime-smoke]"
     )?;
     writeln!(
         writer,
-        "       keli-cli default-core-certify [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1]"
+        "       keli-cli default-core-certify [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1] [--include-tun-runtime-smoke]"
     )?;
     writeln!(
         writer,
@@ -4309,7 +4318,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli support-bundle [--profile-config subscription.yaml] [--include-certification] [--certification-soak-connections 3] [--certification-first-byte-timeout-ms 30000] [--certification-max-connection-workers 1024] [--certification-soak-min-duration-ms 1]"
+        "       keli-cli support-bundle [--profile-config subscription.yaml] [--include-certification] [--certification-soak-connections 3] [--certification-first-byte-timeout-ms 30000] [--certification-max-connection-workers 1024] [--certification-soak-min-duration-ms 1] [--certification-include-tun-runtime-smoke]"
     )
 }
 
@@ -4358,6 +4367,7 @@ fn parse_readiness_check(args: impl Iterator<Item = String>) -> Result<CliComman
     let mut max_connection_workers = DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS;
     let mut soak_min_duration = DEFAULT_MIXED_SOAK_MIN_DURATION;
     let mut skip_soak = false;
+    let mut include_tun_runtime_smoke = false;
     let mut args = args.peekable();
 
     while let Some(arg) = args.next() {
@@ -4397,6 +4407,9 @@ fn parse_readiness_check(args: impl Iterator<Item = String>) -> Result<CliComman
                 )?;
             }
             "--skip-soak" => skip_soak = true,
+            "--include-tun-runtime-smoke" | "--tun-runtime-smoke" => {
+                include_tun_runtime_smoke = true;
+            }
             other => return Err(format!("unknown readiness-check option: {other}")),
         }
     }
@@ -4408,6 +4421,7 @@ fn parse_readiness_check(args: impl Iterator<Item = String>) -> Result<CliComman
         max_connection_workers,
         soak_min_duration,
         skip_soak,
+        include_tun_runtime_smoke,
     })
 }
 
@@ -4417,6 +4431,7 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
     let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut max_connection_workers = DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS;
     let mut soak_min_duration = DEFAULT_MIXED_SOAK_MIN_DURATION;
+    let mut include_tun_runtime_smoke = false;
     let mut args = args.peekable();
 
     while let Some(arg) = args.next() {
@@ -4455,6 +4470,9 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
                     "--soak-min-duration-ms",
                 )?;
             }
+            "--include-tun-runtime-smoke" | "--tun-runtime-smoke" => {
+                include_tun_runtime_smoke = true;
+            }
             other => return Err(format!("unknown default-core-certify option: {other}")),
         }
     }
@@ -4465,6 +4483,7 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
         first_byte_timeout,
         max_connection_workers,
         soak_min_duration,
+        include_tun_runtime_smoke,
     })
 }
 
@@ -4689,6 +4708,7 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
     let mut certification_first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut certification_max_connection_workers = DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS;
     let mut certification_soak_min_duration = DEFAULT_MIXED_SOAK_MIN_DURATION;
+    let mut certification_include_tun_runtime_smoke = false;
     let mut args = args.peekable();
 
     while let Some(arg) = args.next() {
@@ -4738,6 +4758,11 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
                     "--certification-soak-min-duration-ms",
                 )?;
             }
+            "--certification-include-tun-runtime-smoke"
+            | "--include-certification-tun-runtime-smoke" => {
+                include_default_core_certification = true;
+                certification_include_tun_runtime_smoke = true;
+            }
             other => return Err(format!("unknown support-bundle option: {other}")),
         }
     }
@@ -4749,6 +4774,7 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
         certification_first_byte_timeout,
         certification_max_connection_workers,
         certification_soak_min_duration,
+        certification_include_tun_runtime_smoke,
     })
 }
 
@@ -6501,6 +6527,8 @@ pub struct DefaultCoreReadinessReport {
     pub ready_for_default_core: bool,
     pub soak_min_duration: Duration,
     pub tun_preflight: TunDevicePreflight,
+    pub include_tun_runtime_smoke: bool,
+    pub tun_runtime_smoke: Option<TunRuntimeSmokeReport>,
     pub gates: Vec<ReadinessGateReport>,
 }
 
@@ -6512,10 +6540,19 @@ pub struct DefaultCoreCertificationReport {
     pub readiness: DefaultCoreReadinessReport,
     pub tun_backend: TunBackendStatus,
     pub tun_preflight: TunDevicePreflight,
+    pub include_tun_runtime_smoke: bool,
+    pub tun_runtime_smoke: Option<TunRuntimeSmokeReport>,
     pub soak_connections: usize,
     pub first_byte_timeout: Duration,
     pub max_connection_workers: usize,
     pub soak_min_duration: Duration,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunRuntimeSmokeReport {
+    pub passed: bool,
+    pub detail: String,
+    pub report: Option<ManagedTunPacketLoopReport>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -6573,12 +6610,35 @@ pub fn write_readiness_check_report_with_soak_min_duration(
     skip_soak: bool,
     mut writer: impl Write,
 ) -> Result<(), String> {
+    write_readiness_check_report_with_options(
+        output,
+        soak_connections,
+        first_byte_timeout,
+        max_connection_workers,
+        soak_min_duration,
+        skip_soak,
+        false,
+        &mut writer,
+    )
+}
+
+pub fn write_readiness_check_report_with_options(
+    output: ProbeOutputFormat,
+    soak_connections: usize,
+    first_byte_timeout: Duration,
+    max_connection_workers: usize,
+    soak_min_duration: Duration,
+    skip_soak: bool,
+    include_tun_runtime_smoke: bool,
+    mut writer: impl Write,
+) -> Result<(), String> {
     let report = collect_readiness_check_report(
         soak_connections,
         first_byte_timeout,
         max_connection_workers,
         soak_min_duration,
         skip_soak,
+        include_tun_runtime_smoke,
     )?;
     match output {
         ProbeOutputFormat::Text => write_readiness_check_text_report(&mut writer, &report),
@@ -6611,11 +6671,32 @@ pub fn write_default_core_certification_report_with_soak_min_duration(
     soak_min_duration: Duration,
     mut writer: impl Write,
 ) -> Result<(), String> {
+    write_default_core_certification_report_with_options(
+        output,
+        soak_connections,
+        first_byte_timeout,
+        max_connection_workers,
+        soak_min_duration,
+        false,
+        &mut writer,
+    )
+}
+
+pub fn write_default_core_certification_report_with_options(
+    output: ProbeOutputFormat,
+    soak_connections: usize,
+    first_byte_timeout: Duration,
+    max_connection_workers: usize,
+    soak_min_duration: Duration,
+    include_tun_runtime_smoke: bool,
+    mut writer: impl Write,
+) -> Result<(), String> {
     let report = collect_default_core_certification_report(
         soak_connections,
         first_byte_timeout,
         max_connection_workers,
         soak_min_duration,
+        include_tun_runtime_smoke,
     )?;
     match output {
         ProbeOutputFormat::Text => {
@@ -6632,6 +6713,7 @@ fn collect_default_core_certification_report(
     first_byte_timeout: Duration,
     max_connection_workers: usize,
     soak_min_duration: Duration,
+    include_tun_runtime_smoke: bool,
 ) -> Result<DefaultCoreCertificationReport, String> {
     if soak_connections == 0 {
         return Err("default-core-certify soak connections must be greater than 0".to_string());
@@ -6648,11 +6730,20 @@ fn collect_default_core_certification_report(
         max_connection_workers,
         soak_min_duration,
         false,
+        include_tun_runtime_smoke,
     )?;
     let tun_backend = TunBackendStatus::detect();
     let tun_preflight = readiness.tun_preflight.clone();
-    let ready_for_default_core =
-        readiness.ready_for_default_core && tun_backend.is_ready() && tun_preflight.ready;
+    let tun_runtime_smoke = readiness.tun_runtime_smoke.clone();
+    let tun_runtime_smoke_ready = !include_tun_runtime_smoke
+        || tun_runtime_smoke
+            .as_ref()
+            .map(|report| report.passed)
+            .unwrap_or(false);
+    let ready_for_default_core = readiness.ready_for_default_core
+        && tun_backend.is_ready()
+        && tun_preflight.ready
+        && tun_runtime_smoke_ready;
 
     Ok(DefaultCoreCertificationReport {
         schema_version: DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION,
@@ -6661,6 +6752,8 @@ fn collect_default_core_certification_report(
         readiness,
         tun_backend,
         tun_preflight,
+        include_tun_runtime_smoke,
+        tun_runtime_smoke,
         soak_connections,
         first_byte_timeout,
         max_connection_workers,
@@ -6674,6 +6767,7 @@ fn collect_readiness_check_report(
     max_connection_workers: usize,
     soak_min_duration: Duration,
     skip_soak: bool,
+    include_tun_runtime_smoke: bool,
 ) -> Result<DefaultCoreReadinessReport, String> {
     if soak_connections == 0 {
         return Err("readiness-check soak connections must be greater than 0".to_string());
@@ -6685,6 +6779,7 @@ fn collect_readiness_check_report(
     let doctor = collect_doctor_report();
     let interop = collect_interop_matrix_report();
     let tun_preflight = collect_default_tun_preflight();
+    let mut tun_runtime_smoke = None;
     let mut gates = vec![
         readiness_gate(
             "doctor-schema",
@@ -6852,6 +6947,10 @@ fn collect_readiness_check_report(
         ));
     }
 
+    if include_tun_runtime_smoke {
+        gates.push(readiness_tun_runtime_smoke_gate(&mut tun_runtime_smoke));
+    }
+
     let ready_for_default_core = gates
         .iter()
         .all(|gate| gate.status == ReadinessGateStatus::Passed);
@@ -6862,6 +6961,8 @@ fn collect_readiness_check_report(
         ready_for_default_core,
         soak_min_duration,
         tun_preflight,
+        include_tun_runtime_smoke,
+        tun_runtime_smoke,
         gates,
     })
 }
@@ -6930,6 +7031,90 @@ fn readiness_soak_gate(
     }
 }
 
+fn readiness_tun_runtime_smoke_gate(
+    smoke_report: &mut Option<TunRuntimeSmokeReport>,
+) -> ReadinessGateReport {
+    let report = collect_default_tun_runtime_smoke_report();
+    let status = if report.passed {
+        ReadinessGateStatus::Passed
+    } else {
+        ReadinessGateStatus::Failed
+    };
+    let detail = report.detail.clone();
+    *smoke_report = Some(report);
+    ReadinessGateReport {
+        name: "tun-runtime-smoke",
+        category: "platform",
+        status,
+        detail,
+    }
+}
+
+fn collect_default_tun_runtime_smoke_report() -> TunRuntimeSmokeReport {
+    match run_default_tun_runtime_smoke() {
+        Ok(report) => {
+            let passed = tun_runtime_smoke_report_passed(&report);
+            let detail = tun_runtime_smoke_detail(&report);
+            TunRuntimeSmokeReport {
+                passed,
+                detail,
+                report: Some(report),
+            }
+        }
+        Err(error) => TunRuntimeSmokeReport {
+            passed: false,
+            detail: format!("tun runtime smoke failed: {error}"),
+            report: None,
+        },
+    }
+}
+
+fn run_default_tun_runtime_smoke() -> Result<ManagedTunPacketLoopReport, String> {
+    let controller = NativeTunDeviceController::new();
+    let runtime = MixedProxyRuntime::default();
+    let (_, report) = run_with_optional_tun_runtime_background_report(
+        &controller,
+        Some(default_tun_device_config()),
+        &runtime,
+        DEFAULT_TUN_DNS_TTL_SECONDS,
+        DEFAULT_TUN_PACKET_LOOP_MAX_PACKETS,
+        || Ok(()),
+    )?;
+    report.ok_or_else(|| "managed TUN runtime smoke did not produce a report".to_string())
+}
+
+fn tun_runtime_smoke_report_passed(report: &ManagedTunPacketLoopReport) -> bool {
+    let stop_state_valid = if report.owns_device {
+        !report.stop_snapshot.running
+    } else {
+        report.stop_snapshot.running
+    };
+    report.start_snapshot.running
+        && stop_state_valid
+        && !report.summary.packet_limit_reached
+        && report.summary.packet_errors == 0
+        && report.summary.udp_relay_errors == 0
+        && report.summary.tcp_session_errors == 0
+}
+
+fn tun_runtime_smoke_detail(report: &ManagedTunPacketLoopReport) -> String {
+    format!(
+        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} exit_reason={} stop_requested={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={}",
+        report.config.interface_name,
+        report.owns_device,
+        report.start_snapshot.running,
+        report.stop_snapshot.running,
+        report.summary.processed_packets(),
+        report.summary.idle_events,
+        report.summary.exit_reason_label(),
+        report.summary.stop_requested,
+        report.summary.packet_limit_reached,
+        report.summary.packet_errors,
+        report.summary.udp_relay_errors,
+        report.summary.tcp_session_errors,
+    )
+}
+
 fn write_readiness_check_text_report(
     writer: &mut impl Write,
     report: &DefaultCoreReadinessReport,
@@ -6983,6 +7168,21 @@ fn write_readiness_check_text_report(
         report.tun_preflight.reason.as_deref().unwrap_or("-")
     )
     .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
+        "readiness tun_runtime_smoke status={} included={} detail={}",
+        tun_runtime_smoke_status_label(
+            report.include_tun_runtime_smoke,
+            report.tun_runtime_smoke.as_ref()
+        ),
+        report.include_tun_runtime_smoke,
+        report
+            .tun_runtime_smoke
+            .as_ref()
+            .map(|smoke| smoke.detail.as_str())
+            .unwrap_or("-")
+    )
+    .map_err(|error| error.to_string())?;
     for gate in readiness_blocking_gates(&report.gates) {
         writeln!(
             writer,
@@ -7021,6 +7221,10 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         "ready_for_default_core": report.ready_for_default_core,
         "soak_min_duration_ms": duration_millis_for_report(report.soak_min_duration),
         "tun_preflight": tun_preflight_json_value(&report.tun_preflight),
+        "tun_runtime_smoke": tun_runtime_smoke_json_value(
+            report.include_tun_runtime_smoke,
+            report.tun_runtime_smoke.as_ref()
+        ),
         "summary": {
             "total_gate_count": summary.total,
             "passed_gate_count": summary.passed,
@@ -7110,6 +7314,21 @@ fn write_default_core_certification_text_report(
         report.tun_preflight.reason.as_deref().unwrap_or("-")
     )
     .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
+        "default_core_certification tun_runtime_smoke status={} included={} detail={}",
+        tun_runtime_smoke_status_label(
+            report.include_tun_runtime_smoke,
+            report.tun_runtime_smoke.as_ref()
+        ),
+        report.include_tun_runtime_smoke,
+        report
+            .tun_runtime_smoke
+            .as_ref()
+            .map(|smoke| smoke.detail.as_str())
+            .unwrap_or("-")
+    )
+    .map_err(|error| error.to_string())?;
     for gate in readiness_blocking_gates(&report.readiness.gates) {
         writeln!(
             writer,
@@ -7170,13 +7389,97 @@ fn default_core_certification_json_value(
             "blocking_gate_count": summary.blocking,
             "tun_backend_ready": report.tun_backend.is_ready(),
             "tun_preflight_ready": report.tun_preflight.ready,
+            "tun_runtime_smoke_included": report.include_tun_runtime_smoke,
+            "tun_runtime_smoke_passed": if report.include_tun_runtime_smoke {
+                report.tun_runtime_smoke.as_ref().map(|smoke| smoke.passed)
+            } else {
+                None
+            },
         },
         "readiness": readiness_check_json_value(&report.readiness),
         "promotion_blockers": promotion_blockers,
         "tun_backend_status": if report.tun_backend.is_ready() { "ready" } else { "not-ready" },
         "tun_backend": tun_backend_json_value(&report.tun_backend),
         "tun_preflight": tun_preflight_json_value(&report.tun_preflight),
+        "tun_runtime_smoke": tun_runtime_smoke_json_value(
+            report.include_tun_runtime_smoke,
+            report.tun_runtime_smoke.as_ref()
+        ),
     })
+}
+
+fn tun_runtime_smoke_status_label(
+    included: bool,
+    report: Option<&TunRuntimeSmokeReport>,
+) -> &'static str {
+    if !included {
+        "not-run"
+    } else if report.map(|report| report.passed).unwrap_or(false) {
+        "passed"
+    } else {
+        "failed"
+    }
+}
+
+fn tun_runtime_smoke_json_value(
+    included: bool,
+    report: Option<&TunRuntimeSmokeReport>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "included": included,
+        "status": tun_runtime_smoke_status_label(included, report),
+        "passed": if included {
+            report.map(|report| report.passed)
+        } else {
+            None
+        },
+        "detail": report.map(|report| report.detail.as_str()),
+        "report": report.and_then(|report| {
+            report
+                .report
+                .as_ref()
+                .map(managed_tun_runtime_report_json_value)
+        }),
+    })
+}
+
+fn managed_tun_runtime_report_json_value(report: &ManagedTunPacketLoopReport) -> serde_json::Value {
+    serde_json::json!({
+        "config": {
+            "interface_name": &report.config.interface_name,
+            "address_cidr": &report.config.address_cidr,
+            "mtu": report.config.mtu,
+            "dns_hijack": report.config.dns_hijack,
+        },
+        "start_snapshot": tun_device_snapshot_json_value(&report.start_snapshot),
+        "stop_snapshot": tun_device_snapshot_json_value(&report.stop_snapshot),
+        "owns_device": report.owns_device,
+        "diagnostic": runtime_diagnostic_json_value(&managed_tun_runtime_report_diagnostic(report)),
+    })
+}
+
+fn tun_device_snapshot_json_value(snapshot: &TunDeviceSnapshot) -> serde_json::Value {
+    serde_json::json!({
+        "supported": snapshot.supported,
+        "lifecycle_available": snapshot.lifecycle_available,
+        "packet_io_available": snapshot.packet_io_available,
+        "running": snapshot.running,
+        "state": tun_device_snapshot_state(snapshot),
+        "interface_name": snapshot.interface_name.as_deref(),
+        "address_cidr": snapshot.address_cidr.as_deref(),
+        "mtu": snapshot.mtu,
+        "dns_hijack": snapshot.dns_hijack,
+    })
+}
+
+fn tun_device_snapshot_state(snapshot: &TunDeviceSnapshot) -> &'static str {
+    if !snapshot.supported {
+        "unsupported"
+    } else if snapshot.running {
+        "running"
+    } else {
+        "stopped"
+    }
 }
 
 fn duration_millis_for_report(duration: Duration) -> u64 {
@@ -8064,6 +8367,7 @@ pub struct SupportBundleOptions {
     pub certification_first_byte_timeout: Duration,
     pub certification_max_connection_workers: usize,
     pub certification_soak_min_duration: Duration,
+    pub certification_include_tun_runtime_smoke: bool,
 }
 
 impl Default for SupportBundleOptions {
@@ -8074,6 +8378,7 @@ impl Default for SupportBundleOptions {
             certification_first_byte_timeout: DEFAULT_FIRST_BYTE_TIMEOUT,
             certification_max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             certification_soak_min_duration: DEFAULT_MIXED_SOAK_MIN_DURATION,
+            certification_include_tun_runtime_smoke: false,
         }
     }
 }
@@ -8093,6 +8398,7 @@ pub fn write_support_bundle_report_with_options(
             options.certification_first_byte_timeout,
             options.certification_max_connection_workers,
             options.certification_soak_min_duration,
+            options.certification_include_tun_runtime_smoke,
         )?)
     } else {
         serde_json::Value::Null

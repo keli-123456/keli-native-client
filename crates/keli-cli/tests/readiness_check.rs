@@ -36,6 +36,9 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     );
     assert!(report["tun_preflight"]["status"].is_string());
     assert!(report["tun_preflight"]["ready"].is_boolean());
+    assert_eq!(report["tun_runtime_smoke"]["included"], false);
+    assert_eq!(report["tun_runtime_smoke"]["status"], "not-run");
+    assert!(report["tun_runtime_smoke"]["report"].is_null());
     let blocking_gates = report["blocking_gates"].as_array().expect("blocking gates");
     assert_eq!(
         report["summary"]["blocking_gate_count"].as_u64(),
@@ -175,6 +178,7 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(output.contains("readiness gate=interop-matrix category=protocols status=passed"));
     assert!(output.contains("readiness gate=tun-backend category=platform status="));
     assert!(output.contains("readiness tun_preflight status="));
+    assert!(output.contains("readiness tun_runtime_smoke status=not-run included=false"));
     assert!(
         output.contains("readiness gate=mixed-soak-http-connect category=stability status=skipped")
     );
@@ -232,6 +236,11 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert!(report["tun_backend_status"].is_string());
     assert!(report["tun_preflight"]["status"].is_string());
     assert!(report["tun_preflight"]["ready"].is_boolean());
+    assert_eq!(report["tun_runtime_smoke"]["included"], false);
+    assert_eq!(report["tun_runtime_smoke"]["status"], "not-run");
+    assert!(report["tun_runtime_smoke"]["report"].is_null());
+    assert_eq!(report["certification"]["tun_runtime_smoke_included"], false);
+    assert!(report["certification"]["tun_runtime_smoke_passed"].is_null());
     assert_eq!(
         report["certification"]["tun_preflight_ready"],
         report["tun_preflight"]["ready"]
@@ -273,6 +282,8 @@ fn default_core_certification_text_reports_summary_and_gates() {
     assert!(output.contains("blockers="));
     assert!(output.contains("tun_backend_status="));
     assert!(output.contains("default_core_certification tun_preflight status="));
+    assert!(output
+        .contains("default_core_certification tun_runtime_smoke status=not-run included=false"));
     assert!(output.contains(
         "parameters soak_connections=2 first_byte_timeout_ms=2000 max_connection_workers=2 soak_min_duration_ms=0"
     ));

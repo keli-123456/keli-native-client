@@ -62,6 +62,7 @@ fn parses_readiness_check_json_command() {
         "--soak-min-duration-ms",
         "250",
         "--skip-soak",
+        "--include-tun-runtime-smoke",
     ])
     .expect("command should parse");
 
@@ -74,6 +75,7 @@ fn parses_readiness_check_json_command() {
             max_connection_workers: 3,
             soak_min_duration: Duration::from_millis(250),
             skip_soak: true,
+            include_tun_runtime_smoke: true,
         }
     );
 }
@@ -92,6 +94,7 @@ fn parses_default_core_certify_json_command() {
         "3",
         "--soak-min-duration-ms",
         "250",
+        "--include-tun-runtime-smoke",
     ])
     .expect("command should parse");
 
@@ -103,6 +106,7 @@ fn parses_default_core_certify_json_command() {
             first_byte_timeout: Duration::from_millis(1500),
             max_connection_workers: 3,
             soak_min_duration: Duration::from_millis(250),
+            include_tun_runtime_smoke: true,
         }
     );
 }
@@ -221,6 +225,7 @@ fn parses_support_bundle_command() {
             certification_first_byte_timeout: Duration::from_secs(30),
             certification_max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             certification_soak_min_duration: Duration::from_millis(0),
+            certification_include_tun_runtime_smoke: false,
         }
     );
 }
@@ -238,6 +243,7 @@ fn parses_support_bundle_with_certification_options() {
         "3",
         "--certification-soak-min-duration-ms",
         "250",
+        "--certification-include-tun-runtime-smoke",
     ])
     .expect("command should parse");
 
@@ -250,6 +256,7 @@ fn parses_support_bundle_with_certification_options() {
             certification_first_byte_timeout: Duration::from_millis(1500),
             certification_max_connection_workers: 3,
             certification_soak_min_duration: Duration::from_millis(250),
+            certification_include_tun_runtime_smoke: true,
         }
     );
 }

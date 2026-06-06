@@ -262,6 +262,10 @@ proxies:
         "tun-preflight-evidence"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][12],
+        "tun-runtime-smoke"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -302,19 +306,23 @@ proxies:
         "tun-preflight-evidence"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][6],
+        report["doctor"]["default_core_certification_capabilities"][4],
+        "tun-runtime-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][7],
         "soak-min-duration"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][8],
+        report["doctor"]["default_core_certification_capabilities"][9],
         "promotion-blockers"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][10],
+        report["doctor"]["default_core_certification_capabilities"][11],
         "text-summary"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][11],
+        report["doctor"]["default_core_certification_capabilities"][12],
         "support-bundle-export"
     );
     assert_eq!(
@@ -683,6 +691,7 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
             certification_first_byte_timeout: Duration::from_secs(2),
             certification_max_connection_workers: 2,
             certification_soak_min_duration: Duration::from_millis(50),
+            certification_include_tun_runtime_smoke: false,
         },
         &mut output,
     )
@@ -733,6 +742,14 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     assert!(certification["tun_backend_status"].is_string());
     assert!(certification["tun_preflight"]["status"].is_string());
     assert!(certification["tun_preflight"]["ready"].is_boolean());
+    assert_eq!(certification["tun_runtime_smoke"]["included"], false);
+    assert_eq!(certification["tun_runtime_smoke"]["status"], "not-run");
+    assert!(certification["tun_runtime_smoke"]["report"].is_null());
+    assert_eq!(
+        certification["certification"]["tun_runtime_smoke_included"],
+        false
+    );
+    assert!(certification["certification"]["tun_runtime_smoke_passed"].is_null());
     assert_eq!(
         certification["certification"]["tun_preflight_ready"],
         certification["tun_preflight"]["ready"]

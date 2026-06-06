@@ -414,9 +414,12 @@ The first implementation target is deliberately small:
    promotion tooling can consume the actionable default-core blockers directly.
    JSON output also embeds the default `tun_preflight` object using the same
    shape as `tun-preflight --format json`, so UI and CI can verify platform
-   handoff evidence without parsing gate detail strings. Local soak gate
-   details include `min_duration_ms` and `duration_target_met` when a bounded
-   runtime duration is required.
+   handoff evidence without parsing gate detail strings. When release checks
+   are allowed to touch system routes, `--include-tun-runtime-smoke` adds a
+   real platform gate that starts the managed TUN runtime, opens packet I/O,
+   requests a clean stop, and records start/stop snapshots plus the packet-loop
+   diagnostic. Local soak gate details include `min_duration_ms` and
+   `duration_target_met` when a bounded runtime duration is required.
    `default-core-certify` builds on that gate by running the non-skipped soak
    checks and exporting one promotion artifact with the embedded readiness
    report, TUN backend packaging evidence, structured TUN preflight evidence,
@@ -426,6 +429,10 @@ The first implementation target is deliberately small:
    alongside the soak, preflight, and backend evidence.
    Certification parameters include `soak_min_duration_ms`, so a promotion
    record can prove both traffic success and a minimum managed-runtime window.
+   The optional TUN runtime smoke gate is also carried into certification JSON,
+   letting release automation distinguish "preflight says ready" from "the
+   runtime actually started, opened packet I/O, and stopped cleanly" on the
+   target machine.
    Doctor and support bundles now expose the certification schema version and
    capability list, and the readiness doctor-schema gate requires that schema
    to keep promotion evidence discoverable through the existing diagnostics
