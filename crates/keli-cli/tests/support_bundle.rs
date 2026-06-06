@@ -250,6 +250,10 @@ proxies:
         "json-gates"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][9],
+        "blocker-summary"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -278,11 +282,15 @@ proxies:
         "tun-backend-evidence"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][7],
-        "text-summary"
+        report["doctor"]["default_core_certification_capabilities"][6],
+        "promotion-blockers"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][8],
+        "text-summary"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][9],
         "support-bundle-export"
     );
     assert_eq!(
@@ -670,6 +678,13 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
         2000
     );
     assert_eq!(certification["certification"]["max_connection_workers"], 2);
+    let promotion_blockers = certification["promotion_blockers"]
+        .as_array()
+        .expect("promotion blockers");
+    assert_eq!(
+        certification["certification"]["blocking_gate_count"].as_u64(),
+        Some(promotion_blockers.len() as u64)
+    );
     assert_eq!(
         certification["readiness"]["kind"],
         "keli_default_core_readiness"
@@ -677,6 +692,15 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     assert_eq!(
         certification["readiness"]["summary"]["skipped_gate_count"],
         0
+    );
+    assert_eq!(
+        certification["readiness"]["summary"]["blocking_gate_count"].as_u64(),
+        Some(
+            certification["readiness"]["blocking_gates"]
+                .as_array()
+                .expect("readiness blockers")
+                .len() as u64
+        )
     );
     assert!(certification["tun_backend"]["backend"].is_string());
     assert!(certification["tun_backend_status"].is_string());

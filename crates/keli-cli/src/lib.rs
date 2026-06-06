@@ -74,11 +74,11 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 9;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 10;
 pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 3;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 1;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 1;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 2;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 2;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 2;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -103,11 +103,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,tun-backend-evidence,non-skipped-soak,soak-parameters,promotion-decision,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,tun-backend-evidence,non-skipped-soak,soak-parameters,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -6684,7 +6684,7 @@ fn write_readiness_check_text_report(
     let summary = readiness_summary_counts(&report.gates);
     writeln!(
         writer,
-        "readiness status={} schema_version={} gates={} passed={} failed={} warning={} skipped={}",
+        "readiness status={} schema_version={} gates={} passed={} failed={} warning={} skipped={} blockers={}",
         if report.ready_for_default_core {
             "ready"
         } else {
@@ -6695,13 +6695,25 @@ fn write_readiness_check_text_report(
         summary.passed,
         summary.failed,
         summary.warning,
-        summary.skipped
+        summary.skipped,
+        summary.blocking
     )
     .map_err(|error| error.to_string())?;
     for gate in &report.gates {
         writeln!(
             writer,
             "readiness gate={} category={} status={} detail={}",
+            gate.name,
+            gate.category,
+            gate.status.label(),
+            gate.detail
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    for gate in readiness_blocking_gates(&report.gates) {
+        writeln!(
+            writer,
+            "readiness blocker={} category={} status={} detail={}",
             gate.name,
             gate.category,
             gate.status.label(),
@@ -6723,17 +6735,10 @@ fn write_readiness_check_json_report(
 
 fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json::Value {
     let summary = readiness_summary_counts(&report.gates);
-    let gates: Vec<_> = report
-        .gates
-        .iter()
-        .map(|gate| {
-            serde_json::json!({
-                "name": gate.name,
-                "category": gate.category,
-                "status": gate.status.label(),
-                "detail": gate.detail,
-            })
-        })
+    let gates: Vec<_> = report.gates.iter().map(readiness_gate_json_value).collect();
+    let blocking_gates: Vec<_> = readiness_blocking_gates(&report.gates)
+        .into_iter()
+        .map(readiness_gate_json_value)
         .collect();
     serde_json::json!({
         "status": if report.ready_for_default_core { "ready" } else { "not-ready" },
@@ -6747,9 +6752,27 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
             "failed_gate_count": summary.failed,
             "warning_gate_count": summary.warning,
             "skipped_gate_count": summary.skipped,
+            "blocking_gate_count": summary.blocking,
         },
         "gates": gates,
+        "blocking_gates": blocking_gates,
     })
+}
+
+fn readiness_gate_json_value(gate: &ReadinessGateReport) -> serde_json::Value {
+    serde_json::json!({
+        "name": gate.name,
+        "category": gate.category,
+        "status": gate.status.label(),
+        "detail": gate.detail,
+    })
+}
+
+fn readiness_blocking_gates(gates: &[ReadinessGateReport]) -> Vec<&ReadinessGateReport> {
+    gates
+        .iter()
+        .filter(|gate| gate.status != ReadinessGateStatus::Passed)
+        .collect()
 }
 
 fn write_default_core_certification_text_report(
@@ -6759,7 +6782,7 @@ fn write_default_core_certification_text_report(
     let summary = readiness_summary_counts(&report.readiness.gates);
     writeln!(
         writer,
-        "default_core_certification status={} schema_version={} version={} ready_for_default_core={} gates={} passed={} failed={} warning={} skipped={} tun_backend_status={} install_required={} driver_library_present={} driver_api_available={} driver_library_path={}",
+        "default_core_certification status={} schema_version={} version={} ready_for_default_core={} gates={} passed={} failed={} warning={} skipped={} blockers={} tun_backend_status={} install_required={} driver_library_present={} driver_api_available={} driver_library_path={}",
         if report.ready_for_default_core {
             "ready"
         } else {
@@ -6773,6 +6796,7 @@ fn write_default_core_certification_text_report(
         summary.failed,
         summary.warning,
         summary.skipped,
+        summary.blocking,
         if report.tun_backend.is_ready() {
             "ready"
         } else {
@@ -6796,6 +6820,17 @@ fn write_default_core_certification_text_report(
         report.max_connection_workers
     )
     .map_err(|error| error.to_string())?;
+    for gate in readiness_blocking_gates(&report.readiness.gates) {
+        writeln!(
+            writer,
+            "default_core_certification promotion_blocker={} category={} status={} detail={}",
+            gate.name,
+            gate.category,
+            gate.status.label(),
+            gate.detail
+        )
+        .map_err(|error| error.to_string())?;
+    }
     for gate in &report.readiness.gates {
         writeln!(
             writer,
@@ -6823,6 +6858,10 @@ fn default_core_certification_json_value(
     report: &DefaultCoreCertificationReport,
 ) -> serde_json::Value {
     let summary = readiness_summary_counts(&report.readiness.gates);
+    let promotion_blockers: Vec<_> = readiness_blocking_gates(&report.readiness.gates)
+        .into_iter()
+        .map(readiness_gate_json_value)
+        .collect();
     serde_json::json!({
         "status": if report.ready_for_default_core { "ready" } else { "not-ready" },
         "kind": "keli_default_core_certification",
@@ -6837,9 +6876,11 @@ fn default_core_certification_json_value(
             "failed_gate_count": summary.failed,
             "warning_gate_count": summary.warning,
             "skipped_gate_count": summary.skipped,
+            "blocking_gate_count": summary.blocking,
             "tun_backend_ready": report.tun_backend.is_ready(),
         },
         "readiness": readiness_check_json_value(&report.readiness),
+        "promotion_blockers": promotion_blockers,
         "tun_backend_status": if report.tun_backend.is_ready() { "ready" } else { "not-ready" },
         "tun_backend": tun_backend_json_value(&report.tun_backend),
     })
@@ -6856,6 +6897,7 @@ struct ReadinessSummaryCounts {
     failed: usize,
     warning: usize,
     skipped: usize,
+    blocking: usize,
 }
 
 fn readiness_summary_counts(gates: &[ReadinessGateReport]) -> ReadinessSummaryCounts {
@@ -6865,6 +6907,7 @@ fn readiness_summary_counts(gates: &[ReadinessGateReport]) -> ReadinessSummaryCo
         failed: 0,
         warning: 0,
         skipped: 0,
+        blocking: 0,
     };
     for gate in gates {
         match gate.status {
@@ -6872,6 +6915,9 @@ fn readiness_summary_counts(gates: &[ReadinessGateReport]) -> ReadinessSummaryCo
             ReadinessGateStatus::Failed => summary.failed += 1,
             ReadinessGateStatus::Warning => summary.warning += 1,
             ReadinessGateStatus::Skipped => summary.skipped += 1,
+        }
+        if gate.status != ReadinessGateStatus::Passed {
+            summary.blocking += 1;
         }
     }
     summary

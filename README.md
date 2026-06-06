@@ -347,11 +347,15 @@ TUN backend wiring, route takeover wiring, and optional local mixed soak gates
 into one text or JSON report. The report is allowed to say `not-ready` when the
 local platform still lacks a required handoff such as Wintun packaging,
 lifecycle control, or packet I/O, making remaining default-core blockers
-explicit.
+explicit. JSON output now also includes `blocking_gates`, and text output
+prints matching `readiness blocker=...` lines, so UI and release checks can
+consume the promotion blockers without re-filtering every gate.
 `default-core-certify` runs the non-skipped readiness gates and emits a
 single certification artifact that embeds the readiness report, TUN backend
 packaging evidence, soak parameters, and the final `ready_for_default_core`
-decision for release automation and desktop UI handoff. Doctor and support
+decision for release automation and desktop UI handoff. Its JSON output mirrors
+the readiness blockers as `promotion_blockers` and includes a
+`blocking_gate_count` in the certification summary. Doctor and support
 bundle output advertise the default-core certification schema and capability
 list, and the readiness doctor-schema gate now includes that certification
 schema so promotion tooling can discover the full evidence chain. Support
@@ -383,12 +387,14 @@ capability list in text or JSON form, and `keli-cli support-bundle` exports a
 redacted JSON support report. `keli-cli interop-matrix --format json` exports
 the current protocol matrix with validation and registry sample counts for CI,
 UI, and support tooling. `keli-cli readiness-check --format json` exports the
-current default-core readiness gates, including skipped or failed gates, so UI
-and release automation can track what is still blocking default-core use.
+current default-core readiness gates plus a blocker summary, including skipped
+or failed gates, so UI and release automation can track what is still blocking
+default-core use.
 `keli-cli default-core-certify --format json` exports the corresponding
 machine-level certification evidence with real soak gates and TUN backend
-packaging state for default-core promotion checks. `keli-cli support-bundle
---include-certification` embeds that evidence into the redacted support bundle.
+packaging state plus promotion blockers for default-core promotion checks.
+`keli-cli support-bundle --include-certification` embeds that evidence into the
+redacted support bundle.
 
 ## Design Principles
 

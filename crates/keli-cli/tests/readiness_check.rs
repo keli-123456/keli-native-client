@@ -27,6 +27,11 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(report["status"], "not-ready");
     assert_eq!(report["summary"]["total_gate_count"], 11);
     assert_eq!(report["summary"]["skipped_gate_count"], 2);
+    let blocking_gates = report["blocking_gates"].as_array().expect("blocking gates");
+    assert_eq!(
+        report["summary"]["blocking_gate_count"].as_u64(),
+        Some(blocking_gates.len() as u64)
+    );
 
     let gates = report["gates"].as_array().expect("gates");
     let interop = gate(gates, "interop-matrix");
@@ -39,6 +44,10 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
 
     let socks5_soak = gate(gates, "mixed-soak-socks5");
     assert_eq!(socks5_soak["status"], "skipped");
+    assert_eq!(
+        gate(blocking_gates, "mixed-soak-socks5")["status"],
+        "skipped"
+    );
     assert!(socks5_soak["detail"]
         .as_str()
         .expect("soak detail")
@@ -54,6 +63,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     let tun_backend = gate(gates, "tun-backend");
     assert_eq!(tun_backend["category"], "platform");
     assert_eq!(tun_backend["status"], "failed");
+    assert_eq!(gate(blocking_gates, "tun-backend")["status"], "failed");
     assert!(tun_backend["detail"]
         .as_str()
         .expect("tun backend detail")
@@ -100,12 +110,16 @@ fn readiness_check_text_reports_gate_summary() {
     .expect("write text readiness check");
 
     let output = String::from_utf8(output).expect("readiness text");
-    assert!(output.contains("readiness status=not-ready schema_version=1 gates=11"));
+    assert!(output.contains("readiness status=not-ready schema_version=2 gates=11"));
+    assert!(output.contains("blockers="));
     assert!(output.contains("readiness gate=interop-matrix category=protocols status=passed"));
     assert!(output.contains("readiness gate=tun-backend category=platform status=failed"));
+    assert!(output.contains("readiness blocker=tun-backend category=platform status=failed"));
     assert!(
         output.contains("readiness gate=mixed-soak-http-connect category=stability status=skipped")
     );
+    assert!(output
+        .contains("readiness blocker=mixed-soak-http-connect category=stability status=skipped"));
 }
 
 #[test]
@@ -131,8 +145,24 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert_eq!(report["certification"]["soak_connections"], 2);
     assert_eq!(report["certification"]["first_byte_timeout_ms"], 2000);
     assert_eq!(report["certification"]["max_connection_workers"], 2);
+    let promotion_blockers = report["promotion_blockers"]
+        .as_array()
+        .expect("promotion blockers");
+    assert_eq!(
+        report["certification"]["blocking_gate_count"].as_u64(),
+        Some(promotion_blockers.len() as u64)
+    );
     assert_eq!(report["readiness"]["kind"], "keli_default_core_readiness");
     assert_eq!(report["readiness"]["summary"]["skipped_gate_count"], 0);
+    assert_eq!(
+        report["readiness"]["summary"]["blocking_gate_count"].as_u64(),
+        Some(
+            report["readiness"]["blocking_gates"]
+                .as_array()
+                .expect("readiness blockers")
+                .len() as u64
+        )
+    );
     assert_eq!(
         report["readiness"]["schema_version"],
         READINESS_CHECK_SCHEMA_VERSION
@@ -169,9 +199,11 @@ fn default_core_certification_text_reports_summary_and_gates() {
 
     let output = String::from_utf8(output).expect("certification text");
     assert!(output.contains("default_core_certification status="));
-    assert!(output.contains("schema_version=1"));
+    assert!(output.contains("schema_version=2"));
+    assert!(output.contains("blockers="));
     assert!(output.contains("tun_backend_status="));
     assert!(output.contains("parameters soak_connections=2 first_byte_timeout_ms=2000"));
+    assert!(output.contains("default_core_certification promotion_blocker="));
     assert!(output.contains(
         "default_core_certification readiness_gate=mixed-soak-socks5 category=stability status=passed"
     ));
