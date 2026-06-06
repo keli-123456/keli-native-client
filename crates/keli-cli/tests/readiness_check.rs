@@ -27,7 +27,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(report["schema_version"], READINESS_CHECK_SCHEMA_VERSION);
     assert_eq!(report["ready_for_default_core"], false);
     assert_eq!(report["status"], "not-ready");
-    assert_eq!(report["summary"]["total_gate_count"], 15);
+    assert_eq!(report["summary"]["total_gate_count"], 16);
     assert_eq!(report["summary"]["skipped_gate_count"], 2);
     assert_eq!(report["soak_min_duration_ms"], 0);
     assert_eq!(
@@ -91,6 +91,52 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
         .find(|case| case["name"] == "address-family-http-connect")
         .expect("address family DNS policy smoke case");
     assert_eq!(dns_address_family["target_contacted"], false);
+    assert_eq!(report["udp_relay_smoke"]["status"], "passed");
+    assert_eq!(report["udp_relay_smoke"]["passed"], true);
+    assert_eq!(report["udp_relay_smoke"]["case_count"], 4);
+    assert_eq!(report["udp_relay_smoke"]["failed_case_count"], 0);
+    assert_eq!(
+        report["udp_relay_smoke"]["selected_outbound"],
+        "SS-UDP-SMOKE"
+    );
+    assert_eq!(report["udp_relay_smoke"]["target"], "example.com:53");
+    assert!(report["udp_relay_smoke"]["relay_port"].is_number());
+    assert_eq!(report["udp_relay_smoke"]["response_source"], "127.0.0.1:53");
+    assert_eq!(report["udp_relay_smoke"]["request_payload_bytes"], 14);
+    assert_eq!(report["udp_relay_smoke"]["response_payload_bytes"], 13);
+    assert_eq!(report["udp_relay_smoke"]["round_trip_observed"], true);
+    assert_eq!(report["udp_relay_smoke"]["server_received_payload"], true);
+    assert_eq!(report["udp_relay_smoke"]["metrics_recorded"], true);
+    assert_eq!(report["udp_relay_smoke"]["metrics_inbound_count"], 1);
+    assert_eq!(report["udp_relay_smoke"]["metrics_outbound_route_count"], 1);
+    assert_eq!(report["udp_relay_smoke"]["clean_stop_observed"], true);
+    assert_eq!(report["udp_relay_smoke"]["stop_workers_remaining"], 0);
+    assert_eq!(report["udp_relay_smoke"]["stop_timed_out"], false);
+    let udp_cases = report["udp_relay_smoke"]["cases"]
+        .as_array()
+        .expect("UDP relay smoke cases");
+    let udp_case_names: Vec<_> = udp_cases
+        .iter()
+        .filter_map(|case| case["name"].as_str())
+        .collect();
+    for expected in [
+        "start-udp-relay-runtime",
+        "socks5-udp-shadowsocks-round-trip",
+        "record-udp-relay-metrics",
+        "stop-udp-relay-runtime",
+    ] {
+        assert!(
+            udp_case_names.contains(&expected),
+            "missing UDP relay smoke case {expected}: {udp_case_names:?}"
+        );
+    }
+    let udp_round_trip = udp_cases
+        .iter()
+        .find(|case| case["name"] == "socks5-udp-shadowsocks-round-trip")
+        .expect("UDP relay round trip case");
+    assert_eq!(udp_round_trip["observed_response"], "keli-udp-pong");
+    assert_eq!(udp_round_trip["round_trip_observed"], true);
+    assert_eq!(udp_round_trip["server_received_payload"], true);
     assert_eq!(report["resource_limit_smoke"]["status"], "passed");
     assert_eq!(report["resource_limit_smoke"]["passed"], true);
     assert_eq!(report["resource_limit_smoke"]["case_count"], 5);
@@ -618,13 +664,14 @@ fn readiness_check_text_reports_gate_summary() {
 
     let output = String::from_utf8(output).expect("readiness text");
     assert!(output.contains(&format!(
-        "readiness status=not-ready schema_version={} gates=15",
+        "readiness status=not-ready schema_version={} gates=16",
         READINESS_CHECK_SCHEMA_VERSION
     )));
     assert!(output.contains("blockers="));
     assert!(output.contains("readiness gate=interop-matrix category=protocols status=passed"));
     assert!(output.contains("readiness gate=route-rule-smoke category=routing status=passed"));
     assert!(output.contains("readiness gate=dns-policy-smoke category=dns status=passed"));
+    assert!(output.contains("readiness gate=udp-relay-smoke category=protocols status=passed"));
     assert!(output.contains(
         "readiness gate=subscription-reload-smoke category=managed-runtime status=passed"
     ));
@@ -635,6 +682,7 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(output.contains("readiness tun_preflight status="));
     assert!(output.contains("readiness route_rule_smoke status=passed cases=3"));
     assert!(output.contains("readiness dns_policy_smoke status=passed cases=4"));
+    assert!(output.contains("readiness udp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness resource_limit_smoke status=passed cases=5"));
     assert!(output.contains("readiness panel_subscription_smoke status=passed cases=9"));
     assert!(output.contains("readiness subscription_reload_smoke status=passed cases=4"));
@@ -716,6 +764,16 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert_eq!(report["dns_policy_smoke"]["failed_case_count"], 0);
     assert_eq!(report["readiness"]["dns_policy_smoke"]["status"], "passed");
     assert_eq!(report["readiness"]["dns_policy_smoke"]["case_count"], 4);
+    assert_eq!(report["certification"]["udp_relay_smoke_passed"], true);
+    assert_eq!(report["udp_relay_smoke"]["status"], "passed");
+    assert_eq!(report["udp_relay_smoke"]["case_count"], 4);
+    assert_eq!(report["udp_relay_smoke"]["failed_case_count"], 0);
+    assert_eq!(report["udp_relay_smoke"]["round_trip_observed"], true);
+    assert_eq!(report["udp_relay_smoke"]["server_received_payload"], true);
+    assert_eq!(report["udp_relay_smoke"]["metrics_recorded"], true);
+    assert_eq!(report["udp_relay_smoke"]["clean_stop_observed"], true);
+    assert_eq!(report["readiness"]["udp_relay_smoke"]["status"], "passed");
+    assert_eq!(report["readiness"]["udp_relay_smoke"]["case_count"], 4);
     assert_eq!(report["certification"]["resource_limit_smoke_passed"], true);
     assert_eq!(report["resource_limit_smoke"]["status"], "passed");
     assert_eq!(report["resource_limit_smoke"]["case_count"], 5);
@@ -935,6 +993,7 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     let gates = report["readiness"]["gates"].as_array().expect("gates");
     assert_eq!(gate(gates, "route-rule-smoke")["status"], "passed");
     assert_eq!(gate(gates, "dns-policy-smoke")["status"], "passed");
+    assert_eq!(gate(gates, "udp-relay-smoke")["status"], "passed");
     assert_eq!(gate(gates, "resource-limits")["status"], "passed");
     assert_eq!(gate(gates, "panel-subscription-state")["status"], "passed");
     assert_eq!(gate(gates, "subscription-reload-smoke")["status"], "passed");
@@ -967,6 +1026,7 @@ fn default_core_certification_text_reports_summary_and_gates() {
     assert!(output.contains("default_core_certification tun_preflight status="));
     assert!(output.contains("default_core_certification route_rule_smoke status=passed cases=3"));
     assert!(output.contains("default_core_certification dns_policy_smoke status=passed cases=4"));
+    assert!(output.contains("default_core_certification udp_relay_smoke status=passed cases=4"));
     assert!(
         output.contains("default_core_certification resource_limit_smoke status=passed cases=5")
     );

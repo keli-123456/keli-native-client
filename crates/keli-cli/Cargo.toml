@@ -11,6 +11,7 @@ keli-platform.workspace = true
 keli-protocol.workspace = true
 rustls.workspace = true
 serde_json.workspace = true
+shadowsocks-crypto.workspace = true
 url.workspace = true
 webpki-roots.workspace = true
 
@@ -32,6 +33,5 @@ rcgen.workspace = true
 rustls.workspace = true
 sha2.workspace = true
 sha3.workspace = true
-shadowsocks-crypto.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
