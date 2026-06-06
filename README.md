@@ -360,7 +360,7 @@ and support flows can inspect protocol readiness without scraping this document.
 combines doctor schema coverage, interop matrix coverage, resource limits,
 resource-limit smoke coverage, route-rule runtime smoke coverage,
 DNS policy smoke coverage,
-UDP relay smoke coverage,
+TCP relay smoke coverage, UDP relay smoke coverage,
 subscription reload smoke coverage, runtime recovery smoke coverage,
 panel/subscription smoke coverage, system proxy support, TUN preflight state,
 TUN backend wiring, route takeover wiring, and optional local mixed soak gates
@@ -379,6 +379,11 @@ listener was not contacted. The default DNS policy smoke proves local DNS leak
 prevention, address-family filtering, and SOCKS5 UDP DNS hijack responses
 without external network access by combining HTTP CONNECT failures with
 controlled DNS A-query responses.
+The default TCP relay smoke starts a managed mixed runtime from a local
+Shadowsocks subscription node, sends a SOCKS5 CONNECT stream through the
+selected outbound to a loopback encrypted TCP echo server, verifies the
+payload round trip, confirms the SS server saw the expected target/payload,
+and checks managed `socks5`/outbound metrics plus clean stop-drain evidence.
 The default UDP relay smoke starts a managed mixed runtime from a local
 Shadowsocks subscription node, sends a SOCKS5 UDP associate datagram through
 the selected outbound to a loopback encrypted UDP echo server, verifies the
@@ -457,7 +462,7 @@ runtime alive for that minimum duration and report `min_duration_ms` plus
 `default-core-certify` runs the non-skipped readiness gates and emits a
 single certification artifact that embeds the readiness report, TUN backend
 packaging evidence, structured TUN preflight evidence, route-rule smoke
-evidence, DNS policy smoke evidence, UDP relay smoke evidence,
+evidence, DNS policy smoke evidence, TCP relay smoke evidence, UDP relay smoke evidence,
 resource-limit smoke evidence,
 subscription reload smoke evidence, soak parameters, runtime recovery smoke
 evidence, and the final
@@ -507,7 +512,8 @@ UI, and support tooling. `keli-cli readiness-check --format json` exports the
 current default-core readiness gates plus a blocker summary, including skipped
 or failed gates, plus route-rule smoke evidence for local mixed-inbound routing
 decisions and DNS policy smoke evidence for leak prevention, address-family
-filtering, and hijacked DNS responses, plus UDP relay smoke evidence for
+filtering, and hijacked DNS responses, plus TCP relay smoke evidence for
+SOCKS5 CONNECT through a selected local Shadowsocks outbound, plus UDP relay smoke evidence for
 SOCKS5 UDP associate through a selected local Shadowsocks outbound, plus
 resource-limit smoke evidence for
 worker-limit rejection metrics and worker drain, plus panel/subscription smoke
@@ -519,7 +525,7 @@ and release automation can track what is still blocking default-core use.
 `keli-cli default-core-certify --format json` exports the corresponding
 machine-level certification evidence with real soak gates and TUN backend
 packaging state, structured TUN preflight state, route-rule smoke evidence, DNS
-policy smoke evidence, UDP relay smoke evidence, resource-limit smoke evidence, panel/subscription smoke
+policy smoke evidence, TCP relay smoke evidence, UDP relay smoke evidence, resource-limit smoke evidence, panel/subscription smoke
 evidence, and promotion blockers for default-core promotion checks. Add
 `--include-tun-runtime-smoke` when the
 certification run should also prove the native TUN runtime can start, open
