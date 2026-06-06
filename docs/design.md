@@ -408,9 +408,9 @@ The first implementation target is deliberately small:
    `readiness-check` now turns these production-readiness signals into an
    explicit default-core gate. It combines doctor schema coverage, interop
    validation/registry coverage, local mixed soak gates, resource limits,
-   route-rule runtime smoke coverage, managed panel/subscription state, system
-   proxy support, TUN backend wiring, route takeover wiring, and TUN preflight
-   state into one text or JSON report.
+   route-rule runtime smoke coverage, DNS policy smoke coverage, managed
+   panel/subscription state, system proxy support, TUN backend wiring, route
+   takeover wiring, and TUN preflight state into one text or JSON report.
    Gates can pass, fail, or be skipped, so CI and desktop integrations can see
    exactly why the native core is or is not ready to become the default Keli core
    on a given machine. The report now also carries a blocker summary
@@ -421,7 +421,10 @@ The first implementation target is deliberately small:
    handoff evidence without parsing gate detail strings. The default
    route-rule smoke proves domain suffix, IP CIDR, and exact-port block rules
    through local HTTP CONNECT and SOCKS5 mixed-inbound requests, including
-   evidence that the blocked target listener was not contacted. When release
+   evidence that the blocked target listener was not contacted. The default DNS
+   policy smoke proves local DNS leak prevention, address-family filtering, and
+   SOCKS5 UDP DNS hijack responses without external network access by combining
+   HTTP CONNECT failures with controlled DNS A-query responses. When release
    checks are allowed to touch Windows proxy settings,
    `--include-system-proxy-smoke`
    adds a real platform takeover gate that snapshots the current system proxy,
@@ -478,11 +481,12 @@ The first implementation target is deliberately small:
    `default-core-certify` builds on that gate by running the non-skipped soak
    checks and exporting one promotion artifact with the embedded readiness
    report, TUN backend packaging evidence, structured TUN preflight evidence,
-   route-rule smoke evidence, certification parameters, and final
+   route-rule smoke evidence, DNS policy smoke evidence, certification
+   parameters, and final
    `ready_for_default_core` decision for release automation and UI handoff. The
    certification artifact mirrors the blocker summary as `promotion_blockers`
-   and reports `blocking_gate_count` alongside the soak, route-rule, preflight,
-   and backend evidence.
+   and reports `blocking_gate_count` alongside the soak, route-rule,
+   DNS-policy, preflight, and backend evidence.
    Certification parameters include `soak_min_duration_ms`, so a promotion
    record can prove both traffic success and a minimum managed-runtime window.
    The optional TUN runtime smoke gate is also carried into certification JSON,

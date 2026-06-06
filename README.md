@@ -358,9 +358,9 @@ registry registration coverage. Support bundles include the same matrix, so UI
 and support flows can inspect protocol readiness without scraping this document.
 `readiness-check` adds a default-core gate for CI and desktop integration: it
 combines doctor schema coverage, interop matrix coverage, resource limits,
-route-rule runtime smoke coverage, panel/subscription status surfaces, system
-proxy support, TUN preflight state, TUN backend wiring, route takeover wiring,
-and optional local mixed soak gates
+route-rule runtime smoke coverage, DNS policy smoke coverage,
+panel/subscription status surfaces, system proxy support, TUN preflight state,
+TUN backend wiring, route takeover wiring, and optional local mixed soak gates
 into one text or JSON report. The report is allowed to say `not-ready` when the
 local platform still lacks a required handoff such as Wintun packaging,
 lifecycle control, or packet I/O, making remaining default-core blockers
@@ -372,7 +372,10 @@ as `tun-preflight --format json`, so platform handoff evidence is available
 without parsing gate detail strings. The default route-rule smoke proves
 domain suffix, IP CIDR, and exact-port block rules through local HTTP CONNECT
 and SOCKS5 mixed-inbound requests, including evidence that the blocked target
-listener was not contacted. `--include-system-proxy-smoke` can add an
+listener was not contacted. The default DNS policy smoke proves local DNS leak
+prevention, address-family filtering, and SOCKS5 UDP DNS hijack responses
+without external network access by combining HTTP CONNECT failures with
+controlled DNS A-query responses. `--include-system-proxy-smoke` can add an
 explicit system-proxy takeover gate that snapshots the current Windows proxy
 settings, applies the default Keli mixed inbound proxy (`127.0.0.1:7890` with
 the local bypass list), verifies the applied registry state, restores the
@@ -424,8 +427,9 @@ runtime alive for that minimum duration and report `min_duration_ms` plus
 `default-core-certify` runs the non-skipped readiness gates and emits a
 single certification artifact that embeds the readiness report, TUN backend
 packaging evidence, structured TUN preflight evidence, route-rule smoke
-evidence, soak parameters, and the final `ready_for_default_core` decision for
-release automation and desktop UI handoff. Its JSON output mirrors
+evidence, DNS policy smoke evidence, soak parameters, and the final
+`ready_for_default_core` decision for release automation and desktop UI
+handoff. Its JSON output mirrors
 the readiness blockers as `promotion_blockers` and includes a
 `blocking_gate_count` in the certification summary. Certification parameters now
 also include `soak_min_duration_ms`, so long-running promotion checks can prove
@@ -469,12 +473,14 @@ the current protocol matrix with validation and registry sample counts for CI,
 UI, and support tooling. `keli-cli readiness-check --format json` exports the
 current default-core readiness gates plus a blocker summary, including skipped
 or failed gates, plus route-rule smoke evidence for local mixed-inbound routing
-decisions, so UI and release automation can track what is still blocking
-default-core use.
+decisions and DNS policy smoke evidence for leak prevention, address-family
+filtering, and hijacked DNS responses, so UI and release automation can track
+what is still blocking default-core use.
 `keli-cli default-core-certify --format json` exports the corresponding
 machine-level certification evidence with real soak gates and TUN backend
-packaging state, structured TUN preflight state, route-rule smoke evidence, and
-promotion blockers for default-core promotion checks. Add
+packaging state, structured TUN preflight state, route-rule smoke evidence, DNS
+policy smoke evidence, and promotion blockers for default-core promotion
+checks. Add
 `--include-tun-runtime-smoke` when the
 certification run should also prove the native TUN runtime can start, open
 packet I/O, stay alive for the requested minimum smoke duration, and stop

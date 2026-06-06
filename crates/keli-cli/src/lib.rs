@@ -101,11 +101,11 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 31;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 21;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 32;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 22;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 20;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 20;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 21;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 21;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -130,11 +130,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,route-rule-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,route-rule-smoke,dns-policy-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,route-rule-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,route-rule-smoke,dns-policy-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -6862,6 +6862,7 @@ pub struct DefaultCoreReadinessReport {
     pub soak_min_duration: Duration,
     pub tun_preflight: TunDevicePreflight,
     pub route_rule_smoke: RouteRuleSmokeReport,
+    pub dns_policy_smoke: DnsPolicySmokeReport,
     pub include_system_proxy_smoke: bool,
     pub system_proxy_smoke: Option<SystemProxySmokeReport>,
     pub include_tun_runtime_smoke: bool,
@@ -6879,6 +6880,7 @@ pub struct DefaultCoreCertificationReport {
     pub tun_backend: TunBackendStatus,
     pub tun_preflight: TunDevicePreflight,
     pub route_rule_smoke: RouteRuleSmokeReport,
+    pub dns_policy_smoke: DnsPolicySmokeReport,
     pub include_system_proxy_smoke: bool,
     pub system_proxy_smoke: Option<SystemProxySmokeReport>,
     pub include_tun_runtime_smoke: bool,
@@ -6902,6 +6904,26 @@ pub struct RouteRuleSmokeCaseReport {
     pub name: &'static str,
     pub inbound: &'static str,
     pub matcher: &'static str,
+    pub target: String,
+    pub expected_response: String,
+    pub observed_response: Option<String>,
+    pub target_contacted: Option<bool>,
+    pub passed: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DnsPolicySmokeReport {
+    pub passed: bool,
+    pub detail: String,
+    pub cases: Vec<DnsPolicySmokeCaseReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DnsPolicySmokeCaseReport {
+    pub name: &'static str,
+    pub inbound: &'static str,
+    pub policy: &'static str,
     pub target: String,
     pub expected_response: String,
     pub observed_response: Option<String>,
@@ -7224,6 +7246,7 @@ fn collect_default_core_certification_report(
     let tun_backend = TunBackendStatus::detect();
     let tun_preflight = readiness.tun_preflight.clone();
     let route_rule_smoke = readiness.route_rule_smoke.clone();
+    let dns_policy_smoke = readiness.dns_policy_smoke.clone();
     let system_proxy_smoke = readiness.system_proxy_smoke.clone();
     let system_proxy_smoke_ready = !include_system_proxy_smoke
         || system_proxy_smoke
@@ -7240,6 +7263,7 @@ fn collect_default_core_certification_report(
         && tun_backend.is_ready()
         && tun_preflight.ready
         && route_rule_smoke.passed
+        && dns_policy_smoke.passed
         && system_proxy_smoke_ready
         && tun_runtime_smoke_ready;
 
@@ -7251,6 +7275,7 @@ fn collect_default_core_certification_report(
         tun_backend,
         tun_preflight,
         route_rule_smoke,
+        dns_policy_smoke,
         include_system_proxy_smoke,
         system_proxy_smoke,
         include_tun_runtime_smoke,
@@ -7284,6 +7309,7 @@ fn collect_readiness_check_report(
     let interop = collect_interop_matrix_report();
     let tun_preflight = collect_default_tun_preflight();
     let route_rule_smoke = collect_default_route_rule_smoke_report();
+    let dns_policy_smoke = collect_default_dns_policy_smoke_report();
     let mut system_proxy_smoke = None;
     let mut tun_runtime_smoke = None;
     let mut gates = vec![
@@ -7349,6 +7375,12 @@ fn collect_readiness_check_report(
             "routing",
             route_rule_smoke.passed,
             route_rule_smoke.detail.clone(),
+        ),
+        readiness_gate(
+            "dns-policy-smoke",
+            "dns",
+            dns_policy_smoke.passed,
+            dns_policy_smoke.detail.clone(),
         ),
         readiness_gate(
             "panel-subscription-state",
@@ -7481,6 +7513,7 @@ fn collect_readiness_check_report(
         soak_min_duration,
         tun_preflight,
         route_rule_smoke,
+        dns_policy_smoke,
         include_system_proxy_smoke,
         system_proxy_smoke,
         include_tun_runtime_smoke,
@@ -7945,6 +7978,457 @@ mod route_rule_smoke_tests {
             .find(|case| case.name == "port-block")
             .expect("port route-rule smoke case");
         assert_eq!(port_case.target_contacted, Some(false));
+    }
+}
+
+fn collect_default_dns_policy_smoke_report() -> DnsPolicySmokeReport {
+    let mut cases = Vec::new();
+    cases.push(run_http_dns_policy_error_smoke_case(
+        "prevent-public-leak-http-connect",
+        "prevent-public-leak",
+        MixedDnsOptions {
+            local_resolution_policy: DnsLocalResolutionPolicy::PreventPublicLeak,
+            ..MixedDnsOptions::default()
+        },
+        "public.example",
+        443,
+        None,
+    ));
+
+    match TcpListener::bind("127.0.0.1:0") {
+        Ok(target) => {
+            let target_port = match target.local_addr() {
+                Ok(addr) => addr.port(),
+                Err(error) => {
+                    cases.push(dns_policy_smoke_error_case(
+                        "address-family-http-connect",
+                        "http-connect",
+                        "ipv6-only",
+                        "127.0.0.1:0".to_string(),
+                        dns_policy_smoke_http_bad_request_expected_response(),
+                        format!("read DNS policy smoke target address: {error}"),
+                    ));
+                    return finalize_dns_policy_smoke_report(cases);
+                }
+            };
+            if let Err(error) = target.set_nonblocking(true) {
+                cases.push(dns_policy_smoke_error_case(
+                    "address-family-http-connect",
+                    "http-connect",
+                    "ipv6-only",
+                    format!("127.0.0.1:{target_port}"),
+                    dns_policy_smoke_http_bad_request_expected_response(),
+                    format!("set DNS policy smoke target nonblocking: {error}"),
+                ));
+            } else {
+                cases.push(run_http_dns_policy_error_smoke_case(
+                    "address-family-http-connect",
+                    "ipv6-only",
+                    MixedDnsOptions {
+                        address_family_policy: DnsAddressFamilyPolicy::Ipv6Only,
+                        ..MixedDnsOptions::default()
+                    },
+                    "127.0.0.1",
+                    target_port,
+                    Some(&target),
+                ));
+            }
+        }
+        Err(error) => cases.push(dns_policy_smoke_error_case(
+            "address-family-http-connect",
+            "http-connect",
+            "ipv6-only",
+            "127.0.0.1:0".to_string(),
+            dns_policy_smoke_http_bad_request_expected_response(),
+            format!("bind DNS policy smoke target: {error}"),
+        )),
+    }
+
+    cases.push(run_socks5_udp_dns_policy_smoke_case(
+        "hijack-localhost-a",
+        "prevent-public-leak+ipv4-only",
+        MixedDnsOptions {
+            local_resolution_policy: DnsLocalResolutionPolicy::PreventPublicLeak,
+            address_family_policy: DnsAddressFamilyPolicy::Ipv4Only,
+            ..MixedDnsOptions::default()
+        },
+        "localhost",
+        1,
+        0,
+        1,
+        Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+    ));
+
+    cases.push(run_socks5_udp_dns_policy_smoke_case(
+        "hijack-public-leak-nxdomain",
+        "prevent-public-leak",
+        MixedDnsOptions {
+            local_resolution_policy: DnsLocalResolutionPolicy::PreventPublicLeak,
+            ..MixedDnsOptions::default()
+        },
+        "public.example",
+        1,
+        3,
+        0,
+        None,
+    ));
+
+    finalize_dns_policy_smoke_report(cases)
+}
+
+fn finalize_dns_policy_smoke_report(cases: Vec<DnsPolicySmokeCaseReport>) -> DnsPolicySmokeReport {
+    let passed_count = cases.iter().filter(|case| case.passed).count();
+    let failed: Vec<&str> = cases
+        .iter()
+        .filter(|case| !case.passed)
+        .map(|case| case.name)
+        .collect();
+    let passed = failed.is_empty();
+    DnsPolicySmokeReport {
+        passed,
+        detail: format!(
+            "cases={} passed={} failed={} failed_cases={}",
+            cases.len(),
+            passed_count,
+            failed.len(),
+            if failed.is_empty() {
+                "-".to_string()
+            } else {
+                failed.join(",")
+            }
+        ),
+        cases,
+    }
+}
+
+fn run_http_dns_policy_error_smoke_case(
+    name: &'static str,
+    policy_label: &'static str,
+    dns_options: MixedDnsOptions,
+    target_host: &str,
+    target_port: u16,
+    target_listener: Option<&TcpListener>,
+) -> DnsPolicySmokeCaseReport {
+    let expected_response = dns_policy_smoke_http_bad_request_expected_response();
+    let target = format!("{target_host}:{target_port}");
+    let result = (|| -> Result<(Vec<u8>, Option<bool>), String> {
+        let mut runtime = MixedProxyRuntime::with_routes(RouteEngine::new(RouteAction::Direct));
+        runtime.dns_options = dns_options;
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .map_err(|error| format!("bind DNS policy smoke listener: {error}"))?;
+        let listen_addr = listener
+            .local_addr()
+            .map_err(|error| format!("read DNS policy smoke listener addr: {error}"))?;
+        let server = thread::spawn(move || -> Result<(), String> {
+            let (mut stream, _) = listener
+                .accept()
+                .map_err(|error| format!("accept DNS policy smoke connection: {error}"))?;
+            match handle_mixed_connection_with_routes(&mut stream, &runtime) {
+                Ok(()) => Err("DNS policy smoke worker unexpectedly succeeded".to_string()),
+                Err(error) => {
+                    let detail = error.to_string();
+                    if detail.contains("DNS")
+                        || detail.contains("dns")
+                        || detail.contains("blocked")
+                        || detail.contains("filtered")
+                    {
+                        Ok(())
+                    } else {
+                        Err(format!(
+                            "unexpected DNS policy smoke worker error: {detail}"
+                        ))
+                    }
+                }
+            }
+        });
+
+        let mut client = TcpStream::connect(listen_addr)
+            .map_err(|error| format!("connect DNS policy smoke listener: {error}"))?;
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .map_err(|error| format!("set DNS policy smoke read timeout: {error}"))?;
+        client
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .map_err(|error| format!("set DNS policy smoke write timeout: {error}"))?;
+        write!(
+            client,
+            "CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n"
+        )
+        .map_err(|error| format!("write DNS policy smoke HTTP CONNECT: {error}"))?;
+        let response = read_route_rule_smoke_http_response(&mut client)
+            .map_err(|error| error.replace("route-rule smoke", "DNS policy smoke"))?;
+        client.shutdown(Shutdown::Both).ok();
+        server
+            .join()
+            .map_err(|_| "DNS policy smoke HTTP worker panicked".to_string())??;
+        Ok((
+            response,
+            target_listener.map(route_rule_smoke_target_contacted),
+        ))
+    })();
+
+    dns_policy_smoke_case_from_result(
+        name,
+        "http-connect",
+        policy_label,
+        target,
+        expected_response,
+        result,
+    )
+}
+
+fn run_socks5_udp_dns_policy_smoke_case(
+    name: &'static str,
+    policy_label: &'static str,
+    dns_options: MixedDnsOptions,
+    query_name: &str,
+    query_type: u16,
+    expected_rcode: u8,
+    expected_answer_count: u16,
+    expected_ip: Option<IpAddr>,
+) -> DnsPolicySmokeCaseReport {
+    let target = format!("{query_name}:{query_type}->8.8.8.8:53");
+    let expected_response =
+        dns_policy_smoke_dns_expected_response(expected_rcode, expected_answer_count, expected_ip);
+    let result = (|| -> Result<(Vec<u8>, Option<bool>), String> {
+        let mut runtime = MixedProxyRuntime::with_routes(RouteEngine::new(RouteAction::HijackDns));
+        runtime.dns_options = dns_options;
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .map_err(|error| format!("bind DNS policy smoke listener: {error}"))?;
+        let listen_addr = listener
+            .local_addr()
+            .map_err(|error| format!("read DNS policy smoke listener addr: {error}"))?;
+        let server = thread::spawn(move || -> io::Result<()> {
+            let (mut stream, _) = listener.accept()?;
+            handle_socks5_connection_with_routes(&mut stream, &runtime)
+        });
+
+        let mut client = TcpStream::connect(listen_addr)
+            .map_err(|error| format!("connect DNS policy smoke listener: {error}"))?;
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .map_err(|error| format!("set DNS policy smoke TCP read timeout: {error}"))?;
+        client
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .map_err(|error| format!("set DNS policy smoke TCP write timeout: {error}"))?;
+        client
+            .write_all(&[0x05, 0x01, 0x00])
+            .map_err(|error| format!("write DNS policy smoke SOCKS5 hello: {error}"))?;
+        let mut hello = [0; 2];
+        client
+            .read_exact(&mut hello)
+            .map_err(|error| format!("read DNS policy smoke SOCKS5 hello response: {error}"))?;
+        if hello != [0x05, 0x00] {
+            return Err(format!(
+                "unexpected DNS policy smoke SOCKS5 hello response: {hello:?}"
+            ));
+        }
+        client
+            .write_all(&[0x05, 0x03, 0x00, 0x01, 127, 0, 0, 1, 0x00, 0x00])
+            .map_err(|error| format!("write DNS policy smoke UDP associate: {error}"))?;
+        let mut reply = [0; 10];
+        client
+            .read_exact(&mut reply)
+            .map_err(|error| format!("read DNS policy smoke UDP associate response: {error}"))?;
+        if reply[..4] != [0x05, 0x00, 0x00, 0x01] {
+            return Err(format!(
+                "unexpected DNS policy smoke UDP associate response: {reply:?}"
+            ));
+        }
+        let relay_port = u16::from_be_bytes([reply[8], reply[9]]);
+        if relay_port == 0 {
+            return Err("DNS policy smoke UDP relay port is zero".to_string());
+        }
+
+        let udp_client = UdpSocket::bind("127.0.0.1:0")
+            .map_err(|error| format!("bind DNS policy smoke UDP client: {error}"))?;
+        udp_client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .map_err(|error| format!("set DNS policy smoke UDP read timeout: {error}"))?;
+        let request = encode_socks5_udp_datagram(
+            &Socks5Address::Ipv4(Ipv4Addr::new(8, 8, 8, 8)),
+            53,
+            &dns_policy_smoke_query(0x4b55, query_name, query_type),
+        )
+        .map_err(|error| format!("encode DNS policy smoke UDP request: {error}"))?;
+        udp_client
+            .send_to(&request, ("127.0.0.1", relay_port))
+            .map_err(|error| format!("send DNS policy smoke UDP request: {error}"))?;
+        let mut response = [0; 1500];
+        let (size, _) = udp_client
+            .recv_from(&mut response)
+            .map_err(|error| format!("read DNS policy smoke UDP response: {error}"))?;
+        let response = parse_socks5_udp_datagram(&response[..size])
+            .map_err(|error| format!("parse DNS policy smoke UDP response: {error}"))?;
+        if response.address != Socks5Address::Ipv4(Ipv4Addr::new(8, 8, 8, 8)) || response.port != 53
+        {
+            return Err(format!(
+                "unexpected DNS policy smoke response source: {:?}:{}",
+                response.address, response.port
+            ));
+        }
+        client.shutdown(Shutdown::Both).ok();
+        server
+            .join()
+            .map_err(|_| "DNS policy smoke SOCKS5 worker panicked".to_string())?
+            .map_err(|error| format!("DNS policy smoke SOCKS5 worker failed: {error}"))?;
+        Ok((response.payload, None))
+    })();
+
+    dns_policy_smoke_case_from_result(
+        name,
+        "socks5-udp-dns-hijack",
+        policy_label,
+        target,
+        expected_response,
+        result,
+    )
+}
+
+fn dns_policy_smoke_case_from_result(
+    name: &'static str,
+    inbound: &'static str,
+    policy: &'static str,
+    target: String,
+    expected_response: String,
+    result: Result<(Vec<u8>, Option<bool>), String>,
+) -> DnsPolicySmokeCaseReport {
+    match result {
+        Ok((response, target_contacted)) => {
+            let observed_response = if inbound == "socks5-udp-dns-hijack" {
+                dns_policy_smoke_dns_response_label(&response)
+            } else {
+                route_rule_smoke_response_label(&response)
+            };
+            let passed = observed_response == expected_response && target_contacted != Some(true);
+            DnsPolicySmokeCaseReport {
+                name,
+                inbound,
+                policy,
+                target,
+                expected_response,
+                observed_response: Some(observed_response),
+                target_contacted,
+                passed,
+                error: None,
+            }
+        }
+        Err(error) => {
+            dns_policy_smoke_error_case(name, inbound, policy, target, expected_response, error)
+        }
+    }
+}
+
+fn dns_policy_smoke_error_case(
+    name: &'static str,
+    inbound: &'static str,
+    policy: &'static str,
+    target: String,
+    expected_response: String,
+    error: String,
+) -> DnsPolicySmokeCaseReport {
+    DnsPolicySmokeCaseReport {
+        name,
+        inbound,
+        policy,
+        target,
+        expected_response,
+        observed_response: None,
+        target_contacted: None,
+        passed: false,
+        error: Some(error),
+    }
+}
+
+fn dns_policy_smoke_http_bad_request_expected_response() -> String {
+    route_rule_smoke_response_label(http_connect_bad_request_response())
+}
+
+fn dns_policy_smoke_dns_expected_response(
+    rcode: u8,
+    answer_count: u16,
+    expected_ip: Option<IpAddr>,
+) -> String {
+    format!(
+        "id=0x4b55 rcode={} answers={} contains_expected_ip={}",
+        rcode,
+        answer_count,
+        expected_ip.is_some()
+    )
+}
+
+fn dns_policy_smoke_dns_response_label(response: &[u8]) -> String {
+    if response.len() < 12 {
+        return format!("dns-response-too-short bytes={}", response.len());
+    }
+    let id = u16::from_be_bytes([response[0], response[1]]);
+    let flags = u16::from_be_bytes([response[2], response[3]]);
+    let rcode = (flags & 0x000f) as u8;
+    let answer_count = u16::from_be_bytes([response[6], response[7]]);
+    let contains_localhost_v4 = response.windows(4).any(|window| window == [127, 0, 0, 1]);
+    let contains_expected_ip = if answer_count == 0 {
+        false
+    } else {
+        contains_localhost_v4
+    };
+    format!(
+        "id=0x{id:04x} rcode={} answers={} contains_expected_ip={}",
+        rcode, answer_count, contains_expected_ip
+    )
+}
+
+fn dns_policy_smoke_query(id: u16, name: &str, qtype: u16) -> Vec<u8> {
+    let mut query = Vec::new();
+    query.extend_from_slice(&id.to_be_bytes());
+    query.extend_from_slice(&0x0100u16.to_be_bytes());
+    query.extend_from_slice(&1u16.to_be_bytes());
+    query.extend_from_slice(&0u16.to_be_bytes());
+    query.extend_from_slice(&0u16.to_be_bytes());
+    query.extend_from_slice(&0u16.to_be_bytes());
+    for label in name.split('.') {
+        query.push(label.len() as u8);
+        query.extend_from_slice(label.as_bytes());
+    }
+    query.push(0);
+    query.extend_from_slice(&qtype.to_be_bytes());
+    query.extend_from_slice(&1u16.to_be_bytes());
+    query
+}
+
+#[cfg(test)]
+mod dns_policy_smoke_tests {
+    use super::*;
+
+    #[test]
+    fn default_dns_policy_smoke_covers_leak_prevention_address_family_and_hijack() {
+        let report = collect_default_dns_policy_smoke_report();
+
+        assert!(report.passed, "{}", report.detail);
+        assert_eq!(report.cases.len(), 4);
+        for case_name in [
+            "prevent-public-leak-http-connect",
+            "address-family-http-connect",
+            "hijack-localhost-a",
+            "hijack-public-leak-nxdomain",
+        ] {
+            let case = report
+                .cases
+                .iter()
+                .find(|case| case.name == case_name)
+                .unwrap_or_else(|| panic!("missing DNS policy smoke case {case_name}"));
+            assert!(case.passed, "{case:?}");
+            assert_eq!(
+                case.observed_response.as_ref(),
+                Some(&case.expected_response)
+            );
+        }
+
+        let address_family = report
+            .cases
+            .iter()
+            .find(|case| case.name == "address-family-http-connect")
+            .expect("address-family DNS policy case");
+        assert_eq!(address_family.target_contacted, Some(false));
     }
 }
 
@@ -9574,6 +10058,14 @@ fn write_readiness_check_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "readiness dns_policy_smoke status={} cases={} detail={}",
+        dns_policy_smoke_status_label(&report.dns_policy_smoke),
+        report.dns_policy_smoke.cases.len(),
+        report.dns_policy_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "readiness system_proxy_smoke status={} included={} detail={}",
         system_proxy_smoke_status_label(
             report.include_system_proxy_smoke,
@@ -9642,6 +10134,7 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         "soak_min_duration_ms": duration_millis_for_report(report.soak_min_duration),
         "tun_preflight": tun_preflight_json_value(&report.tun_preflight),
         "route_rule_smoke": route_rule_smoke_json_value(&report.route_rule_smoke),
+        "dns_policy_smoke": dns_policy_smoke_json_value(&report.dns_policy_smoke),
         "system_proxy_smoke": system_proxy_smoke_json_value(
             report.include_system_proxy_smoke,
             report.system_proxy_smoke.as_ref()
@@ -9750,6 +10243,14 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification dns_policy_smoke status={} cases={} detail={}",
+        dns_policy_smoke_status_label(&report.dns_policy_smoke),
+        report.dns_policy_smoke.cases.len(),
+        report.dns_policy_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification system_proxy_smoke status={} included={} detail={}",
         system_proxy_smoke_status_label(
             report.include_system_proxy_smoke,
@@ -9840,6 +10341,7 @@ fn default_core_certification_json_value(
             "tun_backend_ready": report.tun_backend.is_ready(),
             "tun_preflight_ready": report.tun_preflight.ready,
             "route_rule_smoke_passed": report.route_rule_smoke.passed,
+            "dns_policy_smoke_passed": report.dns_policy_smoke.passed,
             "system_proxy_smoke_included": report.include_system_proxy_smoke,
             "system_proxy_smoke_passed": if report.include_system_proxy_smoke {
                 report.system_proxy_smoke.as_ref().map(|smoke| smoke.passed)
@@ -9862,6 +10364,7 @@ fn default_core_certification_json_value(
         "tun_backend": tun_backend_json_value(&report.tun_backend),
         "tun_preflight": tun_preflight_json_value(&report.tun_preflight),
         "route_rule_smoke": route_rule_smoke_json_value(&report.route_rule_smoke),
+        "dns_policy_smoke": dns_policy_smoke_json_value(&report.dns_policy_smoke),
         "system_proxy_smoke": system_proxy_smoke_json_value(
             report.include_system_proxy_smoke,
             report.system_proxy_smoke.as_ref()
@@ -9904,6 +10407,45 @@ fn route_rule_smoke_case_json_value(case: &RouteRuleSmokeCaseReport) -> serde_js
         "name": case.name,
         "inbound": case.inbound,
         "matcher": case.matcher,
+        "target": &case.target,
+        "expected_response": &case.expected_response,
+        "observed_response": &case.observed_response,
+        "target_contacted": case.target_contacted,
+        "passed": case.passed,
+        "error": &case.error,
+    })
+}
+
+fn dns_policy_smoke_status_label(report: &DnsPolicySmokeReport) -> &'static str {
+    if report.passed {
+        "passed"
+    } else {
+        "failed"
+    }
+}
+
+fn dns_policy_smoke_json_value(report: &DnsPolicySmokeReport) -> serde_json::Value {
+    let cases: Vec<_> = report
+        .cases
+        .iter()
+        .map(dns_policy_smoke_case_json_value)
+        .collect();
+    serde_json::json!({
+        "status": dns_policy_smoke_status_label(report),
+        "passed": report.passed,
+        "detail": &report.detail,
+        "case_count": report.cases.len(),
+        "passed_case_count": report.cases.iter().filter(|case| case.passed).count(),
+        "failed_case_count": report.cases.iter().filter(|case| !case.passed).count(),
+        "cases": cases,
+    })
+}
+
+fn dns_policy_smoke_case_json_value(case: &DnsPolicySmokeCaseReport) -> serde_json::Value {
+    serde_json::json!({
+        "name": case.name,
+        "inbound": case.inbound,
+        "policy": case.policy,
         "target": &case.target,
         "expected_response": &case.expected_response,
         "observed_response": &case.observed_response,

@@ -27,7 +27,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(report["schema_version"], READINESS_CHECK_SCHEMA_VERSION);
     assert_eq!(report["ready_for_default_core"], false);
     assert_eq!(report["status"], "not-ready");
-    assert_eq!(report["summary"]["total_gate_count"], 12);
+    assert_eq!(report["summary"]["total_gate_count"], 13);
     assert_eq!(report["summary"]["skipped_gate_count"], 2);
     assert_eq!(report["soak_min_duration_ms"], 0);
     assert_eq!(
@@ -64,6 +64,33 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
         .find(|case| case["name"] == "port-block")
         .expect("port route smoke case");
     assert_eq!(port_case["target_contacted"], false);
+    assert_eq!(report["dns_policy_smoke"]["status"], "passed");
+    assert_eq!(report["dns_policy_smoke"]["passed"], true);
+    assert_eq!(report["dns_policy_smoke"]["case_count"], 4);
+    assert_eq!(report["dns_policy_smoke"]["failed_case_count"], 0);
+    let dns_cases = report["dns_policy_smoke"]["cases"]
+        .as_array()
+        .expect("DNS policy smoke cases");
+    let dns_case_names: Vec<_> = dns_cases
+        .iter()
+        .filter_map(|case| case["name"].as_str())
+        .collect();
+    for expected in [
+        "prevent-public-leak-http-connect",
+        "address-family-http-connect",
+        "hijack-localhost-a",
+        "hijack-public-leak-nxdomain",
+    ] {
+        assert!(
+            dns_case_names.contains(&expected),
+            "missing DNS policy smoke case {expected}: {dns_case_names:?}"
+        );
+    }
+    let dns_address_family = dns_cases
+        .iter()
+        .find(|case| case["name"] == "address-family-http-connect")
+        .expect("address family DNS policy smoke case");
+    assert_eq!(dns_address_family["target_contacted"], false);
     assert!(report["system_proxy_smoke"]["config"].is_null());
     assert!(report["system_proxy_smoke"]["original_snapshot"].is_null());
     assert!(report["system_proxy_smoke"]["applied_snapshot"].is_null());
@@ -208,6 +235,14 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
         .expect("route rule detail")
         .contains("cases=3"));
 
+    let dns_policy = gate(gates, "dns-policy-smoke");
+    assert_eq!(dns_policy["category"], "dns");
+    assert_eq!(dns_policy["status"], "passed");
+    assert!(dns_policy["detail"]
+        .as_str()
+        .expect("DNS policy detail")
+        .contains("cases=4"));
+
     let tun = gate(gates, "tun-preflight");
     assert_eq!(tun["category"], "platform");
     assert!(tun["detail"]
@@ -310,15 +345,17 @@ fn readiness_check_text_reports_gate_summary() {
 
     let output = String::from_utf8(output).expect("readiness text");
     assert!(output.contains(&format!(
-        "readiness status=not-ready schema_version={} gates=12",
+        "readiness status=not-ready schema_version={} gates=13",
         READINESS_CHECK_SCHEMA_VERSION
     )));
     assert!(output.contains("blockers="));
     assert!(output.contains("readiness gate=interop-matrix category=protocols status=passed"));
     assert!(output.contains("readiness gate=route-rule-smoke category=routing status=passed"));
+    assert!(output.contains("readiness gate=dns-policy-smoke category=dns status=passed"));
     assert!(output.contains("readiness gate=tun-backend category=platform status="));
     assert!(output.contains("readiness tun_preflight status="));
     assert!(output.contains("readiness route_rule_smoke status=passed cases=3"));
+    assert!(output.contains("readiness dns_policy_smoke status=passed cases=4"));
     assert!(output.contains("readiness system_proxy_smoke status=not-run included=false"));
     assert!(output.contains("readiness tun_runtime_smoke status=not-run included=false"));
     assert!(
@@ -390,6 +427,12 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert_eq!(report["route_rule_smoke"]["failed_case_count"], 0);
     assert_eq!(report["readiness"]["route_rule_smoke"]["status"], "passed");
     assert_eq!(report["readiness"]["route_rule_smoke"]["case_count"], 3);
+    assert_eq!(report["certification"]["dns_policy_smoke_passed"], true);
+    assert_eq!(report["dns_policy_smoke"]["status"], "passed");
+    assert_eq!(report["dns_policy_smoke"]["case_count"], 4);
+    assert_eq!(report["dns_policy_smoke"]["failed_case_count"], 0);
+    assert_eq!(report["readiness"]["dns_policy_smoke"]["status"], "passed");
+    assert_eq!(report["readiness"]["dns_policy_smoke"]["case_count"], 4);
     assert_eq!(
         report["certification"]["system_proxy_smoke_included"],
         false
@@ -516,6 +559,7 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
 
     let gates = report["readiness"]["gates"].as_array().expect("gates");
     assert_eq!(gate(gates, "route-rule-smoke")["status"], "passed");
+    assert_eq!(gate(gates, "dns-policy-smoke")["status"], "passed");
     assert_eq!(gate(gates, "mixed-soak-socks5")["status"], "passed");
     assert_eq!(gate(gates, "mixed-soak-http-connect")["status"], "passed");
 }
@@ -543,6 +587,7 @@ fn default_core_certification_text_reports_summary_and_gates() {
     assert!(output.contains("tun_backend_status="));
     assert!(output.contains("default_core_certification tun_preflight status="));
     assert!(output.contains("default_core_certification route_rule_smoke status=passed cases=3"));
+    assert!(output.contains("default_core_certification dns_policy_smoke status=passed cases=4"));
     assert!(output
         .contains("default_core_certification system_proxy_smoke status=not-run included=false"));
     assert!(output
