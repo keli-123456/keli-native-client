@@ -73,7 +73,7 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 7;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 8;
 pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 2;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 1;
@@ -105,6 +105,8 @@ const READINESS_CHECK_CAPABILITIES: &str =
     "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install";
+const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
+    "schema-version,readiness-embed,tun-backend-evidence,non-skipped-soak,soak-parameters,promotion-decision,json-artifact,text-summary";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -5122,6 +5124,7 @@ struct DoctorReport {
     support_bundle_schema_version: u32,
     interop_matrix_schema_version: u32,
     readiness_check_schema_version: u32,
+    default_core_certification_schema_version: u32,
     managed_mixed_status_schema_version: u32,
     version: &'static str,
     platform: String,
@@ -5157,6 +5160,7 @@ struct DoctorReport {
     interop_matrix_capabilities: Vec<&'static str>,
     readiness_check_capabilities: Vec<&'static str>,
     tun_backend_check_capabilities: Vec<&'static str>,
+    default_core_certification_capabilities: Vec<&'static str>,
     runtime_event_history_limit: usize,
     managed_status_recent_event_limit: usize,
     managed_connection_report_history_limit: usize,
@@ -5219,6 +5223,7 @@ fn collect_doctor_report() -> DoctorReport {
         support_bundle_schema_version: SUPPORT_BUNDLE_SCHEMA_VERSION,
         interop_matrix_schema_version: INTEROP_MATRIX_SCHEMA_VERSION,
         readiness_check_schema_version: READINESS_CHECK_SCHEMA_VERSION,
+        default_core_certification_schema_version: DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION,
         managed_mixed_status_schema_version: MANAGED_MIXED_STATUS_SCHEMA_VERSION,
         version: env!("CARGO_PKG_VERSION"),
         platform: format!("{:?}", capabilities.platform),
@@ -5264,6 +5269,9 @@ fn collect_doctor_report() -> DoctorReport {
         interop_matrix_capabilities: INTEROP_MATRIX_CAPABILITIES.split(',').collect(),
         readiness_check_capabilities: READINESS_CHECK_CAPABILITIES.split(',').collect(),
         tun_backend_check_capabilities: TUN_BACKEND_CHECK_CAPABILITIES.split(',').collect(),
+        default_core_certification_capabilities: DEFAULT_CORE_CERTIFICATION_CAPABILITIES
+            .split(',')
+            .collect(),
         runtime_event_history_limit: DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
         managed_status_recent_event_limit: MANAGED_MIXED_RECENT_EVENT_LIMIT,
         managed_connection_report_history_limit: MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
@@ -5279,11 +5287,12 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     writeln!(writer, "version={}", report.version)?;
     writeln!(
         writer,
-        "schema_versions doctor_report={} support_bundle={} interop_matrix={} readiness_check={} managed_mixed_status={}",
+        "schema_versions doctor_report={} support_bundle={} interop_matrix={} readiness_check={} default_core_certification={} managed_mixed_status={}",
         report.doctor_report_schema_version,
         report.support_bundle_schema_version,
         report.interop_matrix_schema_version,
         report.readiness_check_schema_version,
+        report.default_core_certification_schema_version,
         report.managed_mixed_status_schema_version
     )?;
     writeln!(writer, "platform={}", report.platform)?;
@@ -5430,6 +5439,11 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     )?;
     writeln!(
         writer,
+        "default_core_certification_capabilities={}",
+        report.default_core_certification_capabilities.join(",")
+    )?;
+    writeln!(
+        writer,
         "resource_limits runtime_event_history={} managed_status_recent_events={} managed_connection_report_history={} managed_connection_workers={} tun_tcp_max_active_sessions={}",
         report.runtime_event_history_limit,
         report.managed_status_recent_event_limit,
@@ -5462,6 +5476,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
             "support_bundle": report.support_bundle_schema_version,
             "interop_matrix": report.interop_matrix_schema_version,
             "readiness_check": report.readiness_check_schema_version,
+            "default_core_certification": report.default_core_certification_schema_version,
             "managed_mixed_status": report.managed_mixed_status_schema_version,
         },
         "version": report.version,
@@ -5513,6 +5528,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         "interop_matrix_capabilities": &report.interop_matrix_capabilities,
         "readiness_check_capabilities": &report.readiness_check_capabilities,
         "tun_backend_check_capabilities": &report.tun_backend_check_capabilities,
+        "default_core_certification_capabilities": &report.default_core_certification_capabilities,
         "resource_limits": {
             "runtime_event_history": report.runtime_event_history_limit,
             "managed_status_recent_events": report.managed_status_recent_event_limit,
@@ -6363,11 +6379,14 @@ fn collect_readiness_check_report(
             "doctor-schema",
             "diagnostics",
             doctor.doctor_report_schema_version == DOCTOR_REPORT_SCHEMA_VERSION
-                && doctor.readiness_check_schema_version == READINESS_CHECK_SCHEMA_VERSION,
+                && doctor.readiness_check_schema_version == READINESS_CHECK_SCHEMA_VERSION
+                && doctor.default_core_certification_schema_version
+                    == DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION,
             format!(
-                "doctor_schema={} readiness_schema={} support_bundle_schema={} managed_status_schema={}",
+                "doctor_schema={} readiness_schema={} default_core_certification_schema={} support_bundle_schema={} managed_status_schema={}",
                 doctor.doctor_report_schema_version,
                 doctor.readiness_check_schema_version,
+                doctor.default_core_certification_schema_version,
                 doctor.support_bundle_schema_version,
                 doctor.managed_mixed_status_schema_version
             ),

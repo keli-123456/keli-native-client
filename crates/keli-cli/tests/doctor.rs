@@ -1,8 +1,9 @@
 use keli_cli::{
-    DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, DOCTOR_REPORT_SCHEMA_VERSION,
-    INTEROP_MATRIX_SCHEMA_VERSION, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
-    MANAGED_MIXED_RECENT_EVENT_LIMIT, MANAGED_MIXED_STATUS_SCHEMA_VERSION,
-    READINESS_CHECK_SCHEMA_VERSION, SUPPORT_BUNDLE_SCHEMA_VERSION,
+    DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION, DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+    DOCTOR_REPORT_SCHEMA_VERSION, INTEROP_MATRIX_SCHEMA_VERSION,
+    MANAGED_CONNECTION_REPORT_HISTORY_LIMIT, MANAGED_MIXED_RECENT_EVENT_LIMIT,
+    MANAGED_MIXED_STATUS_SCHEMA_VERSION, READINESS_CHECK_SCHEMA_VERSION,
+    SUPPORT_BUNDLE_SCHEMA_VERSION,
 };
 use keli_client_core::DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT;
 use keli_net_core::DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS;
@@ -15,11 +16,12 @@ fn doctor_report_lists_supported_outbounds() {
 
     assert!(output.contains("version="));
     assert!(output.contains(&format!(
-        "schema_versions doctor_report={} support_bundle={} interop_matrix={} readiness_check={} managed_mixed_status={}",
+        "schema_versions doctor_report={} support_bundle={} interop_matrix={} readiness_check={} default_core_certification={} managed_mixed_status={}",
         DOCTOR_REPORT_SCHEMA_VERSION,
         SUPPORT_BUNDLE_SCHEMA_VERSION,
         INTEROP_MATRIX_SCHEMA_VERSION,
         READINESS_CHECK_SCHEMA_VERSION,
+        DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION,
         MANAGED_MIXED_STATUS_SCHEMA_VERSION
     )));
     assert!(output.contains("system_proxy_state="));
@@ -52,6 +54,9 @@ fn doctor_report_lists_supported_outbounds() {
     ));
     assert!(output.contains(
         "tun_backend_check_capabilities=backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install"
+    ));
+    assert!(output.contains(
+        "default_core_certification_capabilities=schema-version,readiness-embed,tun-backend-evidence,non-skipped-soak,soak-parameters,promotion-decision,json-artifact,text-summary"
     ));
     assert!(output.contains(
         "supported_outbounds=direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic"
@@ -108,6 +113,10 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(
         report["schema_versions"]["readiness_check"],
         READINESS_CHECK_SCHEMA_VERSION
+    );
+    assert_eq!(
+        report["schema_versions"]["default_core_certification"],
+        DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION
     );
     assert_eq!(
         report["schema_versions"]["managed_mixed_status"],
@@ -593,6 +602,22 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(
         report["tun_backend_check_capabilities"][9],
         "validated-runtime-install"
+    );
+    assert_eq!(
+        report["default_core_certification_capabilities"][0],
+        "schema-version"
+    );
+    assert_eq!(
+        report["default_core_certification_capabilities"][2],
+        "tun-backend-evidence"
+    );
+    assert_eq!(
+        report["default_core_certification_capabilities"][3],
+        "non-skipped-soak"
+    );
+    assert_eq!(
+        report["default_core_certification_capabilities"][7],
+        "text-summary"
     );
     assert_eq!(
         report["resource_limits"]["runtime_event_history"],

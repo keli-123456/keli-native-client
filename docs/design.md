@@ -404,6 +404,10 @@ The first implementation target is deliberately small:
    checks and exporting one promotion artifact with the embedded readiness
    report, TUN backend packaging evidence, certification parameters, and final
    `ready_for_default_core` decision for release automation and UI handoff.
+   Doctor and support bundles now expose the certification schema version and
+   capability list, and the readiness doctor-schema gate requires that schema
+   to keep promotion evidence discoverable through the existing diagnostics
+   surface.
 
 The managed mixed runtime now supports a background handle with runtime status,
 generation tracking, event history, explicit stop, system proxy restoration, and

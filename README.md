@@ -348,7 +348,10 @@ explicit.
 `default-core-certify` runs the non-skipped readiness gates and emits a
 single certification artifact that embeds the readiness report, TUN backend
 packaging evidence, soak parameters, and the final `ready_for_default_core`
-decision for release automation and desktop UI handoff.
+decision for release automation and desktop UI handoff. Doctor and support
+bundle output advertise the default-core certification schema and capability
+list, and the readiness doctor-schema gate now includes that certification
+schema so promotion tooling can discover the full evidence chain.
 
 ## Protocol Matrix
 
