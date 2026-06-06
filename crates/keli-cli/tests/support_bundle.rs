@@ -378,6 +378,10 @@ proxies:
         "http-proxy-relay-smoke"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][39],
+        "vless-tcp-relay-smoke"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -548,6 +552,10 @@ proxies:
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][38],
         "http-proxy-relay-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][39],
+        "vless-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
@@ -1114,6 +1122,48 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     );
     assert_eq!(
         certification["readiness"]["http_proxy_relay_smoke"]["case_count"],
+        4
+    );
+    assert_eq!(
+        certification["certification"]["vless_tcp_relay_smoke_passed"],
+        true
+    );
+    assert_eq!(certification["vless_tcp_relay_smoke"]["status"], "passed");
+    assert_eq!(certification["vless_tcp_relay_smoke"]["case_count"], 4);
+    assert_eq!(
+        certification["vless_tcp_relay_smoke"]["failed_case_count"],
+        0
+    );
+    assert_eq!(
+        certification["vless_tcp_relay_smoke"]["selected_outbound"],
+        "VLESS-TCP-SMOKE"
+    );
+    assert_eq!(
+        certification["vless_tcp_relay_smoke"]["target"],
+        "example.com:443"
+    );
+    assert_eq!(
+        certification["vless_tcp_relay_smoke"]["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        certification["vless_tcp_relay_smoke"]["server_received_payload"],
+        true
+    );
+    assert_eq!(
+        certification["vless_tcp_relay_smoke"]["metrics_recorded"],
+        true
+    );
+    assert_eq!(
+        certification["vless_tcp_relay_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        certification["readiness"]["vless_tcp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(
+        certification["readiness"]["vless_tcp_relay_smoke"]["case_count"],
         4
     );
     assert_eq!(
