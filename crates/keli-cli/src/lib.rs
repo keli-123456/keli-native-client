@@ -54,7 +54,7 @@ use keli_platform::{
     TunRouteTakeoverSnapshot, WintunInstallReport,
 };
 use keli_protocol::{
-    detect_subscription_input_format, encode_trojan_tcp_request_header,
+    detect_subscription_input_format, encode_hy2_tcp_request, encode_trojan_tcp_request_header,
     encode_vless_tcp_request_header, parse_mihomo_outbound_profiles,
     parse_subscription_outbound_profiles, Endpoint, OutboundProfile, ParsedOutboundProfiles,
     ProxyProtocol, SecurityKind, SkippedOutboundProfile, TransportKind,
@@ -125,6 +125,13 @@ const TROJAN_TLS_TCP_RELAY_SMOKE_TARGET_HOST: &str = "example.com";
 const TROJAN_TLS_TCP_RELAY_SMOKE_TARGET_PORT: u16 = 443;
 const TROJAN_TLS_TCP_RELAY_SMOKE_PAYLOAD: &[u8] = b"keli-trojan-smoke";
 const TROJAN_TLS_TCP_RELAY_SMOKE_RESPONSE: &[u8] = b"keli-trojan-pong";
+const HY2_QUIC_TCP_RELAY_SMOKE_OUTBOUND: &str = "HY2-QUIC-TCP-SMOKE";
+const HY2_QUIC_TCP_RELAY_SMOKE_PASSWORD: &str = "keli-hy2-secret";
+const HY2_QUIC_TCP_RELAY_SMOKE_SNI: &str = "localhost";
+const HY2_QUIC_TCP_RELAY_SMOKE_TARGET_HOST: &str = "example.com";
+const HY2_QUIC_TCP_RELAY_SMOKE_TARGET_PORT: u16 = 443;
+const HY2_QUIC_TCP_RELAY_SMOKE_PAYLOAD: &[u8] = b"keli-hy2-smoke";
+const HY2_QUIC_TCP_RELAY_SMOKE_RESPONSE: &[u8] = b"keli-hy2-pong";
 const VLESS_TCP_RELAY_SMOKE_OUTBOUND: &str = "VLESS-TCP-SMOKE";
 const VLESS_TCP_RELAY_SMOKE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const VLESS_TCP_RELAY_SMOKE_TARGET_HOST: &str = "example.com";
@@ -166,11 +173,11 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(2);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 43;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 33;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 44;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 34;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 32;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 32;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 33;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 33;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -195,11 +202,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,tcp-relay-smoke,http-connect-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,vless-tcp-relay-smoke,vmess-tcp-relay-smoke";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,tcp-relay-smoke,http-connect-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vmess-tcp-relay-smoke";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,tcp-relay-smoke,http-connect-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,vless-tcp-relay-smoke,vmess-tcp-relay-smoke";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,tcp-relay-smoke,http-connect-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vmess-tcp-relay-smoke";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -6932,6 +6939,7 @@ pub struct DefaultCoreReadinessReport {
     pub http_connect_relay_smoke: TcpRelaySmokeReport,
     pub http_proxy_relay_smoke: TcpRelaySmokeReport,
     pub trojan_tls_tcp_relay_smoke: TcpRelaySmokeReport,
+    pub hy2_quic_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vless_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vmess_tcp_relay_smoke: TcpRelaySmokeReport,
     pub udp_relay_smoke: UdpRelaySmokeReport,
@@ -6961,6 +6969,7 @@ pub struct DefaultCoreCertificationReport {
     pub http_connect_relay_smoke: TcpRelaySmokeReport,
     pub http_proxy_relay_smoke: TcpRelaySmokeReport,
     pub trojan_tls_tcp_relay_smoke: TcpRelaySmokeReport,
+    pub hy2_quic_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vless_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vmess_tcp_relay_smoke: TcpRelaySmokeReport,
     pub udp_relay_smoke: UdpRelaySmokeReport,
@@ -7598,6 +7607,7 @@ fn collect_default_core_certification_report(
     let http_connect_relay_smoke = readiness.http_connect_relay_smoke.clone();
     let http_proxy_relay_smoke = readiness.http_proxy_relay_smoke.clone();
     let trojan_tls_tcp_relay_smoke = readiness.trojan_tls_tcp_relay_smoke.clone();
+    let hy2_quic_tcp_relay_smoke = readiness.hy2_quic_tcp_relay_smoke.clone();
     let vless_tcp_relay_smoke = readiness.vless_tcp_relay_smoke.clone();
     let vmess_tcp_relay_smoke = readiness.vmess_tcp_relay_smoke.clone();
     let udp_relay_smoke = readiness.udp_relay_smoke.clone();
@@ -7626,6 +7636,7 @@ fn collect_default_core_certification_report(
         && http_connect_relay_smoke.passed
         && http_proxy_relay_smoke.passed
         && trojan_tls_tcp_relay_smoke.passed
+        && hy2_quic_tcp_relay_smoke.passed
         && vless_tcp_relay_smoke.passed
         && vmess_tcp_relay_smoke.passed
         && udp_relay_smoke.passed
@@ -7649,6 +7660,7 @@ fn collect_default_core_certification_report(
         http_connect_relay_smoke,
         http_proxy_relay_smoke,
         trojan_tls_tcp_relay_smoke,
+        hy2_quic_tcp_relay_smoke,
         vless_tcp_relay_smoke,
         vmess_tcp_relay_smoke,
         udp_relay_smoke,
@@ -7694,6 +7706,7 @@ fn collect_readiness_check_report(
     let http_connect_relay_smoke = collect_default_http_connect_relay_smoke_report();
     let http_proxy_relay_smoke = collect_default_http_proxy_relay_smoke_report();
     let trojan_tls_tcp_relay_smoke = collect_default_trojan_tls_tcp_relay_smoke_report();
+    let hy2_quic_tcp_relay_smoke = collect_default_hy2_quic_tcp_relay_smoke_report();
     let vless_tcp_relay_smoke = collect_default_vless_tcp_relay_smoke_report();
     let vmess_tcp_relay_smoke = collect_default_vmess_tcp_relay_smoke_report();
     let udp_relay_smoke = collect_default_udp_relay_smoke_report();
@@ -7798,6 +7811,12 @@ fn collect_readiness_check_report(
             "protocols",
             trojan_tls_tcp_relay_smoke.passed,
             trojan_tls_tcp_relay_smoke.detail.clone(),
+        ),
+        readiness_gate(
+            "hy2-quic-tcp-relay-smoke",
+            "protocols",
+            hy2_quic_tcp_relay_smoke.passed,
+            hy2_quic_tcp_relay_smoke.detail.clone(),
         ),
         readiness_gate(
             "vless-tcp-relay-smoke",
@@ -7969,6 +7988,7 @@ fn collect_readiness_check_report(
         http_connect_relay_smoke,
         http_proxy_relay_smoke,
         trojan_tls_tcp_relay_smoke,
+        hy2_quic_tcp_relay_smoke,
         vless_tcp_relay_smoke,
         vmess_tcp_relay_smoke,
         udp_relay_smoke,
@@ -11485,6 +11505,752 @@ mod trojan_tls_tcp_relay_smoke_tests {
         assert_eq!(
             round_trip.observed_response.as_deref(),
             Some("keli-trojan-pong")
+        );
+        assert_eq!(round_trip.round_trip_observed, Some(true));
+        assert_eq!(round_trip.server_received_payload, Some(true));
+    }
+}
+
+fn collect_default_hy2_quic_tcp_relay_smoke_report() -> TcpRelaySmokeReport {
+    let mut cases = Vec::new();
+    let mut selected_outbound = None;
+    let request_payload_bytes = HY2_QUIC_TCP_RELAY_SMOKE_PAYLOAD.len();
+    let mut response_payload_bytes = None;
+    let mut round_trip_observed = false;
+    let mut server_received_payload = false;
+    let mut metrics_recorded = false;
+    let mut metrics_total_connections = 0;
+    let mut metrics_success_count = 0;
+    let mut metrics_inbound_count = 0;
+    let mut metrics_outbound_route_count = 0;
+    let mut clean_stop_observed = false;
+    let mut stop_workers_remaining = None;
+    let mut stop_timed_out = None;
+
+    let (hy2_port, hy2_thread) = match spawn_hy2_quic_tcp_relay_smoke_server() {
+        Ok(server) => server,
+        Err(error) => {
+            cases.push(hy2_quic_tcp_relay_smoke_error_case(
+                "start-hy2-quic-tcp-server",
+                "start-protocol-server",
+                error,
+            ));
+            return finalize_hy2_quic_tcp_relay_smoke_report(
+                cases,
+                selected_outbound,
+                request_payload_bytes,
+                response_payload_bytes,
+                round_trip_observed,
+                server_received_payload,
+                metrics_recorded,
+                metrics_total_connections,
+                metrics_success_count,
+                metrics_inbound_count,
+                metrics_outbound_route_count,
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+            );
+        }
+    };
+
+    let controller = SubscriptionReloadSmokeSystemProxyController;
+    let mut core = ManagedMixedController::new(&controller);
+    let config = hy2_quic_tcp_relay_smoke_config(hy2_port);
+    let relay_options = RelayOptions {
+        first_byte_timeout: Some(TCP_RELAY_SMOKE_TIMEOUT),
+        idle_timeout: Some(TCP_RELAY_SMOKE_TIMEOUT),
+    };
+
+    let started = match core.start_from_subscription_config_text(
+        &config,
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some(HY2_QUIC_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+            relay_options,
+            system_proxy: false,
+            max_connection_workers: 2,
+            ..ManagedMixedOptions::default()
+        },
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            cases.push(hy2_quic_tcp_relay_smoke_error_case(
+                "start-hy2-quic-tcp-relay-runtime",
+                "start",
+                error,
+            ));
+            let _ = join_tcp_relay_smoke_server(hy2_thread);
+            return finalize_hy2_quic_tcp_relay_smoke_report(
+                cases,
+                selected_outbound,
+                request_payload_bytes,
+                response_payload_bytes,
+                round_trip_observed,
+                server_received_payload,
+                metrics_recorded,
+                metrics_total_connections,
+                metrics_success_count,
+                metrics_inbound_count,
+                metrics_outbound_route_count,
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+            );
+        }
+    };
+    selected_outbound = started.selected_outbound.clone();
+    cases.push(hy2_quic_tcp_relay_smoke_start_case(&started));
+
+    if let Some(listen_addr) = started.listen_addr {
+        let exchange_result = run_hy2_quic_tcp_relay_smoke_exchange(listen_addr);
+        let server_result = join_tcp_relay_smoke_server(hy2_thread);
+        if let Ok(exchange) = exchange_result.as_ref() {
+            response_payload_bytes = Some(exchange.response_payload.len());
+            round_trip_observed = exchange.response_payload == HY2_QUIC_TCP_RELAY_SMOKE_RESPONSE;
+        }
+        if let Ok(server) = server_result.as_ref() {
+            server_received_payload = server.received_expected_payload;
+        }
+        cases.push(hy2_quic_tcp_relay_smoke_exchange_case(
+            exchange_result,
+            server_result,
+            round_trip_observed,
+            server_received_payload,
+        ));
+
+        let status = wait_for_udp_relay_smoke_status(&core, |status| {
+            hy2_quic_tcp_relay_smoke_metrics_recorded(&status.connection_metrics)
+        });
+        metrics_total_connections = status.connection_metrics.total_connection_count;
+        metrics_success_count = status.connection_metrics.success_count;
+        metrics_inbound_count = udp_relay_smoke_inbound_count(&status.connection_metrics, "socks5");
+        metrics_outbound_route_count =
+            hy2_quic_tcp_relay_smoke_outbound_route_count(&status.connection_metrics);
+        metrics_recorded = hy2_quic_tcp_relay_smoke_metrics_recorded(&status.connection_metrics);
+        cases.push(hy2_quic_tcp_relay_smoke_metrics_case(
+            &status,
+            metrics_recorded,
+        ));
+    } else {
+        cases.push(hy2_quic_tcp_relay_smoke_error_case(
+            "hy2-quic-tcp-relay-round-trip",
+            "socks5-connect",
+            "managed mixed runtime did not expose a listen address".to_string(),
+        ));
+        let _ = join_tcp_relay_smoke_server(hy2_thread);
+    }
+
+    match core.stop() {
+        Ok(stopped) => {
+            let stop_drain = stopped.events().iter().rev().find_map(|event| {
+                if let Some(RuntimeDiagnostic::ManagedMixedStopDrain(diagnostic)) =
+                    event.diagnostic.as_ref()
+                {
+                    Some(diagnostic)
+                } else {
+                    None
+                }
+            });
+            stop_workers_remaining = stop_drain.map(|diagnostic| diagnostic.workers_remaining);
+            stop_timed_out = stop_drain.map(|diagnostic| diagnostic.timed_out);
+            clean_stop_observed = matches!(stopped.status(), RuntimeStatus::Stopped)
+                && stop_workers_remaining == Some(0)
+                && stop_timed_out == Some(false);
+            cases.push(hy2_quic_tcp_relay_smoke_stop_case(
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+                None,
+            ));
+        }
+        Err(error) => cases.push(hy2_quic_tcp_relay_smoke_stop_case(
+            clean_stop_observed,
+            stop_workers_remaining,
+            stop_timed_out,
+            Some(error),
+        )),
+    }
+
+    finalize_hy2_quic_tcp_relay_smoke_report(
+        cases,
+        selected_outbound,
+        request_payload_bytes,
+        response_payload_bytes,
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+    )
+}
+
+fn hy2_quic_tcp_relay_smoke_config(hy2_port: u16) -> String {
+    format!(
+        r#"
+proxies:
+  - name: {HY2_QUIC_TCP_RELAY_SMOKE_OUTBOUND}
+    type: hy2
+    server: 127.0.0.1
+    port: {hy2_port}
+    password: {HY2_QUIC_TCP_RELAY_SMOKE_PASSWORD}
+    sni: {HY2_QUIC_TCP_RELAY_SMOKE_SNI}
+    skip-cert-verify: true
+"#
+    )
+}
+
+fn finalize_hy2_quic_tcp_relay_smoke_report(
+    cases: Vec<TcpRelaySmokeCaseReport>,
+    selected_outbound: Option<String>,
+    request_payload_bytes: usize,
+    response_payload_bytes: Option<usize>,
+    round_trip_observed: bool,
+    server_received_payload: bool,
+    metrics_recorded: bool,
+    metrics_total_connections: u64,
+    metrics_success_count: u64,
+    metrics_inbound_count: u64,
+    metrics_outbound_route_count: u64,
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+) -> TcpRelaySmokeReport {
+    let failed = cases
+        .iter()
+        .filter(|case| !case.passed)
+        .map(|case| case.name)
+        .collect::<Vec<_>>();
+    let passed = failed.is_empty()
+        && selected_outbound.as_deref() == Some(HY2_QUIC_TCP_RELAY_SMOKE_OUTBOUND)
+        && round_trip_observed
+        && server_received_payload
+        && metrics_recorded
+        && clean_stop_observed;
+    let target = hy2_quic_tcp_relay_smoke_target();
+    let detail = format!(
+        "cases={} passed={} failed={} failed_cases={} selected={} target={} request_bytes={} response_bytes={} round_trip_observed={} server_received_payload={} metrics_recorded={} metrics_total={} metrics_success={} metrics_inbound_socks5={} metrics_outbound_route={} clean_stop_observed={} stop_workers_remaining={} stop_timed_out={}",
+        cases.len(),
+        passed,
+        failed.len(),
+        if failed.is_empty() {
+            "-".to_string()
+        } else {
+            failed.join(",")
+        },
+        selected_outbound.as_deref().unwrap_or("-"),
+        target,
+        request_payload_bytes,
+        response_payload_bytes
+            .map(|bytes| bytes.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining
+            .map(|workers| workers.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        stop_timed_out
+            .map(|timed_out| timed_out.to_string())
+            .unwrap_or_else(|| "-".to_string())
+    );
+    TcpRelaySmokeReport {
+        passed,
+        detail,
+        selected_outbound,
+        target,
+        request_payload_bytes,
+        response_payload_bytes,
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+        cases,
+    }
+}
+
+fn hy2_quic_tcp_relay_smoke_start_case(
+    status: &ManagedMixedStatusSnapshot,
+) -> TcpRelaySmokeCaseReport {
+    let selected = status.selected_outbound.clone();
+    let passed = selected.as_deref() == Some(HY2_QUIC_TCP_RELAY_SMOKE_OUTBOUND)
+        && status.generation == 1
+        && matches!(&status.status, RuntimeStatus::Running { .. });
+    TcpRelaySmokeCaseReport {
+        name: "start-hy2-quic-tcp-relay-runtime",
+        action: "start",
+        expected_selected_outbound: Some(HY2_QUIC_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: selected,
+        expected_generation: Some(1),
+        observed_generation: Some(status.generation),
+        target: hy2_quic_tcp_relay_smoke_target(),
+        expected_response: None,
+        observed_response: None,
+        request_payload_bytes: None,
+        response_payload_bytes: None,
+        runtime_running: Some(matches!(&status.status, RuntimeStatus::Running { .. })),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+        error: None,
+    }
+}
+
+fn hy2_quic_tcp_relay_smoke_exchange_case(
+    exchange: Result<TcpRelaySmokeExchangeObservation, String>,
+    server: Result<TcpRelaySmokeServerObservation, String>,
+    round_trip_observed: bool,
+    server_received_payload: bool,
+) -> TcpRelaySmokeCaseReport {
+    let mut error = Vec::new();
+    if let Err(message) = exchange.as_ref() {
+        error.push(format!("client={message}"));
+    }
+    if let Err(message) = server.as_ref() {
+        error.push(format!("server={message}"));
+    }
+    let passed = round_trip_observed && server_received_payload && error.is_empty();
+    TcpRelaySmokeCaseReport {
+        name: "hy2-quic-tcp-protocol-round-trip",
+        action: "socks5-connect",
+        expected_selected_outbound: Some(HY2_QUIC_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: hy2_quic_tcp_relay_smoke_target(),
+        expected_response: Some(
+            String::from_utf8_lossy(HY2_QUIC_TCP_RELAY_SMOKE_RESPONSE).to_string(),
+        ),
+        observed_response: exchange
+            .as_ref()
+            .map(|exchange| String::from_utf8_lossy(&exchange.response_payload).to_string())
+            .ok(),
+        request_payload_bytes: Some(HY2_QUIC_TCP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: exchange
+            .as_ref()
+            .map(|exchange| exchange.response_payload.len())
+            .ok(),
+        runtime_running: None,
+        round_trip_observed: Some(round_trip_observed),
+        server_received_payload: Some(server_received_payload),
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+        error: if error.is_empty() {
+            None
+        } else {
+            Some(error.join("; "))
+        },
+    }
+}
+
+fn hy2_quic_tcp_relay_smoke_metrics_case(
+    status: &ManagedMixedStatusSnapshot,
+    metrics_recorded: bool,
+) -> TcpRelaySmokeCaseReport {
+    let metrics = &status.connection_metrics;
+    let inbound_count = udp_relay_smoke_inbound_count(metrics, "socks5");
+    let outbound_route_count = hy2_quic_tcp_relay_smoke_outbound_route_count(metrics);
+    TcpRelaySmokeCaseReport {
+        name: "record-hy2-quic-tcp-relay-metrics",
+        action: "status",
+        expected_selected_outbound: Some(HY2_QUIC_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: status.selected_outbound.clone(),
+        expected_generation: Some(1),
+        observed_generation: Some(status.generation),
+        target: hy2_quic_tcp_relay_smoke_target(),
+        expected_response: None,
+        observed_response: None,
+        request_payload_bytes: Some(HY2_QUIC_TCP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: Some(HY2_QUIC_TCP_RELAY_SMOKE_RESPONSE.len()),
+        runtime_running: Some(matches!(&status.status, RuntimeStatus::Running { .. })),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: Some(metrics_recorded),
+        metrics_total_connections: Some(metrics.total_connection_count),
+        metrics_success_count: Some(metrics.success_count),
+        metrics_inbound_count: Some(inbound_count),
+        metrics_outbound_route_count: Some(outbound_route_count),
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed: metrics_recorded,
+        error: None,
+    }
+}
+
+fn hy2_quic_tcp_relay_smoke_stop_case(
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+    error: Option<String>,
+) -> TcpRelaySmokeCaseReport {
+    TcpRelaySmokeCaseReport {
+        name: "stop-hy2-quic-tcp-relay-runtime",
+        action: "stop",
+        expected_selected_outbound: None,
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: hy2_quic_tcp_relay_smoke_target(),
+        expected_response: None,
+        observed_response: None,
+        request_payload_bytes: None,
+        response_payload_bytes: None,
+        runtime_running: Some(false),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: Some(clean_stop_observed),
+        stop_workers_remaining,
+        stop_timed_out,
+        passed: clean_stop_observed && error.is_none(),
+        error,
+    }
+}
+
+fn hy2_quic_tcp_relay_smoke_error_case(
+    name: &'static str,
+    action: &'static str,
+    error: String,
+) -> TcpRelaySmokeCaseReport {
+    TcpRelaySmokeCaseReport {
+        name,
+        action,
+        expected_selected_outbound: Some(HY2_QUIC_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: hy2_quic_tcp_relay_smoke_target(),
+        expected_response: Some(
+            String::from_utf8_lossy(HY2_QUIC_TCP_RELAY_SMOKE_RESPONSE).to_string(),
+        ),
+        observed_response: None,
+        request_payload_bytes: Some(HY2_QUIC_TCP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: None,
+        runtime_running: None,
+        round_trip_observed: Some(false),
+        server_received_payload: Some(false),
+        metrics_recorded: Some(false),
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed: false,
+        error: Some(error),
+    }
+}
+
+fn run_hy2_quic_tcp_relay_smoke_exchange(
+    listen_addr: SocketAddr,
+) -> Result<TcpRelaySmokeExchangeObservation, String> {
+    let mut client = TcpStream::connect(listen_addr)
+        .map_err(|error| format!("connect HY2 QUIC TCP smoke listener {listen_addr}: {error}"))?;
+    client
+        .set_read_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+        .map_err(|error| format!("set HY2 QUIC TCP smoke client read timeout: {error}"))?;
+    client
+        .set_write_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+        .map_err(|error| format!("set HY2 QUIC TCP smoke client write timeout: {error}"))?;
+    let target = OutboundTarget::new(
+        HY2_QUIC_TCP_RELAY_SMOKE_TARGET_HOST,
+        HY2_QUIC_TCP_RELAY_SMOKE_TARGET_PORT,
+    );
+    write_smoke_connect(&mut client, &target, SmokeInboundKind::Socks5)?;
+    client
+        .write_all(HY2_QUIC_TCP_RELAY_SMOKE_PAYLOAD)
+        .map_err(|error| format!("write HY2 QUIC TCP smoke payload: {error}"))?;
+    let mut response = vec![0; HY2_QUIC_TCP_RELAY_SMOKE_RESPONSE.len()];
+    client
+        .read_exact(&mut response)
+        .map_err(|error| format!("read HY2 QUIC TCP smoke response: {error}"))?;
+    client.shutdown(Shutdown::Both).ok();
+    Ok(TcpRelaySmokeExchangeObservation {
+        response_payload: response,
+    })
+}
+
+fn spawn_hy2_quic_tcp_relay_smoke_server() -> Result<
+    (
+        u16,
+        thread::JoinHandle<Result<TcpRelaySmokeServerObservation, String>>,
+    ),
+    String,
+> {
+    let server_config = hy2_quic_tcp_relay_smoke_server_config()?;
+    let (port_tx, port_rx) = std::sync::mpsc::channel();
+    let handle = thread::spawn(move || -> Result<TcpRelaySmokeServerObservation, String> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| format!("build HY2 QUIC TCP smoke runtime: {error}"))?;
+        runtime.block_on(async move {
+            let endpoint = match quinn::Endpoint::server(
+                server_config,
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            ) {
+                Ok(endpoint) => endpoint,
+                Err(error) => {
+                    let message = format!("bind HY2 QUIC TCP smoke server: {error}");
+                    let _ = port_tx.send(Err(message.clone()));
+                    return Err(message);
+                }
+            };
+            let listen_port = match endpoint.local_addr() {
+                Ok(address) => address.port(),
+                Err(error) => {
+                    let message = format!("read HY2 QUIC TCP smoke address: {error}");
+                    let _ = port_tx.send(Err(message.clone()));
+                    return Err(message);
+                }
+            };
+            port_tx
+                .send(Ok(listen_port))
+                .map_err(|error| format!("publish HY2 QUIC TCP smoke address: {error}"))?;
+            let incoming = tokio::time::timeout(TCP_RELAY_SMOKE_TIMEOUT, endpoint.accept())
+                .await
+                .map_err(|_| "HY2 QUIC TCP smoke accept timed out".to_string())?
+                .ok_or_else(|| "HY2 QUIC TCP smoke endpoint closed before accept".to_string())?;
+            let connection = tokio::time::timeout(TCP_RELAY_SMOKE_TIMEOUT, incoming)
+                .await
+                .map_err(|_| "HY2 QUIC TCP smoke handshake timed out".to_string())?
+                .map_err(|error| format!("accept HY2 QUIC TCP connection: {error}"))?;
+            let mut h3_connection: h3::server::Connection<h3_quinn::Connection, bytes::Bytes> =
+                h3::server::builder()
+                    .build(h3_quinn::Connection::new(connection.clone()))
+                    .await
+                    .map_err(|error| format!("build HY2 H3 smoke server connection: {error}"))?;
+            let resolver = tokio::time::timeout(TCP_RELAY_SMOKE_TIMEOUT, h3_connection.accept())
+                .await
+                .map_err(|_| "HY2 H3 auth accept timed out".to_string())?
+                .map_err(|error| format!("accept HY2 H3 auth request: {error}"))?
+                .ok_or_else(|| "HY2 H3 auth request missing".to_string())?;
+            let (request, mut auth_stream) = resolver
+                .resolve_request()
+                .await
+                .map_err(|error| format!("resolve HY2 H3 auth request: {error}"))?;
+            let observed_auth = request
+                .headers()
+                .get("Hysteria-Auth")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("");
+            if observed_auth != HY2_QUIC_TCP_RELAY_SMOKE_PASSWORD {
+                return Err(format!(
+                    "unexpected HY2 H3 auth header: expected {}, got {}",
+                    HY2_QUIC_TCP_RELAY_SMOKE_PASSWORD, observed_auth
+                ));
+            }
+            auth_stream
+                .send_response(http::Response::builder().status(233).body(()).unwrap())
+                .await
+                .map_err(|error| format!("send HY2 H3 auth response: {error}"))?;
+            auth_stream
+                .finish()
+                .await
+                .map_err(|error| format!("finish HY2 H3 auth response: {error}"))?;
+
+            let (mut send, mut recv) =
+                tokio::time::timeout(TCP_RELAY_SMOKE_TIMEOUT, connection.accept_bi())
+                    .await
+                    .map_err(|_| "HY2 QUIC TCP stream accept timed out".to_string())?
+                    .map_err(|error| format!("accept HY2 QUIC TCP stream: {error}"))?;
+            let expected_request = encode_hy2_tcp_request(
+                &Endpoint::new(
+                    HY2_QUIC_TCP_RELAY_SMOKE_TARGET_HOST,
+                    HY2_QUIC_TCP_RELAY_SMOKE_TARGET_PORT,
+                ),
+                b"",
+            )
+            .map_err(|error| format!("encode expected HY2 TCP request: {error}"))?;
+            let mut observed_request = vec![0; expected_request.len()];
+            recv.read_exact(&mut observed_request)
+                .await
+                .map_err(|error| format!("read HY2 TCP request: {error}"))?;
+            if observed_request != expected_request {
+                return Err(format!(
+                    "unexpected HY2 TCP request: expected {:?}, got {:?}",
+                    expected_request, observed_request
+                ));
+            }
+            send.write_all(&[0x00, 0x00, 0x00])
+                .await
+                .map_err(|error| format!("write HY2 TCP OK response: {error}"))?;
+            let mut payload = vec![0; HY2_QUIC_TCP_RELAY_SMOKE_PAYLOAD.len()];
+            recv.read_exact(&mut payload)
+                .await
+                .map_err(|error| format!("read HY2 TCP payload: {error}"))?;
+            if payload != HY2_QUIC_TCP_RELAY_SMOKE_PAYLOAD {
+                return Err(format!(
+                    "unexpected HY2 TCP payload: expected {:?}, got {:?}",
+                    HY2_QUIC_TCP_RELAY_SMOKE_PAYLOAD, payload
+                ));
+            }
+            send.write_all(HY2_QUIC_TCP_RELAY_SMOKE_RESPONSE)
+                .await
+                .map_err(|error| format!("write HY2 TCP response payload: {error}"))?;
+            send.finish()
+                .map_err(|error| format!("finish HY2 TCP response stream: {error}"))?;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            Ok(TcpRelaySmokeServerObservation {
+                received_expected_payload: true,
+            })
+        })
+    });
+    let listen_port = match port_rx.recv_timeout(TCP_RELAY_SMOKE_TIMEOUT) {
+        Ok(Ok(port)) => port,
+        Ok(Err(error)) => {
+            let _ = join_tcp_relay_smoke_server(handle);
+            return Err(error);
+        }
+        Err(error) => {
+            let _ = join_tcp_relay_smoke_server(handle);
+            return Err(format!("receive HY2 QUIC TCP smoke address: {error}"));
+        }
+    };
+    Ok((listen_port, handle))
+}
+
+fn hy2_quic_tcp_relay_smoke_server_config() -> Result<quinn::ServerConfig, String> {
+    let cert = generate_simple_self_signed(vec![HY2_QUIC_TCP_RELAY_SMOKE_SNI.to_string()])
+        .map_err(|error| format!("generate HY2 QUIC TCP smoke cert: {error}"))?;
+    let cert_der: CertificateDer<'static> = cert.cert.der().clone();
+    let key_der = PrivateKeyDer::Pkcs8(cert.signing_key.serialize_der().into());
+    let mut tls = rustls::ServerConfig::builder_with_provider(
+        rustls::crypto::ring::default_provider().into(),
+    )
+    .with_protocol_versions(&[&rustls::version::TLS13])
+    .map_err(|error| format!("configure HY2 QUIC TCP smoke TLS versions: {error}"))?
+    .with_no_client_auth()
+    .with_single_cert(vec![cert_der], key_der)
+    .map_err(|error| format!("configure HY2 QUIC TCP smoke certificate: {error}"))?;
+    tls.alpn_protocols = vec![b"h3".to_vec()];
+    quinn::crypto::rustls::QuicServerConfig::try_from(tls)
+        .map(|config| quinn::ServerConfig::with_crypto(Arc::new(config)))
+        .map_err(|error| format!("configure HY2 QUIC TCP smoke server: {error}"))
+}
+
+fn hy2_quic_tcp_relay_smoke_metrics_recorded(metrics: &ConnectionMetricsSnapshot) -> bool {
+    metrics.total_connection_count >= 1
+        && metrics.success_count >= 1
+        && udp_relay_smoke_inbound_count(metrics, "socks5") >= 1
+        && hy2_quic_tcp_relay_smoke_outbound_route_count(metrics) >= 1
+        && metrics.total_upload_bytes >= HY2_QUIC_TCP_RELAY_SMOKE_PAYLOAD.len() as u64
+        && metrics.total_download_bytes >= HY2_QUIC_TCP_RELAY_SMOKE_RESPONSE.len() as u64
+}
+
+fn hy2_quic_tcp_relay_smoke_outbound_route_count(metrics: &ConnectionMetricsSnapshot) -> u64 {
+    metrics
+        .route_action_counts
+        .iter()
+        .find(|entry| {
+            entry.route_action
+                == RouteAction::Outbound(HY2_QUIC_TCP_RELAY_SMOKE_OUTBOUND.to_string())
+        })
+        .map(|entry| entry.count)
+        .unwrap_or(0)
+}
+
+fn hy2_quic_tcp_relay_smoke_target() -> String {
+    format!(
+        "{}:{}",
+        HY2_QUIC_TCP_RELAY_SMOKE_TARGET_HOST, HY2_QUIC_TCP_RELAY_SMOKE_TARGET_PORT
+    )
+}
+
+#[cfg(test)]
+mod hy2_quic_tcp_relay_smoke_tests {
+    use super::*;
+
+    #[test]
+    fn default_hy2_quic_tcp_relay_smoke_proves_h3_auth_and_tcp_round_trip() {
+        let report = collect_default_hy2_quic_tcp_relay_smoke_report();
+
+        assert!(report.passed, "{report:#?}");
+        assert_eq!(
+            report.selected_outbound.as_deref(),
+            Some(HY2_QUIC_TCP_RELAY_SMOKE_OUTBOUND)
+        );
+        assert_eq!(report.target, hy2_quic_tcp_relay_smoke_target());
+        assert_eq!(
+            report.request_payload_bytes,
+            HY2_QUIC_TCP_RELAY_SMOKE_PAYLOAD.len()
+        );
+        assert_eq!(
+            report.response_payload_bytes,
+            Some(HY2_QUIC_TCP_RELAY_SMOKE_RESPONSE.len())
+        );
+        assert!(report.round_trip_observed);
+        assert!(report.server_received_payload);
+        assert!(report.metrics_recorded);
+        assert!(report.metrics_total_connections >= 1);
+        assert!(report.metrics_success_count >= 1);
+        assert!(report.metrics_inbound_count >= 1);
+        assert!(report.metrics_outbound_route_count >= 1);
+        assert!(report.clean_stop_observed);
+        assert_eq!(report.stop_workers_remaining, Some(0));
+        assert_eq!(report.stop_timed_out, Some(false));
+
+        let case_names = report
+            .cases
+            .iter()
+            .map(|case| case.name)
+            .collect::<Vec<_>>();
+        for expected in [
+            "start-hy2-quic-tcp-relay-runtime",
+            "hy2-quic-tcp-protocol-round-trip",
+            "record-hy2-quic-tcp-relay-metrics",
+            "stop-hy2-quic-tcp-relay-runtime",
+        ] {
+            assert!(
+                case_names.contains(&expected),
+                "missing HY2 QUIC TCP relay smoke case {expected}: {case_names:?}"
+            );
+        }
+        let round_trip = report
+            .cases
+            .iter()
+            .find(|case| case.name == "hy2-quic-tcp-protocol-round-trip")
+            .expect("round trip case");
+        assert_eq!(
+            round_trip.observed_response.as_deref(),
+            Some("keli-hy2-pong")
         );
         assert_eq!(round_trip.round_trip_observed, Some(true));
         assert_eq!(round_trip.server_received_payload, Some(true));
@@ -17750,6 +18516,14 @@ fn write_readiness_check_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "readiness hy2_quic_tcp_relay_smoke status={} cases={} detail={}",
+        tcp_relay_smoke_status_label(&report.hy2_quic_tcp_relay_smoke),
+        report.hy2_quic_tcp_relay_smoke.cases.len(),
+        report.hy2_quic_tcp_relay_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "readiness vless_tcp_relay_smoke status={} cases={} detail={}",
         tcp_relay_smoke_status_label(&report.vless_tcp_relay_smoke),
         report.vless_tcp_relay_smoke.cases.len(),
@@ -17884,6 +18658,9 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         ),
         "trojan_tls_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.trojan_tls_tcp_relay_smoke
+        ),
+        "hy2_quic_tcp_relay_smoke": tcp_relay_smoke_json_value(
+            &report.hy2_quic_tcp_relay_smoke
         ),
         "vless_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.vless_tcp_relay_smoke
@@ -18050,6 +18827,14 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification hy2_quic_tcp_relay_smoke status={} cases={} detail={}",
+        tcp_relay_smoke_status_label(&report.hy2_quic_tcp_relay_smoke),
+        report.hy2_quic_tcp_relay_smoke.cases.len(),
+        report.hy2_quic_tcp_relay_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification vless_tcp_relay_smoke status={} cases={} detail={}",
         tcp_relay_smoke_status_label(&report.vless_tcp_relay_smoke),
         report.vless_tcp_relay_smoke.cases.len(),
@@ -18201,6 +18986,7 @@ fn default_core_certification_json_value(
             "http_connect_relay_smoke_passed": report.http_connect_relay_smoke.passed,
             "http_proxy_relay_smoke_passed": report.http_proxy_relay_smoke.passed,
             "trojan_tls_tcp_relay_smoke_passed": report.trojan_tls_tcp_relay_smoke.passed,
+            "hy2_quic_tcp_relay_smoke_passed": report.hy2_quic_tcp_relay_smoke.passed,
             "vless_tcp_relay_smoke_passed": report.vless_tcp_relay_smoke.passed,
             "vmess_tcp_relay_smoke_passed": report.vmess_tcp_relay_smoke.passed,
             "udp_relay_smoke_passed": report.udp_relay_smoke.passed,
@@ -18240,6 +19026,9 @@ fn default_core_certification_json_value(
         ),
         "trojan_tls_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.trojan_tls_tcp_relay_smoke
+        ),
+        "hy2_quic_tcp_relay_smoke": tcp_relay_smoke_json_value(
+            &report.hy2_quic_tcp_relay_smoke
         ),
         "vless_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.vless_tcp_relay_smoke

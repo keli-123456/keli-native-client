@@ -360,7 +360,7 @@ and support flows can inspect protocol readiness without scraping this document.
 combines doctor schema coverage, interop matrix coverage, resource limits,
 resource-limit smoke coverage, route-rule runtime smoke coverage,
 DNS policy smoke coverage,
-TCP relay smoke coverage, HTTP CONNECT relay smoke coverage, HTTP proxy relay smoke coverage, Trojan TLS TCP relay smoke coverage, VLESS TCP relay smoke coverage, VMess TCP relay smoke coverage, UDP relay smoke coverage,
+TCP relay smoke coverage, HTTP CONNECT relay smoke coverage, HTTP proxy relay smoke coverage, Trojan TLS TCP relay smoke coverage, HY2 QUIC TCP relay smoke coverage, VLESS TCP relay smoke coverage, VMess TCP relay smoke coverage, UDP relay smoke coverage,
 subscription reload smoke coverage, runtime recovery smoke coverage,
 panel/subscription smoke coverage, system proxy support, TUN preflight state,
 TUN backend wiring, route takeover wiring, and optional local mixed soak gates
@@ -399,6 +399,11 @@ local Trojan TLS subscription node, performs a TLS handshake with a local
 self-signed server using skip-cert verification, verifies the Trojan password
 hash and CONNECT target at the local protocol server, completes the payload
 round trip, records `socks5`/outbound metrics, and stops cleanly.
+The default HY2 QUIC TCP relay smoke starts a managed mixed runtime from a
+local Hysteria2 subscription node, completes QUIC/TLS and HTTP/3 auth against
+a local server, verifies the HY2 TCP request target at the protocol server,
+completes the payload round trip over the QUIC stream, records
+`socks5`/outbound metrics, and stops cleanly.
 The default VLESS TCP relay smoke starts a managed mixed runtime from a local
 VLESS subscription node, drives SOCKS5 CONNECT through the selected VLESS
 outbound, verifies the VLESS request header at the local protocol server,
@@ -488,7 +493,7 @@ runtime alive for that minimum duration and report `min_duration_ms` plus
 `default-core-certify` runs the non-skipped readiness gates and emits a
 single certification artifact that embeds the readiness report, TUN backend
 packaging evidence, structured TUN preflight evidence, route-rule smoke
-evidence, DNS policy smoke evidence, TCP relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, VLESS TCP relay smoke evidence, VMess TCP relay smoke evidence, UDP relay smoke evidence,
+evidence, DNS policy smoke evidence, TCP relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VMess TCP relay smoke evidence, UDP relay smoke evidence,
 resource-limit smoke evidence,
 subscription reload smoke evidence, soak parameters, runtime recovery smoke
 evidence, and the final
@@ -542,7 +547,8 @@ filtering, and hijacked DNS responses, plus TCP relay smoke evidence for
 SOCKS5 CONNECT through a selected local Shadowsocks outbound, plus HTTP CONNECT relay smoke evidence for
 the system-proxy-style TCP inbound through a selected local Shadowsocks outbound, plus HTTP proxy relay smoke evidence for
 plain HTTP proxy requests through a selected local Shadowsocks outbound, plus Trojan TLS TCP relay smoke evidence for
-SOCKS5 CONNECT through a selected local Trojan TLS outbound, plus VLESS TCP relay smoke evidence for
+SOCKS5 CONNECT through a selected local Trojan TLS outbound, plus HY2 QUIC TCP relay smoke evidence for
+SOCKS5 CONNECT through a selected local Hysteria2 QUIC outbound, plus VLESS TCP relay smoke evidence for
 SOCKS5 CONNECT through a selected local VLESS outbound, plus VMess TCP relay smoke evidence for
 SOCKS5 CONNECT through a selected local VMess outbound, plus UDP relay smoke evidence for
 SOCKS5 UDP associate through a selected local Shadowsocks outbound, plus
@@ -556,7 +562,7 @@ and release automation can track what is still blocking default-core use.
 `keli-cli default-core-certify --format json` exports the corresponding
 machine-level certification evidence with real soak gates and TUN backend
 packaging state, structured TUN preflight state, route-rule smoke evidence, DNS
-policy smoke evidence, TCP relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, VLESS TCP relay smoke evidence, VMess TCP relay smoke evidence, UDP relay smoke evidence, resource-limit smoke evidence, panel/subscription smoke
+policy smoke evidence, TCP relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VMess TCP relay smoke evidence, UDP relay smoke evidence, resource-limit smoke evidence, panel/subscription smoke
 evidence, and promotion blockers for default-core promotion checks. Add
 `--include-tun-runtime-smoke` when the
 certification run should also prove the native TUN runtime can start, open
