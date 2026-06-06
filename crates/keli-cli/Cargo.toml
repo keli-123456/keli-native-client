@@ -8,6 +8,7 @@ version.workspace = true
 aes.workspace = true
 aes-gcm.workspace = true
 bytes.workspace = true
+chacha20poly1305.workspace = true
 crc32fast.workspace = true
 h3.workspace = true
 h3-quinn.workspace = true
@@ -30,7 +31,6 @@ webpki-roots.workspace = true
 
 [dev-dependencies]
 base64.workspace = true
-chacha20poly1305.workspace = true
 h2.workspace = true
 rustls.workspace = true
 sha3.workspace = true

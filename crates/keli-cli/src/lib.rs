@@ -18,6 +18,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use aes::cipher::{BlockDecrypt, KeyInit as AesKeyInit};
 use aes_gcm::aead::{Aead, Payload};
 use aes_gcm::{Aes128Gcm, Nonce as AesGcmNonce};
+use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use hmac::{Hmac, Mac};
 use keli_client_core::{
     build_connection_plan, plan_subscription_update, ClientErrorKind, ClientRuntime,
@@ -160,6 +161,27 @@ const VMESS_TCP_RELAY_SMOKE_TARGET_HOST: &str = "example.com";
 const VMESS_TCP_RELAY_SMOKE_TARGET_PORT: u16 = 443;
 const VMESS_TCP_RELAY_SMOKE_PAYLOAD: &[u8] = b"keli-vmess-smoke";
 const VMESS_TCP_RELAY_SMOKE_RESPONSE: &[u8] = b"keli-vmess-pong";
+const MIERU_TCP_RELAY_SMOKE_OUTBOUND: &str = "MIERU-TCP-SMOKE";
+const MIERU_TCP_RELAY_SMOKE_USERNAME: &str = "user";
+const MIERU_TCP_RELAY_SMOKE_PASSWORD: &str = "pass";
+const MIERU_TCP_RELAY_SMOKE_TARGET_HOST: &str = "example.com";
+const MIERU_TCP_RELAY_SMOKE_TARGET_PORT: u16 = 443;
+const MIERU_TCP_RELAY_SMOKE_PAYLOAD: &[u8] = b"keli-mieru-smoke";
+const MIERU_TCP_RELAY_SMOKE_RESPONSE: &[u8] = b"keli-mieru-pong";
+const MIERU_TCP_RELAY_SMOKE_NONCE_LEN: usize = 24;
+const MIERU_TCP_RELAY_SMOKE_METADATA_LEN: usize = 32;
+const MIERU_TCP_RELAY_SMOKE_TAG_LEN: usize = 16;
+const MIERU_TCP_RELAY_SMOKE_ENCRYPTED_METADATA_LEN: usize =
+    MIERU_TCP_RELAY_SMOKE_METADATA_LEN + MIERU_TCP_RELAY_SMOKE_TAG_LEN;
+const MIERU_TCP_RELAY_SMOKE_KEY_WINDOW_SECS: i64 = 120;
+const MIERU_TCP_RELAY_SMOKE_OPEN_SESSION_REQUEST: u8 = 2;
+const MIERU_TCP_RELAY_SMOKE_OPEN_SESSION_RESPONSE: u8 = 3;
+const MIERU_TCP_RELAY_SMOKE_CLOSE_SESSION_REQUEST: u8 = 4;
+const MIERU_TCP_RELAY_SMOKE_CLOSE_SESSION_RESPONSE: u8 = 5;
+const MIERU_TCP_RELAY_SMOKE_DATA_CLIENT_TO_SERVER: u8 = 6;
+const MIERU_TCP_RELAY_SMOKE_DATA_SERVER_TO_CLIENT: u8 = 7;
+const MIERU_TCP_RELAY_SMOKE_STATUS_OK: u8 = 0;
+const MIERU_TCP_RELAY_SMOKE_SOCKS_CONNECT_SUCCESS: [u8; 10] = [5, 0, 0, 1, 0, 0, 0, 0, 0, 0];
 const VMESS_COMMAND_TCP: u8 = 0x01;
 const VMESS_SECURITY_NONE: u8 = 0x05;
 const VMESS_ATYP_DOMAIN: u8 = 0x02;
@@ -189,11 +211,11 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(2);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 46;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 36;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 47;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 37;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 35;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 35;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 36;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 36;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -218,11 +240,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,tcp-relay-smoke,http-connect-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,anytls-tls-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vmess-tcp-relay-smoke";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,tcp-relay-smoke,http-connect-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,anytls-tls-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vmess-tcp-relay-smoke,mieru-tcp-relay-smoke";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,tcp-relay-smoke,http-connect-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,anytls-tls-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vmess-tcp-relay-smoke";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,tcp-relay-smoke,http-connect-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,anytls-tls-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vmess-tcp-relay-smoke,mieru-tcp-relay-smoke";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -6960,6 +6982,7 @@ pub struct DefaultCoreReadinessReport {
     pub tuic_quic_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vless_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vmess_tcp_relay_smoke: TcpRelaySmokeReport,
+    pub mieru_tcp_relay_smoke: TcpRelaySmokeReport,
     pub udp_relay_smoke: UdpRelaySmokeReport,
     pub resource_limit_smoke: ResourceLimitSmokeReport,
     pub panel_subscription_smoke: PanelSubscriptionSmokeReport,
@@ -6992,6 +7015,7 @@ pub struct DefaultCoreCertificationReport {
     pub tuic_quic_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vless_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vmess_tcp_relay_smoke: TcpRelaySmokeReport,
+    pub mieru_tcp_relay_smoke: TcpRelaySmokeReport,
     pub udp_relay_smoke: UdpRelaySmokeReport,
     pub resource_limit_smoke: ResourceLimitSmokeReport,
     pub panel_subscription_smoke: PanelSubscriptionSmokeReport,
@@ -7632,6 +7656,7 @@ fn collect_default_core_certification_report(
     let tuic_quic_tcp_relay_smoke = readiness.tuic_quic_tcp_relay_smoke.clone();
     let vless_tcp_relay_smoke = readiness.vless_tcp_relay_smoke.clone();
     let vmess_tcp_relay_smoke = readiness.vmess_tcp_relay_smoke.clone();
+    let mieru_tcp_relay_smoke = readiness.mieru_tcp_relay_smoke.clone();
     let udp_relay_smoke = readiness.udp_relay_smoke.clone();
     let resource_limit_smoke = readiness.resource_limit_smoke.clone();
     let panel_subscription_smoke = readiness.panel_subscription_smoke.clone();
@@ -7663,6 +7688,7 @@ fn collect_default_core_certification_report(
         && tuic_quic_tcp_relay_smoke.passed
         && vless_tcp_relay_smoke.passed
         && vmess_tcp_relay_smoke.passed
+        && mieru_tcp_relay_smoke.passed
         && udp_relay_smoke.passed
         && resource_limit_smoke.passed
         && panel_subscription_smoke.passed
@@ -7689,6 +7715,7 @@ fn collect_default_core_certification_report(
         tuic_quic_tcp_relay_smoke,
         vless_tcp_relay_smoke,
         vmess_tcp_relay_smoke,
+        mieru_tcp_relay_smoke,
         udp_relay_smoke,
         resource_limit_smoke,
         panel_subscription_smoke,
@@ -7737,6 +7764,7 @@ fn collect_readiness_check_report(
     let tuic_quic_tcp_relay_smoke = collect_default_tuic_quic_tcp_relay_smoke_report();
     let vless_tcp_relay_smoke = collect_default_vless_tcp_relay_smoke_report();
     let vmess_tcp_relay_smoke = collect_default_vmess_tcp_relay_smoke_report();
+    let mieru_tcp_relay_smoke = collect_default_mieru_tcp_relay_smoke_report();
     let udp_relay_smoke = collect_default_udp_relay_smoke_report();
     let resource_limit_smoke = collect_default_resource_limit_smoke_report();
     let panel_subscription_smoke = collect_default_panel_subscription_smoke_report();
@@ -7869,6 +7897,12 @@ fn collect_readiness_check_report(
             "protocols",
             vmess_tcp_relay_smoke.passed,
             vmess_tcp_relay_smoke.detail.clone(),
+        ),
+        readiness_gate(
+            "mieru-tcp-relay-smoke",
+            "protocols",
+            mieru_tcp_relay_smoke.passed,
+            mieru_tcp_relay_smoke.detail.clone(),
         ),
         readiness_gate(
             "udp-relay-smoke",
@@ -8033,6 +8067,7 @@ fn collect_readiness_check_report(
         tuic_quic_tcp_relay_smoke,
         vless_tcp_relay_smoke,
         vmess_tcp_relay_smoke,
+        mieru_tcp_relay_smoke,
         udp_relay_smoke,
         resource_limit_smoke,
         panel_subscription_smoke,
@@ -15392,6 +15427,1028 @@ mod vmess_tcp_relay_smoke_tests {
     }
 }
 
+fn collect_default_mieru_tcp_relay_smoke_report() -> TcpRelaySmokeReport {
+    let mut cases = Vec::new();
+    let mut selected_outbound = None;
+    let request_payload_bytes = MIERU_TCP_RELAY_SMOKE_PAYLOAD.len();
+    let mut response_payload_bytes = None;
+    let mut round_trip_observed = false;
+    let mut server_received_payload = false;
+    let mut metrics_recorded = false;
+    let mut metrics_total_connections = 0;
+    let mut metrics_success_count = 0;
+    let mut metrics_inbound_count = 0;
+    let mut metrics_outbound_route_count = 0;
+    let mut clean_stop_observed = false;
+    let mut stop_workers_remaining = None;
+    let mut stop_timed_out = None;
+
+    let (mieru_port, mieru_thread) = match spawn_mieru_tcp_relay_smoke_server() {
+        Ok(server) => server,
+        Err(error) => {
+            cases.push(mieru_tcp_relay_smoke_error_case(
+                "start-mieru-tcp-server",
+                "start-protocol-server",
+                error,
+            ));
+            return finalize_mieru_tcp_relay_smoke_report(
+                cases,
+                selected_outbound,
+                request_payload_bytes,
+                response_payload_bytes,
+                round_trip_observed,
+                server_received_payload,
+                metrics_recorded,
+                metrics_total_connections,
+                metrics_success_count,
+                metrics_inbound_count,
+                metrics_outbound_route_count,
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+            );
+        }
+    };
+
+    let controller = SubscriptionReloadSmokeSystemProxyController;
+    let mut core = ManagedMixedController::new(&controller);
+    let config = mieru_tcp_relay_smoke_config(mieru_port);
+    let relay_options = RelayOptions {
+        first_byte_timeout: Some(TCP_RELAY_SMOKE_TIMEOUT),
+        idle_timeout: Some(TCP_RELAY_SMOKE_TIMEOUT),
+    };
+
+    let started = match core.start_from_subscription_config_text(
+        &config,
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some(MIERU_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+            relay_options,
+            system_proxy: false,
+            max_connection_workers: 2,
+            ..ManagedMixedOptions::default()
+        },
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            cases.push(mieru_tcp_relay_smoke_error_case(
+                "start-mieru-tcp-relay-runtime",
+                "start",
+                error,
+            ));
+            let _ = join_tcp_relay_smoke_server(mieru_thread);
+            return finalize_mieru_tcp_relay_smoke_report(
+                cases,
+                selected_outbound,
+                request_payload_bytes,
+                response_payload_bytes,
+                round_trip_observed,
+                server_received_payload,
+                metrics_recorded,
+                metrics_total_connections,
+                metrics_success_count,
+                metrics_inbound_count,
+                metrics_outbound_route_count,
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+            );
+        }
+    };
+    selected_outbound = started.selected_outbound.clone();
+    cases.push(mieru_tcp_relay_smoke_start_case(&started));
+
+    if let Some(listen_addr) = started.listen_addr {
+        let exchange_result = run_mieru_tcp_relay_smoke_exchange(listen_addr);
+        let server_result = join_tcp_relay_smoke_server(mieru_thread);
+        if let Ok(exchange) = exchange_result.as_ref() {
+            response_payload_bytes = Some(exchange.response_payload.len());
+            round_trip_observed = exchange.response_payload == MIERU_TCP_RELAY_SMOKE_RESPONSE;
+        }
+        if let Ok(server) = server_result.as_ref() {
+            server_received_payload = server.received_expected_payload;
+        }
+        cases.push(mieru_tcp_relay_smoke_exchange_case(
+            exchange_result,
+            server_result,
+            round_trip_observed,
+            server_received_payload,
+        ));
+
+        let status = wait_for_udp_relay_smoke_status(&core, |status| {
+            mieru_tcp_relay_smoke_metrics_recorded(&status.connection_metrics)
+        });
+        metrics_total_connections = status.connection_metrics.total_connection_count;
+        metrics_success_count = status.connection_metrics.success_count;
+        metrics_inbound_count = udp_relay_smoke_inbound_count(&status.connection_metrics, "socks5");
+        metrics_outbound_route_count =
+            mieru_tcp_relay_smoke_outbound_route_count(&status.connection_metrics);
+        metrics_recorded = mieru_tcp_relay_smoke_metrics_recorded(&status.connection_metrics);
+        cases.push(mieru_tcp_relay_smoke_metrics_case(
+            &status,
+            metrics_recorded,
+        ));
+    } else {
+        cases.push(mieru_tcp_relay_smoke_error_case(
+            "mieru-tcp-relay-round-trip",
+            "socks5-connect",
+            "managed mixed runtime did not expose a listen address".to_string(),
+        ));
+        let _ = join_tcp_relay_smoke_server(mieru_thread);
+    }
+
+    match core.stop() {
+        Ok(stopped) => {
+            let stop_drain = stopped.events().iter().rev().find_map(|event| {
+                if let Some(RuntimeDiagnostic::ManagedMixedStopDrain(diagnostic)) =
+                    event.diagnostic.as_ref()
+                {
+                    Some(diagnostic)
+                } else {
+                    None
+                }
+            });
+            stop_workers_remaining = stop_drain.map(|diagnostic| diagnostic.workers_remaining);
+            stop_timed_out = stop_drain.map(|diagnostic| diagnostic.timed_out);
+            clean_stop_observed = matches!(stopped.status(), RuntimeStatus::Stopped)
+                && stop_workers_remaining == Some(0)
+                && stop_timed_out == Some(false);
+            cases.push(mieru_tcp_relay_smoke_stop_case(
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+                None,
+            ));
+        }
+        Err(error) => cases.push(mieru_tcp_relay_smoke_stop_case(
+            clean_stop_observed,
+            stop_workers_remaining,
+            stop_timed_out,
+            Some(error),
+        )),
+    }
+
+    finalize_mieru_tcp_relay_smoke_report(
+        cases,
+        selected_outbound,
+        request_payload_bytes,
+        response_payload_bytes,
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+    )
+}
+
+fn mieru_tcp_relay_smoke_config(mieru_port: u16) -> String {
+    format!(
+        r#"
+proxies:
+  - name: {MIERU_TCP_RELAY_SMOKE_OUTBOUND}
+    type: mieru
+    server: 127.0.0.1
+    port: {mieru_port}
+    username: {MIERU_TCP_RELAY_SMOKE_USERNAME}
+    password: {MIERU_TCP_RELAY_SMOKE_PASSWORD}
+"#
+    )
+}
+
+fn finalize_mieru_tcp_relay_smoke_report(
+    cases: Vec<TcpRelaySmokeCaseReport>,
+    selected_outbound: Option<String>,
+    request_payload_bytes: usize,
+    response_payload_bytes: Option<usize>,
+    round_trip_observed: bool,
+    server_received_payload: bool,
+    metrics_recorded: bool,
+    metrics_total_connections: u64,
+    metrics_success_count: u64,
+    metrics_inbound_count: u64,
+    metrics_outbound_route_count: u64,
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+) -> TcpRelaySmokeReport {
+    let failed = cases
+        .iter()
+        .filter(|case| !case.passed)
+        .map(|case| case.name)
+        .collect::<Vec<_>>();
+    let passed = failed.is_empty()
+        && selected_outbound.as_deref() == Some(MIERU_TCP_RELAY_SMOKE_OUTBOUND)
+        && round_trip_observed
+        && server_received_payload
+        && metrics_recorded
+        && clean_stop_observed;
+    let target = mieru_tcp_relay_smoke_target();
+    let detail = format!(
+        "cases={} passed={} failed={} failed_cases={} selected={} target={} request_bytes={} response_bytes={} round_trip_observed={} server_received_payload={} metrics_recorded={} metrics_total={} metrics_success={} metrics_inbound_socks5={} metrics_outbound_route={} clean_stop_observed={} stop_workers_remaining={} stop_timed_out={}",
+        cases.len(),
+        passed,
+        failed.len(),
+        if failed.is_empty() {
+            "-".to_string()
+        } else {
+            failed.join(",")
+        },
+        selected_outbound.as_deref().unwrap_or("-"),
+        target,
+        request_payload_bytes,
+        response_payload_bytes
+            .map(|bytes| bytes.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining
+            .map(|workers| workers.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        stop_timed_out
+            .map(|timed_out| timed_out.to_string())
+            .unwrap_or_else(|| "-".to_string())
+    );
+    TcpRelaySmokeReport {
+        passed,
+        detail,
+        selected_outbound,
+        target,
+        request_payload_bytes,
+        response_payload_bytes,
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+        cases,
+    }
+}
+
+fn mieru_tcp_relay_smoke_start_case(
+    status: &ManagedMixedStatusSnapshot,
+) -> TcpRelaySmokeCaseReport {
+    let selected = status.selected_outbound.clone();
+    let passed = selected.as_deref() == Some(MIERU_TCP_RELAY_SMOKE_OUTBOUND)
+        && status.generation == 1
+        && matches!(&status.status, RuntimeStatus::Running { .. });
+    TcpRelaySmokeCaseReport {
+        name: "start-mieru-tcp-relay-runtime",
+        action: "start",
+        expected_selected_outbound: Some(MIERU_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: selected,
+        expected_generation: Some(1),
+        observed_generation: Some(status.generation),
+        target: mieru_tcp_relay_smoke_target(),
+        expected_response: None,
+        observed_response: None,
+        request_payload_bytes: None,
+        response_payload_bytes: None,
+        runtime_running: Some(matches!(&status.status, RuntimeStatus::Running { .. })),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+        error: None,
+    }
+}
+
+fn mieru_tcp_relay_smoke_exchange_case(
+    exchange_result: Result<TcpRelaySmokeExchangeObservation, String>,
+    server_result: Result<TcpRelaySmokeServerObservation, String>,
+    round_trip_observed: bool,
+    server_received_payload: bool,
+) -> TcpRelaySmokeCaseReport {
+    let error = match (&exchange_result, &server_result) {
+        (Ok(_), Ok(_)) => None,
+        (Err(exchange), Ok(_)) => Some(exchange.clone()),
+        (Ok(_), Err(server)) => Some(server.clone()),
+        (Err(exchange), Err(server)) => Some(format!("{exchange}; {server}")),
+    };
+    let exchange = exchange_result.ok();
+    let passed = error.is_none() && round_trip_observed && server_received_payload;
+    TcpRelaySmokeCaseReport {
+        name: "mieru-tcp-protocol-round-trip",
+        action: "socks5-connect",
+        expected_selected_outbound: Some(MIERU_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: mieru_tcp_relay_smoke_target(),
+        expected_response: Some(
+            String::from_utf8_lossy(MIERU_TCP_RELAY_SMOKE_RESPONSE).to_string(),
+        ),
+        observed_response: exchange
+            .as_ref()
+            .map(|exchange| String::from_utf8_lossy(&exchange.response_payload).to_string()),
+        request_payload_bytes: Some(MIERU_TCP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: exchange
+            .as_ref()
+            .map(|exchange| exchange.response_payload.len()),
+        runtime_running: None,
+        round_trip_observed: Some(round_trip_observed),
+        server_received_payload: Some(server_received_payload),
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+        error,
+    }
+}
+
+fn mieru_tcp_relay_smoke_metrics_case(
+    status: &ManagedMixedStatusSnapshot,
+    metrics_recorded: bool,
+) -> TcpRelaySmokeCaseReport {
+    let metrics = &status.connection_metrics;
+    let inbound_count = udp_relay_smoke_inbound_count(metrics, "socks5");
+    let outbound_route_count = mieru_tcp_relay_smoke_outbound_route_count(metrics);
+    TcpRelaySmokeCaseReport {
+        name: "record-mieru-tcp-relay-metrics",
+        action: "status",
+        expected_selected_outbound: Some(MIERU_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: status.selected_outbound.clone(),
+        expected_generation: Some(1),
+        observed_generation: Some(status.generation),
+        target: mieru_tcp_relay_smoke_target(),
+        expected_response: None,
+        observed_response: None,
+        request_payload_bytes: Some(MIERU_TCP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: Some(MIERU_TCP_RELAY_SMOKE_RESPONSE.len()),
+        runtime_running: Some(matches!(&status.status, RuntimeStatus::Running { .. })),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: Some(metrics_recorded),
+        metrics_total_connections: Some(metrics.total_connection_count),
+        metrics_success_count: Some(metrics.success_count),
+        metrics_inbound_count: Some(inbound_count),
+        metrics_outbound_route_count: Some(outbound_route_count),
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed: metrics_recorded,
+        error: None,
+    }
+}
+
+fn mieru_tcp_relay_smoke_stop_case(
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+    error: Option<String>,
+) -> TcpRelaySmokeCaseReport {
+    TcpRelaySmokeCaseReport {
+        name: "stop-mieru-tcp-relay-runtime",
+        action: "stop",
+        expected_selected_outbound: None,
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: mieru_tcp_relay_smoke_target(),
+        expected_response: None,
+        observed_response: None,
+        request_payload_bytes: None,
+        response_payload_bytes: None,
+        runtime_running: Some(false),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: Some(clean_stop_observed),
+        stop_workers_remaining,
+        stop_timed_out,
+        passed: clean_stop_observed && error.is_none(),
+        error,
+    }
+}
+
+fn mieru_tcp_relay_smoke_error_case(
+    name: &'static str,
+    action: &'static str,
+    error: String,
+) -> TcpRelaySmokeCaseReport {
+    TcpRelaySmokeCaseReport {
+        name,
+        action,
+        expected_selected_outbound: Some(MIERU_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: mieru_tcp_relay_smoke_target(),
+        expected_response: Some(
+            String::from_utf8_lossy(MIERU_TCP_RELAY_SMOKE_RESPONSE).to_string(),
+        ),
+        observed_response: None,
+        request_payload_bytes: Some(MIERU_TCP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: None,
+        runtime_running: None,
+        round_trip_observed: Some(false),
+        server_received_payload: Some(false),
+        metrics_recorded: Some(false),
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed: false,
+        error: Some(error),
+    }
+}
+
+fn run_mieru_tcp_relay_smoke_exchange(
+    listen_addr: SocketAddr,
+) -> Result<TcpRelaySmokeExchangeObservation, String> {
+    let mut client = TcpStream::connect(listen_addr)
+        .map_err(|error| format!("connect Mieru TCP smoke listener {listen_addr}: {error}"))?;
+    client
+        .set_read_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+        .map_err(|error| format!("set Mieru TCP smoke client read timeout: {error}"))?;
+    client
+        .set_write_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+        .map_err(|error| format!("set Mieru TCP smoke client write timeout: {error}"))?;
+    let target = OutboundTarget::new(
+        MIERU_TCP_RELAY_SMOKE_TARGET_HOST,
+        MIERU_TCP_RELAY_SMOKE_TARGET_PORT,
+    );
+    write_smoke_connect(&mut client, &target, SmokeInboundKind::Socks5)?;
+    client
+        .write_all(MIERU_TCP_RELAY_SMOKE_PAYLOAD)
+        .map_err(|error| format!("write Mieru TCP smoke payload: {error}"))?;
+    let mut response = vec![0; MIERU_TCP_RELAY_SMOKE_RESPONSE.len()];
+    client
+        .read_exact(&mut response)
+        .map_err(|error| format!("read Mieru TCP smoke response: {error}"))?;
+    client.shutdown(Shutdown::Both).ok();
+    Ok(TcpRelaySmokeExchangeObservation {
+        response_payload: response,
+    })
+}
+
+fn spawn_mieru_tcp_relay_smoke_server() -> Result<
+    (
+        u16,
+        thread::JoinHandle<Result<TcpRelaySmokeServerObservation, String>>,
+    ),
+    String,
+> {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|error| format!("bind Mieru TCP smoke server: {error}"))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| format!("set Mieru TCP smoke accept mode: {error}"))?;
+    let listen_port = listener
+        .local_addr()
+        .map_err(|error| format!("read Mieru TCP smoke address: {error}"))?
+        .port();
+    let handle = thread::spawn(move || -> Result<TcpRelaySmokeServerObservation, String> {
+        let deadline = Instant::now() + TCP_RELAY_SMOKE_TIMEOUT;
+        let (mut stream, _) = loop {
+            match listener.accept() {
+                Ok(accepted) => break accepted,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= deadline {
+                        return Err("Mieru TCP smoke accept timed out".to_string());
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => return Err(format!("accept Mieru TCP smoke server: {error}")),
+            }
+        };
+        stream
+            .set_nonblocking(false)
+            .map_err(|error| format!("set Mieru TCP smoke stream blocking mode: {error}"))?;
+        stream
+            .set_read_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+            .map_err(|error| format!("set Mieru TCP smoke read timeout: {error}"))?;
+        stream
+            .set_write_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+            .map_err(|error| format!("set Mieru TCP smoke write timeout: {error}"))?;
+
+        let key = derive_mieru_tcp_relay_smoke_key(
+            MIERU_TCP_RELAY_SMOKE_USERNAME,
+            MIERU_TCP_RELAY_SMOKE_PASSWORD,
+        );
+        let mut read_nonce = None;
+        let open = read_mieru_tcp_relay_smoke_segment(&mut stream, &key, &mut read_nonce)
+            .map_err(|error| format!("read Mieru TCP smoke open session request: {error}"))?;
+        if open.protocol_type != MIERU_TCP_RELAY_SMOKE_OPEN_SESSION_REQUEST {
+            return Err(format!(
+                "unexpected Mieru TCP smoke open protocol: expected {}, got {}",
+                MIERU_TCP_RELAY_SMOKE_OPEN_SESSION_REQUEST, open.protocol_type
+            ));
+        }
+        let expected_open = mieru_tcp_relay_smoke_socks_connect_request()?;
+        if open.payload != expected_open {
+            return Err(format!(
+                "unexpected Mieru TCP smoke open payload: expected {:?}, got {:?}",
+                expected_open, open.payload
+            ));
+        }
+
+        let mut writer = MieruTcpRelaySmokeWriter::new(
+            stream
+                .try_clone()
+                .map_err(|error| format!("clone Mieru TCP smoke stream: {error}"))?,
+            key,
+            open.session_id,
+        );
+        writer.write_segment(MIERU_TCP_RELAY_SMOKE_OPEN_SESSION_RESPONSE, b"")?;
+        writer.write_segment(
+            MIERU_TCP_RELAY_SMOKE_DATA_SERVER_TO_CLIENT,
+            &MIERU_TCP_RELAY_SMOKE_SOCKS_CONNECT_SUCCESS,
+        )?;
+
+        let data = read_mieru_tcp_relay_smoke_segment(&mut stream, &key, &mut read_nonce)
+            .map_err(|error| format!("read Mieru TCP smoke data segment: {error}"))?;
+        if data.session_id != open.session_id {
+            return Err(format!(
+                "unexpected Mieru TCP smoke data session id: expected {}, got {}",
+                open.session_id, data.session_id
+            ));
+        }
+        if data.protocol_type != MIERU_TCP_RELAY_SMOKE_DATA_CLIENT_TO_SERVER {
+            return Err(format!(
+                "unexpected Mieru TCP smoke data protocol: expected {}, got {}",
+                MIERU_TCP_RELAY_SMOKE_DATA_CLIENT_TO_SERVER, data.protocol_type
+            ));
+        }
+        if data.payload != MIERU_TCP_RELAY_SMOKE_PAYLOAD {
+            return Err(format!(
+                "unexpected Mieru TCP smoke payload: expected {:?}, got {:?}",
+                MIERU_TCP_RELAY_SMOKE_PAYLOAD, data.payload
+            ));
+        }
+
+        writer.write_segment(
+            MIERU_TCP_RELAY_SMOKE_DATA_SERVER_TO_CLIENT,
+            MIERU_TCP_RELAY_SMOKE_RESPONSE,
+        )?;
+        let close = read_mieru_tcp_relay_smoke_segment(&mut stream, &key, &mut read_nonce)
+            .map_err(|error| format!("read Mieru TCP smoke close session request: {error}"))?;
+        if close.session_id != open.session_id {
+            return Err(format!(
+                "unexpected Mieru TCP smoke close session id: expected {}, got {}",
+                open.session_id, close.session_id
+            ));
+        }
+        if close.protocol_type != MIERU_TCP_RELAY_SMOKE_CLOSE_SESSION_REQUEST {
+            return Err(format!(
+                "unexpected Mieru TCP smoke close protocol: expected {}, got {}",
+                MIERU_TCP_RELAY_SMOKE_CLOSE_SESSION_REQUEST, close.protocol_type
+            ));
+        }
+        writer.write_segment(MIERU_TCP_RELAY_SMOKE_CLOSE_SESSION_RESPONSE, b"")?;
+        tcp_relay_smoke_wait_for_client_close(&mut stream);
+        Ok(TcpRelaySmokeServerObservation {
+            received_expected_payload: true,
+        })
+    });
+    Ok((listen_port, handle))
+}
+
+fn mieru_tcp_relay_smoke_metrics_recorded(metrics: &ConnectionMetricsSnapshot) -> bool {
+    metrics.total_connection_count >= 1
+        && metrics.success_count >= 1
+        && udp_relay_smoke_inbound_count(metrics, "socks5") >= 1
+        && mieru_tcp_relay_smoke_outbound_route_count(metrics) >= 1
+        && metrics.total_upload_bytes >= MIERU_TCP_RELAY_SMOKE_PAYLOAD.len() as u64
+        && metrics.total_download_bytes >= MIERU_TCP_RELAY_SMOKE_RESPONSE.len() as u64
+}
+
+fn mieru_tcp_relay_smoke_outbound_route_count(metrics: &ConnectionMetricsSnapshot) -> u64 {
+    metrics
+        .route_action_counts
+        .iter()
+        .find(|entry| {
+            entry.route_action == RouteAction::Outbound(MIERU_TCP_RELAY_SMOKE_OUTBOUND.to_string())
+        })
+        .map(|entry| entry.count)
+        .unwrap_or(0)
+}
+
+fn mieru_tcp_relay_smoke_target() -> String {
+    format!("{MIERU_TCP_RELAY_SMOKE_TARGET_HOST}:{MIERU_TCP_RELAY_SMOKE_TARGET_PORT}")
+}
+
+#[derive(Debug)]
+struct MieruTcpRelaySmokeSegment {
+    protocol_type: u8,
+    session_id: u32,
+    payload: Vec<u8>,
+}
+
+#[derive(Debug)]
+struct MieruTcpRelaySmokeWriter {
+    stream: TcpStream,
+    key: [u8; 32],
+    nonce: [u8; MIERU_TCP_RELAY_SMOKE_NONCE_LEN],
+    session_id: u32,
+    sequence: u32,
+    sent_nonce: bool,
+}
+
+impl MieruTcpRelaySmokeWriter {
+    fn new(stream: TcpStream, key: [u8; 32], session_id: u32) -> Self {
+        let mut nonce = [7u8; MIERU_TCP_RELAY_SMOKE_NONCE_LEN];
+        apply_mieru_tcp_relay_smoke_nonce_user_hint(&mut nonce, MIERU_TCP_RELAY_SMOKE_USERNAME);
+        Self {
+            stream,
+            key,
+            nonce,
+            session_id,
+            sequence: 0,
+            sent_nonce: false,
+        }
+    }
+
+    fn write_segment(&mut self, protocol_type: u8, payload: &[u8]) -> Result<(), String> {
+        let metadata = mieru_tcp_relay_smoke_metadata(
+            protocol_type,
+            self.session_id,
+            self.sequence,
+            payload.len(),
+        );
+        self.sequence = self.sequence.saturating_add(1);
+        let mut segment = Vec::new();
+        if !self.sent_nonce {
+            segment.extend_from_slice(&self.nonce);
+            self.sent_nonce = true;
+        }
+        segment.extend(mieru_tcp_relay_smoke_xchacha_seal(
+            &self.key,
+            &self.nonce,
+            &metadata,
+        )?);
+        increment_mieru_tcp_relay_smoke_nonce(&mut self.nonce);
+        if !payload.is_empty() {
+            segment.extend(mieru_tcp_relay_smoke_xchacha_seal(
+                &self.key,
+                &self.nonce,
+                payload,
+            )?);
+            increment_mieru_tcp_relay_smoke_nonce(&mut self.nonce);
+        }
+        self.stream
+            .write_all(&segment)
+            .map_err(|error| format!("write Mieru TCP smoke segment: {error}"))
+    }
+}
+
+fn read_mieru_tcp_relay_smoke_segment(
+    stream: &mut TcpStream,
+    key: &[u8; 32],
+    nonce: &mut Option<[u8; MIERU_TCP_RELAY_SMOKE_NONCE_LEN]>,
+) -> Result<MieruTcpRelaySmokeSegment, String> {
+    let mut buffer = Vec::new();
+    loop {
+        if let Some(segment) = try_read_mieru_tcp_relay_smoke_segment(&buffer, key, nonce)? {
+            return Ok(segment);
+        }
+        let mut temp = [0; 4096];
+        let read = stream
+            .read(&mut temp)
+            .map_err(|error| format!("read Mieru TCP smoke segment: {error}"))?;
+        if read == 0 {
+            return Err("Mieru TCP smoke stream closed before segment".to_string());
+        }
+        buffer.extend_from_slice(&temp[..read]);
+    }
+}
+
+fn try_read_mieru_tcp_relay_smoke_segment(
+    buffer: &[u8],
+    key: &[u8; 32],
+    nonce_state: &mut Option<[u8; MIERU_TCP_RELAY_SMOKE_NONCE_LEN]>,
+) -> Result<Option<MieruTcpRelaySmokeSegment>, String> {
+    let has_nonce = nonce_state.is_none();
+    let (metadata_offset, mut nonce) = if has_nonce {
+        if buffer.len() < MIERU_TCP_RELAY_SMOKE_NONCE_LEN {
+            return Ok(None);
+        }
+        let mut nonce = [0; MIERU_TCP_RELAY_SMOKE_NONCE_LEN];
+        nonce.copy_from_slice(&buffer[..MIERU_TCP_RELAY_SMOKE_NONCE_LEN]);
+        (MIERU_TCP_RELAY_SMOKE_NONCE_LEN, nonce)
+    } else {
+        (
+            0,
+            (*nonce_state).expect("Mieru TCP smoke nonce initialized"),
+        )
+    };
+    if buffer.len() < metadata_offset + MIERU_TCP_RELAY_SMOKE_ENCRYPTED_METADATA_LEN {
+        return Ok(None);
+    }
+    let metadata = mieru_tcp_relay_smoke_xchacha_open(
+        key,
+        &nonce,
+        &buffer[metadata_offset..metadata_offset + MIERU_TCP_RELAY_SMOKE_ENCRYPTED_METADATA_LEN],
+    )?;
+    if metadata.len() != MIERU_TCP_RELAY_SMOKE_METADATA_LEN {
+        return Err(format!(
+            "invalid Mieru TCP smoke metadata length: {}",
+            metadata.len()
+        ));
+    }
+    let protocol_type = metadata[0];
+    let session_id = u32::from_be_bytes([metadata[6], metadata[7], metadata[8], metadata[9]]);
+    increment_mieru_tcp_relay_smoke_nonce(&mut nonce);
+    let payload_len = match protocol_type {
+        MIERU_TCP_RELAY_SMOKE_OPEN_SESSION_REQUEST
+        | MIERU_TCP_RELAY_SMOKE_OPEN_SESSION_RESPONSE
+        | MIERU_TCP_RELAY_SMOKE_CLOSE_SESSION_REQUEST
+        | MIERU_TCP_RELAY_SMOKE_CLOSE_SESSION_RESPONSE => {
+            let status = metadata[14];
+            if status != MIERU_TCP_RELAY_SMOKE_STATUS_OK {
+                return Err(format!(
+                    "unexpected Mieru TCP smoke status: expected {}, got {}",
+                    MIERU_TCP_RELAY_SMOKE_STATUS_OK, status
+                ));
+            }
+            u16::from_be_bytes([metadata[15], metadata[16]]) as usize
+        }
+        MIERU_TCP_RELAY_SMOKE_DATA_CLIENT_TO_SERVER
+        | MIERU_TCP_RELAY_SMOKE_DATA_SERVER_TO_CLIENT => {
+            u16::from_be_bytes([metadata[22], metadata[23]]) as usize
+        }
+        other => return Err(format!("unexpected Mieru TCP smoke protocol type: {other}")),
+    };
+    let encrypted_payload_len = if payload_len == 0 {
+        0
+    } else {
+        payload_len + MIERU_TCP_RELAY_SMOKE_TAG_LEN
+    };
+    let payload_offset = metadata_offset + MIERU_TCP_RELAY_SMOKE_ENCRYPTED_METADATA_LEN;
+    if buffer.len() < payload_offset + encrypted_payload_len {
+        return Ok(None);
+    }
+    let payload = if payload_len == 0 {
+        Vec::new()
+    } else {
+        let payload = mieru_tcp_relay_smoke_xchacha_open(
+            key,
+            &nonce,
+            &buffer[payload_offset..payload_offset + encrypted_payload_len],
+        )?;
+        increment_mieru_tcp_relay_smoke_nonce(&mut nonce);
+        if payload.len() != payload_len {
+            return Err(format!(
+                "invalid Mieru TCP smoke payload length: expected {payload_len}, got {}",
+                payload.len()
+            ));
+        }
+        payload
+    };
+    *nonce_state = Some(nonce);
+    Ok(Some(MieruTcpRelaySmokeSegment {
+        protocol_type,
+        session_id,
+        payload,
+    }))
+}
+
+fn mieru_tcp_relay_smoke_socks_connect_request() -> Result<Vec<u8>, String> {
+    let host = MIERU_TCP_RELAY_SMOKE_TARGET_HOST.as_bytes();
+    let host_len = u8::try_from(host.len()).map_err(|_| {
+        format!(
+            "Mieru TCP smoke target host is too long: {}",
+            MIERU_TCP_RELAY_SMOKE_TARGET_HOST
+        )
+    })?;
+    let mut output = Vec::with_capacity(5 + host.len() + 2);
+    output.extend_from_slice(&[0x05, 0x01, 0x00, 0x03, host_len]);
+    output.extend_from_slice(host);
+    output.extend_from_slice(&MIERU_TCP_RELAY_SMOKE_TARGET_PORT.to_be_bytes());
+    Ok(output)
+}
+
+fn mieru_tcp_relay_smoke_metadata(
+    protocol_type: u8,
+    session_id: u32,
+    sequence: u32,
+    payload_len: usize,
+) -> [u8; MIERU_TCP_RELAY_SMOKE_METADATA_LEN] {
+    let mut output = [0; MIERU_TCP_RELAY_SMOKE_METADATA_LEN];
+    output[0] = protocol_type;
+    output[2..6]
+        .copy_from_slice(&((now_unix_secs_for_mieru_tcp_relay_smoke() / 60) as u32).to_be_bytes());
+    output[6..10].copy_from_slice(&session_id.to_be_bytes());
+    output[10..14].copy_from_slice(&sequence.to_be_bytes());
+    if matches!(
+        protocol_type,
+        MIERU_TCP_RELAY_SMOKE_OPEN_SESSION_REQUEST
+            | MIERU_TCP_RELAY_SMOKE_OPEN_SESSION_RESPONSE
+            | MIERU_TCP_RELAY_SMOKE_CLOSE_SESSION_REQUEST
+            | MIERU_TCP_RELAY_SMOKE_CLOSE_SESSION_RESPONSE
+    ) {
+        output[14] = MIERU_TCP_RELAY_SMOKE_STATUS_OK;
+        output[15..17].copy_from_slice(&(payload_len as u16).to_be_bytes());
+    } else {
+        output[18..20].copy_from_slice(&(64u16).to_be_bytes());
+        output[22..24].copy_from_slice(&(payload_len as u16).to_be_bytes());
+    }
+    output
+}
+
+fn derive_mieru_tcp_relay_smoke_key(username: &str, password: &str) -> [u8; 32] {
+    let mut password_hasher = Sha256::new();
+    Sha2Digest::update(&mut password_hasher, password.as_bytes());
+    Sha2Digest::update(&mut password_hasher, [0]);
+    Sha2Digest::update(&mut password_hasher, username.as_bytes());
+    let hashed_password = password_hasher.finalize();
+
+    let mut time_hasher = Sha256::new();
+    Sha2Digest::update(
+        &mut time_hasher,
+        (rounded_unix_time_for_mieru_tcp_relay_smoke(now_unix_secs_for_mieru_tcp_relay_smoke())
+            as u64)
+            .to_be_bytes(),
+    );
+    let time_salt = time_hasher.finalize();
+
+    let mut key = [0; 32];
+    pbkdf2_hmac_sha256_for_mieru_tcp_relay_smoke(&hashed_password, &time_salt, 64, &mut key);
+    key
+}
+
+fn pbkdf2_hmac_sha256_for_mieru_tcp_relay_smoke(
+    password: &[u8],
+    salt: &[u8],
+    iterations: u32,
+    output: &mut [u8],
+) {
+    let mut block_index = 1u32;
+    let mut offset = 0usize;
+    while offset < output.len() {
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(password).expect("hmac key");
+        Mac::update(&mut mac, salt);
+        Mac::update(&mut mac, &block_index.to_be_bytes());
+        let mut u = mac.finalize().into_bytes().to_vec();
+        let mut block = u.clone();
+        for _ in 1..iterations {
+            let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(password).expect("hmac key");
+            Mac::update(&mut mac, &u);
+            u = mac.finalize().into_bytes().to_vec();
+            for (left, right) in block.iter_mut().zip(&u) {
+                *left ^= *right;
+            }
+        }
+        let take = (output.len() - offset).min(block.len());
+        output[offset..offset + take].copy_from_slice(&block[..take]);
+        offset += take;
+        block_index = block_index.saturating_add(1);
+    }
+}
+
+fn apply_mieru_tcp_relay_smoke_nonce_user_hint(
+    nonce: &mut [u8; MIERU_TCP_RELAY_SMOKE_NONCE_LEN],
+    username: &str,
+) {
+    let mut hasher = Sha256::new();
+    Sha2Digest::update(&mut hasher, username.as_bytes());
+    Sha2Digest::update(&mut hasher, &nonce[..16]);
+    let digest = hasher.finalize();
+    nonce[20..24].copy_from_slice(&digest[..4]);
+}
+
+fn increment_mieru_tcp_relay_smoke_nonce(nonce: &mut [u8; MIERU_TCP_RELAY_SMOKE_NONCE_LEN]) {
+    for byte in nonce.iter_mut().rev() {
+        let (next, overflow) = byte.overflowing_add(1);
+        *byte = next;
+        if !overflow {
+            break;
+        }
+    }
+}
+
+fn mieru_tcp_relay_smoke_xchacha_seal(
+    key: &[u8; 32],
+    nonce: &[u8; MIERU_TCP_RELAY_SMOKE_NONCE_LEN],
+    plaintext: &[u8],
+) -> Result<Vec<u8>, String> {
+    let cipher = <XChaCha20Poly1305 as chacha20poly1305::aead::KeyInit>::new_from_slice(key)
+        .map_err(|_| "invalid Mieru TCP smoke XChaCha20-Poly1305 key".to_string())?;
+    chacha20poly1305::aead::Aead::encrypt(&cipher, XNonce::from_slice(nonce), plaintext)
+        .map_err(|_| "Mieru TCP smoke XChaCha20-Poly1305 seal failed".to_string())
+}
+
+fn mieru_tcp_relay_smoke_xchacha_open(
+    key: &[u8; 32],
+    nonce: &[u8; MIERU_TCP_RELAY_SMOKE_NONCE_LEN],
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, String> {
+    let cipher = <XChaCha20Poly1305 as chacha20poly1305::aead::KeyInit>::new_from_slice(key)
+        .map_err(|_| "invalid Mieru TCP smoke XChaCha20-Poly1305 key".to_string())?;
+    chacha20poly1305::aead::Aead::decrypt(&cipher, XNonce::from_slice(nonce), ciphertext)
+        .map_err(|_| "Mieru TCP smoke XChaCha20-Poly1305 open failed".to_string())
+}
+
+fn rounded_unix_time_for_mieru_tcp_relay_smoke(unix_secs: i64) -> i64 {
+    ((unix_secs + MIERU_TCP_RELAY_SMOKE_KEY_WINDOW_SECS / 2)
+        / MIERU_TCP_RELAY_SMOKE_KEY_WINDOW_SECS)
+        * MIERU_TCP_RELAY_SMOKE_KEY_WINDOW_SECS
+}
+
+fn now_unix_secs_for_mieru_tcp_relay_smoke() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
+#[cfg(test)]
+mod mieru_tcp_relay_smoke_tests {
+    use super::*;
+
+    #[test]
+    fn default_mieru_tcp_relay_smoke_proves_mieru_tcp_round_trip() {
+        let report = collect_default_mieru_tcp_relay_smoke_report();
+
+        assert!(report.passed, "{report:#?}");
+        assert_eq!(
+            report.selected_outbound.as_deref(),
+            Some(MIERU_TCP_RELAY_SMOKE_OUTBOUND)
+        );
+        assert_eq!(report.target, mieru_tcp_relay_smoke_target());
+        assert_eq!(
+            report.request_payload_bytes,
+            MIERU_TCP_RELAY_SMOKE_PAYLOAD.len()
+        );
+        assert_eq!(
+            report.response_payload_bytes,
+            Some(MIERU_TCP_RELAY_SMOKE_RESPONSE.len())
+        );
+        assert!(report.round_trip_observed);
+        assert!(report.server_received_payload);
+        assert!(report.metrics_recorded);
+        assert!(report.metrics_total_connections >= 1);
+        assert!(report.metrics_success_count >= 1);
+        assert!(report.metrics_inbound_count >= 1);
+        assert!(report.metrics_outbound_route_count >= 1);
+        assert!(report.clean_stop_observed);
+        assert_eq!(report.stop_workers_remaining, Some(0));
+        assert_eq!(report.stop_timed_out, Some(false));
+
+        let case_names = report
+            .cases
+            .iter()
+            .map(|case| case.name)
+            .collect::<Vec<_>>();
+        for expected in [
+            "start-mieru-tcp-relay-runtime",
+            "mieru-tcp-protocol-round-trip",
+            "record-mieru-tcp-relay-metrics",
+            "stop-mieru-tcp-relay-runtime",
+        ] {
+            assert!(
+                case_names.contains(&expected),
+                "missing Mieru TCP relay smoke case {expected}: {case_names:?}"
+            );
+        }
+        let round_trip = report
+            .cases
+            .iter()
+            .find(|case| case.name == "mieru-tcp-protocol-round-trip")
+            .expect("round trip case");
+        assert_eq!(
+            round_trip.observed_response.as_deref(),
+            Some("keli-mieru-pong")
+        );
+        assert_eq!(round_trip.round_trip_observed, Some(true));
+        assert_eq!(round_trip.server_received_payload, Some(true));
+    }
+}
+
 fn collect_default_udp_relay_smoke_report() -> UdpRelaySmokeReport {
     let mut cases = Vec::new();
     let mut selected_outbound = None;
@@ -20094,6 +21151,14 @@ fn write_readiness_check_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "readiness mieru_tcp_relay_smoke status={} cases={} detail={}",
+        tcp_relay_smoke_status_label(&report.mieru_tcp_relay_smoke),
+        report.mieru_tcp_relay_smoke.cases.len(),
+        report.mieru_tcp_relay_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "readiness udp_relay_smoke status={} cases={} detail={}",
         udp_relay_smoke_status_label(&report.udp_relay_smoke),
         report.udp_relay_smoke.cases.len(),
@@ -20227,6 +21292,9 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         ),
         "vmess_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.vmess_tcp_relay_smoke
+        ),
+        "mieru_tcp_relay_smoke": tcp_relay_smoke_json_value(
+            &report.mieru_tcp_relay_smoke
         ),
         "udp_relay_smoke": udp_relay_smoke_json_value(&report.udp_relay_smoke),
         "resource_limit_smoke": resource_limit_smoke_json_value(&report.resource_limit_smoke),
@@ -20427,6 +21495,14 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification mieru_tcp_relay_smoke status={} cases={} detail={}",
+        tcp_relay_smoke_status_label(&report.mieru_tcp_relay_smoke),
+        report.mieru_tcp_relay_smoke.cases.len(),
+        report.mieru_tcp_relay_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification udp_relay_smoke status={} cases={} detail={}",
         udp_relay_smoke_status_label(&report.udp_relay_smoke),
         report.udp_relay_smoke.cases.len(),
@@ -20567,6 +21643,7 @@ fn default_core_certification_json_value(
             "tuic_quic_tcp_relay_smoke_passed": report.tuic_quic_tcp_relay_smoke.passed,
             "vless_tcp_relay_smoke_passed": report.vless_tcp_relay_smoke.passed,
             "vmess_tcp_relay_smoke_passed": report.vmess_tcp_relay_smoke.passed,
+            "mieru_tcp_relay_smoke_passed": report.mieru_tcp_relay_smoke.passed,
             "udp_relay_smoke_passed": report.udp_relay_smoke.passed,
             "resource_limit_smoke_passed": report.resource_limit_smoke.passed,
             "panel_subscription_smoke_passed": report.panel_subscription_smoke.passed,
@@ -20619,6 +21696,9 @@ fn default_core_certification_json_value(
         ),
         "vmess_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.vmess_tcp_relay_smoke
+        ),
+        "mieru_tcp_relay_smoke": tcp_relay_smoke_json_value(
+            &report.mieru_tcp_relay_smoke
         ),
         "udp_relay_smoke": udp_relay_smoke_json_value(&report.udp_relay_smoke),
         "resource_limit_smoke": resource_limit_smoke_json_value(&report.resource_limit_smoke),
