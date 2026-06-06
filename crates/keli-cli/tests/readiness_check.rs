@@ -48,6 +48,15 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert!(report["tun_runtime_smoke"]["route_takeover_missing_prefixes"].is_null());
     assert!(report["tun_runtime_smoke"]["route_takeover_error"].is_null());
     assert!(report["tun_runtime_smoke"]["route_takeover_snapshot"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_cleanup_observed"].is_null());
+    assert!(
+        report["tun_runtime_smoke"]["route_takeover_cleanup_expected_prefixes_absent"].is_null()
+    );
+    assert!(report["tun_runtime_smoke"]["route_takeover_cleanup_expected_prefixes"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_cleanup_observed_prefixes"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_cleanup_missing_prefixes"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_cleanup_error"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_cleanup_snapshot"].is_null());
     assert!(report["tun_runtime_smoke"]["interface_snapshot_attempted"].is_null());
     assert!(report["tun_runtime_smoke"]["interface_snapshot_addresses_command"].is_null());
     assert!(report["tun_runtime_smoke"]["interface_snapshot_addresses_exit_success"].is_null());
@@ -317,6 +326,15 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert!(report["tun_runtime_smoke"]["route_takeover_missing_prefixes"].is_null());
     assert!(report["tun_runtime_smoke"]["route_takeover_error"].is_null());
     assert!(report["tun_runtime_smoke"]["route_takeover_snapshot"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_cleanup_observed"].is_null());
+    assert!(
+        report["tun_runtime_smoke"]["route_takeover_cleanup_expected_prefixes_absent"].is_null()
+    );
+    assert!(report["tun_runtime_smoke"]["route_takeover_cleanup_expected_prefixes"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_cleanup_observed_prefixes"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_cleanup_missing_prefixes"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_cleanup_error"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_cleanup_snapshot"].is_null());
     assert!(report["tun_runtime_smoke"]["interface_snapshot_attempted"].is_null());
     assert!(report["tun_runtime_smoke"]["interface_snapshot_addresses_command"].is_null());
     assert!(report["tun_runtime_smoke"]["interface_snapshot_addresses_exit_success"].is_null());

@@ -381,13 +381,15 @@ and records whether the packet loop observed either stimulus as a dropped route.
 The smoke runtime uses a block-default route engine so ambient OS packets
 captured by split-default takeover cannot escape through direct relay during
 certification. The route snapshot verifies the expected split-default prefixes
-are present while the adapter is running and is a smoke gate; the interface and
-route table lookups are report-only evidence for diagnosing Windows address and
-source/route selection. The traffic stimulus is now required when the smoke is
+are present while the adapter is running, then records a second post-stop route
+cleanup snapshot and gates on those prefixes being absent after shutdown; the
+interface and route table lookups are report-only evidence for diagnosing
+Windows address and source/route selection. The traffic stimulus is now required when the smoke is
 included (`traffic_stimulus_required=true`): certification must prove that a
 UDP or ICMP stimulus reached the TUN packet loop and matched the dedicated
 `tun-runtime-smoke-traffic-stimulus` block rule. It records `elapsed_ms`,
 `duration_target_met`, `loop_activity_observed`, `route_takeover_*`,
+`route_takeover_cleanup_*`,
 `traffic_stimulus_required`, `traffic_stimulus_observed`,
 `traffic_packets_observed`, `traffic_drop_observed`,
 `traffic_stimulus_drop_observed`, `traffic_stimulus_source`,
