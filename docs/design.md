@@ -420,19 +420,22 @@ The first implementation target is deliberately small:
    requests a clean stop, and records start/stop snapshots plus the packet-loop
    diagnostic. The smoke gate holds the runtime for at least 50ms by default,
    can be tuned with `--tun-runtime-smoke-min-duration-ms`, sends a short UDP
-   traffic stimulus through the OS routing table to a controlled TUN-subnet
+   traffic stimulus through the OS routing table to a controlled split-default
    block target, captures a runtime route-takeover snapshot, and records whether
-   that stimulus produced packet-loop traffic. The route snapshot verifies the
-   expected split-default prefixes are present while the adapter is running and
-   is a smoke gate; the traffic stimulus is report-only by default
-   (`traffic_stimulus_required=false`) so release checks can collect the
-   evidence before route/packet classification is hardened into a promotion
-   blocker. It records `elapsed_ms`, `duration_target_met`,
-   `loop_activity_observed`, `route_takeover_*`, `traffic_stimulus_required`,
-   `traffic_stimulus_observed`, `traffic_packets_observed`,
-   `traffic_drop_observed`, `traffic_stimulus_*`, `processed_packets`,
-   `idle_events`, `dropped_packets`, `unsupported_packets`, last unsupported
-   flow details, `clean_stop_observed`, `exit_reason`, `stop_requested`,
+   the packet loop observed that stimulus as a dropped route. The route snapshot
+   verifies the expected split-default prefixes are present while the adapter is
+   running and is a smoke gate; the traffic stimulus remains report-only by
+   default (`traffic_stimulus_required=false`) while Windows socket source/route
+   behavior is hardened, but successful evidence must match the dedicated
+   `tun-runtime-smoke-traffic-stimulus` block rule. It records `elapsed_ms`,
+   `duration_target_met`, `loop_activity_observed`, `route_takeover_*`,
+   `traffic_stimulus_required`, `traffic_stimulus_observed`,
+   `traffic_packets_observed`, `traffic_drop_observed`,
+   `traffic_stimulus_drop_observed`, `traffic_stimulus_source`,
+   `traffic_stimulus_target`, `traffic_stimulus_*`, `processed_packets`,
+   `idle_events`, `dropped_packets`, last dropped flow/rule details,
+   `unsupported_packets`, last unsupported flow details, `clean_stop_observed`,
+   `exit_reason`, `stop_requested`,
    `residual_state_clean`, and the remaining TUN/TCP session marker counts so
    the evidence proves the packet loop ran, saw real traffic, exited through the
    managed stop path, and did not leave tracked TUN/TCP state behind instead of

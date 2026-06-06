@@ -73,8 +73,11 @@ const DEFAULT_MIXED_SOAK_MIN_DURATION: Duration = Duration::from_millis(0);
 const DEFAULT_READINESS_SOAK_CONNECTIONS: usize = 3;
 const DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION: Duration = Duration::from_millis(50);
 const DEFAULT_TUN_RUNTIME_SMOKE_TRAFFIC_REQUIRED: bool = false;
+const TUN_RUNTIME_SMOKE_TRAFFIC_RULE: &str = "tun-runtime-smoke-traffic-stimulus";
+const TUN_RUNTIME_SMOKE_TRAFFIC_SOURCE: SocketAddr =
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
 const TUN_RUNTIME_SMOKE_TRAFFIC_TARGET: SocketAddr =
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 7, 0, 2)), 9);
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(198, 18, 0, 1)), 9);
 const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_WARMUP: Duration = Duration::from_millis(100);
 const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_ATTEMPTS: usize = 3;
 const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_INTERVAL: Duration = Duration::from_millis(10);
@@ -84,12 +87,12 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 20;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 10;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 21;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 11;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 10;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 10;
-pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 2;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 11;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 11;
+pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 3;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
 const SUPPORTED_UDP_OUTBOUNDS: &str =
@@ -107,17 +110,17 @@ const SUBSCRIPTION_FETCH_CAPABILITIES: &str =
 const SUBSCRIPTION_UPDATE_CAPABILITIES: &str =
     "current-config,new-config,current-outbound,tag-diff,selected-preservation,default-fallback,redacted-profile-summary,managed-reload-plan,managed-url-reload,managed-url-update-status";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
-    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic";
+    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic,packet-loop-drop-detail";
 const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
     "local-mixed-soak,loopback-echo,managed-metrics,worker-drain,socks5,http-connect,min-duration";
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-route-takeover-snapshot";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-route-takeover-snapshot";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-route-takeover-snapshot,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-route-takeover-snapshot,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -894,13 +897,31 @@ pub struct ManagedTunPacketLoopReport {
 }
 
 pub fn managed_tun_runtime_report_note(report: &ManagedTunPacketLoopReport) -> String {
+    let last_dropped_flow = report
+        .summary
+        .last_dropped_flow
+        .as_ref()
+        .map(tun_packet_flow_note_value)
+        .unwrap_or_else(|| "none".to_string());
+    let last_dropped_route_action = report
+        .summary
+        .last_dropped_route_action
+        .as_ref()
+        .map(route_action_note_value)
+        .unwrap_or_else(|| "none".to_string());
+    let last_dropped_matched_rule = report
+        .summary
+        .last_dropped_matched_rule
+        .as_deref()
+        .map(sanitize_runtime_note_value)
+        .unwrap_or_else(|| "none".to_string());
     let last_packet_error = tun_runtime_note_error_value(report.summary.last_packet_error.as_ref());
     let last_udp_relay_error =
         tun_runtime_note_error_value(report.summary.last_udp_relay_error.as_ref());
     let last_tcp_session_error =
         tun_runtime_note_error_value(report.summary.last_tcp_session_error.as_ref());
     format!(
-        "managed TUN runtime stopped interface={} owns_device={} processed={} idle={} exit_reason={} stop_requested={} packet_limit_reached={} dns_responses={} udp_responses={} tcp_resets={} tcp_session_events={} tcp_session_writes={} tcp_max_active_sessions={} tcp_session_limit_rejections={} tcp_sessions_pruned={} tcp_server_closed_pruned={} tcp_post_closed_pruned={} tcp_server_close_rst_cleared={} tcp_post_close_rst_cleared={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} tcp_sessions_peak={} tcp_server_close_markers_peak={} tcp_post_close_markers_peak={} relay_plans={} tcp_relay_plans={} udp_relay_plans={} drops={} unsupported={} packet_errors={} udp_relay_errors={} tcp_session_errors={} last_packet_error={} last_udp_relay_error={} last_tcp_session_error={}",
+        "managed TUN runtime stopped interface={} owns_device={} processed={} idle={} exit_reason={} stop_requested={} packet_limit_reached={} dns_responses={} udp_responses={} tcp_resets={} tcp_session_events={} tcp_session_writes={} tcp_max_active_sessions={} tcp_session_limit_rejections={} tcp_sessions_pruned={} tcp_server_closed_pruned={} tcp_post_closed_pruned={} tcp_server_close_rst_cleared={} tcp_post_close_rst_cleared={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} tcp_sessions_peak={} tcp_server_close_markers_peak={} tcp_post_close_markers_peak={} relay_plans={} tcp_relay_plans={} udp_relay_plans={} drops={} last_dropped_flow={} last_dropped_route_action={} last_dropped_matched_rule={} unsupported={} packet_errors={} udp_relay_errors={} tcp_session_errors={} last_packet_error={} last_udp_relay_error={} last_tcp_session_error={}",
         report.config.interface_name,
         report.owns_device,
         report.summary.processed_packets(),
@@ -930,6 +951,9 @@ pub fn managed_tun_runtime_report_note(report: &ManagedTunPacketLoopReport) -> S
         report.summary.tcp_relay_plans,
         report.summary.udp_relay_plans,
         report.summary.dropped_packets,
+        last_dropped_flow,
+        last_dropped_route_action,
+        last_dropped_matched_rule,
         report.summary.unsupported_packets,
         report.summary.packet_errors,
         report.summary.udp_relay_errors,
@@ -973,6 +997,21 @@ pub fn managed_tun_runtime_report_diagnostic(
         tcp_relay_plans: report.summary.tcp_relay_plans,
         udp_relay_plans: report.summary.udp_relay_plans,
         dropped_packets: report.summary.dropped_packets,
+        last_dropped_flow: report
+            .summary
+            .last_dropped_flow
+            .as_ref()
+            .map(tun_packet_flow_note_value),
+        last_dropped_route_action: report
+            .summary
+            .last_dropped_route_action
+            .as_ref()
+            .map(route_action_note_value),
+        last_dropped_matched_rule: report
+            .summary
+            .last_dropped_matched_rule
+            .as_deref()
+            .map(sanitize_runtime_note_value),
         unsupported_packets: report.summary.unsupported_packets,
         packet_errors: report.summary.packet_errors,
         udp_relay_errors: report.summary.udp_relay_errors,
@@ -1020,6 +1059,32 @@ fn tun_runtime_note_error_value<E: std::fmt::Display>(error: Option<&E>) -> Stri
     error
         .map(|error| sanitize_runtime_note_value(&error.to_string()))
         .unwrap_or_else(|| "none".to_string())
+}
+
+fn tun_packet_flow_note_value(flow: &TunPacketFlow) -> String {
+    sanitize_runtime_note_value(&format!(
+        "{}:{}->{}:{}/{}",
+        flow.source_ip,
+        flow.source_port
+            .map(|port| port.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        flow.destination_ip,
+        flow.destination_port
+            .map(|port| port.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        flow.protocol.ip_protocol_number()
+    ))
+}
+
+fn route_action_note_value(action: &RouteAction) -> String {
+    match action {
+        RouteAction::Direct => "direct".to_string(),
+        RouteAction::Block => "block".to_string(),
+        RouteAction::HijackDns => "hijack-dns".to_string(),
+        RouteAction::Outbound(tag) => {
+            format!("outbound:{}", sanitize_runtime_note_value(tag))
+        }
+    }
 }
 
 fn sanitize_runtime_note_value(value: &str) -> String {
@@ -2486,6 +2551,9 @@ fn runtime_diagnostic_json_value(diagnostic: &RuntimeDiagnostic) -> serde_json::
             "tcp_relay_plans": diagnostic.tcp_relay_plans,
             "udp_relay_plans": diagnostic.udp_relay_plans,
             "dropped_packets": diagnostic.dropped_packets,
+            "last_dropped_flow": diagnostic.last_dropped_flow.as_deref(),
+            "last_dropped_route_action": diagnostic.last_dropped_route_action.as_deref(),
+            "last_dropped_matched_rule": diagnostic.last_dropped_matched_rule.as_deref(),
             "unsupported_packets": diagnostic.unsupported_packets,
             "packet_errors": diagnostic.packet_errors,
             "udp_relay_errors": diagnostic.udp_relay_errors,
@@ -6615,6 +6683,7 @@ pub struct TunRuntimeSmokeReport {
     pub traffic_stimulus_observed: bool,
     pub traffic_packets_observed: bool,
     pub traffic_drop_observed: bool,
+    pub traffic_stimulus_drop_observed: bool,
     pub traffic_stimulus: TunRuntimeSmokeTrafficStimulusReport,
     pub route_takeover: TunRouteTakeoverSnapshot,
     pub clean_stop_observed: bool,
@@ -6631,6 +6700,7 @@ struct TunRuntimeSmokeRunEvidence {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TunRuntimeSmokeTrafficStimulusReport {
     pub attempted: bool,
+    pub source: SocketAddr,
     pub target: SocketAddr,
     pub attempts: usize,
     pub sent_packets: usize,
@@ -7158,8 +7228,11 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 report.summary.idle_events > 0 || report.summary.processed_packets() > 0;
             let traffic_stimulus_required = DEFAULT_TUN_RUNTIME_SMOKE_TRAFFIC_REQUIRED;
             let traffic_packets_observed = report.summary.processed_packets() > 0;
-            let traffic_stimulus_observed =
-                traffic_stimulus.sent_packets > 0 && traffic_packets_observed;
+            let traffic_stimulus_drop_observed =
+                tun_runtime_smoke_traffic_stimulus_drop_observed(&report);
+            let traffic_stimulus_observed = traffic_stimulus.sent_packets > 0
+                && traffic_packets_observed
+                && traffic_stimulus_drop_observed;
             let traffic_drop_observed = report.summary.dropped_packets > 0;
             let clean_stop_observed = tun_runtime_smoke_clean_stop_observed(&report);
             let residual_state_clean = tun_runtime_smoke_residual_state_clean(&report);
@@ -7185,6 +7258,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 traffic_stimulus_required,
                 traffic_stimulus_observed,
                 traffic_packets_observed,
+                traffic_stimulus_drop_observed,
                 traffic_drop_observed,
                 &route_takeover,
                 clean_stop_observed,
@@ -7201,6 +7275,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 traffic_stimulus_observed,
                 traffic_packets_observed,
                 traffic_drop_observed,
+                traffic_stimulus_drop_observed,
                 traffic_stimulus,
                 route_takeover,
                 clean_stop_observed,
@@ -7219,6 +7294,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
             traffic_stimulus_observed: false,
             traffic_packets_observed: false,
             traffic_drop_observed: false,
+            traffic_stimulus_drop_observed: false,
             traffic_stimulus: tun_runtime_smoke_traffic_stimulus_not_attempted(),
             route_takeover: tun_runtime_smoke_route_takeover_not_collected(),
             clean_stop_observed: false,
@@ -7270,7 +7346,7 @@ fn collect_tun_runtime_smoke_evidence(min_duration: Duration) -> TunRuntimeSmoke
 fn default_tun_runtime_smoke_runtime() -> MixedProxyRuntime {
     let mut routes = RouteEngine::new(RouteAction::Direct);
     routes.add_rule(RouteRule {
-        name: "tun-runtime-smoke-traffic-stimulus".to_string(),
+        name: TUN_RUNTIME_SMOKE_TRAFFIC_RULE.to_string(),
         matcher: RouteMatcher::IpExact(TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.ip()),
         action: RouteAction::Block,
     });
@@ -7287,13 +7363,14 @@ fn hold_tun_runtime_smoke_until(started_at: Instant, min_duration: Duration) {
 fn send_tun_runtime_smoke_traffic_stimulus() -> TunRuntimeSmokeTrafficStimulusReport {
     let mut report = TunRuntimeSmokeTrafficStimulusReport {
         attempted: true,
+        source: TUN_RUNTIME_SMOKE_TRAFFIC_SOURCE,
         target: TUN_RUNTIME_SMOKE_TRAFFIC_TARGET,
         attempts: TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_ATTEMPTS,
         sent_packets: 0,
         payload_bytes: TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_PAYLOAD.len(),
         errors: Vec::new(),
     };
-    let socket = match UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)) {
+    let socket = match UdpSocket::bind(TUN_RUNTIME_SMOKE_TRAFFIC_SOURCE) {
         Ok(socket) => socket,
         Err(error) => {
             report.errors.push(format!("bind UDP socket: {error}"));
@@ -7333,6 +7410,7 @@ fn send_tun_runtime_smoke_traffic_stimulus() -> TunRuntimeSmokeTrafficStimulusRe
 fn tun_runtime_smoke_traffic_stimulus_not_attempted() -> TunRuntimeSmokeTrafficStimulusReport {
     TunRuntimeSmokeTrafficStimulusReport {
         attempted: false,
+        source: TUN_RUNTIME_SMOKE_TRAFFIC_SOURCE,
         target: TUN_RUNTIME_SMOKE_TRAFFIC_TARGET,
         attempts: 0,
         sent_packets: 0,
@@ -7353,6 +7431,18 @@ fn tun_runtime_smoke_route_takeover_not_collected() -> TunRouteTakeoverSnapshot 
         raw_output: None,
         error: Some("route takeover snapshot was not collected".to_string()),
     }
+}
+
+fn tun_runtime_smoke_traffic_stimulus_drop_observed(report: &ManagedTunPacketLoopReport) -> bool {
+    let Some(flow) = report.summary.last_dropped_flow.as_ref() else {
+        return false;
+    };
+    report.summary.dropped_packets > 0
+        && flow.destination_ip == TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.ip()
+        && flow.destination_port == Some(TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.port())
+        && report.summary.last_dropped_route_action.as_ref() == Some(&RouteAction::Block)
+        && report.summary.last_dropped_matched_rule.as_deref()
+            == Some(TUN_RUNTIME_SMOKE_TRAFFIC_RULE)
 }
 
 fn tun_runtime_smoke_report_passed(
@@ -7409,13 +7499,14 @@ fn tun_runtime_smoke_detail(
     traffic_stimulus_required: bool,
     traffic_stimulus_observed: bool,
     traffic_packets_observed: bool,
+    traffic_stimulus_drop_observed: bool,
     traffic_drop_observed: bool,
     route_takeover: &TunRouteTakeoverSnapshot,
     clean_stop_observed: bool,
     residual_state_clean: bool,
 ) -> String {
     format!(
-        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} dropped={} unsupported={} route_takeover_expected_prefixes_present={} route_takeover_missing_prefixes={} traffic_stimulus_required={} traffic_stimulus_attempted={} traffic_stimulus_observed={} traffic_stimulus_target={} traffic_stimulus_attempts={} traffic_stimulus_sent_packets={} traffic_stimulus_error_count={} traffic_packets_observed={} traffic_drop_observed={} exit_reason={} stop_requested={} clean_stop_observed={} residual_state_clean={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
+        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} dropped={} unsupported={} route_takeover_expected_prefixes_present={} route_takeover_missing_prefixes={} traffic_stimulus_required={} traffic_stimulus_attempted={} traffic_stimulus_observed={} traffic_stimulus_source={} traffic_stimulus_target={} traffic_stimulus_attempts={} traffic_stimulus_sent_packets={} traffic_stimulus_error_count={} traffic_packets_observed={} traffic_drop_observed={} traffic_stimulus_drop_observed={} last_dropped_matched_rule={} exit_reason={} stop_requested={} clean_stop_observed={} residual_state_clean={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
         report.config.interface_name,
         report.owns_device,
         report.start_snapshot.running,
@@ -7429,12 +7520,19 @@ fn tun_runtime_smoke_detail(
         traffic_stimulus_required,
         traffic_stimulus.attempted,
         traffic_stimulus_observed,
+        traffic_stimulus.source,
         traffic_stimulus.target,
         traffic_stimulus.attempts,
         traffic_stimulus.sent_packets,
         traffic_stimulus.errors.len(),
         traffic_packets_observed,
         traffic_drop_observed,
+        traffic_stimulus_drop_observed,
+        report
+            .summary
+            .last_dropped_matched_rule
+            .as_deref()
+            .unwrap_or("-"),
         report.summary.exit_reason_label(),
         report.summary.stop_requested,
         clean_stop_observed,
@@ -7771,77 +7869,191 @@ fn tun_runtime_smoke_json_value(
     min_duration: Duration,
     report: Option<&TunRuntimeSmokeReport>,
 ) -> serde_json::Value {
-    serde_json::json!({
-        "included": included,
-        "status": tun_runtime_smoke_status_label(included, report),
-        "min_duration_ms": duration_millis_for_report(min_duration),
-        "passed": if included {
+    let mut value = serde_json::Map::new();
+    macro_rules! field {
+        ($name:literal, $expression:expr) => {
+            value.insert($name.to_string(), serde_json::json!($expression));
+        };
+    }
+
+    field!("included", included);
+    field!("status", tun_runtime_smoke_status_label(included, report));
+    field!("min_duration_ms", duration_millis_for_report(min_duration));
+    field!(
+        "passed",
+        if included {
             report.map(|report| report.passed)
         } else {
             None
-        },
-        "elapsed_ms": report.map(|report| duration_millis_for_report(report.elapsed)),
-        "duration_target_met": report.map(|report| report.duration_target_met),
-        "loop_activity_observed": report.map(|report| report.loop_activity_observed),
-        "route_takeover_expected_prefixes_present": report.map(|report| {
-            report.route_takeover.expected_prefixes_present
-        }),
-        "route_takeover_expected_prefixes": report.map(|report| {
-            &report.route_takeover.expected_prefixes
-        }),
-        "route_takeover_observed_prefixes": report.map(|report| {
-            &report.route_takeover.observed_prefixes
-        }),
-        "route_takeover_missing_prefixes": report.map(|report| {
-            &report.route_takeover.missing_prefixes
-        }),
-        "route_takeover_error": report.and_then(|report| report.route_takeover.error.as_deref()),
-        "route_takeover_snapshot": report.map(|report| {
-            tun_route_takeover_snapshot_json_value(&report.route_takeover)
-        }),
-        "traffic_stimulus_required": report.map(|report| report.traffic_stimulus_required),
-        "traffic_stimulus_observed": report.map(|report| report.traffic_stimulus_observed),
-        "traffic_packets_observed": report.map(|report| report.traffic_packets_observed),
-        "traffic_drop_observed": report.map(|report| report.traffic_drop_observed),
-        "traffic_stimulus_attempted": report.map(|report| report.traffic_stimulus.attempted),
-        "traffic_stimulus_target": report.map(|report| report.traffic_stimulus.target.to_string()),
-        "traffic_stimulus_attempts": report.map(|report| report.traffic_stimulus.attempts),
-        "traffic_stimulus_sent_packets": report.map(|report| report.traffic_stimulus.sent_packets),
-        "traffic_stimulus_payload_bytes": report.map(|report| report.traffic_stimulus.payload_bytes),
-        "traffic_stimulus_error_count": report.map(|report| report.traffic_stimulus.errors.len()),
-        "traffic_stimulus_errors": report.map(|report| &report.traffic_stimulus.errors),
-        "processed_packets": report.and_then(|report| {
+        }
+    );
+    field!(
+        "elapsed_ms",
+        report.map(|report| duration_millis_for_report(report.elapsed))
+    );
+    field!(
+        "duration_target_met",
+        report.map(|report| report.duration_target_met)
+    );
+    field!(
+        "loop_activity_observed",
+        report.map(|report| report.loop_activity_observed)
+    );
+    field!(
+        "route_takeover_expected_prefixes_present",
+        report.map(|report| report.route_takeover.expected_prefixes_present)
+    );
+    field!(
+        "route_takeover_expected_prefixes",
+        report.map(|report| &report.route_takeover.expected_prefixes)
+    );
+    field!(
+        "route_takeover_observed_prefixes",
+        report.map(|report| &report.route_takeover.observed_prefixes)
+    );
+    field!(
+        "route_takeover_missing_prefixes",
+        report.map(|report| &report.route_takeover.missing_prefixes)
+    );
+    field!(
+        "route_takeover_error",
+        report.and_then(|report| report.route_takeover.error.as_deref())
+    );
+    field!(
+        "route_takeover_snapshot",
+        report.map(|report| tun_route_takeover_snapshot_json_value(&report.route_takeover))
+    );
+    field!(
+        "traffic_stimulus_required",
+        report.map(|report| report.traffic_stimulus_required)
+    );
+    field!(
+        "traffic_stimulus_observed",
+        report.map(|report| report.traffic_stimulus_observed)
+    );
+    field!(
+        "traffic_packets_observed",
+        report.map(|report| report.traffic_packets_observed)
+    );
+    field!(
+        "traffic_drop_observed",
+        report.map(|report| report.traffic_drop_observed)
+    );
+    field!(
+        "traffic_stimulus_drop_observed",
+        report.map(|report| report.traffic_stimulus_drop_observed)
+    );
+    field!(
+        "traffic_stimulus_attempted",
+        report.map(|report| report.traffic_stimulus.attempted)
+    );
+    field!(
+        "traffic_stimulus_source",
+        report.map(|report| report.traffic_stimulus.source.to_string())
+    );
+    field!(
+        "traffic_stimulus_target",
+        report.map(|report| report.traffic_stimulus.target.to_string())
+    );
+    field!(
+        "traffic_stimulus_attempts",
+        report.map(|report| report.traffic_stimulus.attempts)
+    );
+    field!(
+        "traffic_stimulus_sent_packets",
+        report.map(|report| report.traffic_stimulus.sent_packets)
+    );
+    field!(
+        "traffic_stimulus_payload_bytes",
+        report.map(|report| report.traffic_stimulus.payload_bytes)
+    );
+    field!(
+        "traffic_stimulus_error_count",
+        report.map(|report| report.traffic_stimulus.errors.len())
+    );
+    field!(
+        "traffic_stimulus_errors",
+        report.map(|report| &report.traffic_stimulus.errors)
+    );
+    field!(
+        "processed_packets",
+        report.and_then(|report| {
             report
                 .report
                 .as_ref()
                 .map(|runtime_report| runtime_report.summary.processed_packets())
-        }),
-        "idle_events": report.and_then(|report| {
+        })
+    );
+    field!(
+        "idle_events",
+        report.and_then(|report| {
             report
                 .report
                 .as_ref()
                 .map(|runtime_report| runtime_report.summary.idle_events)
-        }),
-        "dropped_packets": report.and_then(|report| {
+        })
+    );
+    field!(
+        "dropped_packets",
+        report.and_then(|report| {
             report
                 .report
                 .as_ref()
                 .map(|runtime_report| runtime_report.summary.dropped_packets)
-        }),
-        "unsupported_packets": report.and_then(|report| {
+        })
+    );
+    field!(
+        "last_dropped_flow",
+        report.and_then(|report| {
+            report
+                .report
+                .as_ref()
+                .and_then(|runtime_report| runtime_report.summary.last_dropped_flow.as_ref())
+                .map(tun_packet_flow_json_value)
+        })
+    );
+    field!(
+        "last_dropped_route_action",
+        report.and_then(|report| {
+            report
+                .report
+                .as_ref()
+                .and_then(|runtime_report| {
+                    runtime_report.summary.last_dropped_route_action.as_ref()
+                })
+                .map(route_action_json_value)
+        })
+    );
+    field!(
+        "last_dropped_matched_rule",
+        report.and_then(|report| {
+            report.report.as_ref().and_then(|runtime_report| {
+                runtime_report.summary.last_dropped_matched_rule.as_deref()
+            })
+        })
+    );
+    field!(
+        "unsupported_packets",
+        report.and_then(|report| {
             report
                 .report
                 .as_ref()
                 .map(|runtime_report| runtime_report.summary.unsupported_packets)
-        }),
-        "last_unsupported_flow": report.and_then(|report| {
+        })
+    );
+    field!(
+        "last_unsupported_flow",
+        report.and_then(|report| {
             report
                 .report
                 .as_ref()
                 .and_then(|runtime_report| runtime_report.summary.last_unsupported_flow.as_ref())
                 .map(tun_packet_flow_json_value)
-        }),
-        "last_unsupported_route_action": report.and_then(|report| {
+        })
+    );
+    field!(
+        "last_unsupported_route_action",
+        report.and_then(|report| {
             report
                 .report
                 .as_ref()
@@ -7852,58 +8064,82 @@ fn tun_runtime_smoke_json_value(
                         .as_ref()
                 })
                 .map(route_action_json_value)
-        }),
-        "last_unsupported_matched_rule": report.and_then(|report| {
-            report
-                .report
-                .as_ref()
-                .and_then(|runtime_report| {
-                    runtime_report
-                        .summary
-                        .last_unsupported_matched_rule
-                        .as_deref()
-                })
-        }),
-        "clean_stop_observed": report.map(|report| report.clean_stop_observed),
-        "residual_state_clean": report.map(|report| report.residual_state_clean),
-        "exit_reason": report.and_then(|report| {
+        })
+    );
+    field!(
+        "last_unsupported_matched_rule",
+        report.and_then(|report| {
+            report.report.as_ref().and_then(|runtime_report| {
+                runtime_report
+                    .summary
+                    .last_unsupported_matched_rule
+                    .as_deref()
+            })
+        })
+    );
+    field!(
+        "clean_stop_observed",
+        report.map(|report| report.clean_stop_observed)
+    );
+    field!(
+        "residual_state_clean",
+        report.map(|report| report.residual_state_clean)
+    );
+    field!(
+        "exit_reason",
+        report.and_then(|report| {
             report
                 .report
                 .as_ref()
                 .map(|runtime_report| runtime_report.summary.exit_reason_label())
-        }),
-        "stop_requested": report.and_then(|report| {
+        })
+    );
+    field!(
+        "stop_requested",
+        report.and_then(|report| {
             report
                 .report
                 .as_ref()
                 .map(|runtime_report| runtime_report.summary.stop_requested)
-        }),
-        "tcp_sessions_open": report.and_then(|report| {
+        })
+    );
+    field!(
+        "tcp_sessions_open",
+        report.and_then(|report| {
             report
                 .report
                 .as_ref()
                 .map(|runtime_report| runtime_report.summary.tcp_sessions_open)
-        }),
-        "tcp_server_close_markers_open": report.and_then(|report| {
+        })
+    );
+    field!(
+        "tcp_server_close_markers_open",
+        report.and_then(|report| {
             report
                 .report
                 .as_ref()
                 .map(|runtime_report| runtime_report.summary.tcp_server_close_markers_open)
-        }),
-        "tcp_post_close_markers_open": report.and_then(|report| {
+        })
+    );
+    field!(
+        "tcp_post_close_markers_open",
+        report.and_then(|report| {
             report
                 .report
                 .as_ref()
                 .map(|runtime_report| runtime_report.summary.tcp_post_close_markers_open)
-        }),
-        "detail": report.map(|report| report.detail.as_str()),
-        "report": report.and_then(|report| {
-            report
-                .report
-                .as_ref()
-                .map(managed_tun_runtime_report_json_value)
-        }),
-    })
+        })
+    );
+    field!("detail", report.map(|report| report.detail.as_str()));
+    field!(
+        "report",
+        report.and_then(|report| report
+            .report
+            .as_ref()
+            .map(managed_tun_runtime_report_json_value))
+    );
+
+    serde_json::Value::Object(value)
 }
 
 fn tun_packet_flow_json_value(flow: &TunPacketFlow) -> serde_json::Value {

@@ -2054,7 +2054,10 @@ fn managed_mixed_status_json_includes_tun_runtime_diagnostic() {
         relay_packets: 3,
         tcp_relay_plans: 2,
         udp_relay_plans: 1,
-        dropped_packets: 0,
+        dropped_packets: 1,
+        last_dropped_flow: Some("10.7.0.2:54321->198.18.0.1:9/17".to_string()),
+        last_dropped_route_action: Some("block".to_string()),
+        last_dropped_matched_rule: Some("tun-runtime-smoke-traffic-stimulus".to_string()),
         unsupported_packets: 0,
         packet_errors: 1,
         udp_relay_errors: 0,
@@ -2112,6 +2115,16 @@ fn managed_mixed_status_json_includes_tun_runtime_diagnostic() {
     assert_eq!(diagnostic["udp_relay_responses_written"], 1);
     assert_eq!(diagnostic["tcp_session_events"], 2);
     assert_eq!(diagnostic["tcp_max_active_sessions"], 17);
+    assert_eq!(diagnostic["dropped_packets"], 1);
+    assert_eq!(
+        diagnostic["last_dropped_flow"],
+        "10.7.0.2:54321->198.18.0.1:9/17"
+    );
+    assert_eq!(diagnostic["last_dropped_route_action"], "block");
+    assert_eq!(
+        diagnostic["last_dropped_matched_rule"],
+        "tun-runtime-smoke-traffic-stimulus"
+    );
     assert_eq!(
         diagnostic["last_packet_error"],
         "unsupported_TUN_packet_IP_version:_0"

@@ -363,21 +363,23 @@ as `tun-preflight --format json`, so platform handoff evidence is available
 without parsing gate detail strings. `--include-tun-runtime-smoke` can add an
 explicit platform gate that starts the default managed TUN runtime, opens packet
 I/O, requests a clean stop, and records the start/stop snapshots plus packet
-loop diagnostic without enabling that route-changing check by default. The gate
-holds the runtime for at least 50ms by default, sends a short UDP traffic
-stimulus through the OS routing table to a controlled TUN-subnet block target,
-captures a runtime route-takeover snapshot, and records whether that stimulus
-produced packet-loop traffic. The route snapshot verifies the expected
-split-default prefixes are present while the adapter is running and is a smoke
-gate; the traffic stimulus is report-only by default
-(`traffic_stimulus_required=false`) so release checks can collect the evidence
-before route/packet classification is hardened into a promotion blocker. It
-records `elapsed_ms`, `duration_target_met`, `loop_activity_observed`,
-`route_takeover_*`, `traffic_stimulus_required`, `traffic_stimulus_observed`,
-`traffic_packets_observed`,
-`traffic_drop_observed`, `traffic_stimulus_*`, `processed_packets`,
-`idle_events`, `dropped_packets`, `unsupported_packets`, last unsupported flow
-details, `clean_stop_observed`, `exit_reason`, `stop_requested`,
+loop diagnostic. The gate holds the runtime for at least 50ms by default, sends
+a short UDP traffic stimulus through the OS routing table to a controlled
+split-default block target, captures a runtime route-takeover snapshot, and
+records whether the packet loop observed that stimulus as a dropped route. The
+route snapshot verifies the expected split-default prefixes are present while
+the adapter is running and is a smoke gate; the traffic stimulus remains
+report-only by default (`traffic_stimulus_required=false`) while Windows socket
+source/route behavior is hardened, but successful evidence must match the
+dedicated `tun-runtime-smoke-traffic-stimulus` block rule. It records `elapsed_ms`,
+`duration_target_met`, `loop_activity_observed`, `route_takeover_*`,
+`traffic_stimulus_required`, `traffic_stimulus_observed`,
+`traffic_packets_observed`, `traffic_drop_observed`,
+`traffic_stimulus_drop_observed`, `traffic_stimulus_source`,
+`traffic_stimulus_target`, `traffic_stimulus_*`, `processed_packets`,
+`idle_events`, `dropped_packets`, last dropped flow/rule details,
+`unsupported_packets`, last unsupported flow details, `clean_stop_observed`,
+`exit_reason`, `stop_requested`,
 `residual_state_clean`, and the remaining TUN/TCP session marker counts, and can
 be tuned with
 `--tun-runtime-smoke-min-duration-ms`. When

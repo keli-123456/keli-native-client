@@ -283,6 +283,10 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][17],
+        "tun-runtime-smoke-dropped-route-evidence"
+    );
+    assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][18],
         "tun-runtime-smoke-route-takeover-snapshot"
     );
     assert_eq!(
@@ -347,30 +351,34 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][9],
-        "tun-runtime-smoke-route-takeover-snapshot"
+        "tun-runtime-smoke-dropped-route-evidence"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][10],
-        "non-skipped-soak"
+        "tun-runtime-smoke-route-takeover-snapshot"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][11],
-        "soak-parameters"
+        "non-skipped-soak"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][12],
+        "soak-parameters"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][13],
         "soak-min-duration"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][14],
+        report["doctor"]["default_core_certification_capabilities"][15],
         "promotion-blockers"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][16],
+        report["doctor"]["default_core_certification_capabilities"][17],
         "text-summary"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][17],
+        report["doctor"]["default_core_certification_capabilities"][18],
         "support-bundle-export"
     );
     assert_eq!(
@@ -449,6 +457,11 @@ proxies:
         report["doctor"]["tun_packet_pipeline_capabilities"][27],
         "packet-io-readiness"
     );
+    assert!(report["doctor"]["tun_packet_pipeline_capabilities"]
+        .as_array()
+        .expect("TUN packet pipeline capabilities")
+        .iter()
+        .any(|capability| capability.as_str() == Some("packet-loop-drop-detail")));
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][28],
         "tcp-segment-parse"
@@ -809,7 +822,9 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     assert!(certification["tun_runtime_smoke"]["traffic_stimulus_observed"].is_null());
     assert!(certification["tun_runtime_smoke"]["traffic_packets_observed"].is_null());
     assert!(certification["tun_runtime_smoke"]["traffic_drop_observed"].is_null());
+    assert!(certification["tun_runtime_smoke"]["traffic_stimulus_drop_observed"].is_null());
     assert!(certification["tun_runtime_smoke"]["traffic_stimulus_attempted"].is_null());
+    assert!(certification["tun_runtime_smoke"]["traffic_stimulus_source"].is_null());
     assert!(certification["tun_runtime_smoke"]["traffic_stimulus_target"].is_null());
     assert!(certification["tun_runtime_smoke"]["traffic_stimulus_attempts"].is_null());
     assert!(certification["tun_runtime_smoke"]["traffic_stimulus_sent_packets"].is_null());
@@ -819,6 +834,9 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     assert!(certification["tun_runtime_smoke"]["processed_packets"].is_null());
     assert!(certification["tun_runtime_smoke"]["idle_events"].is_null());
     assert!(certification["tun_runtime_smoke"]["dropped_packets"].is_null());
+    assert!(certification["tun_runtime_smoke"]["last_dropped_flow"].is_null());
+    assert!(certification["tun_runtime_smoke"]["last_dropped_route_action"].is_null());
+    assert!(certification["tun_runtime_smoke"]["last_dropped_matched_rule"].is_null());
     assert!(certification["tun_runtime_smoke"]["unsupported_packets"].is_null());
     assert!(certification["tun_runtime_smoke"]["last_unsupported_flow"].is_null());
     assert!(certification["tun_runtime_smoke"]["last_unsupported_route_action"].is_null());

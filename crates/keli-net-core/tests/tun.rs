@@ -6821,6 +6821,23 @@ fn tun_packet_loop_summary_counts_event_outcomes() {
     assert_eq!(summary.tcp_relay_plans, 1);
     assert_eq!(summary.udp_relay_plans, 1);
     assert_eq!(summary.dropped_packets, 1);
+    let dropped_flow = summary
+        .last_dropped_flow
+        .as_ref()
+        .expect("last dropped flow");
+    assert_eq!(
+        dropped_flow.destination_ip,
+        "10.1.2.3".parse::<IpAddr>().unwrap()
+    );
+    assert_eq!(dropped_flow.destination_port, Some(443));
+    assert_eq!(
+        summary.last_dropped_route_action.as_ref(),
+        Some(&RouteAction::Block)
+    );
+    assert_eq!(
+        summary.last_dropped_matched_rule.as_deref(),
+        Some("block-lan")
+    );
     assert_eq!(summary.unsupported_packets, 1);
     assert_eq!(summary.packet_errors, 1);
     assert!(matches!(

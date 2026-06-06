@@ -406,6 +406,9 @@ pub struct TunPacketLoopSummary {
     pub tcp_relay_plans: usize,
     pub udp_relay_plans: usize,
     pub dropped_packets: usize,
+    pub last_dropped_flow: Option<TunPacketFlow>,
+    pub last_dropped_route_action: Option<RouteAction>,
+    pub last_dropped_matched_rule: Option<String>,
     pub unsupported_packets: usize,
     pub last_unsupported_flow: Option<TunPacketFlow>,
     pub last_unsupported_route_action: Option<RouteAction>,
@@ -1008,8 +1011,11 @@ impl TunPacketLoopSummary {
                     _ => {}
                 }
             }
-            TunPacketLoopEvent::Drop(_) => {
+            TunPacketLoopEvent::Drop(plan) => {
                 self.dropped_packets += 1;
+                self.last_dropped_flow = Some(plan.route.flow.clone());
+                self.last_dropped_route_action = Some(plan.route.action.clone());
+                self.last_dropped_matched_rule = plan.route.matched_rule.clone();
             }
             TunPacketLoopEvent::Unsupported(plan) => {
                 self.unsupported_packets += 1;

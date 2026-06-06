@@ -52,7 +52,9 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_observed"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_packets_observed"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_drop_observed"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_drop_observed"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_attempted"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_source"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_target"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_attempts"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_sent_packets"].is_null());
@@ -62,6 +64,9 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert!(report["tun_runtime_smoke"]["processed_packets"].is_null());
     assert!(report["tun_runtime_smoke"]["idle_events"].is_null());
     assert!(report["tun_runtime_smoke"]["dropped_packets"].is_null());
+    assert!(report["tun_runtime_smoke"]["last_dropped_flow"].is_null());
+    assert!(report["tun_runtime_smoke"]["last_dropped_route_action"].is_null());
+    assert!(report["tun_runtime_smoke"]["last_dropped_matched_rule"].is_null());
     assert!(report["tun_runtime_smoke"]["unsupported_packets"].is_null());
     assert!(report["tun_runtime_smoke"]["last_unsupported_flow"].is_null());
     assert!(report["tun_runtime_smoke"]["last_unsupported_route_action"].is_null());
@@ -287,7 +292,9 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_observed"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_packets_observed"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_drop_observed"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_drop_observed"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_attempted"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_source"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_target"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_attempts"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_sent_packets"].is_null());
@@ -297,6 +304,9 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert!(report["tun_runtime_smoke"]["processed_packets"].is_null());
     assert!(report["tun_runtime_smoke"]["idle_events"].is_null());
     assert!(report["tun_runtime_smoke"]["dropped_packets"].is_null());
+    assert!(report["tun_runtime_smoke"]["last_dropped_flow"].is_null());
+    assert!(report["tun_runtime_smoke"]["last_dropped_route_action"].is_null());
+    assert!(report["tun_runtime_smoke"]["last_dropped_matched_rule"].is_null());
     assert!(report["tun_runtime_smoke"]["unsupported_packets"].is_null());
     assert!(report["tun_runtime_smoke"]["last_unsupported_flow"].is_null());
     assert!(report["tun_runtime_smoke"]["last_unsupported_route_action"].is_null());
