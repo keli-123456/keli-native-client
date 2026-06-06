@@ -395,34 +395,38 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][43],
-        "anytls-tls-tcp-relay-smoke"
+        "trojan-tls-udp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][44],
-        "naive-h2-tcp-relay-smoke"
+        "anytls-tls-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][45],
-        "naive-h3-quic-tcp-relay-smoke"
+        "naive-h2-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][46],
-        "hy2-quic-tcp-relay-smoke"
+        "naive-h3-quic-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][47],
-        "tuic-quic-tcp-relay-smoke"
+        "hy2-quic-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][48],
-        "vless-tcp-relay-smoke"
+        "tuic-quic-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][49],
-        "vmess-tcp-relay-smoke"
+        "vless-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][50],
+        "vmess-tcp-relay-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][51],
         "mieru-tcp-relay-smoke"
     );
     assert_eq!(
@@ -615,34 +619,38 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][43],
-        "anytls-tls-tcp-relay-smoke"
+        "trojan-tls-udp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][44],
-        "naive-h2-tcp-relay-smoke"
+        "anytls-tls-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][45],
-        "naive-h3-quic-tcp-relay-smoke"
+        "naive-h2-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][46],
-        "hy2-quic-tcp-relay-smoke"
+        "naive-h3-quic-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][47],
-        "tuic-quic-tcp-relay-smoke"
+        "hy2-quic-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][48],
-        "vless-tcp-relay-smoke"
+        "tuic-quic-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][49],
-        "vmess-tcp-relay-smoke"
+        "vless-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][50],
+        "vmess-tcp-relay-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][51],
         "mieru-tcp-relay-smoke"
     );
     assert_eq!(
@@ -1351,6 +1359,59 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     );
     assert_eq!(
         certification["readiness"]["trojan_tls_tcp_relay_smoke"]["case_count"],
+        4
+    );
+    assert_eq!(
+        certification["certification"]["trojan_tls_udp_relay_smoke_passed"],
+        true
+    );
+    assert_eq!(
+        certification["trojan_tls_udp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(certification["trojan_tls_udp_relay_smoke"]["case_count"], 4);
+    assert_eq!(
+        certification["trojan_tls_udp_relay_smoke"]["failed_case_count"],
+        0
+    );
+    assert_eq!(
+        certification["trojan_tls_udp_relay_smoke"]["selected_outbound"],
+        "TROJAN-TLS-UDP-SMOKE"
+    );
+    assert_eq!(
+        certification["trojan_tls_udp_relay_smoke"]["target"],
+        "example.com:53"
+    );
+    assert_eq!(
+        certification["trojan_tls_udp_relay_smoke"]["request_payload_bytes"],
+        21
+    );
+    assert_eq!(
+        certification["trojan_tls_udp_relay_smoke"]["response_payload_bytes"],
+        20
+    );
+    assert_eq!(
+        certification["trojan_tls_udp_relay_smoke"]["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        certification["trojan_tls_udp_relay_smoke"]["server_received_payload"],
+        true
+    );
+    assert_eq!(
+        certification["trojan_tls_udp_relay_smoke"]["metrics_recorded"],
+        true
+    );
+    assert_eq!(
+        certification["trojan_tls_udp_relay_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        certification["readiness"]["trojan_tls_udp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(
+        certification["readiness"]["trojan_tls_udp_relay_smoke"]["case_count"],
         4
     );
     assert_eq!(

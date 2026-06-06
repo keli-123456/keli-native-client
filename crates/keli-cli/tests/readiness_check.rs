@@ -27,7 +27,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(report["schema_version"], READINESS_CHECK_SCHEMA_VERSION);
     assert_eq!(report["ready_for_default_core"], false);
     assert_eq!(report["status"], "not-ready");
-    assert_eq!(report["summary"]["total_gate_count"], 31);
+    assert_eq!(report["summary"]["total_gate_count"], 32);
     assert_eq!(report["summary"]["skipped_gate_count"], 2);
     assert_eq!(report["soak_min_duration_ms"], 0);
     assert_eq!(
@@ -538,6 +538,91 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     );
     assert_eq!(trojan_tls_tcp_round_trip["round_trip_observed"], true);
     assert_eq!(trojan_tls_tcp_round_trip["server_received_payload"], true);
+    assert_eq!(report["trojan_tls_udp_relay_smoke"]["status"], "passed");
+    assert_eq!(report["trojan_tls_udp_relay_smoke"]["passed"], true);
+    assert_eq!(report["trojan_tls_udp_relay_smoke"]["case_count"], 4);
+    assert_eq!(report["trojan_tls_udp_relay_smoke"]["failed_case_count"], 0);
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["selected_outbound"],
+        "TROJAN-TLS-UDP-SMOKE"
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["target"],
+        "example.com:53"
+    );
+    assert!(report["trojan_tls_udp_relay_smoke"]["relay_port"].is_number());
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["response_source"],
+        "127.0.0.1:53"
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["request_payload_bytes"],
+        21
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["response_payload_bytes"],
+        20
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["server_received_payload"],
+        true
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["metrics_recorded"],
+        true
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["metrics_inbound_count"],
+        1
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["metrics_outbound_route_count"],
+        1
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["stop_workers_remaining"],
+        0
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["stop_timed_out"],
+        false
+    );
+    let trojan_tls_udp_cases = report["trojan_tls_udp_relay_smoke"]["cases"]
+        .as_array()
+        .expect("Trojan TLS UDP relay smoke cases");
+    let trojan_tls_udp_case_names: Vec<_> = trojan_tls_udp_cases
+        .iter()
+        .filter_map(|case| case["name"].as_str())
+        .collect();
+    for expected in [
+        "start-trojan-tls-udp-relay-runtime",
+        "trojan-tls-udp-protocol-round-trip",
+        "record-trojan-tls-udp-relay-metrics",
+        "stop-trojan-tls-udp-relay-runtime",
+    ] {
+        assert!(
+            trojan_tls_udp_case_names.contains(&expected),
+            "missing Trojan TLS UDP relay smoke case {expected}: {trojan_tls_udp_case_names:?}"
+        );
+    }
+    let trojan_tls_udp_round_trip = trojan_tls_udp_cases
+        .iter()
+        .find(|case| case["name"] == "trojan-tls-udp-protocol-round-trip")
+        .expect("Trojan TLS UDP relay round trip case");
+    assert_eq!(
+        trojan_tls_udp_round_trip["observed_response"],
+        "keli-trojan-udp-pong"
+    );
+    assert_eq!(trojan_tls_udp_round_trip["round_trip_observed"], true);
+    assert_eq!(trojan_tls_udp_round_trip["server_received_payload"], true);
     assert_eq!(report["anytls_tls_tcp_relay_smoke"]["status"], "passed");
     assert_eq!(report["anytls_tls_tcp_relay_smoke"]["passed"], true);
     assert_eq!(report["anytls_tls_tcp_relay_smoke"]["case_count"], 4);
@@ -1755,7 +1840,7 @@ fn readiness_check_text_reports_gate_summary() {
 
     let output = String::from_utf8(output).expect("readiness text");
     assert!(output.contains(&format!(
-        "readiness status=not-ready schema_version={} gates=31",
+        "readiness status=not-ready schema_version={} gates=32",
         READINESS_CHECK_SCHEMA_VERSION
     )));
     assert!(output.contains("blockers="));
@@ -1777,6 +1862,8 @@ fn readiness_check_text_reports_gate_summary() {
     );
     assert!(output
         .contains("readiness gate=trojan-tls-tcp-relay-smoke category=protocols status=passed"));
+    assert!(output
+        .contains("readiness gate=trojan-tls-udp-relay-smoke category=protocols status=passed"));
     assert!(output
         .contains("readiness gate=anytls-tls-tcp-relay-smoke category=protocols status=passed"));
     assert!(
@@ -1818,6 +1905,7 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(output.contains("readiness http_connect_outbound_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness http_proxy_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness trojan_tls_tcp_relay_smoke status=passed cases=4"));
+    assert!(output.contains("readiness trojan_tls_udp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness anytls_tls_tcp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness naive_h2_tcp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness naive_h3_quic_tcp_relay_smoke status=passed cases=4"));
@@ -2102,6 +2190,53 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     );
     assert_eq!(
         report["readiness"]["trojan_tls_tcp_relay_smoke"]["case_count"],
+        4
+    );
+    assert_eq!(
+        report["certification"]["trojan_tls_udp_relay_smoke_passed"],
+        true
+    );
+    assert_eq!(report["trojan_tls_udp_relay_smoke"]["status"], "passed");
+    assert_eq!(report["trojan_tls_udp_relay_smoke"]["case_count"], 4);
+    assert_eq!(report["trojan_tls_udp_relay_smoke"]["failed_case_count"], 0);
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["selected_outbound"],
+        "TROJAN-TLS-UDP-SMOKE"
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["target"],
+        "example.com:53"
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["request_payload_bytes"],
+        21
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["response_payload_bytes"],
+        20
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["server_received_payload"],
+        true
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["metrics_recorded"],
+        true
+    );
+    assert_eq!(
+        report["trojan_tls_udp_relay_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        report["readiness"]["trojan_tls_udp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(
+        report["readiness"]["trojan_tls_udp_relay_smoke"]["case_count"],
         4
     );
     assert_eq!(
@@ -2657,6 +2792,10 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
         "passed"
     );
     assert_eq!(
+        gate(gates, "trojan-tls-udp-relay-smoke")["status"],
+        "passed"
+    );
+    assert_eq!(
         gate(gates, "anytls-tls-tcp-relay-smoke")["status"],
         "passed"
     );
@@ -2720,6 +2859,8 @@ fn default_core_certification_text_reports_summary_and_gates() {
     );
     assert!(output
         .contains("default_core_certification trojan_tls_tcp_relay_smoke status=passed cases=4"));
+    assert!(output
+        .contains("default_core_certification trojan_tls_udp_relay_smoke status=passed cases=4"));
     assert!(output
         .contains("default_core_certification anytls_tls_tcp_relay_smoke status=passed cases=4"));
     assert!(output
