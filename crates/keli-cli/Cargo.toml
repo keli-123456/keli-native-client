@@ -25,6 +25,7 @@ rcgen.workspace = true
 rustls.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+sha3.workspace = true
 shadowsocks-crypto.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
@@ -34,4 +35,3 @@ webpki-roots.workspace = true
 [dev-dependencies]
 base64.workspace = true
 rustls.workspace = true
-sha3.workspace = true
