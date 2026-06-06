@@ -340,6 +340,19 @@ impl TunDeviceStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunRouteTakeoverSnapshot {
+    pub supported: bool,
+    pub interface_name: String,
+    pub expected_prefixes: Vec<String>,
+    pub observed_prefixes: Vec<String>,
+    pub missing_prefixes: Vec<String>,
+    pub expected_prefixes_present: bool,
+    pub command: Option<Vec<String>>,
+    pub raw_output: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TunDeviceReadiness {
     Ready,
     AlreadyRunning,
@@ -1094,14 +1107,137 @@ fn apply_windows_tun_route_takeover(
     Ok(WindowsTunRouteTakeoverState { restore_commands })
 }
 
+pub fn snapshot_tun_route_takeover(config: &TunDeviceConfig) -> TunRouteTakeoverSnapshot {
+    let expected_prefixes = match tun_route_takeover_expected_prefixes(config) {
+        Ok(prefixes) => prefixes,
+        Err(error) => {
+            return TunRouteTakeoverSnapshot {
+                supported: false,
+                interface_name: config.interface_name.clone(),
+                expected_prefixes: Vec::new(),
+                observed_prefixes: Vec::new(),
+                missing_prefixes: Vec::new(),
+                expected_prefixes_present: false,
+                command: None,
+                raw_output: None,
+                error: Some(error.to_string()),
+            };
+        }
+    };
+    if PlatformKind::current() != PlatformKind::Windows {
+        return TunRouteTakeoverSnapshot {
+            supported: false,
+            interface_name: config.interface_name.clone(),
+            expected_prefixes,
+            observed_prefixes: Vec::new(),
+            missing_prefixes: Vec::new(),
+            expected_prefixes_present: false,
+            command: None,
+            raw_output: None,
+            error: Some(format!(
+                "route takeover snapshot is unsupported on {:?}",
+                PlatformKind::current()
+            )),
+        };
+    }
+    let (address, _) = match parse_tun_address_cidr_parts(&config.address_cidr) {
+        Ok(parts) => parts,
+        Err(error) => {
+            return TunRouteTakeoverSnapshot {
+                supported: false,
+                interface_name: config.interface_name.clone(),
+                expected_prefixes,
+                observed_prefixes: Vec::new(),
+                missing_prefixes: Vec::new(),
+                expected_prefixes_present: false,
+                command: None,
+                raw_output: None,
+                error: Some(error.to_string()),
+            };
+        }
+    };
+    let family = match address {
+        IpAddr::V4(_) => "ipv4",
+        IpAddr::V6(_) => "ipv6",
+    };
+    let command = vec![
+        "netsh".to_string(),
+        "interface".to_string(),
+        family.to_string(),
+        "show".to_string(),
+        "route".to_string(),
+        "store=active".to_string(),
+    ];
+    let args = command[1..].to_vec();
+    match run_tun_command_output("netsh", &args) {
+        Ok(output) => tun_route_takeover_snapshot_from_output(
+            config,
+            expected_prefixes,
+            Some(command),
+            Some(output),
+            None,
+        ),
+        Err(error) => tun_route_takeover_snapshot_from_output(
+            config,
+            expected_prefixes,
+            Some(command),
+            None,
+            Some(error.to_string()),
+        ),
+    }
+}
+
+fn tun_route_takeover_snapshot_from_output(
+    config: &TunDeviceConfig,
+    expected_prefixes: Vec<String>,
+    command: Option<Vec<String>>,
+    raw_output: Option<String>,
+    error: Option<String>,
+) -> TunRouteTakeoverSnapshot {
+    let output = raw_output.as_deref().unwrap_or("");
+    let observed_prefixes: Vec<_> = expected_prefixes
+        .iter()
+        .filter(|prefix| {
+            output.lines().any(|line| {
+                line.contains(prefix.as_str()) && line.contains(config.interface_name.as_str())
+            })
+        })
+        .cloned()
+        .collect();
+    let missing_prefixes: Vec<_> = expected_prefixes
+        .iter()
+        .filter(|prefix| !observed_prefixes.contains(prefix))
+        .cloned()
+        .collect();
+    let expected_prefixes_present = error.is_none() && missing_prefixes.is_empty();
+    TunRouteTakeoverSnapshot {
+        supported: true,
+        interface_name: config.interface_name.clone(),
+        expected_prefixes,
+        observed_prefixes,
+        missing_prefixes,
+        expected_prefixes_present,
+        command,
+        raw_output,
+        error,
+    }
+}
+
+fn tun_route_takeover_expected_prefixes(
+    config: &TunDeviceConfig,
+) -> Result<Vec<String>, TunDeviceError> {
+    let (address, _) = parse_tun_address_cidr_parts(&config.address_cidr)?;
+    Ok(match address {
+        IpAddr::V4(_) => vec!["0.0.0.0/1".to_string(), "128.0.0.0/1".to_string()],
+        IpAddr::V6(_) => vec!["::/1".to_string(), "8000::/1".to_string()],
+    })
+}
+
 fn windows_tun_route_takeover_steps(
     config: &TunDeviceConfig,
 ) -> Result<Vec<WindowsTunRouteTakeoverStep>, TunDeviceError> {
     let (address, _) = parse_tun_address_cidr_parts(&config.address_cidr)?;
-    let prefixes = match address {
-        IpAddr::V4(_) => vec!["0.0.0.0/1".to_string(), "128.0.0.0/1".to_string()],
-        IpAddr::V6(_) => vec!["::/1".to_string(), "8000::/1".to_string()],
-    };
+    let prefixes = tun_route_takeover_expected_prefixes(config)?;
     Ok(prefixes
         .into_iter()
         .map(|prefix| windows_tun_route_takeover_step(&config.interface_name, address, prefix))
@@ -1179,6 +1315,26 @@ fn run_tun_command_checked(program: &str, args: &[String]) -> Result<(), TunDevi
         .map_err(|error| TunDeviceError::Io(error.to_string()))?;
     if output.status.success() {
         Ok(())
+    } else {
+        Err(TunDeviceError::Io(format!(
+            "{} exited with code {}: {}",
+            program,
+            output
+                .status
+                .code()
+                .map_or_else(|| "unknown".to_string(), |code| code.to_string()),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )))
+    }
+}
+
+fn run_tun_command_output(program: &str, args: &[String]) -> Result<String, TunDeviceError> {
+    let output = Command::new(program)
+        .args(args)
+        .output()
+        .map_err(|error| TunDeviceError::Io(error.to_string()))?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
         Err(TunDeviceError::Io(format!(
             "{} exited with code {}: {}",
@@ -2160,6 +2316,10 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         let config =
             TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500).expect("valid TUN config");
 
+        let expected_prefixes =
+            tun_route_takeover_expected_prefixes(&config).expect("expected prefixes");
+        assert_eq!(expected_prefixes, strings(&["0.0.0.0/1", "128.0.0.0/1"]));
+
         let steps = windows_tun_route_takeover_steps(&config).expect("route takeover steps");
 
         assert_eq!(steps.len(), 2);
@@ -2211,6 +2371,10 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         let config =
             TunDeviceConfig::new("keli-tun0", "fd00::1/64", 1500).expect("valid TUN config");
 
+        let expected_prefixes =
+            tun_route_takeover_expected_prefixes(&config).expect("expected prefixes");
+        assert_eq!(expected_prefixes, strings(&["::/1", "8000::/1"]));
+
         let steps = windows_tun_route_takeover_steps(&config).expect("route takeover steps");
 
         assert_eq!(steps.len(), 2);
@@ -2251,6 +2415,45 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
                 "interface=keli-tun0"
             ])
         );
+    }
+
+    #[test]
+    fn tun_route_takeover_snapshot_detects_observed_and_missing_prefixes() {
+        let config =
+            TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500).expect("valid TUN config");
+        let expected_prefixes =
+            tun_route_takeover_expected_prefixes(&config).expect("expected prefixes");
+
+        let snapshot = tun_route_takeover_snapshot_from_output(
+            &config,
+            expected_prefixes,
+            Some(strings(&[
+                "netsh",
+                "interface",
+                "ipv4",
+                "show",
+                "route",
+                "store=active",
+            ])),
+            Some(
+                "Publish  Type      Met  Prefix       Idx  Gateway/Interface Name\n\
+                 No       Manual    1    0.0.0.0/1   19   keli-tun0\n\
+                 No       Manual    1    128.0.0.0/1 20   ethernet0\n"
+                    .to_string(),
+            ),
+            None,
+        );
+
+        assert!(snapshot.supported);
+        assert_eq!(snapshot.interface_name, "keli-tun0");
+        assert_eq!(
+            snapshot.expected_prefixes,
+            strings(&["0.0.0.0/1", "128.0.0.0/1"])
+        );
+        assert_eq!(snapshot.observed_prefixes, strings(&["0.0.0.0/1"]));
+        assert_eq!(snapshot.missing_prefixes, strings(&["128.0.0.0/1"]));
+        assert!(!snapshot.expected_prefixes_present);
+        assert!(snapshot.error.is_none());
     }
 
     #[test]

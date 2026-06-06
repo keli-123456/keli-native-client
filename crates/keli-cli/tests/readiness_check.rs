@@ -42,6 +42,12 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert!(report["tun_runtime_smoke"]["elapsed_ms"].is_null());
     assert!(report["tun_runtime_smoke"]["duration_target_met"].is_null());
     assert!(report["tun_runtime_smoke"]["loop_activity_observed"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_expected_prefixes_present"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_expected_prefixes"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_observed_prefixes"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_missing_prefixes"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_error"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_snapshot"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_required"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_observed"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_packets_observed"].is_null());
@@ -271,6 +277,12 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert!(report["tun_runtime_smoke"]["elapsed_ms"].is_null());
     assert!(report["tun_runtime_smoke"]["duration_target_met"].is_null());
     assert!(report["tun_runtime_smoke"]["loop_activity_observed"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_expected_prefixes_present"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_expected_prefixes"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_observed_prefixes"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_missing_prefixes"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_error"].is_null());
+    assert!(report["tun_runtime_smoke"]["route_takeover_snapshot"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_required"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_observed"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_packets_observed"].is_null());

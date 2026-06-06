@@ -282,6 +282,10 @@ proxies:
         "tun-runtime-smoke-traffic-stimulus"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][17],
+        "tun-runtime-smoke-route-takeover-snapshot"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -342,23 +346,31 @@ proxies:
         "tun-runtime-smoke-traffic-stimulus"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][9],
+        "tun-runtime-smoke-route-takeover-snapshot"
+    );
+    assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][10],
-        "soak-parameters"
+        "non-skipped-soak"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][11],
+        "soak-parameters"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][12],
         "soak-min-duration"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][13],
+        report["doctor"]["default_core_certification_capabilities"][14],
         "promotion-blockers"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][15],
+        report["doctor"]["default_core_certification_capabilities"][16],
         "text-summary"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][16],
+        report["doctor"]["default_core_certification_capabilities"][17],
         "support-bundle-export"
     );
     assert_eq!(
@@ -785,6 +797,14 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     assert!(certification["tun_runtime_smoke"]["elapsed_ms"].is_null());
     assert!(certification["tun_runtime_smoke"]["duration_target_met"].is_null());
     assert!(certification["tun_runtime_smoke"]["loop_activity_observed"].is_null());
+    assert!(
+        certification["tun_runtime_smoke"]["route_takeover_expected_prefixes_present"].is_null()
+    );
+    assert!(certification["tun_runtime_smoke"]["route_takeover_expected_prefixes"].is_null());
+    assert!(certification["tun_runtime_smoke"]["route_takeover_observed_prefixes"].is_null());
+    assert!(certification["tun_runtime_smoke"]["route_takeover_missing_prefixes"].is_null());
+    assert!(certification["tun_runtime_smoke"]["route_takeover_error"].is_null());
+    assert!(certification["tun_runtime_smoke"]["route_takeover_snapshot"].is_null());
     assert!(certification["tun_runtime_smoke"]["traffic_stimulus_required"].is_null());
     assert!(certification["tun_runtime_smoke"]["traffic_stimulus_observed"].is_null());
     assert!(certification["tun_runtime_smoke"]["traffic_packets_observed"].is_null());

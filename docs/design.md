@@ -421,12 +421,14 @@ The first implementation target is deliberately small:
    diagnostic. The smoke gate holds the runtime for at least 50ms by default,
    can be tuned with `--tun-runtime-smoke-min-duration-ms`, sends a short UDP
    traffic stimulus through the OS routing table to a controlled TUN-subnet
-   block target, and records whether that stimulus produced packet-loop traffic.
-   The traffic stimulus is report-only by default
+   block target, captures a runtime route-takeover snapshot, and records whether
+   that stimulus produced packet-loop traffic. The route snapshot verifies the
+   expected split-default prefixes are present while the adapter is running and
+   is a smoke gate; the traffic stimulus is report-only by default
    (`traffic_stimulus_required=false`) so release checks can collect the
    evidence before route/packet classification is hardened into a promotion
    blocker. It records `elapsed_ms`, `duration_target_met`,
-   `loop_activity_observed`, `traffic_stimulus_required`,
+   `loop_activity_observed`, `route_takeover_*`, `traffic_stimulus_required`,
    `traffic_stimulus_observed`, `traffic_packets_observed`,
    `traffic_drop_observed`, `traffic_stimulus_*`, `processed_packets`,
    `idle_events`, `dropped_packets`, `unsupported_packets`, last unsupported

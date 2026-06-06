@@ -38,12 +38,12 @@ use keli_net_core::{
     TunPacketLoopSummary, TunTcpSessionTable, TunUdpRelay, DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
 };
 use keli_platform::{
-    install_wintun_library, install_wintun_library_from_source_dir,
+    install_wintun_library, install_wintun_library_from_source_dir, snapshot_tun_route_takeover,
     wintun_library_source_candidates, NativeSystemProxyController, NativeTunDeviceController,
     PlatformCapabilities, SystemProxyConfig, SystemProxyController, SystemProxySnapshot,
     SystemProxyStatus, TunBackendStatus, TunDeviceConfig, TunDeviceController, TunDevicePreflight,
     TunDeviceReadiness, TunDeviceSnapshot, TunDeviceStatus, TunPacketIo, TunPacketIoController,
-    WintunInstallReport,
+    TunRouteTakeoverSnapshot, WintunInstallReport,
 };
 use keli_protocol::{
     detect_subscription_input_format, parse_mihomo_outbound_profiles,
@@ -84,11 +84,11 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 19;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 9;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 20;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 10;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 9;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 9;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 10;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 10;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 2;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -113,11 +113,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-route-takeover-snapshot";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-route-takeover-snapshot,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -6616,9 +6616,16 @@ pub struct TunRuntimeSmokeReport {
     pub traffic_packets_observed: bool,
     pub traffic_drop_observed: bool,
     pub traffic_stimulus: TunRuntimeSmokeTrafficStimulusReport,
+    pub route_takeover: TunRouteTakeoverSnapshot,
     pub clean_stop_observed: bool,
     pub residual_state_clean: bool,
     pub report: Option<ManagedTunPacketLoopReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TunRuntimeSmokeRunEvidence {
+    traffic_stimulus: TunRuntimeSmokeTrafficStimulusReport,
+    route_takeover: TunRouteTakeoverSnapshot,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7143,7 +7150,9 @@ fn readiness_tun_runtime_smoke_gate(
 
 fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntimeSmokeReport {
     match run_default_tun_runtime_smoke(min_duration) {
-        Ok((report, traffic_stimulus, elapsed)) => {
+        Ok((report, evidence, elapsed)) => {
+            let traffic_stimulus = evidence.traffic_stimulus;
+            let route_takeover = evidence.route_takeover;
             let duration_target_met = elapsed >= min_duration;
             let loop_activity_observed =
                 report.summary.idle_events > 0 || report.summary.processed_packets() > 0;
@@ -7162,6 +7171,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 traffic_stimulus_required,
                 traffic_stimulus_observed,
                 traffic_packets_observed,
+                &route_takeover,
                 clean_stop_observed,
                 residual_state_clean,
             );
@@ -7176,6 +7186,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 traffic_stimulus_observed,
                 traffic_packets_observed,
                 traffic_drop_observed,
+                &route_takeover,
                 clean_stop_observed,
                 residual_state_clean,
             );
@@ -7191,6 +7202,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 traffic_packets_observed,
                 traffic_drop_observed,
                 traffic_stimulus,
+                route_takeover,
                 clean_stop_observed,
                 residual_state_clean,
                 report: Some(report),
@@ -7208,6 +7220,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
             traffic_packets_observed: false,
             traffic_drop_observed: false,
             traffic_stimulus: tun_runtime_smoke_traffic_stimulus_not_attempted(),
+            route_takeover: tun_runtime_smoke_route_takeover_not_collected(),
             clean_stop_observed: false,
             residual_state_clean: false,
             report: None,
@@ -7220,7 +7233,7 @@ fn run_default_tun_runtime_smoke(
 ) -> Result<
     (
         ManagedTunPacketLoopReport,
-        TunRuntimeSmokeTrafficStimulusReport,
+        TunRuntimeSmokeRunEvidence,
         Duration,
     ),
     String,
@@ -7228,28 +7241,30 @@ fn run_default_tun_runtime_smoke(
     let controller = NativeTunDeviceController::new();
     let runtime = default_tun_runtime_smoke_runtime();
     let started_at = Instant::now();
-    let (traffic_stimulus, report) = run_with_optional_tun_runtime_background_report(
+    let (evidence, report) = run_with_optional_tun_runtime_background_report(
         &controller,
         Some(default_tun_device_config()),
         &runtime,
         DEFAULT_TUN_DNS_TTL_SECONDS,
         DEFAULT_TUN_PACKET_LOOP_MAX_PACKETS,
-        || Ok(hold_tun_runtime_smoke_with_traffic_stimulus(min_duration)),
+        || Ok(collect_tun_runtime_smoke_evidence(min_duration)),
     )?;
     let elapsed = started_at.elapsed();
     let report =
         report.ok_or_else(|| "managed TUN runtime smoke did not produce a report".to_string())?;
-    Ok((report, traffic_stimulus, elapsed))
+    Ok((report, evidence, elapsed))
 }
 
-fn hold_tun_runtime_smoke_with_traffic_stimulus(
-    min_duration: Duration,
-) -> TunRuntimeSmokeTrafficStimulusReport {
+fn collect_tun_runtime_smoke_evidence(min_duration: Duration) -> TunRuntimeSmokeRunEvidence {
     let started_at = Instant::now();
     thread::sleep(TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_WARMUP);
+    let route_takeover = snapshot_tun_route_takeover(&default_tun_device_config());
     let traffic_stimulus = send_tun_runtime_smoke_traffic_stimulus();
     hold_tun_runtime_smoke_until(started_at, min_duration);
-    traffic_stimulus
+    TunRuntimeSmokeRunEvidence {
+        traffic_stimulus,
+        route_takeover,
+    }
 }
 
 fn default_tun_runtime_smoke_runtime() -> MixedProxyRuntime {
@@ -7326,6 +7341,20 @@ fn tun_runtime_smoke_traffic_stimulus_not_attempted() -> TunRuntimeSmokeTrafficS
     }
 }
 
+fn tun_runtime_smoke_route_takeover_not_collected() -> TunRouteTakeoverSnapshot {
+    TunRouteTakeoverSnapshot {
+        supported: false,
+        interface_name: DEFAULT_TUN_INTERFACE_NAME.to_string(),
+        expected_prefixes: vec!["0.0.0.0/1".to_string(), "128.0.0.0/1".to_string()],
+        observed_prefixes: Vec::new(),
+        missing_prefixes: Vec::new(),
+        expected_prefixes_present: false,
+        command: None,
+        raw_output: None,
+        error: Some("route takeover snapshot was not collected".to_string()),
+    }
+}
+
 fn tun_runtime_smoke_report_passed(
     report: &ManagedTunPacketLoopReport,
     traffic_stimulus: &TunRuntimeSmokeTrafficStimulusReport,
@@ -7334,6 +7363,7 @@ fn tun_runtime_smoke_report_passed(
     traffic_stimulus_required: bool,
     traffic_stimulus_observed: bool,
     traffic_packets_observed: bool,
+    route_takeover: &TunRouteTakeoverSnapshot,
     clean_stop_observed: bool,
     residual_state_clean: bool,
 ) -> bool {
@@ -7350,6 +7380,7 @@ fn tun_runtime_smoke_report_passed(
             || (traffic_stimulus.attempted
                 && traffic_stimulus_observed
                 && traffic_packets_observed))
+        && route_takeover.expected_prefixes_present
         && clean_stop_observed
         && residual_state_clean
         && !report.summary.packet_limit_reached
@@ -7379,11 +7410,12 @@ fn tun_runtime_smoke_detail(
     traffic_stimulus_observed: bool,
     traffic_packets_observed: bool,
     traffic_drop_observed: bool,
+    route_takeover: &TunRouteTakeoverSnapshot,
     clean_stop_observed: bool,
     residual_state_clean: bool,
 ) -> String {
     format!(
-        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} dropped={} unsupported={} traffic_stimulus_required={} traffic_stimulus_attempted={} traffic_stimulus_observed={} traffic_stimulus_target={} traffic_stimulus_attempts={} traffic_stimulus_sent_packets={} traffic_stimulus_error_count={} traffic_packets_observed={} traffic_drop_observed={} exit_reason={} stop_requested={} clean_stop_observed={} residual_state_clean={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
+        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} dropped={} unsupported={} route_takeover_expected_prefixes_present={} route_takeover_missing_prefixes={} traffic_stimulus_required={} traffic_stimulus_attempted={} traffic_stimulus_observed={} traffic_stimulus_target={} traffic_stimulus_attempts={} traffic_stimulus_sent_packets={} traffic_stimulus_error_count={} traffic_packets_observed={} traffic_drop_observed={} exit_reason={} stop_requested={} clean_stop_observed={} residual_state_clean={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
         report.config.interface_name,
         report.owns_device,
         report.start_snapshot.running,
@@ -7392,6 +7424,8 @@ fn tun_runtime_smoke_detail(
         report.summary.idle_events,
         report.summary.dropped_packets,
         report.summary.unsupported_packets,
+        route_takeover.expected_prefixes_present,
+        route_takeover.missing_prefixes.join(","),
         traffic_stimulus_required,
         traffic_stimulus.attempted,
         traffic_stimulus_observed,
@@ -7749,6 +7783,22 @@ fn tun_runtime_smoke_json_value(
         "elapsed_ms": report.map(|report| duration_millis_for_report(report.elapsed)),
         "duration_target_met": report.map(|report| report.duration_target_met),
         "loop_activity_observed": report.map(|report| report.loop_activity_observed),
+        "route_takeover_expected_prefixes_present": report.map(|report| {
+            report.route_takeover.expected_prefixes_present
+        }),
+        "route_takeover_expected_prefixes": report.map(|report| {
+            &report.route_takeover.expected_prefixes
+        }),
+        "route_takeover_observed_prefixes": report.map(|report| {
+            &report.route_takeover.observed_prefixes
+        }),
+        "route_takeover_missing_prefixes": report.map(|report| {
+            &report.route_takeover.missing_prefixes
+        }),
+        "route_takeover_error": report.and_then(|report| report.route_takeover.error.as_deref()),
+        "route_takeover_snapshot": report.map(|report| {
+            tun_route_takeover_snapshot_json_value(&report.route_takeover)
+        }),
         "traffic_stimulus_required": report.map(|report| report.traffic_stimulus_required),
         "traffic_stimulus_observed": report.map(|report| report.traffic_stimulus_observed),
         "traffic_packets_observed": report.map(|report| report.traffic_packets_observed),
@@ -7865,6 +7915,22 @@ fn tun_packet_flow_json_value(flow: &TunPacketFlow) -> serde_json::Value {
         "destination_ip": flow.destination_ip.to_string(),
         "source_port": flow.source_port,
         "destination_port": flow.destination_port,
+    })
+}
+
+fn tun_route_takeover_snapshot_json_value(
+    snapshot: &TunRouteTakeoverSnapshot,
+) -> serde_json::Value {
+    serde_json::json!({
+        "supported": snapshot.supported,
+        "interface_name": &snapshot.interface_name,
+        "expected_prefixes": &snapshot.expected_prefixes,
+        "observed_prefixes": &snapshot.observed_prefixes,
+        "missing_prefixes": &snapshot.missing_prefixes,
+        "expected_prefixes_present": snapshot.expected_prefixes_present,
+        "command": &snapshot.command,
+        "raw_output": snapshot.raw_output.as_deref(),
+        "error": snapshot.error.as_deref(),
     })
 }
 
