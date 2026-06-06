@@ -27,7 +27,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(report["schema_version"], READINESS_CHECK_SCHEMA_VERSION);
     assert_eq!(report["ready_for_default_core"], false);
     assert_eq!(report["status"], "not-ready");
-    assert_eq!(report["summary"]["total_gate_count"], 18);
+    assert_eq!(report["summary"]["total_gate_count"], 19);
     assert_eq!(report["summary"]["skipped_gate_count"], 2);
     assert_eq!(report["soak_min_duration_ms"], 0);
     assert_eq!(
@@ -209,6 +209,74 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     );
     assert_eq!(http_connect_round_trip["round_trip_observed"], true);
     assert_eq!(http_connect_round_trip["server_received_payload"], true);
+    assert_eq!(report["http_proxy_relay_smoke"]["status"], "passed");
+    assert_eq!(report["http_proxy_relay_smoke"]["passed"], true);
+    assert_eq!(report["http_proxy_relay_smoke"]["case_count"], 4);
+    assert_eq!(report["http_proxy_relay_smoke"]["failed_case_count"], 0);
+    assert_eq!(
+        report["http_proxy_relay_smoke"]["selected_outbound"],
+        "SS-HTTP-PROXY-SMOKE"
+    );
+    assert_eq!(report["http_proxy_relay_smoke"]["target"], "example.com:80");
+    assert_eq!(
+        report["http_proxy_relay_smoke"]["request_payload_bytes"],
+        85
+    );
+    assert_eq!(
+        report["http_proxy_relay_smoke"]["response_payload_bytes"],
+        78
+    );
+    assert_eq!(
+        report["http_proxy_relay_smoke"]["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        report["http_proxy_relay_smoke"]["server_received_payload"],
+        true
+    );
+    assert_eq!(report["http_proxy_relay_smoke"]["metrics_recorded"], true);
+    assert_eq!(report["http_proxy_relay_smoke"]["metrics_inbound_count"], 1);
+    assert_eq!(
+        report["http_proxy_relay_smoke"]["metrics_outbound_route_count"],
+        1
+    );
+    assert_eq!(
+        report["http_proxy_relay_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        report["http_proxy_relay_smoke"]["stop_workers_remaining"],
+        0
+    );
+    assert_eq!(report["http_proxy_relay_smoke"]["stop_timed_out"], false);
+    let http_proxy_cases = report["http_proxy_relay_smoke"]["cases"]
+        .as_array()
+        .expect("HTTP proxy relay smoke cases");
+    let http_proxy_case_names: Vec<_> = http_proxy_cases
+        .iter()
+        .filter_map(|case| case["name"].as_str())
+        .collect();
+    for expected in [
+        "start-http-proxy-relay-runtime",
+        "http-proxy-shadowsocks-round-trip",
+        "record-http-proxy-relay-metrics",
+        "stop-http-proxy-relay-runtime",
+    ] {
+        assert!(
+            http_proxy_case_names.contains(&expected),
+            "missing HTTP proxy relay smoke case {expected}: {http_proxy_case_names:?}"
+        );
+    }
+    let http_proxy_round_trip = http_proxy_cases
+        .iter()
+        .find(|case| case["name"] == "http-proxy-shadowsocks-round-trip")
+        .expect("HTTP proxy relay round trip case");
+    assert!(http_proxy_round_trip["observed_response"]
+        .as_str()
+        .expect("HTTP proxy observed response")
+        .contains("keli-http-proxy-pong"));
+    assert_eq!(http_proxy_round_trip["round_trip_observed"], true);
+    assert_eq!(http_proxy_round_trip["server_received_payload"], true);
     assert_eq!(report["udp_relay_smoke"]["status"], "passed");
     assert_eq!(report["udp_relay_smoke"]["passed"], true);
     assert_eq!(report["udp_relay_smoke"]["case_count"], 4);
@@ -782,7 +850,7 @@ fn readiness_check_text_reports_gate_summary() {
 
     let output = String::from_utf8(output).expect("readiness text");
     assert!(output.contains(&format!(
-        "readiness status=not-ready schema_version={} gates=18",
+        "readiness status=not-ready schema_version={} gates=19",
         READINESS_CHECK_SCHEMA_VERSION
     )));
     assert!(output.contains("blockers="));
@@ -792,6 +860,9 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(output.contains("readiness gate=tcp-relay-smoke category=protocols status=passed"));
     assert!(
         output.contains("readiness gate=http-connect-relay-smoke category=protocols status=passed")
+    );
+    assert!(
+        output.contains("readiness gate=http-proxy-relay-smoke category=protocols status=passed")
     );
     assert!(output.contains("readiness gate=udp-relay-smoke category=protocols status=passed"));
     assert!(output.contains(
@@ -806,6 +877,7 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(output.contains("readiness dns_policy_smoke status=passed cases=4"));
     assert!(output.contains("readiness tcp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness http_connect_relay_smoke status=passed cases=4"));
+    assert!(output.contains("readiness http_proxy_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness udp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness resource_limit_smoke status=passed cases=5"));
     assert!(output.contains("readiness panel_subscription_smoke status=passed cases=9"));
@@ -924,6 +996,34 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     );
     assert_eq!(
         report["readiness"]["http_connect_relay_smoke"]["case_count"],
+        4
+    );
+    assert_eq!(
+        report["certification"]["http_proxy_relay_smoke_passed"],
+        true
+    );
+    assert_eq!(report["http_proxy_relay_smoke"]["status"], "passed");
+    assert_eq!(report["http_proxy_relay_smoke"]["case_count"], 4);
+    assert_eq!(report["http_proxy_relay_smoke"]["failed_case_count"], 0);
+    assert_eq!(
+        report["http_proxy_relay_smoke"]["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        report["http_proxy_relay_smoke"]["server_received_payload"],
+        true
+    );
+    assert_eq!(report["http_proxy_relay_smoke"]["metrics_recorded"], true);
+    assert_eq!(
+        report["http_proxy_relay_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        report["readiness"]["http_proxy_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(
+        report["readiness"]["http_proxy_relay_smoke"]["case_count"],
         4
     );
     assert_eq!(report["certification"]["udp_relay_smoke_passed"], true);
@@ -1157,6 +1257,7 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert_eq!(gate(gates, "dns-policy-smoke")["status"], "passed");
     assert_eq!(gate(gates, "tcp-relay-smoke")["status"], "passed");
     assert_eq!(gate(gates, "http-connect-relay-smoke")["status"], "passed");
+    assert_eq!(gate(gates, "http-proxy-relay-smoke")["status"], "passed");
     assert_eq!(gate(gates, "udp-relay-smoke")["status"], "passed");
     assert_eq!(gate(gates, "resource-limits")["status"], "passed");
     assert_eq!(gate(gates, "panel-subscription-state")["status"], "passed");
@@ -1193,6 +1294,9 @@ fn default_core_certification_text_reports_summary_and_gates() {
     assert!(output.contains("default_core_certification tcp_relay_smoke status=passed cases=4"));
     assert!(output
         .contains("default_core_certification http_connect_relay_smoke status=passed cases=4"));
+    assert!(
+        output.contains("default_core_certification http_proxy_relay_smoke status=passed cases=4")
+    );
     assert!(output.contains("default_core_certification udp_relay_smoke status=passed cases=4"));
     assert!(
         output.contains("default_core_certification resource_limit_smoke status=passed cases=5")
