@@ -283,7 +283,9 @@ pub struct TunBackendStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WintunInstallReport {
+    pub source_kind: String,
     pub source_path: String,
+    pub source_candidates: Vec<String>,
     pub target_path: String,
     pub copied_bytes: u64,
     pub previous_target_present: bool,
@@ -755,6 +757,102 @@ pub fn install_wintun_library(
     target_dir: Option<impl AsRef<Path>>,
 ) -> Result<WintunInstallReport, TunDeviceError> {
     let source_path = source_path.as_ref();
+    let source_candidates = vec![source_path.to_path_buf()];
+    install_wintun_library_from_resolved_source(source_path, "file", source_candidates, target_dir)
+}
+
+pub fn install_wintun_library_from_source_dir(
+    source_dir: impl AsRef<Path>,
+    target_dir: Option<impl AsRef<Path>>,
+) -> Result<WintunInstallReport, TunDeviceError> {
+    let source_dir = source_dir.as_ref();
+    let source_candidates = wintun_library_source_candidates(source_dir);
+    let source_path = resolve_wintun_library_source_from_dir(source_dir, &source_candidates)?;
+    install_wintun_library_from_resolved_source(
+        &source_path,
+        "directory",
+        source_candidates,
+        target_dir,
+    )
+}
+
+pub fn wintun_library_source_candidates(source_dir: impl AsRef<Path>) -> Vec<PathBuf> {
+    let source_dir = source_dir.as_ref();
+    let arch = current_wintun_arch_dir();
+    dedup_paths(vec![
+        source_dir.join("wintun.dll"),
+        source_dir.join("bin").join(arch).join("wintun.dll"),
+        source_dir
+            .join("wintun")
+            .join("bin")
+            .join(arch)
+            .join("wintun.dll"),
+        source_dir.join(arch).join("wintun.dll"),
+    ])
+}
+
+fn resolve_wintun_library_source_from_dir(
+    source_dir: &Path,
+    source_candidates: &[PathBuf],
+) -> Result<PathBuf, TunDeviceError> {
+    if !source_dir.is_dir() {
+        return Err(TunDeviceError::Io(format!(
+            "Wintun source directory was not found: {}",
+            source_dir.display()
+        )));
+    }
+    source_candidates
+        .iter()
+        .find(|path| path.is_file())
+        .cloned()
+        .ok_or_else(|| {
+            let candidates = source_candidates
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join("; ");
+            TunDeviceError::Io(format!(
+                "Wintun source DLL was not found in source directory {}; searched: {}",
+                source_dir.display(),
+                candidates
+            ))
+        })
+}
+
+fn current_wintun_arch_dir() -> &'static str {
+    #[cfg(target_arch = "x86_64")]
+    {
+        "amd64"
+    }
+    #[cfg(target_arch = "x86")]
+    {
+        "x86"
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        "arm64"
+    }
+    #[cfg(target_arch = "arm")]
+    {
+        "arm"
+    }
+    #[cfg(not(any(
+        target_arch = "x86_64",
+        target_arch = "x86",
+        target_arch = "aarch64",
+        target_arch = "arm"
+    )))]
+    {
+        "unknown"
+    }
+}
+
+fn install_wintun_library_from_resolved_source(
+    source_path: &Path,
+    source_kind: &'static str,
+    source_candidates: Vec<PathBuf>,
+    target_dir: Option<impl AsRef<Path>>,
+) -> Result<WintunInstallReport, TunDeviceError> {
     if !source_path.is_file() {
         return Err(TunDeviceError::Io(format!(
             "Wintun source DLL was not found: {}",
@@ -811,7 +909,12 @@ pub fn install_wintun_library(
     let backend = windows_tun_backend_status(vec![target_path.clone()]);
 
     Ok(WintunInstallReport {
+        source_kind: source_kind.to_string(),
         source_path: source_path.display().to_string(),
+        source_candidates: source_candidates
+            .into_iter()
+            .map(|path| path.display().to_string())
+            .collect(),
         target_path: target_path.display().to_string(),
         copied_bytes,
         previous_target_present,
@@ -2009,6 +2112,47 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
             .as_deref()
             .expect("reason")
             .contains("API could not be loaded"));
+    }
+
+    #[test]
+    fn wintun_source_dir_candidates_include_current_arch_layouts() {
+        let source_dir = PathBuf::from(r"C:\wintun-package");
+        let arch = current_wintun_arch_dir();
+        let candidates = wintun_library_source_candidates(&source_dir);
+
+        assert!(candidates.contains(&source_dir.join("wintun.dll")));
+        assert!(candidates.contains(&source_dir.join("bin").join(arch).join("wintun.dll")));
+        assert!(candidates.contains(
+            &source_dir
+                .join("wintun")
+                .join("bin")
+                .join(arch)
+                .join("wintun.dll")
+        ));
+        assert!(candidates.contains(&source_dir.join(arch).join("wintun.dll")));
+    }
+
+    #[test]
+    fn resolves_wintun_source_dir_to_current_arch_dll() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "keli-wintun-source-dir-test-{}",
+            std::process::id()
+        ));
+        let dll_path = temp_dir
+            .join("bin")
+            .join(current_wintun_arch_dir())
+            .join("wintun.dll");
+        std::fs::create_dir_all(dll_path.parent().expect("dll parent")).expect("create source dir");
+        std::fs::write(&dll_path, b"placeholder").expect("write placeholder dll");
+
+        let candidates = wintun_library_source_candidates(&temp_dir);
+        let resolved =
+            resolve_wintun_library_source_from_dir(&temp_dir, &candidates).expect("resolve dll");
+
+        std::fs::remove_file(&dll_path).ok();
+        std::fs::remove_dir_all(&temp_dir).ok();
+
+        assert_eq!(resolved, dll_path);
     }
 
     #[test]

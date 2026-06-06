@@ -278,6 +278,10 @@ proxies:
         "validated-runtime-install"
     );
     assert_eq!(
+        report["doctor"]["tun_backend_check_capabilities"][10],
+        "package-dir-source"
+    );
+    assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][0],
         "schema-version"
     );

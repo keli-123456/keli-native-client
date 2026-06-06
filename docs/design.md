@@ -136,7 +136,9 @@ The first implementation target is deliberately small:
    driver assets from runtime API availability. `tun-backend-install` adds a
    validated install path for an extracted official `wintun.dll`, copying it to
    the runtime directory and reporting whether the backend is ready after the
-   install.
+   install. It can also accept an extracted Wintun package directory and resolve
+   the current-architecture DLL from common layouts such as
+   `bin\amd64\wintun.dll`.
    DNS hijack now has a local SOCKS5 UDP path for A/AAAA wire queries, using the
    existing DNS engine and policy controls to return synthetic DNS responses
    instead of relaying hijacked DNS traffic to the original resolver.

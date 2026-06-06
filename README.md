@@ -140,7 +140,10 @@ detail so the default-core blocker is actionable instead of a generic
 unavailable state.
 `tun-backend-install` can copy an extracted official `wintun.dll` into the CLI
 runtime directory after validating that the DLL exports the Wintun API, then
-returns a text or JSON install report for packagers and local setup scripts.
+returns a text or JSON install report for packagers and local setup scripts. It
+accepts either `--source` for a direct DLL path or `--source-dir` for an
+extracted Wintun package directory, where the installer searches common
+current-architecture layouts such as `bin\amd64\wintun.dll`.
 A bounded managed TUN packet-loop runner now ties lifecycle guard, packet I/O,
 net-core loop summary, and owned-device cleanup into one tested control path.
 Direct UDP TUN relay can execute an injected UDP relay, wrap the relay payload
@@ -422,6 +425,7 @@ cargo run -p keli-cli -- doctor
 cargo run -p keli-cli -- doctor --format json
 cargo run -p keli-cli -- tun-backend-check --format json
 cargo run -p keli-cli -- tun-backend-install --source C:\path\to\wintun.dll --format json
+cargo run -p keli-cli -- tun-backend-install --source-dir C:\path\to\wintun --format json
 cargo run -p keli-cli -- interop-matrix --format json
 cargo run -p keli-cli -- readiness-check --format json
 cargo run -p keli-cli -- readiness-check --format json --soak-min-duration-ms 60000

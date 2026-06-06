@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
 use keli_cli::{
-    write_tun_backend_check_report, write_tun_backend_install_report, ProbeOutputFormat,
+    write_tun_backend_check_report, write_tun_backend_install_report,
+    write_tun_backend_install_report_from_source, ProbeOutputFormat, TunBackendInstallSource,
 };
 use serde_json::Value;
 
@@ -70,4 +71,19 @@ fn tun_backend_install_reports_missing_source_path() {
     .expect_err("missing source should fail");
 
     assert!(error.contains("Wintun source DLL was not found"));
+}
+
+#[test]
+fn tun_backend_install_reports_missing_source_dir() {
+    let mut output = Vec::new();
+
+    let error = write_tun_backend_install_report_from_source(
+        TunBackendInstallSource::Directory(PathBuf::from(r"C:\definitely-missing\wintun")),
+        None,
+        ProbeOutputFormat::Json,
+        &mut output,
+    )
+    .expect_err("missing source directory should fail");
+
+    assert!(error.contains("Wintun source directory was not found"));
 }

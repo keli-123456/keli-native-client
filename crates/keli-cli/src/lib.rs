@@ -38,11 +38,11 @@ use keli_net_core::{
     TunTcpSessionTable, TunUdpRelay, DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
 };
 use keli_platform::{
-    install_wintun_library, NativeSystemProxyController, NativeTunDeviceController,
-    PlatformCapabilities, SystemProxyConfig, SystemProxyController, SystemProxySnapshot,
-    SystemProxyStatus, TunBackendStatus, TunDeviceConfig, TunDeviceController, TunDevicePreflight,
-    TunDeviceReadiness, TunDeviceSnapshot, TunDeviceStatus, TunPacketIo, TunPacketIoController,
-    WintunInstallReport,
+    install_wintun_library, install_wintun_library_from_source_dir, NativeSystemProxyController,
+    NativeTunDeviceController, PlatformCapabilities, SystemProxyConfig, SystemProxyController,
+    SystemProxySnapshot, SystemProxyStatus, TunBackendStatus, TunDeviceConfig, TunDeviceController,
+    TunDevicePreflight, TunDeviceReadiness, TunDeviceSnapshot, TunDeviceStatus, TunPacketIo,
+    TunPacketIoController, WintunInstallReport,
 };
 use keli_protocol::{
     detect_subscription_input_format, parse_mihomo_outbound_profiles,
@@ -74,7 +74,7 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 11;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 12;
 pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 3;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 3;
@@ -105,7 +105,7 @@ const INTEROP_MATRIX_CAPABILITIES: &str =
 const READINESS_CHECK_CAPABILITIES: &str =
     "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
-    "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install";
+    "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
     "schema-version,readiness-embed,tun-backend-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
@@ -141,7 +141,7 @@ pub enum CliCommand {
         output: ProbeOutputFormat,
     },
     TunBackendInstall {
-        source: PathBuf,
+        source: TunBackendInstallSource,
         target_dir: Option<PathBuf>,
         output: ProbeOutputFormat,
     },
@@ -219,6 +219,12 @@ pub enum CliCommand {
 pub enum ProbeOutputFormat {
     Text,
     Json,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TunBackendInstallSource {
+    File(PathBuf),
+    Directory(PathBuf),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4016,7 +4022,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             output,
         } => {
             let mut stdout = io::stdout();
-            write_tun_backend_install_report(source, target_dir, output, &mut stdout)
+            write_tun_backend_install_report_from_source(source, target_dir, output, &mut stdout)
         }
         CliCommand::Version => {
             println!("keli-cli {}", env!("CARGO_PKG_VERSION"));
@@ -4264,7 +4270,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli tun-backend-install --source path\\to\\wintun.dll [--target-dir path\\to\\runtime-dir] [--format text|json]"
+        "       keli-cli tun-backend-install (--source path\\to\\wintun.dll | --source-dir path\\to\\wintun-package) [--target-dir path\\to\\runtime-dir] [--format text|json]"
     )?;
     writeln!(
         writer,
@@ -4531,9 +4537,31 @@ fn parse_tun_backend_install(args: impl Iterator<Item = String>) -> Result<CliCo
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--source" => {
-                source = Some(PathBuf::from(args.next().ok_or_else(|| {
-                    "--source requires a path to an extracted wintun.dll".to_string()
-                })?));
+                if source.is_some() {
+                    return Err(
+                        "tun-backend-install accepts only one of --source or --source-dir"
+                            .to_string(),
+                    );
+                }
+                source = Some(TunBackendInstallSource::File(PathBuf::from(
+                    args.next().ok_or_else(|| {
+                        "--source requires a path to an extracted wintun.dll".to_string()
+                    })?,
+                )));
+            }
+            "--source-dir" => {
+                if source.is_some() {
+                    return Err(
+                        "tun-backend-install accepts only one of --source or --source-dir"
+                            .to_string(),
+                    );
+                }
+                source = Some(TunBackendInstallSource::Directory(PathBuf::from(
+                    args.next().ok_or_else(|| {
+                        "--source-dir requires a path to an extracted Wintun package directory"
+                            .to_string()
+                    })?,
+                )));
             }
             "--target-dir" => {
                 target_dir =
@@ -4552,7 +4580,7 @@ fn parse_tun_backend_install(args: impl Iterator<Item = String>) -> Result<CliCo
     }
 
     Ok(CliCommand::TunBackendInstall {
-        source: source.ok_or_else(|| "--source is required".to_string())?,
+        source: source.ok_or_else(|| "--source or --source-dir is required".to_string())?,
         target_dir,
         output,
     })
@@ -5733,8 +5761,29 @@ pub fn write_tun_backend_install_report(
     output: ProbeOutputFormat,
     mut writer: impl Write,
 ) -> Result<(), String> {
-    let report = install_wintun_library(&source, target_dir.as_deref())
-        .map_err(|error| format!("install Wintun backend: {error}"))?;
+    write_tun_backend_install_report_from_source(
+        TunBackendInstallSource::File(source),
+        target_dir,
+        output,
+        &mut writer,
+    )
+}
+
+pub fn write_tun_backend_install_report_from_source(
+    source: TunBackendInstallSource,
+    target_dir: Option<PathBuf>,
+    output: ProbeOutputFormat,
+    mut writer: impl Write,
+) -> Result<(), String> {
+    let report = match source {
+        TunBackendInstallSource::File(source) => {
+            install_wintun_library(&source, target_dir.as_deref())
+        }
+        TunBackendInstallSource::Directory(source_dir) => {
+            install_wintun_library_from_source_dir(&source_dir, target_dir.as_deref())
+        }
+    }
+    .map_err(|error| format!("install Wintun backend: {error}"))?;
     match output {
         ProbeOutputFormat::Text => write_tun_backend_install_text_report(&mut writer, &report),
         ProbeOutputFormat::Json => write_tun_backend_install_json_report(&mut writer, &report),
@@ -5747,14 +5796,16 @@ fn write_tun_backend_install_text_report(
 ) -> Result<(), String> {
     writeln!(
         writer,
-        "tun_backend_install status={} source={} target={} copied_bytes={} previous_target_present={} driver_api_available={} ready_after_install={}",
+        "tun_backend_install status={} source_kind={} source={} target={} copied_bytes={} previous_target_present={} driver_api_available={} ready_after_install={} source_candidates={}",
         if report.ready_after_install { "ready" } else { "not-ready" },
+        report.source_kind,
         report.source_path,
         report.target_path,
         report.copied_bytes,
         report.previous_target_present,
         report.driver_api_available,
-        report.ready_after_install
+        report.ready_after_install,
+        report.source_candidates.join(";")
     )
     .map_err(|error| error.to_string())
 }
@@ -5766,7 +5817,9 @@ fn write_tun_backend_install_json_report(
     let value = serde_json::json!({
         "status": if report.ready_after_install { "ready" } else { "not-ready" },
         "kind": "keli_tun_backend_install",
+        "source_kind": &report.source_kind,
         "source_path": &report.source_path,
+        "source_candidates": &report.source_candidates,
         "target_path": &report.target_path,
         "copied_bytes": report.copied_bytes,
         "previous_target_present": report.previous_target_present,

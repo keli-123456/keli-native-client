@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use keli_cli::{
     parse_cli_command, CliCommand, MixedDnsOptions, ProbeOutputFormat, SmokeInboundKind,
-    DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+    TunBackendInstallSource, DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
 };
 use keli_net_core::{
     DnsAddressFamilyPolicy, DnsLocalResolutionPolicy, DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
@@ -163,11 +163,48 @@ fn parses_tun_backend_install_json_command() {
     assert_eq!(
         command,
         CliCommand::TunBackendInstall {
-            source: PathBuf::from(r"C:\wintun\bin\amd64\wintun.dll"),
+            source: TunBackendInstallSource::File(PathBuf::from(r"C:\wintun\bin\amd64\wintun.dll")),
             target_dir: Some(PathBuf::from(r"C:\keli\runtime")),
             output: ProbeOutputFormat::Json,
         }
     );
+}
+
+#[test]
+fn parses_tun_backend_install_source_dir_json_command() {
+    let command = parse_cli_command([
+        "tun-backend-install",
+        "--source-dir",
+        r"C:\wintun",
+        "--target-dir",
+        r"C:\keli\runtime",
+        "--format",
+        "json",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::TunBackendInstall {
+            source: TunBackendInstallSource::Directory(PathBuf::from(r"C:\wintun")),
+            target_dir: Some(PathBuf::from(r"C:\keli\runtime")),
+            output: ProbeOutputFormat::Json,
+        }
+    );
+}
+
+#[test]
+fn rejects_tun_backend_install_with_multiple_sources() {
+    let error = parse_cli_command([
+        "tun-backend-install",
+        "--source",
+        r"C:\wintun\bin\amd64\wintun.dll",
+        "--source-dir",
+        r"C:\wintun",
+    ])
+    .expect_err("multiple sources should fail");
+
+    assert!(error.contains("only one of --source or --source-dir"));
 }
 
 #[test]
