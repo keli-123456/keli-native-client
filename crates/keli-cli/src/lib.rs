@@ -90,11 +90,11 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 23;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 13;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 24;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 14;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 13;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 13;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 14;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 14;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 3;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -119,11 +119,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -6687,6 +6687,7 @@ pub struct TunRuntimeSmokeReport {
     pub traffic_packets_observed: bool,
     pub traffic_drop_observed: bool,
     pub traffic_stimulus_drop_observed: bool,
+    pub interface_snapshot: TunRuntimeSmokeInterfaceSnapshot,
     pub traffic_stimulus: TunRuntimeSmokeTrafficStimulusReport,
     pub route_takeover: TunRouteTakeoverSnapshot,
     pub clean_stop_observed: bool,
@@ -6696,8 +6697,26 @@ pub struct TunRuntimeSmokeReport {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TunRuntimeSmokeRunEvidence {
+    interface_snapshot: TunRuntimeSmokeInterfaceSnapshot,
     traffic_stimulus: TunRuntimeSmokeTrafficStimulusReport,
     route_takeover: TunRouteTakeoverSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunRuntimeSmokeInterfaceSnapshot {
+    pub attempted: bool,
+    pub addresses_command: String,
+    pub addresses_exit_success: Option<bool>,
+    pub addresses_exit_code: Option<i32>,
+    pub addresses_stdout: Option<String>,
+    pub addresses_stderr: Option<String>,
+    pub addresses_error: Option<String>,
+    pub interfaces_command: String,
+    pub interfaces_exit_success: Option<bool>,
+    pub interfaces_exit_code: Option<i32>,
+    pub interfaces_stdout: Option<String>,
+    pub interfaces_stderr: Option<String>,
+    pub interfaces_error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7239,6 +7258,7 @@ fn readiness_tun_runtime_smoke_gate(
 fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntimeSmokeReport {
     match run_default_tun_runtime_smoke(min_duration) {
         Ok((report, evidence, elapsed)) => {
+            let interface_snapshot = evidence.interface_snapshot;
             let traffic_stimulus = evidence.traffic_stimulus;
             let route_takeover = evidence.route_takeover;
             let duration_target_met = elapsed >= min_duration;
@@ -7280,6 +7300,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 traffic_packets_observed,
                 traffic_stimulus_drop_observed,
                 traffic_drop_observed,
+                &interface_snapshot,
                 &route_takeover,
                 clean_stop_observed,
                 residual_state_clean,
@@ -7296,6 +7317,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 traffic_packets_observed,
                 traffic_drop_observed,
                 traffic_stimulus_drop_observed,
+                interface_snapshot,
                 traffic_stimulus,
                 route_takeover,
                 clean_stop_observed,
@@ -7315,6 +7337,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
             traffic_packets_observed: false,
             traffic_drop_observed: false,
             traffic_stimulus_drop_observed: false,
+            interface_snapshot: tun_runtime_smoke_interface_snapshot_not_attempted(),
             traffic_stimulus: tun_runtime_smoke_traffic_stimulus_not_attempted(),
             route_takeover: tun_runtime_smoke_route_takeover_not_collected(),
             clean_stop_observed: false,
@@ -7355,9 +7378,11 @@ fn collect_tun_runtime_smoke_evidence(min_duration: Duration) -> TunRuntimeSmoke
     let started_at = Instant::now();
     thread::sleep(TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_WARMUP);
     let route_takeover = snapshot_tun_route_takeover(&default_tun_device_config());
+    let interface_snapshot = collect_tun_runtime_smoke_interface_snapshot();
     let traffic_stimulus = send_tun_runtime_smoke_traffic_stimulus();
     hold_tun_runtime_smoke_until(started_at, min_duration);
     TunRuntimeSmokeRunEvidence {
+        interface_snapshot,
         traffic_stimulus,
         route_takeover,
     }
@@ -7378,6 +7403,85 @@ fn hold_tun_runtime_smoke_until(started_at: Instant, min_duration: Duration) {
         let remaining = min_duration.saturating_sub(started_at.elapsed());
         thread::sleep(remaining.min(MANAGED_TUN_IDLE_POLL_INTERVAL));
     }
+}
+
+fn collect_tun_runtime_smoke_interface_snapshot() -> TunRuntimeSmokeInterfaceSnapshot {
+    let mut snapshot = TunRuntimeSmokeInterfaceSnapshot {
+        attempted: true,
+        addresses_command: tun_runtime_smoke_interface_addresses_command(),
+        addresses_exit_success: None,
+        addresses_exit_code: None,
+        addresses_stdout: None,
+        addresses_stderr: None,
+        addresses_error: None,
+        interfaces_command: tun_runtime_smoke_interfaces_command(),
+        interfaces_exit_success: None,
+        interfaces_exit_code: None,
+        interfaces_stdout: None,
+        interfaces_stderr: None,
+        interfaces_error: None,
+    };
+    match Command::new("netsh")
+        .args([
+            "interface",
+            "ipv4",
+            "show",
+            "addresses",
+            format!("name={DEFAULT_TUN_INTERFACE_NAME}").as_str(),
+        ])
+        .output()
+    {
+        Ok(output) => {
+            snapshot.addresses_exit_success = Some(output.status.success());
+            snapshot.addresses_exit_code = output.status.code();
+            snapshot.addresses_stdout = Some(tun_runtime_smoke_command_output(&output.stdout));
+            snapshot.addresses_stderr = Some(tun_runtime_smoke_command_output(&output.stderr));
+        }
+        Err(error) => {
+            snapshot.addresses_error = Some(format!("run interface addresses snapshot: {error}"));
+        }
+    }
+    match Command::new("netsh")
+        .args(["interface", "ipv4", "show", "interfaces"])
+        .output()
+    {
+        Ok(output) => {
+            snapshot.interfaces_exit_success = Some(output.status.success());
+            snapshot.interfaces_exit_code = output.status.code();
+            snapshot.interfaces_stdout = Some(tun_runtime_smoke_command_output(&output.stdout));
+            snapshot.interfaces_stderr = Some(tun_runtime_smoke_command_output(&output.stderr));
+        }
+        Err(error) => {
+            snapshot.interfaces_error = Some(format!("run interface list snapshot: {error}"));
+        }
+    }
+    snapshot
+}
+
+fn tun_runtime_smoke_interface_snapshot_not_attempted() -> TunRuntimeSmokeInterfaceSnapshot {
+    TunRuntimeSmokeInterfaceSnapshot {
+        attempted: false,
+        addresses_command: tun_runtime_smoke_interface_addresses_command(),
+        addresses_exit_success: None,
+        addresses_exit_code: None,
+        addresses_stdout: None,
+        addresses_stderr: None,
+        addresses_error: None,
+        interfaces_command: tun_runtime_smoke_interfaces_command(),
+        interfaces_exit_success: None,
+        interfaces_exit_code: None,
+        interfaces_stdout: None,
+        interfaces_stderr: None,
+        interfaces_error: None,
+    }
+}
+
+fn tun_runtime_smoke_interface_addresses_command() -> String {
+    format!("netsh interface ipv4 show addresses name={DEFAULT_TUN_INTERFACE_NAME}")
+}
+
+fn tun_runtime_smoke_interfaces_command() -> String {
+    "netsh interface ipv4 show interfaces".to_string()
 }
 
 fn send_tun_runtime_smoke_traffic_stimulus() -> TunRuntimeSmokeTrafficStimulusReport {
@@ -7662,6 +7766,7 @@ fn tun_runtime_smoke_detail(
     traffic_packets_observed: bool,
     traffic_stimulus_drop_observed: bool,
     traffic_drop_observed: bool,
+    interface_snapshot: &TunRuntimeSmokeInterfaceSnapshot,
     route_takeover: &TunRouteTakeoverSnapshot,
     clean_stop_observed: bool,
     residual_state_clean: bool,
@@ -7692,8 +7797,34 @@ fn tun_runtime_smoke_detail(
         .as_deref()
         .map(sanitize_runtime_note_value)
         .unwrap_or_else(|| "-".to_string());
+    let interface_addresses_exit_success = interface_snapshot
+        .addresses_exit_success
+        .map(|success| success.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let interface_addresses_exit_code = interface_snapshot
+        .addresses_exit_code
+        .map(|code| code.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let interface_addresses_error = interface_snapshot
+        .addresses_error
+        .as_deref()
+        .map(sanitize_runtime_note_value)
+        .unwrap_or_else(|| "-".to_string());
+    let interface_list_exit_success = interface_snapshot
+        .interfaces_exit_success
+        .map(|success| success.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let interface_list_exit_code = interface_snapshot
+        .interfaces_exit_code
+        .map(|code| code.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let interface_list_error = interface_snapshot
+        .interfaces_error
+        .as_deref()
+        .map(sanitize_runtime_note_value)
+        .unwrap_or_else(|| "-".to_string());
     format!(
-        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} dropped={} unsupported={} route_takeover_expected_prefixes_present={} route_takeover_missing_prefixes={} traffic_stimulus_required={} traffic_stimulus_attempted={} traffic_stimulus_observed={} traffic_stimulus_source={} traffic_stimulus_target={} traffic_stimulus_attempts={} traffic_stimulus_sent_packets={} traffic_stimulus_error_count={} traffic_stimulus_route_lookup_attempted={} traffic_stimulus_route_lookup_exit_success={} traffic_stimulus_route_lookup_exit_code={} traffic_stimulus_route_lookup_error={} traffic_stimulus_ping_attempted={} traffic_stimulus_ping_command={} traffic_stimulus_ping_timeout_ms={} traffic_stimulus_ping_exit_success={} traffic_stimulus_ping_exit_code={} traffic_stimulus_ping_error={} traffic_packets_observed={} traffic_drop_observed={} traffic_stimulus_drop_observed={} last_dropped_matched_rule={} exit_reason={} stop_requested={} clean_stop_observed={} residual_state_clean={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
+        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} dropped={} unsupported={} route_takeover_expected_prefixes_present={} route_takeover_missing_prefixes={} interface_snapshot_attempted={} interface_addresses_exit_success={} interface_addresses_exit_code={} interface_addresses_error={} interface_list_exit_success={} interface_list_exit_code={} interface_list_error={} traffic_stimulus_required={} traffic_stimulus_attempted={} traffic_stimulus_observed={} traffic_stimulus_source={} traffic_stimulus_target={} traffic_stimulus_attempts={} traffic_stimulus_sent_packets={} traffic_stimulus_error_count={} traffic_stimulus_route_lookup_attempted={} traffic_stimulus_route_lookup_exit_success={} traffic_stimulus_route_lookup_exit_code={} traffic_stimulus_route_lookup_error={} traffic_stimulus_ping_attempted={} traffic_stimulus_ping_command={} traffic_stimulus_ping_timeout_ms={} traffic_stimulus_ping_exit_success={} traffic_stimulus_ping_exit_code={} traffic_stimulus_ping_error={} traffic_packets_observed={} traffic_drop_observed={} traffic_stimulus_drop_observed={} last_dropped_matched_rule={} exit_reason={} stop_requested={} clean_stop_observed={} residual_state_clean={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
         report.config.interface_name,
         report.owns_device,
         report.start_snapshot.running,
@@ -7704,6 +7835,13 @@ fn tun_runtime_smoke_detail(
         report.summary.unsupported_packets,
         route_takeover.expected_prefixes_present,
         route_takeover.missing_prefixes.join(","),
+        interface_snapshot.attempted,
+        interface_addresses_exit_success,
+        interface_addresses_exit_code,
+        interface_addresses_error,
+        interface_list_exit_success,
+        interface_list_exit_code,
+        interface_list_error,
         traffic_stimulus_required,
         traffic_stimulus.attempted,
         traffic_stimulus_observed,
@@ -8119,6 +8257,58 @@ fn tun_runtime_smoke_json_value(
     field!(
         "route_takeover_snapshot",
         report.map(|report| tun_route_takeover_snapshot_json_value(&report.route_takeover))
+    );
+    field!(
+        "interface_snapshot_attempted",
+        report.map(|report| report.interface_snapshot.attempted)
+    );
+    field!(
+        "interface_snapshot_addresses_command",
+        report.map(|report| report.interface_snapshot.addresses_command.as_str())
+    );
+    field!(
+        "interface_snapshot_addresses_exit_success",
+        report.and_then(|report| report.interface_snapshot.addresses_exit_success)
+    );
+    field!(
+        "interface_snapshot_addresses_exit_code",
+        report.and_then(|report| report.interface_snapshot.addresses_exit_code)
+    );
+    field!(
+        "interface_snapshot_addresses_stdout",
+        report.and_then(|report| report.interface_snapshot.addresses_stdout.as_deref())
+    );
+    field!(
+        "interface_snapshot_addresses_stderr",
+        report.and_then(|report| report.interface_snapshot.addresses_stderr.as_deref())
+    );
+    field!(
+        "interface_snapshot_addresses_error",
+        report.and_then(|report| report.interface_snapshot.addresses_error.as_deref())
+    );
+    field!(
+        "interface_snapshot_interfaces_command",
+        report.map(|report| report.interface_snapshot.interfaces_command.as_str())
+    );
+    field!(
+        "interface_snapshot_interfaces_exit_success",
+        report.and_then(|report| report.interface_snapshot.interfaces_exit_success)
+    );
+    field!(
+        "interface_snapshot_interfaces_exit_code",
+        report.and_then(|report| report.interface_snapshot.interfaces_exit_code)
+    );
+    field!(
+        "interface_snapshot_interfaces_stdout",
+        report.and_then(|report| report.interface_snapshot.interfaces_stdout.as_deref())
+    );
+    field!(
+        "interface_snapshot_interfaces_stderr",
+        report.and_then(|report| report.interface_snapshot.interfaces_stderr.as_deref())
+    );
+    field!(
+        "interface_snapshot_interfaces_error",
+        report.and_then(|report| report.interface_snapshot.interfaces_error.as_deref())
     );
     field!(
         "traffic_stimulus_required",
@@ -10699,7 +10889,20 @@ pub fn run_soak_mixed_with_min_duration(
 
     for index in 0..connections {
         match run_mixed_soak_iteration(listen_addr, &target, inbound, first_byte_timeout) {
-            Ok(()) => completed_connections += 1,
+            Ok(()) => {
+                completed_connections += 1;
+                if max_connection_workers == 1 && index + 1 < connections {
+                    if let Err(error) =
+                        wait_for_mixed_soak_worker_idle(&runtime, first_byte_timeout)
+                    {
+                        first_error = Some(format!(
+                            "soak connection {} cleanup failed: {error}",
+                            index + 1
+                        ));
+                        break;
+                    }
+                }
+            }
             Err(error) => {
                 first_error = Some(format!("soak connection {} failed: {error}", index + 1));
                 break;
@@ -10765,6 +10968,33 @@ pub fn run_soak_mixed_with_min_duration(
         available_connection_worker_slots,
         stop_drain,
     })
+}
+
+fn wait_for_mixed_soak_worker_idle(
+    runtime: &Arc<RwLock<MixedProxyRuntime>>,
+    timeout: Duration,
+) -> Result<(), String> {
+    let started = Instant::now();
+    let timeout = timeout.max(MANAGED_ACCEPT_POLL_INTERVAL);
+    loop {
+        let is_idle = {
+            let runtime = runtime
+                .read()
+                .map_err(|_| "soak mixed runtime lock poisoned".to_string())?;
+            runtime.active_connection_workers() == 0 && runtime.active_client_connections() == 0
+        };
+        if is_idle {
+            thread::sleep(MANAGED_ACCEPT_POLL_INTERVAL);
+            return Ok(());
+        }
+        if started.elapsed() >= timeout {
+            return Err(format!(
+                "soak mixed worker did not become idle within {}ms",
+                duration_millis_for_report(timeout)
+            ));
+        }
+        thread::sleep(MANAGED_ACCEPT_POLL_INTERVAL);
+    }
 }
 
 fn spawn_mixed_soak_echo_server(

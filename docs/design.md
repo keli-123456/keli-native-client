@@ -422,13 +422,15 @@ The first implementation target is deliberately small:
    can be tuned with `--tun-runtime-smoke-min-duration-ms`, sends a short UDP
    traffic stimulus through the OS routing table to a controlled split-default
    block target, runs a bounded Windows `ping`/ICMP fallback to the same target,
-   captures a runtime route-takeover snapshot, records a Windows
-   `route print -4` table snapshot for gateway/interface/metric evidence, and
-   records whether the packet loop observed either stimulus as a dropped route.
-   The route snapshot verifies the expected split-default prefixes are present
-   while the adapter is running and is a smoke gate; the route table lookup is
-   report-only evidence for diagnosing Windows source/route selection. The
-   traffic stimulus remains report-only by default
+   captures a runtime route-takeover snapshot, records the live Windows
+   interface address/listing with `netsh interface ipv4 show ...`, records a
+   Windows `route print -4` table snapshot for gateway/interface/metric
+   evidence, and records whether the packet loop observed either stimulus as a
+   dropped route. The route snapshot verifies the expected split-default
+   prefixes are present while the adapter is running and is a smoke gate; the
+   interface and route table lookups are report-only evidence for diagnosing
+   Windows address and source/route selection. The traffic stimulus remains
+   report-only by default
    (`traffic_stimulus_required=false`) while Windows socket source/route
    behavior is hardened, but successful evidence must match the dedicated
    `tun-runtime-smoke-traffic-stimulus` block rule. It records `elapsed_ms`,
@@ -436,6 +438,7 @@ The first implementation target is deliberately small:
    `traffic_stimulus_required`, `traffic_stimulus_observed`,
    `traffic_packets_observed`, `traffic_drop_observed`,
    `traffic_stimulus_drop_observed`, `traffic_stimulus_source`,
+   `interface_snapshot_*`,
    `traffic_stimulus_target`, `traffic_stimulus_*`,
    `traffic_stimulus_route_lookup_*`,
    `traffic_stimulus_ping_*`, `processed_packets`,
