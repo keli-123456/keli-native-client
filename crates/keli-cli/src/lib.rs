@@ -86,16 +86,23 @@ const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_INTERVAL: Duration = Duration::from_mil
 const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_WRITE_TIMEOUT: Duration = Duration::from_millis(50);
 const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_PAYLOAD: &[u8] = b"keli-tun-runtime-smoke";
 const TUN_RUNTIME_SMOKE_TRAFFIC_PING_TIMEOUT_MS: u64 = 250;
+const TUN_RUNTIME_SMOKE_DNS_REQUIRED: bool = true;
+const TUN_RUNTIME_SMOKE_DNS_QUERY_ID: u16 = 0x4b44;
+const TUN_RUNTIME_SMOKE_DNS_QUERY_NAME: &str = "localhost";
+const TUN_RUNTIME_SMOKE_DNS_QUERY_TYPE: u16 = 1;
+const TUN_RUNTIME_SMOKE_DNS_TARGET: SocketAddr =
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(198, 18, 0, 1)), 53);
+const TUN_RUNTIME_SMOKE_DNS_READ_TIMEOUT: Duration = Duration::from_millis(750);
 const TUN_RUNTIME_SMOKE_COMMAND_OUTPUT_CHAR_LIMIT: usize = 2400;
 const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 27;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 17;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 28;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 18;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 16;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 16;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 17;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 17;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 4;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -120,11 +127,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -6720,8 +6727,11 @@ pub struct TunRuntimeSmokeReport {
     pub traffic_packets_observed: bool,
     pub traffic_drop_observed: bool,
     pub traffic_stimulus_drop_observed: bool,
+    pub dns_stimulus_required: bool,
+    pub dns_stimulus_observed: bool,
     pub interface_snapshot: TunRuntimeSmokeInterfaceSnapshot,
     pub traffic_stimulus: TunRuntimeSmokeTrafficStimulusReport,
+    pub dns_stimulus: TunRuntimeSmokeDnsStimulusReport,
     pub route_takeover: TunRouteTakeoverSnapshot,
     pub route_cleanup: TunRouteTakeoverSnapshot,
     pub route_cleanup_observed: bool,
@@ -6735,6 +6745,7 @@ pub struct TunRuntimeSmokeReport {
 struct TunRuntimeSmokeRunEvidence {
     interface_snapshot: TunRuntimeSmokeInterfaceSnapshot,
     traffic_stimulus: TunRuntimeSmokeTrafficStimulusReport,
+    dns_stimulus: TunRuntimeSmokeDnsStimulusReport,
     route_takeover: TunRouteTakeoverSnapshot,
 }
 
@@ -6779,6 +6790,24 @@ pub struct TunRuntimeSmokeTrafficStimulusReport {
     pub ping_stdout: Option<String>,
     pub ping_stderr: Option<String>,
     pub ping_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunRuntimeSmokeDnsStimulusReport {
+    pub attempted: bool,
+    pub source: SocketAddr,
+    pub target: SocketAddr,
+    pub query_name: &'static str,
+    pub query_type: u16,
+    pub query_id: u16,
+    pub query_bytes: usize,
+    pub response_received: bool,
+    pub response_source: Option<SocketAddr>,
+    pub response_bytes: Option<usize>,
+    pub response_id: Option<u16>,
+    pub response_id_matches: bool,
+    pub response_rcode: Option<u8>,
+    pub errors: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7296,6 +7325,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
         Ok((report, evidence, route_cleanup, elapsed)) => {
             let interface_snapshot = evidence.interface_snapshot;
             let traffic_stimulus = evidence.traffic_stimulus;
+            let dns_stimulus = evidence.dns_stimulus;
             let route_takeover = evidence.route_takeover;
             let route_cleanup_observed = tun_runtime_smoke_route_cleanup_observed(&route_cleanup);
             let route_cleanup_expected_prefixes_absent =
@@ -7313,16 +7343,22 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 && traffic_packets_observed
                 && traffic_stimulus_drop_observed;
             let traffic_drop_observed = report.summary.dropped_packets > 0;
+            let dns_stimulus_required = TUN_RUNTIME_SMOKE_DNS_REQUIRED;
+            let dns_stimulus_observed =
+                tun_runtime_smoke_dns_stimulus_observed(&report, &dns_stimulus);
             let clean_stop_observed = tun_runtime_smoke_clean_stop_observed(&report);
             let residual_state_clean = tun_runtime_smoke_residual_state_clean(&report);
             let passed = tun_runtime_smoke_report_passed(
                 &report,
                 &traffic_stimulus,
+                &dns_stimulus,
                 duration_target_met,
                 loop_activity_observed,
                 traffic_stimulus_required,
                 traffic_stimulus_observed,
                 traffic_packets_observed,
+                dns_stimulus_required,
+                dns_stimulus_observed,
                 &route_takeover,
                 route_cleanup_expected_prefixes_absent,
                 clean_stop_observed,
@@ -7340,7 +7376,10 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 traffic_packets_observed,
                 traffic_stimulus_drop_observed,
                 traffic_drop_observed,
+                dns_stimulus_required,
+                dns_stimulus_observed,
                 &interface_snapshot,
+                &dns_stimulus,
                 &route_takeover,
                 &route_cleanup,
                 route_cleanup_observed,
@@ -7360,8 +7399,11 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 traffic_packets_observed,
                 traffic_drop_observed,
                 traffic_stimulus_drop_observed,
+                dns_stimulus_required,
+                dns_stimulus_observed,
                 interface_snapshot,
                 traffic_stimulus,
+                dns_stimulus,
                 route_takeover,
                 route_cleanup,
                 route_cleanup_observed,
@@ -7383,8 +7425,11 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
             traffic_packets_observed: false,
             traffic_drop_observed: false,
             traffic_stimulus_drop_observed: false,
+            dns_stimulus_required: TUN_RUNTIME_SMOKE_DNS_REQUIRED,
+            dns_stimulus_observed: false,
             interface_snapshot: tun_runtime_smoke_interface_snapshot_not_attempted(),
             traffic_stimulus: tun_runtime_smoke_traffic_stimulus_not_attempted(),
+            dns_stimulus: tun_runtime_smoke_dns_stimulus_not_attempted(),
             route_takeover: tun_runtime_smoke_route_takeover_not_collected(),
             route_cleanup: tun_runtime_smoke_route_cleanup_not_collected(),
             route_cleanup_observed: false,
@@ -7430,11 +7475,13 @@ fn collect_tun_runtime_smoke_evidence(min_duration: Duration) -> TunRuntimeSmoke
     thread::sleep(TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_WARMUP);
     let route_takeover = snapshot_tun_route_takeover(&default_tun_device_config());
     let interface_snapshot = collect_tun_runtime_smoke_interface_snapshot();
+    let dns_stimulus = send_tun_runtime_smoke_dns_stimulus();
     let traffic_stimulus = send_tun_runtime_smoke_traffic_stimulus();
     hold_tun_runtime_smoke_until(started_at, min_duration);
     TunRuntimeSmokeRunEvidence {
         interface_snapshot,
         traffic_stimulus,
+        dns_stimulus,
         route_takeover,
     }
 }
@@ -7631,6 +7678,128 @@ fn tun_runtime_smoke_traffic_stimulus_not_attempted() -> TunRuntimeSmokeTrafficS
     }
 }
 
+fn send_tun_runtime_smoke_dns_stimulus() -> TunRuntimeSmokeDnsStimulusReport {
+    let query = tun_runtime_smoke_dns_query_packet();
+    let mut report = TunRuntimeSmokeDnsStimulusReport {
+        attempted: true,
+        source: TUN_RUNTIME_SMOKE_TRAFFIC_SOURCE,
+        target: TUN_RUNTIME_SMOKE_DNS_TARGET,
+        query_name: TUN_RUNTIME_SMOKE_DNS_QUERY_NAME,
+        query_type: TUN_RUNTIME_SMOKE_DNS_QUERY_TYPE,
+        query_id: TUN_RUNTIME_SMOKE_DNS_QUERY_ID,
+        query_bytes: query.len(),
+        response_received: false,
+        response_source: None,
+        response_bytes: None,
+        response_id: None,
+        response_id_matches: false,
+        response_rcode: None,
+        errors: Vec::new(),
+    };
+
+    match UdpSocket::bind(TUN_RUNTIME_SMOKE_TRAFFIC_SOURCE) {
+        Ok(socket) => {
+            if let Ok(source) = socket.local_addr() {
+                report.source = source;
+            }
+            if let Err(error) =
+                socket.set_write_timeout(Some(TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_WRITE_TIMEOUT))
+            {
+                report
+                    .errors
+                    .push(format!("set DNS write timeout: {error}"));
+            }
+            if let Err(error) = socket.set_read_timeout(Some(TUN_RUNTIME_SMOKE_DNS_READ_TIMEOUT)) {
+                report.errors.push(format!("set DNS read timeout: {error}"));
+            }
+            match socket.send_to(&query, TUN_RUNTIME_SMOKE_DNS_TARGET) {
+                Ok(sent) if sent == query.len() => {
+                    let mut response = [0u8; 512];
+                    match socket.recv_from(&mut response) {
+                        Ok((received, source)) => {
+                            report.response_received = true;
+                            report.response_source = Some(source);
+                            report.response_bytes = Some(received);
+                            let payload = &response[..received];
+                            report.response_id = tun_runtime_smoke_dns_response_id(payload);
+                            report.response_id_matches =
+                                report.response_id == Some(TUN_RUNTIME_SMOKE_DNS_QUERY_ID);
+                            report.response_rcode = tun_runtime_smoke_dns_response_rcode(payload);
+                            if !tun_runtime_smoke_dns_response_is_response(payload) {
+                                report.errors.push(
+                                    "DNS stimulus received a non-response packet".to_string(),
+                                );
+                            }
+                        }
+                        Err(error) => report.errors.push(format!("DNS receive: {error}")),
+                    }
+                }
+                Ok(sent) => report.errors.push(format!(
+                    "short DNS send bytes={} expected={}",
+                    sent,
+                    query.len()
+                )),
+                Err(error) => report.errors.push(format!("DNS send: {error}")),
+            }
+        }
+        Err(error) => {
+            report.errors.push(format!("bind DNS UDP socket: {error}"));
+        }
+    }
+
+    report
+}
+
+fn tun_runtime_smoke_dns_stimulus_not_attempted() -> TunRuntimeSmokeDnsStimulusReport {
+    TunRuntimeSmokeDnsStimulusReport {
+        attempted: false,
+        source: TUN_RUNTIME_SMOKE_TRAFFIC_SOURCE,
+        target: TUN_RUNTIME_SMOKE_DNS_TARGET,
+        query_name: TUN_RUNTIME_SMOKE_DNS_QUERY_NAME,
+        query_type: TUN_RUNTIME_SMOKE_DNS_QUERY_TYPE,
+        query_id: TUN_RUNTIME_SMOKE_DNS_QUERY_ID,
+        query_bytes: tun_runtime_smoke_dns_query_packet().len(),
+        response_received: false,
+        response_source: None,
+        response_bytes: None,
+        response_id: None,
+        response_id_matches: false,
+        response_rcode: None,
+        errors: Vec::new(),
+    }
+}
+
+fn tun_runtime_smoke_dns_query_packet() -> Vec<u8> {
+    let mut query = Vec::new();
+    query.extend_from_slice(&TUN_RUNTIME_SMOKE_DNS_QUERY_ID.to_be_bytes());
+    query.extend_from_slice(&0x0100u16.to_be_bytes());
+    query.extend_from_slice(&1u16.to_be_bytes());
+    query.extend_from_slice(&0u16.to_be_bytes());
+    query.extend_from_slice(&0u16.to_be_bytes());
+    query.extend_from_slice(&0u16.to_be_bytes());
+    for label in TUN_RUNTIME_SMOKE_DNS_QUERY_NAME.split('.') {
+        query.push(label.len() as u8);
+        query.extend_from_slice(label.as_bytes());
+    }
+    query.push(0);
+    query.extend_from_slice(&TUN_RUNTIME_SMOKE_DNS_QUERY_TYPE.to_be_bytes());
+    query.extend_from_slice(&1u16.to_be_bytes());
+    query
+}
+
+fn tun_runtime_smoke_dns_response_id(payload: &[u8]) -> Option<u16> {
+    let bytes = payload.get(0..2)?;
+    Some(u16::from_be_bytes([bytes[0], bytes[1]]))
+}
+
+fn tun_runtime_smoke_dns_response_rcode(payload: &[u8]) -> Option<u8> {
+    payload.get(3).map(|flags| flags & 0x0f)
+}
+
+fn tun_runtime_smoke_dns_response_is_response(payload: &[u8]) -> bool {
+    payload.get(2).is_some_and(|flags| flags & 0x80 != 0)
+}
+
 fn tun_runtime_smoke_route_lookup_command() -> String {
     "route print -4".to_string()
 }
@@ -7813,6 +7982,25 @@ mod tun_runtime_smoke_tests {
             ]),
             raw_output: Some(String::new()),
             error: error.map(|error| error.to_string()),
+        }
+    }
+
+    fn successful_dns_stimulus() -> TunRuntimeSmokeDnsStimulusReport {
+        TunRuntimeSmokeDnsStimulusReport {
+            attempted: true,
+            source: "10.7.0.1:49152".parse().expect("valid source"),
+            target: TUN_RUNTIME_SMOKE_DNS_TARGET,
+            query_name: TUN_RUNTIME_SMOKE_DNS_QUERY_NAME,
+            query_type: TUN_RUNTIME_SMOKE_DNS_QUERY_TYPE,
+            query_id: TUN_RUNTIME_SMOKE_DNS_QUERY_ID,
+            query_bytes: tun_runtime_smoke_dns_query_packet().len(),
+            response_received: true,
+            response_source: Some(TUN_RUNTIME_SMOKE_DNS_TARGET),
+            response_bytes: Some(48),
+            response_id: Some(TUN_RUNTIME_SMOKE_DNS_QUERY_ID),
+            response_id_matches: true,
+            response_rcode: Some(0),
+            errors: Vec::new(),
         }
     }
 
@@ -8009,8 +8197,26 @@ mod tun_runtime_smoke_tests {
     }
 
     #[test]
-    fn tun_runtime_smoke_pass_requires_route_cleanup() {
-        let mut summary = TunPacketLoopSummary::default();
+    fn dns_stimulus_helpers_detect_matching_success_response() {
+        let response = [
+            0x4b, 0x44, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+        ];
+
+        assert_eq!(
+            tun_runtime_smoke_dns_response_id(&response),
+            Some(TUN_RUNTIME_SMOKE_DNS_QUERY_ID)
+        );
+        assert_eq!(tun_runtime_smoke_dns_response_rcode(&response), Some(0));
+        assert!(tun_runtime_smoke_dns_response_is_response(&response));
+        assert!(tun_runtime_smoke_dns_query_packet().len() > 12);
+    }
+
+    #[test]
+    fn tun_runtime_smoke_pass_requires_route_cleanup_and_dns_stimulus() {
+        let mut summary = TunPacketLoopSummary {
+            dns_responses_written: 1,
+            ..TunPacketLoopSummary::default()
+        };
         summary.stop_requested = true;
         let report = ManagedTunPacketLoopReport {
             config: default_tun_device_config(),
@@ -8020,16 +8226,20 @@ mod tun_runtime_smoke_tests {
             summary,
         };
         let traffic_stimulus = tun_runtime_smoke_traffic_stimulus_not_attempted();
+        let dns_stimulus = successful_dns_stimulus();
         let route_takeover = route_snapshot(true, &["0.0.0.0/1", "128.0.0.0/1"], &[], None);
 
         assert!(tun_runtime_smoke_report_passed(
             &report,
             &traffic_stimulus,
+            &dns_stimulus,
             true,
             true,
             false,
             false,
             false,
+            true,
+            true,
             &route_takeover,
             true,
             true,
@@ -8038,13 +8248,32 @@ mod tun_runtime_smoke_tests {
         assert!(!tun_runtime_smoke_report_passed(
             &report,
             &traffic_stimulus,
+            &dns_stimulus,
             true,
             true,
             false,
             false,
             false,
+            true,
+            true,
             &route_takeover,
             false,
+            true,
+            true,
+        ));
+        assert!(!tun_runtime_smoke_report_passed(
+            &report,
+            &traffic_stimulus,
+            &tun_runtime_smoke_dns_stimulus_not_attempted(),
+            true,
+            true,
+            false,
+            false,
+            false,
+            true,
+            false,
+            &route_takeover,
+            true,
             true,
             true,
         ));
@@ -8054,11 +8283,14 @@ mod tun_runtime_smoke_tests {
 fn tun_runtime_smoke_report_passed(
     report: &ManagedTunPacketLoopReport,
     traffic_stimulus: &TunRuntimeSmokeTrafficStimulusReport,
+    dns_stimulus: &TunRuntimeSmokeDnsStimulusReport,
     duration_target_met: bool,
     loop_activity_observed: bool,
     traffic_stimulus_required: bool,
     traffic_stimulus_observed: bool,
     traffic_packets_observed: bool,
+    dns_stimulus_required: bool,
+    dns_stimulus_observed: bool,
     route_takeover: &TunRouteTakeoverSnapshot,
     route_cleanup_expected_prefixes_absent: bool,
     clean_stop_observed: bool,
@@ -8077,6 +8309,7 @@ fn tun_runtime_smoke_report_passed(
             || (traffic_stimulus.attempted
                 && traffic_stimulus_observed
                 && traffic_packets_observed))
+        && (!dns_stimulus_required || (dns_stimulus.attempted && dns_stimulus_observed))
         && route_takeover.expected_prefixes_present
         && route_cleanup_expected_prefixes_absent
         && clean_stop_observed
@@ -8085,6 +8318,18 @@ fn tun_runtime_smoke_report_passed(
         && report.summary.packet_errors == 0
         && report.summary.udp_relay_errors == 0
         && report.summary.tcp_session_errors == 0
+}
+
+fn tun_runtime_smoke_dns_stimulus_observed(
+    report: &ManagedTunPacketLoopReport,
+    dns_stimulus: &TunRuntimeSmokeDnsStimulusReport,
+) -> bool {
+    report.summary.dns_responses_written > 0
+        && dns_stimulus.attempted
+        && dns_stimulus.response_received
+        && dns_stimulus.response_source == Some(TUN_RUNTIME_SMOKE_DNS_TARGET)
+        && dns_stimulus.response_id_matches
+        && dns_stimulus.response_rcode == Some(0)
 }
 
 fn tun_runtime_smoke_clean_stop_observed(report: &ManagedTunPacketLoopReport) -> bool {
@@ -8109,7 +8354,10 @@ fn tun_runtime_smoke_detail(
     traffic_packets_observed: bool,
     traffic_stimulus_drop_observed: bool,
     traffic_drop_observed: bool,
+    dns_stimulus_required: bool,
+    dns_stimulus_observed: bool,
     interface_snapshot: &TunRuntimeSmokeInterfaceSnapshot,
+    dns_stimulus: &TunRuntimeSmokeDnsStimulusReport,
     route_takeover: &TunRouteTakeoverSnapshot,
     route_cleanup: &TunRouteTakeoverSnapshot,
     route_cleanup_observed: bool,
@@ -8169,13 +8417,29 @@ fn tun_runtime_smoke_detail(
         .as_deref()
         .map(sanitize_runtime_note_value)
         .unwrap_or_else(|| "-".to_string());
+    let dns_response_id = dns_stimulus
+        .response_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let dns_response_rcode = dns_stimulus
+        .response_rcode
+        .map(|rcode| rcode.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let dns_response_source = dns_stimulus
+        .response_source
+        .map(|source| source.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let dns_response_bytes = dns_stimulus
+        .response_bytes
+        .map(|bytes| bytes.to_string())
+        .unwrap_or_else(|| "-".to_string());
     let route_cleanup_error = route_cleanup
         .error
         .as_deref()
         .map(sanitize_runtime_note_value)
         .unwrap_or_else(|| "-".to_string());
     format!(
-        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} dropped={} unsupported={} route_takeover_expected_prefixes_present={} route_takeover_missing_prefixes={} route_takeover_cleanup_observed={} route_takeover_cleanup_expected_prefixes_absent={} route_takeover_cleanup_observed_prefixes={} route_takeover_cleanup_missing_prefixes={} route_takeover_cleanup_error={} interface_snapshot_attempted={} interface_addresses_exit_success={} interface_addresses_exit_code={} interface_addresses_error={} interface_list_exit_success={} interface_list_exit_code={} interface_list_error={} traffic_stimulus_required={} traffic_stimulus_attempted={} traffic_stimulus_observed={} traffic_stimulus_source={} traffic_stimulus_target={} traffic_stimulus_attempts={} traffic_stimulus_sent_packets={} traffic_stimulus_error_count={} traffic_stimulus_route_lookup_attempted={} traffic_stimulus_route_lookup_exit_success={} traffic_stimulus_route_lookup_exit_code={} traffic_stimulus_route_lookup_error={} traffic_stimulus_ping_attempted={} traffic_stimulus_ping_command={} traffic_stimulus_ping_timeout_ms={} traffic_stimulus_ping_exit_success={} traffic_stimulus_ping_exit_code={} traffic_stimulus_ping_error={} traffic_packets_observed={} traffic_drop_observed={} traffic_stimulus_drop_observed={} last_dropped_matched_rule={} exit_reason={} stop_requested={} clean_stop_observed={} residual_state_clean={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
+        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} dropped={} unsupported={} dns_responses_written={} route_takeover_expected_prefixes_present={} route_takeover_missing_prefixes={} route_takeover_cleanup_observed={} route_takeover_cleanup_expected_prefixes_absent={} route_takeover_cleanup_observed_prefixes={} route_takeover_cleanup_missing_prefixes={} route_takeover_cleanup_error={} interface_snapshot_attempted={} interface_addresses_exit_success={} interface_addresses_exit_code={} interface_addresses_error={} interface_list_exit_success={} interface_list_exit_code={} interface_list_error={} dns_stimulus_required={} dns_stimulus_attempted={} dns_stimulus_observed={} dns_stimulus_source={} dns_stimulus_target={} dns_stimulus_query_name={} dns_stimulus_query_type={} dns_stimulus_query_id={} dns_stimulus_query_bytes={} dns_stimulus_response_received={} dns_stimulus_response_source={} dns_stimulus_response_bytes={} dns_stimulus_response_id={} dns_stimulus_response_id_matches={} dns_stimulus_response_rcode={} dns_stimulus_error_count={} traffic_stimulus_required={} traffic_stimulus_attempted={} traffic_stimulus_observed={} traffic_stimulus_source={} traffic_stimulus_target={} traffic_stimulus_attempts={} traffic_stimulus_sent_packets={} traffic_stimulus_error_count={} traffic_stimulus_route_lookup_attempted={} traffic_stimulus_route_lookup_exit_success={} traffic_stimulus_route_lookup_exit_code={} traffic_stimulus_route_lookup_error={} traffic_stimulus_ping_attempted={} traffic_stimulus_ping_command={} traffic_stimulus_ping_timeout_ms={} traffic_stimulus_ping_exit_success={} traffic_stimulus_ping_exit_code={} traffic_stimulus_ping_error={} traffic_packets_observed={} traffic_drop_observed={} traffic_stimulus_drop_observed={} last_dropped_matched_rule={} exit_reason={} stop_requested={} clean_stop_observed={} residual_state_clean={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
         report.config.interface_name,
         report.owns_device,
         report.start_snapshot.running,
@@ -8184,6 +8448,7 @@ fn tun_runtime_smoke_detail(
         report.summary.idle_events,
         report.summary.dropped_packets,
         report.summary.unsupported_packets,
+        report.summary.dns_responses_written,
         route_takeover.expected_prefixes_present,
         route_takeover.missing_prefixes.join(","),
         route_cleanup_observed,
@@ -8198,6 +8463,22 @@ fn tun_runtime_smoke_detail(
         interface_list_exit_success,
         interface_list_exit_code,
         interface_list_error,
+        dns_stimulus_required,
+        dns_stimulus.attempted,
+        dns_stimulus_observed,
+        dns_stimulus.source,
+        dns_stimulus.target,
+        dns_stimulus.query_name,
+        dns_stimulus.query_type,
+        dns_stimulus.query_id,
+        dns_stimulus.query_bytes,
+        dns_stimulus.response_received,
+        dns_response_source,
+        dns_response_bytes,
+        dns_response_id,
+        dns_stimulus.response_id_matches,
+        dns_response_rcode,
+        dns_stimulus.errors.len(),
         traffic_stimulus_required,
         traffic_stimulus.attempted,
         traffic_stimulus_observed,
@@ -8715,6 +8996,77 @@ fn tun_runtime_smoke_json_value(
         report.map(|report| report.traffic_stimulus_drop_observed)
     );
     field!(
+        "dns_stimulus_required",
+        report.map(|report| report.dns_stimulus_required)
+    );
+    field!(
+        "dns_stimulus_observed",
+        report.map(|report| report.dns_stimulus_observed)
+    );
+    field!(
+        "dns_stimulus_attempted",
+        report.map(|report| report.dns_stimulus.attempted)
+    );
+    field!(
+        "dns_stimulus_source",
+        report.map(|report| report.dns_stimulus.source.to_string())
+    );
+    field!(
+        "dns_stimulus_target",
+        report.map(|report| report.dns_stimulus.target.to_string())
+    );
+    field!(
+        "dns_stimulus_query_name",
+        report.map(|report| report.dns_stimulus.query_name)
+    );
+    field!(
+        "dns_stimulus_query_type",
+        report.map(|report| report.dns_stimulus.query_type)
+    );
+    field!(
+        "dns_stimulus_query_id",
+        report.map(|report| report.dns_stimulus.query_id)
+    );
+    field!(
+        "dns_stimulus_query_bytes",
+        report.map(|report| report.dns_stimulus.query_bytes)
+    );
+    field!(
+        "dns_stimulus_response_received",
+        report.map(|report| report.dns_stimulus.response_received)
+    );
+    field!(
+        "dns_stimulus_response_source",
+        report.and_then(|report| report
+            .dns_stimulus
+            .response_source
+            .map(|source| source.to_string()))
+    );
+    field!(
+        "dns_stimulus_response_bytes",
+        report.and_then(|report| report.dns_stimulus.response_bytes)
+    );
+    field!(
+        "dns_stimulus_response_id",
+        report.and_then(|report| report.dns_stimulus.response_id)
+    );
+    field!(
+        "dns_stimulus_response_id_matches",
+        report.map(|report| report.dns_stimulus.response_id_matches)
+    );
+    field!(
+        "dns_stimulus_response_rcode",
+        report.and_then(|report| report.dns_stimulus.response_rcode)
+    );
+    field!(
+        "dns_stimulus_error_count",
+        report.map(|report| report.dns_stimulus.errors.len())
+    );
+    field!(
+        "dns_stimulus_errors",
+        report.map(|report| &report.dns_stimulus.errors)
+    );
+    field!(
         "traffic_stimulus_attempted",
         report.map(|report| report.traffic_stimulus.attempted)
     );
@@ -8831,6 +9183,15 @@ fn tun_runtime_smoke_json_value(
                 .report
                 .as_ref()
                 .map(|runtime_report| runtime_report.summary.dropped_packets)
+        })
+    );
+    field!(
+        "dns_responses_written",
+        report.and_then(|report| {
+            report
+                .report
+                .as_ref()
+                .map(|runtime_report| runtime_report.summary.dns_responses_written)
         })
     );
     field!(
@@ -9206,6 +9567,7 @@ fn default_tun_device_config() -> TunDeviceConfig {
         DEFAULT_TUN_MTU,
     )
     .expect("default TUN config is valid")
+    .with_dns_hijack(true)
 }
 
 fn tun_device_state(status: &TunDeviceStatus) -> &'static str {

@@ -425,23 +425,26 @@ The first implementation target is deliberately small:
    can be tuned with `--tun-runtime-smoke-min-duration-ms`, sends a short UDP
    traffic stimulus through the OS routing table to a controlled split-default
    block target, runs a bounded Windows `ping`/ICMP fallback to the same target,
-   captures a runtime route-takeover snapshot, records the live Windows
-   interface address/listing with `netsh interface ipv4 show ...`, records a
-   Windows `route print -4` table snapshot for gateway/interface/metric
-   evidence, and records whether the packet loop observed either stimulus as a
-   dropped route. The smoke runtime uses a block-default route engine so
+   enables TUN DNS hijack, sends a DNS wire-query stimulus to a controlled
+   split-default DNS target, captures a runtime route-takeover snapshot, records
+   the live Windows interface address/listing with `netsh interface ipv4 show
+   ...`, records a Windows `route print -4` table snapshot for
+   gateway/interface/metric evidence, and records whether the packet loop
+   observed either traffic stimulus as a dropped route. The smoke runtime uses a block-default route engine so
    ambient OS packets captured by split-default takeover cannot escape through
    direct relay during certification. The route snapshot verifies the expected
    split-default prefixes are present while the adapter is running, then a
    post-stop cleanup snapshot verifies those prefixes are absent after
    shutdown; both route takeover and cleanup are smoke gates. The interface and
    route table lookups are report-only evidence for diagnosing Windows address
-   and source/route selection. The traffic stimulus is now required when the smoke is included
+   and source/route selection. The traffic and DNS stimuli are now required when the smoke is included
    (`traffic_stimulus_required=true`): certification must prove that a UDP or
    ICMP stimulus reached the TUN packet loop and matched the dedicated
-   `tun-runtime-smoke-traffic-stimulus` block rule. It records `elapsed_ms`,
-   `duration_target_met`, `loop_activity_observed`, `route_takeover_*`,
-   `route_takeover_cleanup_*`,
+   `tun-runtime-smoke-traffic-stimulus` block rule, and that the DNS stimulus
+   received a matching response while the packet loop recorded
+   `dns_responses_written > 0`. It records `elapsed_ms`, `duration_target_met`,
+   `loop_activity_observed`, `route_takeover_*`, `route_takeover_cleanup_*`,
+   `dns_stimulus_*`, `dns_responses_written`,
    `traffic_stimulus_required`, `traffic_stimulus_observed`,
    `traffic_packets_observed`, `traffic_drop_observed`,
    `traffic_stimulus_drop_observed`, `traffic_stimulus_source`,
