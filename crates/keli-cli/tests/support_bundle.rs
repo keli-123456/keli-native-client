@@ -1,9 +1,11 @@
+use std::time::Duration;
+
 use keli_cli::{
-    DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION, DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
-    DOCTOR_REPORT_SCHEMA_VERSION, INTEROP_MATRIX_SCHEMA_VERSION,
-    MANAGED_CONNECTION_REPORT_HISTORY_LIMIT, MANAGED_MIXED_RECENT_EVENT_LIMIT,
-    MANAGED_MIXED_STATUS_SCHEMA_VERSION, READINESS_CHECK_SCHEMA_VERSION,
-    SUPPORT_BUNDLE_SCHEMA_VERSION,
+    SupportBundleOptions, DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION,
+    DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, DOCTOR_REPORT_SCHEMA_VERSION,
+    INTEROP_MATRIX_SCHEMA_VERSION, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
+    MANAGED_MIXED_RECENT_EVENT_LIMIT, MANAGED_MIXED_STATUS_SCHEMA_VERSION,
+    READINESS_CHECK_SCHEMA_VERSION, SUPPORT_BUNDLE_SCHEMA_VERSION,
 };
 use keli_client_core::DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT;
 use keli_net_core::DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS;
@@ -274,6 +276,10 @@ proxies:
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][7],
         "text-summary"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][8],
+        "support-bundle-export"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
@@ -616,6 +622,7 @@ proxies:
         "unsupported protocol: wireguard"
     );
     assert_eq!(report["redaction"]["credentials"], "omitted");
+    assert!(report["default_core_certification"].is_null());
 
     let output = String::from_utf8(output).expect("support bundle utf8");
     assert!(!output.contains("secret"));
@@ -626,6 +633,61 @@ proxies:
     assert!(!output.contains("private-sni.example.com"));
     assert!(!output.contains("private-host.example.com"));
     assert!(!output.contains("/private-ws-path"));
+}
+
+#[test]
+fn support_bundle_can_embed_default_core_certification_evidence() {
+    let mut output = Vec::new();
+
+    keli_cli::write_support_bundle_report_with_options(
+        None,
+        SupportBundleOptions {
+            include_default_core_certification: true,
+            certification_soak_connections: 2,
+            certification_first_byte_timeout: Duration::from_secs(2),
+            certification_max_connection_workers: 2,
+        },
+        &mut output,
+    )
+    .expect("write support bundle with certification");
+
+    let report: Value = serde_json::from_slice(&output).expect("support bundle json");
+    let certification = &report["default_core_certification"];
+    assert_eq!(report["schema_version"], SUPPORT_BUNDLE_SCHEMA_VERSION);
+    assert_eq!(certification["kind"], "keli_default_core_certification");
+    assert_eq!(
+        certification["schema_version"],
+        DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION
+    );
+    assert_eq!(certification["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(certification["certification"]["soak_connections"], 2);
+    assert_eq!(
+        certification["certification"]["first_byte_timeout_ms"],
+        2000
+    );
+    assert_eq!(certification["certification"]["max_connection_workers"], 2);
+    assert_eq!(
+        certification["readiness"]["kind"],
+        "keli_default_core_readiness"
+    );
+    assert_eq!(
+        certification["readiness"]["summary"]["skipped_gate_count"],
+        0
+    );
+    assert!(certification["tun_backend"]["backend"].is_string());
+    assert!(certification["tun_backend_status"].is_string());
+
+    let ready = certification["ready_for_default_core"]
+        .as_bool()
+        .expect("ready boolean");
+    assert_eq!(
+        certification["certification"]["ready_for_default_core"],
+        ready
+    );
+    assert_eq!(
+        certification["status"].as_str().expect("status"),
+        if ready { "ready" } else { "not-ready" }
+    );
 }
 
 #[test]

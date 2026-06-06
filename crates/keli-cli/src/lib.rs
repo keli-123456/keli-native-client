@@ -74,7 +74,7 @@ pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
 pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 8;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 2;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 3;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 1;
 pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 1;
@@ -106,7 +106,7 @@ const READINESS_CHECK_CAPABILITIES: &str =
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,tun-backend-evidence,non-skipped-soak,soak-parameters,promotion-decision,json-artifact,text-summary";
+    "schema-version,readiness-embed,tun-backend-evidence,non-skipped-soak,soak-parameters,promotion-decision,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -203,6 +203,10 @@ pub enum CliCommand {
     },
     SupportBundle {
         profile_config: Option<String>,
+        include_default_core_certification: bool,
+        certification_soak_connections: usize,
+        certification_first_byte_timeout: Duration,
+        certification_max_connection_workers: usize,
     },
 }
 
@@ -4188,7 +4192,13 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 &mut stdout,
             )
         }
-        CliCommand::SupportBundle { profile_config } => {
+        CliCommand::SupportBundle {
+            profile_config,
+            include_default_core_certification,
+            certification_soak_connections,
+            certification_first_byte_timeout,
+            certification_max_connection_workers,
+        } => {
             let config_text = profile_config
                 .as_deref()
                 .map(|path| {
@@ -4197,7 +4207,16 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 })
                 .transpose()?;
             let mut stdout = io::stdout();
-            write_support_bundle_report(config_text.as_deref(), &mut stdout)
+            write_support_bundle_report_with_options(
+                config_text.as_deref(),
+                SupportBundleOptions {
+                    include_default_core_certification,
+                    certification_soak_connections,
+                    certification_first_byte_timeout,
+                    certification_max_connection_workers,
+                },
+                &mut stdout,
+            )
         }
     }
 }
@@ -4266,7 +4285,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli support-bundle [--profile-config subscription.yaml]"
+        "       keli-cli support-bundle [--profile-config subscription.yaml] [--include-certification] [--certification-soak-connections 3] [--certification-first-byte-timeout-ms 30000] [--certification-max-connection-workers 1024]"
     )
 }
 
@@ -4601,6 +4620,10 @@ fn parse_subscription_update(args: impl Iterator<Item = String>) -> Result<CliCo
 
 fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
     let mut profile_config = None;
+    let mut include_default_core_certification = false;
+    let mut certification_soak_connections = DEFAULT_READINESS_SOAK_CONNECTIONS;
+    let mut certification_first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
+    let mut certification_max_connection_workers = DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS;
     let mut args = args.peekable();
 
     while let Some(arg) = args.next() {
@@ -4611,11 +4634,47 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
                         .ok_or_else(|| "--profile-config requires a path".to_string())?,
                 );
             }
+            "--include-certification" | "--include-default-core-certification" => {
+                include_default_core_certification = true;
+            }
+            "--certification-soak-connections" => {
+                include_default_core_certification = true;
+                certification_soak_connections = parse_positive_usize(
+                    args.next().ok_or_else(|| {
+                        "--certification-soak-connections requires a value".to_string()
+                    })?,
+                    "--certification-soak-connections",
+                )?;
+            }
+            "--certification-first-byte-timeout-ms" => {
+                include_default_core_certification = true;
+                certification_first_byte_timeout = parse_duration_ms(
+                    args.next().ok_or_else(|| {
+                        "--certification-first-byte-timeout-ms requires a value".to_string()
+                    })?,
+                    "--certification-first-byte-timeout-ms",
+                )?;
+            }
+            "--certification-max-connection-workers" => {
+                include_default_core_certification = true;
+                certification_max_connection_workers = parse_positive_usize(
+                    args.next().ok_or_else(|| {
+                        "--certification-max-connection-workers requires a value".to_string()
+                    })?,
+                    "--certification-max-connection-workers",
+                )?;
+            }
             other => return Err(format!("unknown support-bundle option: {other}")),
         }
     }
 
-    Ok(CliCommand::SupportBundle { profile_config })
+    Ok(CliCommand::SupportBundle {
+        profile_config,
+        include_default_core_certification,
+        certification_soak_connections,
+        certification_first_byte_timeout,
+        certification_max_connection_workers,
+    })
 }
 
 fn parse_listen_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
@@ -7637,10 +7696,50 @@ pub fn write_support_bundle_report(
     profile_config_text: Option<&str>,
     mut writer: impl Write,
 ) -> Result<(), String> {
+    write_support_bundle_report_with_options(
+        profile_config_text,
+        SupportBundleOptions::default(),
+        &mut writer,
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SupportBundleOptions {
+    pub include_default_core_certification: bool,
+    pub certification_soak_connections: usize,
+    pub certification_first_byte_timeout: Duration,
+    pub certification_max_connection_workers: usize,
+}
+
+impl Default for SupportBundleOptions {
+    fn default() -> Self {
+        Self {
+            include_default_core_certification: false,
+            certification_soak_connections: DEFAULT_READINESS_SOAK_CONNECTIONS,
+            certification_first_byte_timeout: DEFAULT_FIRST_BYTE_TIMEOUT,
+            certification_max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+        }
+    }
+}
+
+pub fn write_support_bundle_report_with_options(
+    profile_config_text: Option<&str>,
+    options: SupportBundleOptions,
+    mut writer: impl Write,
+) -> Result<(), String> {
     let generated_at_unix_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or(0);
+    let default_core_certification = if options.include_default_core_certification {
+        default_core_certification_json_value(&collect_default_core_certification_report(
+            options.certification_soak_connections,
+            options.certification_first_byte_timeout,
+            options.certification_max_connection_workers,
+        )?)
+    } else {
+        serde_json::Value::Null
+    };
     let value = serde_json::json!({
         "status": "ok",
         "kind": "keli_support_bundle",
@@ -7649,6 +7748,7 @@ pub fn write_support_bundle_report(
         "doctor": doctor_report_json_value(&collect_doctor_report()),
         "interop_matrix": interop_matrix_json_value(&collect_interop_matrix_report()),
         "tun_preflight": tun_preflight_json_value(&collect_default_tun_preflight()),
+        "default_core_certification": default_core_certification,
         "profile": support_bundle_profile_value(profile_config_text),
         "redaction": {
             "profile_config_text": "omitted",

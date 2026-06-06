@@ -351,7 +351,10 @@ packaging evidence, soak parameters, and the final `ready_for_default_core`
 decision for release automation and desktop UI handoff. Doctor and support
 bundle output advertise the default-core certification schema and capability
 list, and the readiness doctor-schema gate now includes that certification
-schema so promotion tooling can discover the full evidence chain.
+schema so promotion tooling can discover the full evidence chain. Support
+bundles can also embed the same certification artifact with
+`--include-certification`, keeping the default bundle lightweight while giving
+release/support flows a one-file promotion record when they need it.
 
 ## Protocol Matrix
 
@@ -381,7 +384,8 @@ current default-core readiness gates, including skipped or failed gates, so UI
 and release automation can track what is still blocking default-core use.
 `keli-cli default-core-certify --format json` exports the corresponding
 machine-level certification evidence with real soak gates and TUN backend
-packaging state for default-core promotion checks.
+packaging state for default-core promotion checks. `keli-cli support-bundle
+--include-certification` embeds that evidence into the redacted support bundle.
 
 ## Design Principles
 
@@ -405,6 +409,7 @@ cargo run -p keli-cli -- interop-matrix --format json
 cargo run -p keli-cli -- readiness-check --format json
 cargo run -p keli-cli -- default-core-certify --format json
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
+cargo run -p keli-cli -- support-bundle --include-certification
 cargo run -p keli-cli -- subscription-update --current-config active.yaml --new-config subscription.yaml --current-outbound proxy --format json
 cargo run -p keli-cli -- soak-mixed --connections 25 --format json
 ```

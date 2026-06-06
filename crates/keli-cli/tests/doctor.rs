@@ -56,7 +56,7 @@ fn doctor_report_lists_supported_outbounds() {
         "tun_backend_check_capabilities=backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install"
     ));
     assert!(output.contains(
-        "default_core_certification_capabilities=schema-version,readiness-embed,tun-backend-evidence,non-skipped-soak,soak-parameters,promotion-decision,json-artifact,text-summary"
+        "default_core_certification_capabilities=schema-version,readiness-embed,tun-backend-evidence,non-skipped-soak,soak-parameters,promotion-decision,json-artifact,text-summary,support-bundle-export"
     ));
     assert!(output.contains(
         "supported_outbounds=direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic"
@@ -618,6 +618,10 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(
         report["default_core_certification_capabilities"][7],
         "text-summary"
+    );
+    assert_eq!(
+        report["default_core_certification_capabilities"][8],
+        "support-bundle-export"
     );
     assert_eq!(
         report["resource_limits"]["runtime_event_history"],

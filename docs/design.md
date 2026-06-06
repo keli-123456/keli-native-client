@@ -407,7 +407,11 @@ The first implementation target is deliberately small:
    Doctor and support bundles now expose the certification schema version and
    capability list, and the readiness doctor-schema gate requires that schema
    to keep promotion evidence discoverable through the existing diagnostics
-   surface.
+   surface. Support bundles can optionally embed the full certification
+   artifact via `--include-certification`, so release/support workflows can
+   collect doctor, interop, TUN preflight, redacted profile summary, and
+   default-core promotion evidence in one JSON document without making the
+   default bundle run soak checks.
 
 The managed mixed runtime now supports a background handle with runtime status,
 generation tracking, event history, explicit stop, system proxy restoration, and

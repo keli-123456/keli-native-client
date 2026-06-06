@@ -172,7 +172,37 @@ fn parses_support_bundle_command() {
     assert_eq!(
         command,
         CliCommand::SupportBundle {
-            profile_config: Some("subscription.yaml".to_string())
+            profile_config: Some("subscription.yaml".to_string()),
+            include_default_core_certification: false,
+            certification_soak_connections: 3,
+            certification_first_byte_timeout: Duration::from_secs(30),
+            certification_max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+        }
+    );
+}
+
+#[test]
+fn parses_support_bundle_with_certification_options() {
+    let command = parse_cli_command([
+        "support-bundle",
+        "--include-certification",
+        "--certification-soak-connections",
+        "2",
+        "--certification-first-byte-timeout-ms",
+        "1500",
+        "--certification-max-connection-workers",
+        "3",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::SupportBundle {
+            profile_config: None,
+            include_default_core_certification: true,
+            certification_soak_connections: 2,
+            certification_first_byte_timeout: Duration::from_millis(1500),
+            certification_max_connection_workers: 3,
         }
     );
 }
