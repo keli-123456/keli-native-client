@@ -363,7 +363,10 @@ as `tun-preflight --format json`, so platform handoff evidence is available
 without parsing gate detail strings. `--include-tun-runtime-smoke` can add an
 explicit platform gate that starts the default managed TUN runtime, opens packet
 I/O, requests a clean stop, and records the start/stop snapshots plus packet
-loop diagnostic without enabling that route-changing check by default. When
+loop diagnostic without enabling that route-changing check by default. The gate
+holds the runtime for at least 50ms by default, records `elapsed_ms`,
+`duration_target_met`, and `loop_activity_observed`, and can be tuned with
+`--tun-runtime-smoke-min-duration-ms`. When
 `--soak-min-duration-ms` is provided, the local soak gates hold the managed
 runtime alive for that minimum duration and report `min_duration_ms` plus
 `duration_target_met` in the gate detail.
@@ -377,7 +380,8 @@ the readiness blockers as `promotion_blockers` and includes a
 also include `soak_min_duration_ms`, so long-running promotion checks can prove
 more than a single fast loopback exchange. `--include-tun-runtime-smoke` carries
 the same real TUN runtime start/stop smoke evidence into the certification
-artifact for release runs that are allowed to touch system routes. Doctor and support
+artifact for release runs that are allowed to touch system routes, with the
+same configurable minimum duration. Doctor and support
 bundle output advertise the default-core certification schema and capability
 list, and the readiness doctor-schema gate now includes that certification
 schema so promotion tooling can discover the full evidence chain. Support
@@ -417,7 +421,8 @@ machine-level certification evidence with real soak gates and TUN backend
 packaging state, structured TUN preflight state, and promotion blockers for
 default-core promotion checks. Add `--include-tun-runtime-smoke` when the
 certification run should also prove the native TUN runtime can start, open
-packet I/O, and stop cleanly on the current machine.
+packet I/O, stay alive for the requested minimum smoke duration, and stop
+cleanly on the current machine.
 `keli-cli support-bundle --include-certification` embeds that evidence into the
 redacted support bundle.
 
@@ -442,10 +447,10 @@ cargo run -p keli-cli -- tun-backend-install --source C:\path\to\wintun.dll --fo
 cargo run -p keli-cli -- tun-backend-install --source-dir C:\path\to\wintun --format json
 cargo run -p keli-cli -- interop-matrix --format json
 cargo run -p keli-cli -- readiness-check --format json
-cargo run -p keli-cli -- readiness-check --format json --include-tun-runtime-smoke
+cargo run -p keli-cli -- readiness-check --format json --include-tun-runtime-smoke --tun-runtime-smoke-min-duration-ms 250
 cargo run -p keli-cli -- readiness-check --format json --soak-min-duration-ms 60000
 cargo run -p keli-cli -- default-core-certify --format json
-cargo run -p keli-cli -- default-core-certify --format json --include-tun-runtime-smoke
+cargo run -p keli-cli -- default-core-certify --format json --include-tun-runtime-smoke --tun-runtime-smoke-min-duration-ms 250
 cargo run -p keli-cli -- default-core-certify --format json --soak-min-duration-ms 60000
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
 cargo run -p keli-cli -- support-bundle --include-certification --certification-soak-min-duration-ms 60000

@@ -38,6 +38,10 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert!(report["tun_preflight"]["ready"].is_boolean());
     assert_eq!(report["tun_runtime_smoke"]["included"], false);
     assert_eq!(report["tun_runtime_smoke"]["status"], "not-run");
+    assert_eq!(report["tun_runtime_smoke"]["min_duration_ms"], 50);
+    assert!(report["tun_runtime_smoke"]["elapsed_ms"].is_null());
+    assert!(report["tun_runtime_smoke"]["duration_target_met"].is_null());
+    assert!(report["tun_runtime_smoke"]["loop_activity_observed"].is_null());
     assert!(report["tun_runtime_smoke"]["report"].is_null());
     let blocking_gates = report["blocking_gates"].as_array().expect("blocking gates");
     assert_eq!(
@@ -238,8 +242,16 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert!(report["tun_preflight"]["ready"].is_boolean());
     assert_eq!(report["tun_runtime_smoke"]["included"], false);
     assert_eq!(report["tun_runtime_smoke"]["status"], "not-run");
+    assert_eq!(report["tun_runtime_smoke"]["min_duration_ms"], 50);
+    assert!(report["tun_runtime_smoke"]["elapsed_ms"].is_null());
+    assert!(report["tun_runtime_smoke"]["duration_target_met"].is_null());
+    assert!(report["tun_runtime_smoke"]["loop_activity_observed"].is_null());
     assert!(report["tun_runtime_smoke"]["report"].is_null());
     assert_eq!(report["certification"]["tun_runtime_smoke_included"], false);
+    assert_eq!(
+        report["certification"]["tun_runtime_smoke_min_duration_ms"],
+        50
+    );
     assert!(report["certification"]["tun_runtime_smoke_passed"].is_null());
     assert_eq!(
         report["certification"]["tun_preflight_ready"],

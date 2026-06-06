@@ -63,6 +63,8 @@ fn parses_readiness_check_json_command() {
         "250",
         "--skip-soak",
         "--include-tun-runtime-smoke",
+        "--tun-runtime-smoke-min-duration-ms",
+        "75",
     ])
     .expect("command should parse");
 
@@ -76,6 +78,7 @@ fn parses_readiness_check_json_command() {
             soak_min_duration: Duration::from_millis(250),
             skip_soak: true,
             include_tun_runtime_smoke: true,
+            tun_runtime_smoke_min_duration: Duration::from_millis(75),
         }
     );
 }
@@ -95,6 +98,8 @@ fn parses_default_core_certify_json_command() {
         "--soak-min-duration-ms",
         "250",
         "--include-tun-runtime-smoke",
+        "--tun-runtime-smoke-min-duration-ms",
+        "75",
     ])
     .expect("command should parse");
 
@@ -107,6 +112,7 @@ fn parses_default_core_certify_json_command() {
             max_connection_workers: 3,
             soak_min_duration: Duration::from_millis(250),
             include_tun_runtime_smoke: true,
+            tun_runtime_smoke_min_duration: Duration::from_millis(75),
         }
     );
 }
@@ -226,6 +232,7 @@ fn parses_support_bundle_command() {
             certification_max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             certification_soak_min_duration: Duration::from_millis(0),
             certification_include_tun_runtime_smoke: false,
+            certification_tun_runtime_smoke_min_duration: Duration::from_millis(50),
         }
     );
 }
@@ -244,6 +251,8 @@ fn parses_support_bundle_with_certification_options() {
         "--certification-soak-min-duration-ms",
         "250",
         "--certification-include-tun-runtime-smoke",
+        "--certification-tun-runtime-smoke-min-duration-ms",
+        "75",
     ])
     .expect("command should parse");
 
@@ -257,6 +266,7 @@ fn parses_support_bundle_with_certification_options() {
             certification_max_connection_workers: 3,
             certification_soak_min_duration: Duration::from_millis(250),
             certification_include_tun_runtime_smoke: true,
+            certification_tun_runtime_smoke_min_duration: Duration::from_millis(75),
         }
     );
 }

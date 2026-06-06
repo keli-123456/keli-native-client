@@ -266,6 +266,10 @@ proxies:
         "tun-runtime-smoke"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][13],
+        "tun-runtime-smoke-min-duration"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -310,19 +314,23 @@ proxies:
         "tun-runtime-smoke"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][7],
+        report["doctor"]["default_core_certification_capabilities"][5],
+        "tun-runtime-smoke-min-duration"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][8],
         "soak-min-duration"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][9],
+        report["doctor"]["default_core_certification_capabilities"][10],
         "promotion-blockers"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][11],
+        report["doctor"]["default_core_certification_capabilities"][12],
         "text-summary"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][12],
+        report["doctor"]["default_core_certification_capabilities"][13],
         "support-bundle-export"
     );
     assert_eq!(
@@ -692,6 +700,7 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
             certification_max_connection_workers: 2,
             certification_soak_min_duration: Duration::from_millis(50),
             certification_include_tun_runtime_smoke: false,
+            certification_tun_runtime_smoke_min_duration: Duration::from_millis(50),
         },
         &mut output,
     )
@@ -744,10 +753,18 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     assert!(certification["tun_preflight"]["ready"].is_boolean());
     assert_eq!(certification["tun_runtime_smoke"]["included"], false);
     assert_eq!(certification["tun_runtime_smoke"]["status"], "not-run");
+    assert_eq!(certification["tun_runtime_smoke"]["min_duration_ms"], 50);
+    assert!(certification["tun_runtime_smoke"]["elapsed_ms"].is_null());
+    assert!(certification["tun_runtime_smoke"]["duration_target_met"].is_null());
+    assert!(certification["tun_runtime_smoke"]["loop_activity_observed"].is_null());
     assert!(certification["tun_runtime_smoke"]["report"].is_null());
     assert_eq!(
         certification["certification"]["tun_runtime_smoke_included"],
         false
+    );
+    assert_eq!(
+        certification["certification"]["tun_runtime_smoke_min_duration_ms"],
+        50
     );
     assert!(certification["certification"]["tun_runtime_smoke_passed"].is_null());
     assert_eq!(
