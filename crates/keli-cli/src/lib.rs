@@ -36,7 +36,8 @@ use keli_net_core::{
     OutboundTarget, RegistryTunTcpSessionRelay, RegistryTunUdpRelay, RelayOptions, RouteAction,
     RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, Socks5Address, Socks5Command,
     Socks5ReplyCode, SystemDnsResolver, TunPacketDevice, TunPacketFlow, TunPacketLoopEvent,
-    TunPacketLoopSummary, TunTcpSessionTable, TunUdpRelay, DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+    TunPacketLoopSummary, TunPacketRouteDecision, TunTcpSessionTable, TunUdpRelay,
+    DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
 };
 use keli_platform::{
     install_wintun_library, install_wintun_library_from_source_dir, snapshot_tun_route_takeover,
@@ -73,7 +74,7 @@ const DEFAULT_MIXED_SOAK_CONNECTIONS: usize = 25;
 const DEFAULT_MIXED_SOAK_MIN_DURATION: Duration = Duration::from_millis(0);
 const DEFAULT_READINESS_SOAK_CONNECTIONS: usize = 3;
 const DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION: Duration = Duration::from_millis(50);
-const DEFAULT_TUN_RUNTIME_SMOKE_TRAFFIC_REQUIRED: bool = false;
+const DEFAULT_TUN_RUNTIME_SMOKE_TRAFFIC_REQUIRED: bool = true;
 const TUN_RUNTIME_SMOKE_TRAFFIC_RULE: &str = "tun-runtime-smoke-traffic-stimulus";
 const TUN_RUNTIME_SMOKE_TRAFFIC_SOURCE: SocketAddr =
     SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
@@ -90,11 +91,11 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 24;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 14;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 25;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 15;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 14;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 14;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 15;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 15;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 3;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -113,17 +114,17 @@ const SUBSCRIPTION_FETCH_CAPABILITIES: &str =
 const SUBSCRIPTION_UPDATE_CAPABILITIES: &str =
     "current-config,new-config,current-outbound,tag-diff,selected-preservation,default-fallback,redacted-profile-summary,managed-reload-plan,managed-url-reload,managed-url-update-status";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
-    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic,packet-loop-drop-detail";
+    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic,packet-loop-drop-detail,packet-loop-drop-history";
 const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
     "local-mixed-soak,loopback-echo,managed-metrics,worker-drain,socks5,http-connect,min-duration";
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -7655,16 +7656,40 @@ fn tun_runtime_smoke_route_takeover_not_collected() -> TunRouteTakeoverSnapshot 
 }
 
 fn tun_runtime_smoke_traffic_stimulus_drop_observed(report: &ManagedTunPacketLoopReport) -> bool {
+    if report.summary.dropped_packets == 0 {
+        return false;
+    }
+
+    report
+        .summary
+        .recent_dropped_routes
+        .iter()
+        .any(tun_runtime_smoke_dropped_route_is_traffic_stimulus)
+        || tun_runtime_smoke_last_dropped_route_is_traffic_stimulus(report)
+}
+
+fn tun_runtime_smoke_last_dropped_route_is_traffic_stimulus(
+    report: &ManagedTunPacketLoopReport,
+) -> bool {
     let Some(flow) = report.summary.last_dropped_flow.as_ref() else {
         return false;
     };
-    report.summary.dropped_packets > 0
-        && flow.destination_ip == TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.ip()
-        && (flow.destination_port == Some(TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.port())
-            || flow.destination_port.is_none())
+    tun_runtime_smoke_flow_is_traffic_stimulus(flow)
         && report.summary.last_dropped_route_action.as_ref() == Some(&RouteAction::Block)
         && report.summary.last_dropped_matched_rule.as_deref()
             == Some(TUN_RUNTIME_SMOKE_TRAFFIC_RULE)
+}
+
+fn tun_runtime_smoke_dropped_route_is_traffic_stimulus(route: &TunPacketRouteDecision) -> bool {
+    tun_runtime_smoke_flow_is_traffic_stimulus(&route.flow)
+        && route.action == RouteAction::Block
+        && route.matched_rule.as_deref() == Some(TUN_RUNTIME_SMOKE_TRAFFIC_RULE)
+}
+
+fn tun_runtime_smoke_flow_is_traffic_stimulus(flow: &TunPacketFlow) -> bool {
+    flow.destination_ip == TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.ip()
+        && (flow.destination_port == Some(TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.port())
+            || flow.destination_port.is_none())
 }
 
 #[cfg(test)]
@@ -7699,6 +7724,55 @@ mod tun_runtime_smoke_tests {
             }),
             last_dropped_route_action: Some(RouteAction::Block),
             last_dropped_matched_rule: Some(TUN_RUNTIME_SMOKE_TRAFFIC_RULE.to_string()),
+            ..TunPacketLoopSummary::default()
+        };
+        summary.stop_requested = true;
+
+        let report = ManagedTunPacketLoopReport {
+            config: default_tun_device_config(),
+            start_snapshot: snapshot(true),
+            stop_snapshot: snapshot(false),
+            owns_device: true,
+            summary,
+        };
+
+        assert!(tun_runtime_smoke_traffic_stimulus_drop_observed(&report));
+    }
+
+    #[test]
+    fn traffic_stimulus_drop_observed_uses_recent_drop_history() {
+        let stimulus_route = TunPacketRouteDecision {
+            flow: TunPacketFlow {
+                ip_version: TunIpVersion::Ipv4,
+                protocol: TunTransportProtocol::Udp,
+                source_ip: IpAddr::V4(Ipv4Addr::new(10, 7, 0, 2)),
+                destination_ip: TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.ip(),
+                source_port: Some(49152),
+                destination_port: Some(TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.port()),
+            },
+            action: RouteAction::Block,
+            matched_rule: Some(TUN_RUNTIME_SMOKE_TRAFFIC_RULE.to_string()),
+            dns_hijacked: false,
+        };
+        let ambient_route = TunPacketRouteDecision {
+            flow: TunPacketFlow {
+                ip_version: TunIpVersion::Ipv6,
+                protocol: TunTransportProtocol::Icmpv6,
+                source_ip: IpAddr::V6(Ipv6Addr::LOCALHOST),
+                destination_ip: IpAddr::V6(Ipv6Addr::LOCALHOST),
+                source_port: None,
+                destination_port: None,
+            },
+            action: RouteAction::Block,
+            matched_rule: None,
+            dns_hijacked: false,
+        };
+        let mut summary = TunPacketLoopSummary {
+            dropped_packets: 2,
+            last_dropped_flow: Some(ambient_route.flow.clone()),
+            last_dropped_route_action: Some(ambient_route.action.clone()),
+            last_dropped_matched_rule: ambient_route.matched_rule.clone(),
+            recent_dropped_routes: vec![stimulus_route, ambient_route],
             ..TunPacketLoopSummary::default()
         };
         summary.stop_requested = true;
@@ -8489,6 +8563,19 @@ fn tun_runtime_smoke_json_value(
         })
     );
     field!(
+        "recent_dropped_routes",
+        report.and_then(|report| {
+            report.report.as_ref().map(|runtime_report| {
+                runtime_report
+                    .summary
+                    .recent_dropped_routes
+                    .iter()
+                    .map(tun_packet_route_decision_json_value)
+                    .collect::<Vec<_>>()
+            })
+        })
+    );
+    field!(
         "last_dropped_flow",
         report.and_then(|report| {
             report
@@ -8626,6 +8713,15 @@ fn tun_runtime_smoke_json_value(
     );
 
     serde_json::Value::Object(value)
+}
+
+fn tun_packet_route_decision_json_value(decision: &TunPacketRouteDecision) -> serde_json::Value {
+    serde_json::json!({
+        "flow": tun_packet_flow_json_value(&decision.flow),
+        "route_action": route_action_json_value(&decision.action),
+        "matched_rule": decision.matched_rule.as_deref(),
+        "dns_hijacked": decision.dns_hijacked,
+    })
 }
 
 fn tun_packet_flow_json_value(flow: &TunPacketFlow) -> serde_json::Value {

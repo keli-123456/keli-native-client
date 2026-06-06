@@ -378,9 +378,9 @@ captured by split-default takeover cannot escape through direct relay during
 certification. The route snapshot verifies the expected split-default prefixes
 are present while the adapter is running and is a smoke gate; the interface and
 route table lookups are report-only evidence for diagnosing Windows address and
-source/route selection. The traffic stimulus remains report-only by
-default (`traffic_stimulus_required=false`) while Windows socket source/route
-behavior is hardened, but successful evidence must match the dedicated
+source/route selection. The traffic stimulus is now required when the smoke is
+included (`traffic_stimulus_required=true`): certification must prove that a
+UDP or ICMP stimulus reached the TUN packet loop and matched the dedicated
 `tun-runtime-smoke-traffic-stimulus` block rule. It records `elapsed_ms`,
 `duration_target_met`, `loop_activity_observed`, `route_takeover_*`,
 `traffic_stimulus_required`, `traffic_stimulus_observed`,
@@ -390,7 +390,7 @@ behavior is hardened, but successful evidence must match the dedicated
 `traffic_stimulus_target`, `traffic_stimulus_*`,
 `traffic_stimulus_route_lookup_*`,
 `traffic_stimulus_ping_*`, `processed_packets`,
-`idle_events`, `dropped_packets`, last dropped flow/rule details,
+`idle_events`, `dropped_packets`, recent dropped route decisions, last dropped flow/rule details,
 `unsupported_packets`, last unsupported flow details, `clean_stop_observed`,
 `exit_reason`, `stop_requested`,
 `residual_state_clean`, and the remaining TUN/TCP session marker counts, and can

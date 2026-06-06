@@ -68,6 +68,8 @@ pub struct TunPacketRouteDecision {
     pub dns_hijacked: bool,
 }
 
+pub const TUN_PACKET_LOOP_DROPPED_ROUTE_HISTORY_LIMIT: usize = 256;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TunPacketRelayAction {
     Drop,
@@ -409,6 +411,7 @@ pub struct TunPacketLoopSummary {
     pub last_dropped_flow: Option<TunPacketFlow>,
     pub last_dropped_route_action: Option<RouteAction>,
     pub last_dropped_matched_rule: Option<String>,
+    pub recent_dropped_routes: Vec<TunPacketRouteDecision>,
     pub unsupported_packets: usize,
     pub last_unsupported_flow: Option<TunPacketFlow>,
     pub last_unsupported_route_action: Option<RouteAction>,
@@ -1013,9 +1016,7 @@ impl TunPacketLoopSummary {
             }
             TunPacketLoopEvent::Drop(plan) => {
                 self.dropped_packets += 1;
-                self.last_dropped_flow = Some(plan.route.flow.clone());
-                self.last_dropped_route_action = Some(plan.route.action.clone());
-                self.last_dropped_matched_rule = plan.route.matched_rule.clone();
+                self.record_dropped_route(&plan.route);
             }
             TunPacketLoopEvent::Unsupported(plan) => {
                 self.unsupported_packets += 1;
@@ -1038,6 +1039,18 @@ impl TunPacketLoopSummary {
                 }
                 self.last_tcp_session_error = Some(error.clone());
             }
+        }
+    }
+
+    fn record_dropped_route(&mut self, route: &TunPacketRouteDecision) {
+        self.last_dropped_flow = Some(route.flow.clone());
+        self.last_dropped_route_action = Some(route.action.clone());
+        self.last_dropped_matched_rule = route.matched_rule.clone();
+        self.recent_dropped_routes.push(route.clone());
+        if self.recent_dropped_routes.len() > TUN_PACKET_LOOP_DROPPED_ROUTE_HISTORY_LIMIT {
+            let excess =
+                self.recent_dropped_routes.len() - TUN_PACKET_LOOP_DROPPED_ROUTE_HISTORY_LIMIT;
+            self.recent_dropped_routes.drain(0..excess);
         }
     }
 
@@ -3915,6 +3928,29 @@ mod tests {
         }
     }
 
+    fn dropped_route_decision(destination_port: u16) -> TunPacketRouteDecision {
+        TunPacketRouteDecision {
+            flow: TunPacketFlow {
+                ip_version: TunIpVersion::Ipv4,
+                protocol: TunTransportProtocol::Udp,
+                source_ip: IpAddr::V4(Ipv4Addr::new(10, 7, 0, 2)),
+                destination_ip: IpAddr::V4(Ipv4Addr::new(198, 18, 0, 1)),
+                source_port: Some(49152),
+                destination_port: Some(destination_port),
+            },
+            action: RouteAction::Block,
+            matched_rule: Some(format!("drop-{destination_port}")),
+            dns_hijacked: false,
+        }
+    }
+
+    fn drop_event(destination_port: u16) -> TunPacketLoopEvent {
+        TunPacketLoopEvent::Drop(TunPacketRelayPlan {
+            route: dropped_route_decision(destination_port),
+            relay_action: TunPacketRelayAction::Drop,
+        })
+    }
+
     #[test]
     fn tun_tcp_relay_read_buffer_size_uses_default_mtu_payload_limit() {
         assert_eq!(
@@ -3936,6 +3972,53 @@ mod tests {
         assert_eq!(
             tun_tcp_relay_read_buffer_size_for_flow(&tcp_flow(TunIpVersion::Ipv4), 0),
             1
+        );
+    }
+
+    #[test]
+    fn packet_loop_summary_records_recent_dropped_routes() {
+        let expected = dropped_route_decision(9);
+        let summary = TunPacketLoopSummary::from_events(&[drop_event(9)]);
+
+        assert_eq!(summary.dropped_packets, 1);
+        assert_eq!(summary.last_dropped_flow, Some(expected.flow.clone()));
+        assert_eq!(
+            summary.last_dropped_route_action,
+            Some(expected.action.clone())
+        );
+        assert_eq!(
+            summary.last_dropped_matched_rule,
+            expected.matched_rule.clone()
+        );
+        assert_eq!(summary.recent_dropped_routes, vec![expected]);
+    }
+
+    #[test]
+    fn packet_loop_summary_caps_recent_dropped_routes() {
+        let events = (0..TUN_PACKET_LOOP_DROPPED_ROUTE_HISTORY_LIMIT + 2)
+            .map(|index| drop_event(10_000 + index as u16))
+            .collect::<Vec<_>>();
+        let summary = TunPacketLoopSummary::from_events(&events);
+
+        assert_eq!(
+            summary.recent_dropped_routes.len(),
+            TUN_PACKET_LOOP_DROPPED_ROUTE_HISTORY_LIMIT
+        );
+        assert_eq!(
+            summary
+                .recent_dropped_routes
+                .first()
+                .map(|route| route.flow.destination_port),
+            Some(Some(10_002))
+        );
+        assert_eq!(
+            summary
+                .recent_dropped_routes
+                .last()
+                .map(|route| route.flow.destination_port),
+            Some(Some(
+                10_000 + TUN_PACKET_LOOP_DROPPED_ROUTE_HISTORY_LIMIT as u16 + 1
+            ))
         );
     }
 }

@@ -287,18 +287,26 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][18],
-        "tun-runtime-smoke-icmp-stimulus"
+        "tun-runtime-smoke-required-traffic"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][19],
-        "tun-runtime-smoke-dropped-route-evidence"
+        "tun-runtime-smoke-icmp-stimulus"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][20],
-        "tun-runtime-smoke-route-takeover-snapshot"
+        "tun-runtime-smoke-dropped-route-evidence"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][21],
+        "tun-runtime-smoke-dropped-route-history"
+    );
+    assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][22],
+        "tun-runtime-smoke-route-takeover-snapshot"
+    );
+    assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][23],
         "tun-runtime-smoke-route-selection-evidence"
     );
     assert_eq!(
@@ -367,42 +375,50 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][10],
-        "tun-runtime-smoke-icmp-stimulus"
+        "tun-runtime-smoke-required-traffic"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][11],
-        "tun-runtime-smoke-dropped-route-evidence"
+        "tun-runtime-smoke-icmp-stimulus"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][12],
-        "tun-runtime-smoke-route-takeover-snapshot"
+        "tun-runtime-smoke-dropped-route-evidence"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][13],
-        "tun-runtime-smoke-route-selection-evidence"
+        "tun-runtime-smoke-dropped-route-history"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][14],
-        "non-skipped-soak"
+        "tun-runtime-smoke-route-takeover-snapshot"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][15],
-        "soak-parameters"
+        "tun-runtime-smoke-route-selection-evidence"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][16],
-        "soak-min-duration"
+        "non-skipped-soak"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][17],
+        "soak-parameters"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][18],
-        "promotion-blockers"
+        "soak-min-duration"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][20],
+        "promotion-blockers"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][22],
         "text-summary"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][21],
+        report["doctor"]["default_core_certification_capabilities"][23],
         "support-bundle-export"
     );
     assert_eq!(
@@ -710,6 +726,14 @@ proxies:
         report["doctor"]["tun_packet_pipeline_capabilities"][83],
         "tun-runtime-structured-diagnostic"
     );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][84],
+        "packet-loop-drop-detail"
+    );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][85],
+        "packet-loop-drop-history"
+    );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");
     assert_eq!(report["tun_preflight"]["ready"], false);
     assert_eq!(
@@ -898,6 +922,7 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     assert!(certification["tun_runtime_smoke"]["processed_packets"].is_null());
     assert!(certification["tun_runtime_smoke"]["idle_events"].is_null());
     assert!(certification["tun_runtime_smoke"]["dropped_packets"].is_null());
+    assert!(certification["tun_runtime_smoke"]["recent_dropped_routes"].is_null());
     assert!(certification["tun_runtime_smoke"]["last_dropped_flow"].is_null());
     assert!(certification["tun_runtime_smoke"]["last_dropped_route_action"].is_null());
     assert!(certification["tun_runtime_smoke"]["last_dropped_matched_rule"].is_null());
