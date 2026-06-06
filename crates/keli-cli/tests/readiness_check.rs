@@ -39,6 +39,16 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(report["tun_runtime_smoke"]["included"], false);
     assert_eq!(report["tun_runtime_smoke"]["status"], "not-run");
     assert_eq!(report["tun_runtime_smoke"]["min_duration_ms"], 50);
+    assert_eq!(report["system_proxy_smoke"]["included"], false);
+    assert_eq!(report["system_proxy_smoke"]["status"], "not-run");
+    assert!(report["system_proxy_smoke"]["passed"].is_null());
+    assert!(report["system_proxy_smoke"]["config"].is_null());
+    assert!(report["system_proxy_smoke"]["original_snapshot"].is_null());
+    assert!(report["system_proxy_smoke"]["applied_snapshot"].is_null());
+    assert!(report["system_proxy_smoke"]["restored_snapshot"].is_null());
+    assert!(report["system_proxy_smoke"]["restore_attempted"].is_null());
+    assert!(report["system_proxy_smoke"]["restore_succeeded"].is_null());
+    assert!(report["system_proxy_smoke"]["restored_original_snapshot_match"].is_null());
     assert!(report["tun_runtime_smoke"]["elapsed_ms"].is_null());
     assert!(report["tun_runtime_smoke"]["duration_target_met"].is_null());
     assert!(report["tun_runtime_smoke"]["loop_activity_observed"].is_null());
@@ -277,6 +287,7 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(output.contains("readiness gate=interop-matrix category=protocols status=passed"));
     assert!(output.contains("readiness gate=tun-backend category=platform status="));
     assert!(output.contains("readiness tun_preflight status="));
+    assert!(output.contains("readiness system_proxy_smoke status=not-run included=false"));
     assert!(output.contains("readiness tun_runtime_smoke status=not-run included=false"));
     assert!(
         output.contains("readiness gate=mixed-soak-http-connect category=stability status=skipped")
@@ -338,6 +349,14 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert_eq!(report["tun_runtime_smoke"]["included"], false);
     assert_eq!(report["tun_runtime_smoke"]["status"], "not-run");
     assert_eq!(report["tun_runtime_smoke"]["min_duration_ms"], 50);
+    assert_eq!(report["system_proxy_smoke"]["included"], false);
+    assert_eq!(report["system_proxy_smoke"]["status"], "not-run");
+    assert!(report["system_proxy_smoke"]["passed"].is_null());
+    assert_eq!(
+        report["certification"]["system_proxy_smoke_included"],
+        false
+    );
+    assert!(report["certification"]["system_proxy_smoke_passed"].is_null());
     assert!(report["tun_runtime_smoke"]["elapsed_ms"].is_null());
     assert!(report["tun_runtime_smoke"]["duration_target_met"].is_null());
     assert!(report["tun_runtime_smoke"]["loop_activity_observed"].is_null());
@@ -484,6 +503,8 @@ fn default_core_certification_text_reports_summary_and_gates() {
     assert!(output.contains("blockers="));
     assert!(output.contains("tun_backend_status="));
     assert!(output.contains("default_core_certification tun_preflight status="));
+    assert!(output
+        .contains("default_core_certification system_proxy_smoke status=not-run included=false"));
     assert!(output
         .contains("default_core_certification tun_runtime_smoke status=not-run included=false"));
     assert!(output.contains(

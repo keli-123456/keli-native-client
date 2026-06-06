@@ -94,15 +94,18 @@ const TUN_RUNTIME_SMOKE_DNS_TARGET: SocketAddr =
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(198, 18, 0, 1)), 53);
 const TUN_RUNTIME_SMOKE_DNS_READ_TIMEOUT: Duration = Duration::from_millis(750);
 const TUN_RUNTIME_SMOKE_COMMAND_OUTPUT_CHAR_LIMIT: usize = 2400;
+const SYSTEM_PROXY_SMOKE_LISTEN: &str = "127.0.0.1";
+const SYSTEM_PROXY_SMOKE_PORT: u16 = 7890;
+const SYSTEM_PROXY_SMOKE_BYPASS: [&str; 2] = ["localhost", "<local>"];
 const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 29;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 19;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 30;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 20;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 18;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 18;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 19;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 19;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -127,11 +130,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -151,6 +154,7 @@ pub enum CliCommand {
         max_connection_workers: usize,
         soak_min_duration: Duration,
         skip_soak: bool,
+        include_system_proxy_smoke: bool,
         include_tun_runtime_smoke: bool,
         tun_runtime_smoke_min_duration: Duration,
     },
@@ -160,6 +164,7 @@ pub enum CliCommand {
         first_byte_timeout: Duration,
         max_connection_workers: usize,
         soak_min_duration: Duration,
+        include_system_proxy_smoke: bool,
         include_tun_runtime_smoke: bool,
         tun_runtime_smoke_min_duration: Duration,
     },
@@ -242,6 +247,7 @@ pub enum CliCommand {
         certification_first_byte_timeout: Duration,
         certification_max_connection_workers: usize,
         certification_soak_min_duration: Duration,
+        certification_include_system_proxy_smoke: bool,
         certification_include_tun_runtime_smoke: bool,
         certification_tun_runtime_smoke_min_duration: Duration,
     },
@@ -4247,6 +4253,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             max_connection_workers,
             soak_min_duration,
             skip_soak,
+            include_system_proxy_smoke,
             include_tun_runtime_smoke,
             tun_runtime_smoke_min_duration,
         } => {
@@ -4258,6 +4265,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 max_connection_workers,
                 soak_min_duration,
                 skip_soak,
+                include_system_proxy_smoke,
                 include_tun_runtime_smoke,
                 tun_runtime_smoke_min_duration,
                 &mut stdout,
@@ -4269,6 +4277,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             first_byte_timeout,
             max_connection_workers,
             soak_min_duration,
+            include_system_proxy_smoke,
             include_tun_runtime_smoke,
             tun_runtime_smoke_min_duration,
         } => {
@@ -4279,6 +4288,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 first_byte_timeout,
                 max_connection_workers,
                 soak_min_duration,
+                include_system_proxy_smoke,
                 include_tun_runtime_smoke,
                 tun_runtime_smoke_min_duration,
                 &mut stdout,
@@ -4496,6 +4506,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             certification_first_byte_timeout,
             certification_max_connection_workers,
             certification_soak_min_duration,
+            certification_include_system_proxy_smoke,
             certification_include_tun_runtime_smoke,
             certification_tun_runtime_smoke_min_duration,
         } => {
@@ -4515,6 +4526,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                     certification_first_byte_timeout,
                     certification_max_connection_workers,
                     certification_soak_min_duration,
+                    certification_include_system_proxy_smoke,
                     certification_include_tun_runtime_smoke,
                     certification_tun_runtime_smoke_min_duration,
                 },
@@ -4536,11 +4548,11 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli readiness-check [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1] [--skip-soak] [--include-tun-runtime-smoke] [--tun-runtime-smoke-min-duration-ms 50]"
+        "       keli-cli readiness-check [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1] [--skip-soak] [--include-system-proxy-smoke] [--include-tun-runtime-smoke] [--tun-runtime-smoke-min-duration-ms 50]"
     )?;
     writeln!(
         writer,
-        "       keli-cli default-core-certify [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1] [--include-tun-runtime-smoke] [--tun-runtime-smoke-min-duration-ms 50]"
+        "       keli-cli default-core-certify [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1] [--include-system-proxy-smoke] [--include-tun-runtime-smoke] [--tun-runtime-smoke-min-duration-ms 50]"
     )?;
     writeln!(
         writer,
@@ -4588,7 +4600,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli support-bundle [--profile-config subscription.yaml] [--include-certification] [--certification-soak-connections 3] [--certification-first-byte-timeout-ms 30000] [--certification-max-connection-workers 1024] [--certification-soak-min-duration-ms 1] [--certification-include-tun-runtime-smoke] [--certification-tun-runtime-smoke-min-duration-ms 50]"
+        "       keli-cli support-bundle [--profile-config subscription.yaml] [--include-certification] [--certification-soak-connections 3] [--certification-first-byte-timeout-ms 30000] [--certification-max-connection-workers 1024] [--certification-soak-min-duration-ms 1] [--certification-include-system-proxy-smoke] [--certification-include-tun-runtime-smoke] [--certification-tun-runtime-smoke-min-duration-ms 50]"
     )
 }
 
@@ -4637,6 +4649,7 @@ fn parse_readiness_check(args: impl Iterator<Item = String>) -> Result<CliComman
     let mut max_connection_workers = DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS;
     let mut soak_min_duration = DEFAULT_MIXED_SOAK_MIN_DURATION;
     let mut skip_soak = false;
+    let mut include_system_proxy_smoke = false;
     let mut include_tun_runtime_smoke = false;
     let mut tun_runtime_smoke_min_duration = DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION;
     let mut args = args.peekable();
@@ -4678,6 +4691,9 @@ fn parse_readiness_check(args: impl Iterator<Item = String>) -> Result<CliComman
                 )?;
             }
             "--skip-soak" => skip_soak = true,
+            "--include-system-proxy-smoke" | "--system-proxy-smoke" => {
+                include_system_proxy_smoke = true;
+            }
             "--include-tun-runtime-smoke" | "--tun-runtime-smoke" => {
                 include_tun_runtime_smoke = true;
             }
@@ -4701,6 +4717,7 @@ fn parse_readiness_check(args: impl Iterator<Item = String>) -> Result<CliComman
         max_connection_workers,
         soak_min_duration,
         skip_soak,
+        include_system_proxy_smoke,
         include_tun_runtime_smoke,
         tun_runtime_smoke_min_duration,
     })
@@ -4712,6 +4729,7 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
     let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut max_connection_workers = DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS;
     let mut soak_min_duration = DEFAULT_MIXED_SOAK_MIN_DURATION;
+    let mut include_system_proxy_smoke = false;
     let mut include_tun_runtime_smoke = false;
     let mut tun_runtime_smoke_min_duration = DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION;
     let mut args = args.peekable();
@@ -4752,6 +4770,9 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
                     "--soak-min-duration-ms",
                 )?;
             }
+            "--include-system-proxy-smoke" | "--system-proxy-smoke" => {
+                include_system_proxy_smoke = true;
+            }
             "--include-tun-runtime-smoke" | "--tun-runtime-smoke" => {
                 include_tun_runtime_smoke = true;
             }
@@ -4774,6 +4795,7 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
         first_byte_timeout,
         max_connection_workers,
         soak_min_duration,
+        include_system_proxy_smoke,
         include_tun_runtime_smoke,
         tun_runtime_smoke_min_duration,
     })
@@ -5000,6 +5022,7 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
     let mut certification_first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut certification_max_connection_workers = DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS;
     let mut certification_soak_min_duration = DEFAULT_MIXED_SOAK_MIN_DURATION;
+    let mut certification_include_system_proxy_smoke = false;
     let mut certification_include_tun_runtime_smoke = false;
     let mut certification_tun_runtime_smoke_min_duration = DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION;
     let mut args = args.peekable();
@@ -5051,6 +5074,11 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
                     "--certification-soak-min-duration-ms",
                 )?;
             }
+            "--certification-include-system-proxy-smoke"
+            | "--include-certification-system-proxy-smoke" => {
+                include_default_core_certification = true;
+                certification_include_system_proxy_smoke = true;
+            }
             "--certification-include-tun-runtime-smoke"
             | "--include-certification-tun-runtime-smoke" => {
                 include_default_core_certification = true;
@@ -5078,6 +5106,7 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
         certification_first_byte_timeout,
         certification_max_connection_workers,
         certification_soak_min_duration,
+        certification_include_system_proxy_smoke,
         certification_include_tun_runtime_smoke,
         certification_tun_runtime_smoke_min_duration,
     })
@@ -6832,6 +6861,8 @@ pub struct DefaultCoreReadinessReport {
     pub ready_for_default_core: bool,
     pub soak_min_duration: Duration,
     pub tun_preflight: TunDevicePreflight,
+    pub include_system_proxy_smoke: bool,
+    pub system_proxy_smoke: Option<SystemProxySmokeReport>,
     pub include_tun_runtime_smoke: bool,
     pub tun_runtime_smoke_min_duration: Duration,
     pub tun_runtime_smoke: Option<TunRuntimeSmokeReport>,
@@ -6846,6 +6877,8 @@ pub struct DefaultCoreCertificationReport {
     pub readiness: DefaultCoreReadinessReport,
     pub tun_backend: TunBackendStatus,
     pub tun_preflight: TunDevicePreflight,
+    pub include_system_proxy_smoke: bool,
+    pub system_proxy_smoke: Option<SystemProxySmokeReport>,
     pub include_tun_runtime_smoke: bool,
     pub tun_runtime_smoke_min_duration: Duration,
     pub tun_runtime_smoke: Option<TunRuntimeSmokeReport>,
@@ -6853,6 +6886,27 @@ pub struct DefaultCoreCertificationReport {
     pub first_byte_timeout: Duration,
     pub max_connection_workers: usize,
     pub soak_min_duration: Duration,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SystemProxySmokeReport {
+    pub passed: bool,
+    pub detail: String,
+    pub config: SystemProxyConfig,
+    pub original_snapshot: Option<SystemProxySnapshot>,
+    pub apply_returned_snapshot: Option<SystemProxySnapshot>,
+    pub applied_snapshot: Option<SystemProxySnapshot>,
+    pub restored_snapshot: Option<SystemProxySnapshot>,
+    pub apply_returned_original_match: bool,
+    pub applied_matches_config: bool,
+    pub restore_attempted: bool,
+    pub restore_succeeded: bool,
+    pub restored_original_snapshot_match: bool,
+    pub snapshot_error: Option<String>,
+    pub apply_error: Option<String>,
+    pub applied_snapshot_error: Option<String>,
+    pub restore_error: Option<String>,
+    pub restored_snapshot_error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7015,6 +7069,7 @@ pub fn write_readiness_check_report_with_soak_min_duration(
         soak_min_duration,
         skip_soak,
         false,
+        false,
         DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION,
         &mut writer,
     )
@@ -7027,6 +7082,7 @@ pub fn write_readiness_check_report_with_options(
     max_connection_workers: usize,
     soak_min_duration: Duration,
     skip_soak: bool,
+    include_system_proxy_smoke: bool,
     include_tun_runtime_smoke: bool,
     tun_runtime_smoke_min_duration: Duration,
     mut writer: impl Write,
@@ -7037,6 +7093,7 @@ pub fn write_readiness_check_report_with_options(
         max_connection_workers,
         soak_min_duration,
         skip_soak,
+        include_system_proxy_smoke,
         include_tun_runtime_smoke,
         tun_runtime_smoke_min_duration,
     )?;
@@ -7078,6 +7135,7 @@ pub fn write_default_core_certification_report_with_soak_min_duration(
         max_connection_workers,
         soak_min_duration,
         false,
+        false,
         DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION,
         &mut writer,
     )
@@ -7089,6 +7147,7 @@ pub fn write_default_core_certification_report_with_options(
     first_byte_timeout: Duration,
     max_connection_workers: usize,
     soak_min_duration: Duration,
+    include_system_proxy_smoke: bool,
     include_tun_runtime_smoke: bool,
     tun_runtime_smoke_min_duration: Duration,
     mut writer: impl Write,
@@ -7098,6 +7157,7 @@ pub fn write_default_core_certification_report_with_options(
         first_byte_timeout,
         max_connection_workers,
         soak_min_duration,
+        include_system_proxy_smoke,
         include_tun_runtime_smoke,
         tun_runtime_smoke_min_duration,
     )?;
@@ -7116,6 +7176,7 @@ fn collect_default_core_certification_report(
     first_byte_timeout: Duration,
     max_connection_workers: usize,
     soak_min_duration: Duration,
+    include_system_proxy_smoke: bool,
     include_tun_runtime_smoke: bool,
     tun_runtime_smoke_min_duration: Duration,
 ) -> Result<DefaultCoreCertificationReport, String> {
@@ -7134,11 +7195,18 @@ fn collect_default_core_certification_report(
         max_connection_workers,
         soak_min_duration,
         false,
+        include_system_proxy_smoke,
         include_tun_runtime_smoke,
         tun_runtime_smoke_min_duration,
     )?;
     let tun_backend = TunBackendStatus::detect();
     let tun_preflight = readiness.tun_preflight.clone();
+    let system_proxy_smoke = readiness.system_proxy_smoke.clone();
+    let system_proxy_smoke_ready = !include_system_proxy_smoke
+        || system_proxy_smoke
+            .as_ref()
+            .map(|report| report.passed)
+            .unwrap_or(false);
     let tun_runtime_smoke = readiness.tun_runtime_smoke.clone();
     let tun_runtime_smoke_ready = !include_tun_runtime_smoke
         || tun_runtime_smoke
@@ -7148,6 +7216,7 @@ fn collect_default_core_certification_report(
     let ready_for_default_core = readiness.ready_for_default_core
         && tun_backend.is_ready()
         && tun_preflight.ready
+        && system_proxy_smoke_ready
         && tun_runtime_smoke_ready;
 
     Ok(DefaultCoreCertificationReport {
@@ -7157,6 +7226,8 @@ fn collect_default_core_certification_report(
         readiness,
         tun_backend,
         tun_preflight,
+        include_system_proxy_smoke,
+        system_proxy_smoke,
         include_tun_runtime_smoke,
         tun_runtime_smoke_min_duration,
         tun_runtime_smoke,
@@ -7173,6 +7244,7 @@ fn collect_readiness_check_report(
     max_connection_workers: usize,
     soak_min_duration: Duration,
     skip_soak: bool,
+    include_system_proxy_smoke: bool,
     include_tun_runtime_smoke: bool,
     tun_runtime_smoke_min_duration: Duration,
 ) -> Result<DefaultCoreReadinessReport, String> {
@@ -7186,6 +7258,7 @@ fn collect_readiness_check_report(
     let doctor = collect_doctor_report();
     let interop = collect_interop_matrix_report();
     let tun_preflight = collect_default_tun_preflight();
+    let mut system_proxy_smoke = None;
     let mut tun_runtime_smoke = None;
     let mut gates = vec![
         readiness_gate(
@@ -7361,6 +7434,10 @@ fn collect_readiness_check_report(
         ));
     }
 
+    if include_system_proxy_smoke {
+        gates.push(readiness_system_proxy_smoke_gate(&mut system_proxy_smoke));
+    }
+
     let ready_for_default_core = gates
         .iter()
         .all(|gate| gate.status == ReadinessGateStatus::Passed);
@@ -7371,6 +7448,8 @@ fn collect_readiness_check_report(
         ready_for_default_core,
         soak_min_duration,
         tun_preflight,
+        include_system_proxy_smoke,
+        system_proxy_smoke,
         include_tun_runtime_smoke,
         tun_runtime_smoke_min_duration,
         tun_runtime_smoke,
@@ -7439,6 +7518,240 @@ fn readiness_soak_gate(
             status: ReadinessGateStatus::Failed,
             detail: error,
         },
+    }
+}
+
+fn readiness_system_proxy_smoke_gate(
+    smoke_report: &mut Option<SystemProxySmokeReport>,
+) -> ReadinessGateReport {
+    let report = collect_default_system_proxy_smoke_report();
+    let status = if report.passed {
+        ReadinessGateStatus::Passed
+    } else {
+        ReadinessGateStatus::Failed
+    };
+    let detail = report.detail.clone();
+    *smoke_report = Some(report);
+    ReadinessGateReport {
+        name: "system-proxy-smoke",
+        category: "platform",
+        status,
+        detail,
+    }
+}
+
+fn collect_default_system_proxy_smoke_report() -> SystemProxySmokeReport {
+    let controller = NativeSystemProxyController::new();
+    collect_system_proxy_smoke_report(&controller, default_system_proxy_smoke_config())
+}
+
+fn default_system_proxy_smoke_config() -> SystemProxyConfig {
+    SystemProxyConfig::mixed_inbound(SYSTEM_PROXY_SMOKE_LISTEN, SYSTEM_PROXY_SMOKE_PORT)
+        .expect("default system proxy smoke config is valid")
+        .with_bypass(SYSTEM_PROXY_SMOKE_BYPASS)
+}
+
+fn collect_system_proxy_smoke_report<C>(
+    controller: &C,
+    config: SystemProxyConfig,
+) -> SystemProxySmokeReport
+where
+    C: SystemProxyController + ?Sized,
+{
+    let mut report = SystemProxySmokeReport {
+        passed: false,
+        detail: String::new(),
+        config,
+        original_snapshot: None,
+        apply_returned_snapshot: None,
+        applied_snapshot: None,
+        restored_snapshot: None,
+        apply_returned_original_match: false,
+        applied_matches_config: false,
+        restore_attempted: false,
+        restore_succeeded: false,
+        restored_original_snapshot_match: false,
+        snapshot_error: None,
+        apply_error: None,
+        applied_snapshot_error: None,
+        restore_error: None,
+        restored_snapshot_error: None,
+    };
+
+    let original_snapshot = match controller.snapshot() {
+        Ok(snapshot) => {
+            report.original_snapshot = Some(snapshot.clone());
+            snapshot
+        }
+        Err(error) => {
+            report.snapshot_error = Some(error.to_string());
+            report.detail = system_proxy_smoke_detail(&report);
+            return report;
+        }
+    };
+
+    match controller.apply(&report.config) {
+        Ok(snapshot) => {
+            report.apply_returned_original_match = snapshot == original_snapshot;
+            report.apply_returned_snapshot = Some(snapshot);
+        }
+        Err(error) => {
+            report.apply_error = Some(error.to_string());
+        }
+    }
+
+    if report.apply_error.is_none() {
+        match controller.snapshot() {
+            Ok(snapshot) => {
+                report.applied_matches_config =
+                    system_proxy_snapshot_matches_config(&snapshot, &report.config);
+                report.applied_snapshot = Some(snapshot);
+            }
+            Err(error) => {
+                report.applied_snapshot_error = Some(error.to_string());
+            }
+        }
+    }
+
+    report.restore_attempted = true;
+    match controller.restore(&original_snapshot) {
+        Ok(()) => {
+            report.restore_succeeded = true;
+        }
+        Err(error) => {
+            report.restore_error = Some(error.to_string());
+        }
+    }
+
+    match controller.snapshot() {
+        Ok(snapshot) => {
+            report.restored_original_snapshot_match = snapshot == original_snapshot;
+            report.restored_snapshot = Some(snapshot);
+        }
+        Err(error) => {
+            report.restored_snapshot_error = Some(error.to_string());
+        }
+    }
+
+    report.passed = report.snapshot_error.is_none()
+        && report.apply_error.is_none()
+        && report.applied_snapshot_error.is_none()
+        && report.apply_returned_original_match
+        && report.applied_matches_config
+        && report.restore_attempted
+        && report.restore_succeeded
+        && report.restore_error.is_none()
+        && report.restored_snapshot_error.is_none()
+        && report.restored_original_snapshot_match;
+    report.detail = system_proxy_smoke_detail(&report);
+    report
+}
+
+fn system_proxy_snapshot_matches_config(
+    snapshot: &SystemProxySnapshot,
+    config: &SystemProxyConfig,
+) -> bool {
+    snapshot.enabled()
+        && snapshot.proxy_server.as_deref() == Some(config.server.as_str())
+        && snapshot.proxy_override.as_deref() == config.bypass_value().as_deref()
+}
+
+fn system_proxy_smoke_detail(report: &SystemProxySmokeReport) -> String {
+    format!(
+        "server={} bypass={} applied_matches_config={} apply_returned_original_match={} restore_attempted={} restore_succeeded={} restored_original_snapshot_match={} snapshot_error={} apply_error={} applied_snapshot_error={} restore_error={} restored_snapshot_error={}",
+        report.config.server,
+        report.config.bypass.join(";"),
+        report.applied_matches_config,
+        report.apply_returned_original_match,
+        report.restore_attempted,
+        report.restore_succeeded,
+        report.restored_original_snapshot_match,
+        report.snapshot_error.as_deref().unwrap_or("-"),
+        report.apply_error.as_deref().unwrap_or("-"),
+        report.applied_snapshot_error.as_deref().unwrap_or("-"),
+        report.restore_error.as_deref().unwrap_or("-"),
+        report.restored_snapshot_error.as_deref().unwrap_or("-")
+    )
+}
+
+#[cfg(test)]
+mod system_proxy_smoke_tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    #[derive(Debug)]
+    struct FakeSystemProxyController {
+        current: RefCell<SystemProxySnapshot>,
+        applied: RefCell<Vec<SystemProxyConfig>>,
+        restored: RefCell<Vec<SystemProxySnapshot>>,
+    }
+
+    impl FakeSystemProxyController {
+        fn new(snapshot: SystemProxySnapshot) -> Self {
+            Self {
+                current: RefCell::new(snapshot),
+                applied: RefCell::new(Vec::new()),
+                restored: RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl SystemProxyController for FakeSystemProxyController {
+        fn snapshot(&self) -> Result<SystemProxySnapshot, keli_platform::SystemProxyError> {
+            Ok(self.current.borrow().clone())
+        }
+
+        fn apply(
+            &self,
+            config: &SystemProxyConfig,
+        ) -> Result<SystemProxySnapshot, keli_platform::SystemProxyError> {
+            let previous = self.current.borrow().clone();
+            self.applied.borrow_mut().push(config.clone());
+            *self.current.borrow_mut() = SystemProxySnapshot {
+                proxy_enable: Some(1),
+                proxy_server: Some(config.server.clone()),
+                proxy_override: config.bypass_value(),
+            };
+            Ok(previous)
+        }
+
+        fn restore(
+            &self,
+            snapshot: &SystemProxySnapshot,
+        ) -> Result<(), keli_platform::SystemProxyError> {
+            self.restored.borrow_mut().push(snapshot.clone());
+            *self.current.borrow_mut() = snapshot.clone();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn system_proxy_smoke_applies_verifies_and_restores_snapshot() {
+        let original = SystemProxySnapshot {
+            proxy_enable: Some(0),
+            proxy_server: Some("old.proxy:8080".to_string()),
+            proxy_override: Some("<local>".to_string()),
+        };
+        let controller = FakeSystemProxyController::new(original.clone());
+        let config = SystemProxyConfig::mixed_inbound("127.0.0.1", 7890)
+            .expect("valid smoke config")
+            .with_bypass(["localhost", "<local>"]);
+
+        let report = collect_system_proxy_smoke_report(&controller, config.clone());
+
+        assert!(report.passed, "{}", report.detail);
+        assert_eq!(report.config, config);
+        assert_eq!(report.original_snapshot, Some(original.clone()));
+        assert_eq!(report.apply_returned_snapshot, Some(original.clone()));
+        assert!(report.apply_returned_original_match);
+        assert!(report.applied_matches_config);
+        assert!(report.restore_attempted);
+        assert!(report.restore_succeeded);
+        assert!(report.restored_original_snapshot_match);
+        assert_eq!(report.restored_snapshot, Some(original.clone()));
+        assert_eq!(controller.current.borrow().clone(), original.clone());
+        assert_eq!(controller.applied.borrow().len(), 1);
+        assert_eq!(controller.restored.borrow().as_slice(), &[original]);
     }
 }
 
@@ -8826,6 +9139,21 @@ fn write_readiness_check_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "readiness system_proxy_smoke status={} included={} detail={}",
+        system_proxy_smoke_status_label(
+            report.include_system_proxy_smoke,
+            report.system_proxy_smoke.as_ref()
+        ),
+        report.include_system_proxy_smoke,
+        report
+            .system_proxy_smoke
+            .as_ref()
+            .map(|smoke| smoke.detail.as_str())
+            .unwrap_or("-")
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "readiness tun_runtime_smoke status={} included={} min_duration_ms={} detail={}",
         tun_runtime_smoke_status_label(
             report.include_tun_runtime_smoke,
@@ -8878,6 +9206,10 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         "ready_for_default_core": report.ready_for_default_core,
         "soak_min_duration_ms": duration_millis_for_report(report.soak_min_duration),
         "tun_preflight": tun_preflight_json_value(&report.tun_preflight),
+        "system_proxy_smoke": system_proxy_smoke_json_value(
+            report.include_system_proxy_smoke,
+            report.system_proxy_smoke.as_ref()
+        ),
         "tun_runtime_smoke": tun_runtime_smoke_json_value(
             report.include_tun_runtime_smoke,
             report.tun_runtime_smoke_min_duration,
@@ -8974,6 +9306,21 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification system_proxy_smoke status={} included={} detail={}",
+        system_proxy_smoke_status_label(
+            report.include_system_proxy_smoke,
+            report.system_proxy_smoke.as_ref()
+        ),
+        report.include_system_proxy_smoke,
+        report
+            .system_proxy_smoke
+            .as_ref()
+            .map(|smoke| smoke.detail.as_str())
+            .unwrap_or("-")
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification tun_runtime_smoke status={} included={} min_duration_ms={} detail={}",
         tun_runtime_smoke_status_label(
             report.include_tun_runtime_smoke,
@@ -9048,6 +9395,12 @@ fn default_core_certification_json_value(
             "blocking_gate_count": summary.blocking,
             "tun_backend_ready": report.tun_backend.is_ready(),
             "tun_preflight_ready": report.tun_preflight.ready,
+            "system_proxy_smoke_included": report.include_system_proxy_smoke,
+            "system_proxy_smoke_passed": if report.include_system_proxy_smoke {
+                report.system_proxy_smoke.as_ref().map(|smoke| smoke.passed)
+            } else {
+                None
+            },
             "tun_runtime_smoke_included": report.include_tun_runtime_smoke,
             "tun_runtime_smoke_min_duration_ms": duration_millis_for_report(
                 report.tun_runtime_smoke_min_duration
@@ -9063,11 +9416,80 @@ fn default_core_certification_json_value(
         "tun_backend_status": if report.tun_backend.is_ready() { "ready" } else { "not-ready" },
         "tun_backend": tun_backend_json_value(&report.tun_backend),
         "tun_preflight": tun_preflight_json_value(&report.tun_preflight),
+        "system_proxy_smoke": system_proxy_smoke_json_value(
+            report.include_system_proxy_smoke,
+            report.system_proxy_smoke.as_ref()
+        ),
         "tun_runtime_smoke": tun_runtime_smoke_json_value(
             report.include_tun_runtime_smoke,
             report.tun_runtime_smoke_min_duration,
             report.tun_runtime_smoke.as_ref()
         ),
+    })
+}
+
+fn system_proxy_smoke_status_label(
+    included: bool,
+    report: Option<&SystemProxySmokeReport>,
+) -> &'static str {
+    if !included {
+        "not-run"
+    } else if report.map(|report| report.passed).unwrap_or(false) {
+        "passed"
+    } else {
+        "failed"
+    }
+}
+
+fn system_proxy_smoke_json_value(
+    included: bool,
+    report: Option<&SystemProxySmokeReport>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "included": included,
+        "status": system_proxy_smoke_status_label(included, report),
+        "passed": if included {
+            report.map(|report| report.passed)
+        } else {
+            None
+        },
+        "detail": report.map(|report| report.detail.as_str()),
+        "config": report.map(|report| system_proxy_config_json_value(&report.config)),
+        "original_snapshot": report
+            .and_then(|report| report.original_snapshot.as_ref())
+            .map(system_proxy_snapshot_json_value),
+        "apply_returned_snapshot": report
+            .and_then(|report| report.apply_returned_snapshot.as_ref())
+            .map(system_proxy_snapshot_json_value),
+        "applied_snapshot": report
+            .and_then(|report| report.applied_snapshot.as_ref())
+            .map(system_proxy_snapshot_json_value),
+        "restored_snapshot": report
+            .and_then(|report| report.restored_snapshot.as_ref())
+            .map(system_proxy_snapshot_json_value),
+        "apply_returned_original_match": report
+            .map(|report| report.apply_returned_original_match),
+        "applied_matches_config": report.map(|report| report.applied_matches_config),
+        "restore_attempted": report.map(|report| report.restore_attempted),
+        "restore_succeeded": report.map(|report| report.restore_succeeded),
+        "restored_original_snapshot_match": report
+            .map(|report| report.restored_original_snapshot_match),
+        "snapshot_error": report.and_then(|report| report.snapshot_error.as_deref()),
+        "apply_error": report.and_then(|report| report.apply_error.as_deref()),
+        "applied_snapshot_error": report
+            .and_then(|report| report.applied_snapshot_error.as_deref()),
+        "restore_error": report.and_then(|report| report.restore_error.as_deref()),
+        "restored_snapshot_error": report
+            .and_then(|report| report.restored_snapshot_error.as_deref()),
+    })
+}
+
+fn system_proxy_snapshot_json_value(snapshot: &SystemProxySnapshot) -> serde_json::Value {
+    serde_json::json!({
+        "proxy_enable": snapshot.proxy_enable,
+        "enabled": snapshot.enabled(),
+        "proxy_server": &snapshot.proxy_server,
+        "proxy_override": &snapshot.proxy_override,
     })
 }
 
@@ -10583,6 +11005,7 @@ pub struct SupportBundleOptions {
     pub certification_first_byte_timeout: Duration,
     pub certification_max_connection_workers: usize,
     pub certification_soak_min_duration: Duration,
+    pub certification_include_system_proxy_smoke: bool,
     pub certification_include_tun_runtime_smoke: bool,
     pub certification_tun_runtime_smoke_min_duration: Duration,
 }
@@ -10595,6 +11018,7 @@ impl Default for SupportBundleOptions {
             certification_first_byte_timeout: DEFAULT_FIRST_BYTE_TIMEOUT,
             certification_max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
             certification_soak_min_duration: DEFAULT_MIXED_SOAK_MIN_DURATION,
+            certification_include_system_proxy_smoke: false,
             certification_include_tun_runtime_smoke: false,
             certification_tun_runtime_smoke_min_duration: DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION,
         }
@@ -10616,6 +11040,7 @@ pub fn write_support_bundle_report_with_options(
             options.certification_first_byte_timeout,
             options.certification_max_connection_workers,
             options.certification_soak_min_duration,
+            options.certification_include_system_proxy_smoke,
             options.certification_include_tun_runtime_smoke,
             options.certification_tun_runtime_smoke_min_duration,
         )?)

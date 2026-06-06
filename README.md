@@ -368,7 +368,12 @@ prints matching `readiness blocker=...` lines, so UI and release checks can
 consume the promotion blockers without re-filtering every gate. JSON output
 also embeds the default `tun_preflight` object using the same shape
 as `tun-preflight --format json`, so platform handoff evidence is available
-without parsing gate detail strings. `--include-tun-runtime-smoke` can add an
+without parsing gate detail strings. `--include-system-proxy-smoke` can add an
+explicit system-proxy takeover gate that snapshots the current Windows proxy
+settings, applies the default Keli mixed inbound proxy (`127.0.0.1:7890` with
+the local bypass list), verifies the applied registry state, restores the
+original snapshot, and records whether the restored snapshot matches the
+original. `--include-tun-runtime-smoke` can add an
 explicit platform gate that starts the default managed TUN runtime, opens packet
 I/O, requests a clean stop, and records the start/stop snapshots plus packet
 loop diagnostic. The gate holds the runtime for at least 50ms by default, sends
@@ -420,10 +425,13 @@ handoff. Its JSON output mirrors
 the readiness blockers as `promotion_blockers` and includes a
 `blocking_gate_count` in the certification summary. Certification parameters now
 also include `soak_min_duration_ms`, so long-running promotion checks can prove
-more than a single fast loopback exchange. `--include-tun-runtime-smoke` carries
-the same real TUN runtime start/stop smoke evidence into the certification
-artifact for release runs that are allowed to touch system routes, with the
-same configurable minimum duration. Doctor and support
+more than a single fast loopback exchange. `--include-system-proxy-smoke`
+carries the same apply/verify/restore system-proxy evidence into the
+certification artifact for release runs that are allowed to touch Windows proxy
+settings. `--include-tun-runtime-smoke` carries the same real TUN runtime
+start/stop smoke evidence into the certification artifact for release runs that
+are allowed to touch system routes, with the same configurable minimum
+duration. Doctor and support
 bundle output advertise the default-core certification schema and capability
 list, and the readiness doctor-schema gate now includes that certification
 schema so promotion tooling can discover the full evidence chain. Support
@@ -489,10 +497,11 @@ cargo run -p keli-cli -- tun-backend-install --source C:\path\to\wintun.dll --fo
 cargo run -p keli-cli -- tun-backend-install --source-dir C:\path\to\wintun --format json
 cargo run -p keli-cli -- interop-matrix --format json
 cargo run -p keli-cli -- readiness-check --format json
-cargo run -p keli-cli -- readiness-check --format json --include-tun-runtime-smoke --tun-runtime-smoke-min-duration-ms 250
+cargo run -p keli-cli -- readiness-check --format json --include-system-proxy-smoke
+cargo run -p keli-cli -- readiness-check --format json --include-system-proxy-smoke --include-tun-runtime-smoke --tun-runtime-smoke-min-duration-ms 250
 cargo run -p keli-cli -- readiness-check --format json --soak-min-duration-ms 60000
 cargo run -p keli-cli -- default-core-certify --format json
-cargo run -p keli-cli -- default-core-certify --format json --include-tun-runtime-smoke --tun-runtime-smoke-min-duration-ms 250
+cargo run -p keli-cli -- default-core-certify --format json --include-system-proxy-smoke --include-tun-runtime-smoke --tun-runtime-smoke-min-duration-ms 250
 cargo run -p keli-cli -- default-core-certify --format json --soak-min-duration-ms 60000
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
 cargo run -p keli-cli -- support-bundle --include-certification --certification-soak-min-duration-ms 60000

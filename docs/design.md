@@ -418,7 +418,13 @@ The first implementation target is deliberately small:
    JSON output also embeds the default `tun_preflight` object using the same
    shape as `tun-preflight --format json`, so UI and CI can verify platform
    handoff evidence without parsing gate detail strings. When release checks
-   are allowed to touch system routes, `--include-tun-runtime-smoke` adds a
+   are allowed to touch Windows proxy settings, `--include-system-proxy-smoke`
+   adds a real platform takeover gate that snapshots the current system proxy,
+   applies the default Keli mixed inbound proxy (`127.0.0.1:7890` plus the
+   local bypass list), verifies the applied state, restores the original
+   snapshot, and records whether the restored snapshot matches the original.
+   When release checks are allowed to touch system routes,
+   `--include-tun-runtime-smoke` adds a
    real platform gate that starts the managed TUN runtime, opens packet I/O,
    requests a clean stop, and records start/stop snapshots plus the packet-loop
    diagnostic. The smoke gate holds the runtime for at least 50ms by default,
@@ -477,7 +483,10 @@ The first implementation target is deliberately small:
    letting release automation distinguish "preflight says ready" from "the
    runtime actually started, opened packet I/O, stayed alive for the requested
    smoke duration, observed real routed traffic, and stopped cleanly" on the
-   target machine.
+   target machine. The optional system-proxy smoke gate is also carried into
+   certification JSON, letting release automation prove Keli can take over and
+   then restore the desktop proxy settings instead of only detecting that the
+   platform supports system proxy APIs.
    Doctor and support bundles now expose the certification schema version and
    capability list, and the readiness doctor-schema gate requires that schema
    to keep promotion evidence discoverable through the existing diagnostics

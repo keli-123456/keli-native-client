@@ -254,79 +254,87 @@ proxies:
         "doctor-schema"
     );
     assert_eq!(
-        report["doctor"]["readiness_check_capabilities"][8],
-        "json-gates"
+        report["doctor"]["readiness_check_capabilities"][6],
+        "system-proxy-smoke"
     );
     assert_eq!(
-        report["doctor"]["readiness_check_capabilities"][9],
-        "blocker-summary"
+        report["doctor"]["readiness_check_capabilities"][7],
+        "system-proxy-smoke-restore-evidence"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][10],
-        "soak-min-duration"
+        "json-gates"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][11],
-        "tun-preflight-evidence"
+        "blocker-summary"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][12],
-        "tun-runtime-smoke"
+        "soak-min-duration"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][13],
-        "tun-runtime-smoke-min-duration"
+        "tun-preflight-evidence"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][14],
-        "tun-runtime-smoke-clean-stop"
+        "tun-runtime-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][15],
-        "tun-runtime-smoke-residual-state"
+        "tun-runtime-smoke-min-duration"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][16],
-        "tun-runtime-smoke-route-cleanup-evidence"
+        "tun-runtime-smoke-clean-stop"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][17],
-        "tun-runtime-smoke-dns-hijack-evidence"
+        "tun-runtime-smoke-residual-state"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][18],
-        "tun-runtime-smoke-dns-hijack-route-evidence"
+        "tun-runtime-smoke-route-cleanup-evidence"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][19],
-        "tun-runtime-smoke-interface-address-evidence"
+        "tun-runtime-smoke-dns-hijack-evidence"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][20],
-        "tun-runtime-smoke-traffic-stimulus"
+        "tun-runtime-smoke-dns-hijack-route-evidence"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][21],
-        "tun-runtime-smoke-required-traffic"
+        "tun-runtime-smoke-interface-address-evidence"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][22],
-        "tun-runtime-smoke-icmp-stimulus"
+        "tun-runtime-smoke-traffic-stimulus"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][23],
-        "tun-runtime-smoke-dropped-route-evidence"
+        "tun-runtime-smoke-required-traffic"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][24],
-        "tun-runtime-smoke-dropped-route-history"
+        "tun-runtime-smoke-icmp-stimulus"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][25],
-        "tun-runtime-smoke-route-takeover-snapshot"
+        "tun-runtime-smoke-dropped-route-evidence"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][26],
+        "tun-runtime-smoke-dropped-route-history"
+    );
+    assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][27],
+        "tun-runtime-smoke-route-takeover-snapshot"
+    );
+    assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][28],
         "tun-runtime-smoke-route-selection-evidence"
     );
     assert_eq!(
@@ -363,94 +371,102 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][2],
-        "tun-backend-evidence"
+        "system-proxy-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][3],
-        "tun-preflight-evidence"
+        "system-proxy-smoke-restore-evidence"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][4],
-        "tun-runtime-smoke"
+        "tun-backend-evidence"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][5],
-        "tun-runtime-smoke-min-duration"
+        "tun-preflight-evidence"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][6],
-        "tun-runtime-smoke-clean-stop"
+        "tun-runtime-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][7],
-        "tun-runtime-smoke-residual-state"
+        "tun-runtime-smoke-min-duration"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][8],
-        "tun-runtime-smoke-route-cleanup-evidence"
+        "tun-runtime-smoke-clean-stop"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][9],
-        "tun-runtime-smoke-dns-hijack-evidence"
+        "tun-runtime-smoke-residual-state"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][10],
-        "tun-runtime-smoke-dns-hijack-route-evidence"
+        "tun-runtime-smoke-route-cleanup-evidence"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][11],
-        "tun-runtime-smoke-interface-address-evidence"
+        "tun-runtime-smoke-dns-hijack-evidence"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][12],
-        "tun-runtime-smoke-traffic-stimulus"
+        "tun-runtime-smoke-dns-hijack-route-evidence"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][13],
-        "tun-runtime-smoke-required-traffic"
+        "tun-runtime-smoke-interface-address-evidence"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][14],
-        "tun-runtime-smoke-icmp-stimulus"
+        "tun-runtime-smoke-traffic-stimulus"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][15],
-        "tun-runtime-smoke-dropped-route-evidence"
+        "tun-runtime-smoke-required-traffic"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][16],
-        "tun-runtime-smoke-dropped-route-history"
+        "tun-runtime-smoke-icmp-stimulus"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][17],
-        "tun-runtime-smoke-route-takeover-snapshot"
+        "tun-runtime-smoke-dropped-route-evidence"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][18],
-        "tun-runtime-smoke-route-selection-evidence"
+        "tun-runtime-smoke-dropped-route-history"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][19],
-        "non-skipped-soak"
+        "tun-runtime-smoke-route-takeover-snapshot"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][20],
-        "soak-parameters"
+        "tun-runtime-smoke-route-selection-evidence"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][21],
-        "soak-min-duration"
+        "non-skipped-soak"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][22],
+        "soak-parameters"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][23],
-        "promotion-blockers"
+        "soak-min-duration"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][25],
+        "promotion-blockers"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][27],
         "text-summary"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][26],
+        report["doctor"]["default_core_certification_capabilities"][28],
         "support-bundle-export"
     );
     assert_eq!(
@@ -836,6 +852,7 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
             certification_first_byte_timeout: Duration::from_secs(2),
             certification_max_connection_workers: 2,
             certification_soak_min_duration: Duration::from_millis(50),
+            certification_include_system_proxy_smoke: false,
             certification_include_tun_runtime_smoke: false,
             certification_tun_runtime_smoke_min_duration: Duration::from_millis(50),
         },
@@ -859,6 +876,13 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     );
     assert_eq!(certification["certification"]["max_connection_workers"], 2);
     assert_eq!(certification["certification"]["soak_min_duration_ms"], 50);
+    assert_eq!(
+        certification["certification"]["system_proxy_smoke_included"],
+        false
+    );
+    assert!(certification["certification"]["system_proxy_smoke_passed"].is_null());
+    assert_eq!(certification["system_proxy_smoke"]["included"], false);
+    assert_eq!(certification["system_proxy_smoke"]["status"], "not-run");
     assert_eq!(certification["readiness"]["soak_min_duration_ms"], 50);
     let promotion_blockers = certification["promotion_blockers"]
         .as_array()
