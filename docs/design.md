@@ -420,8 +420,10 @@ The first implementation target is deliberately small:
    requests a clean stop, and records start/stop snapshots plus the packet-loop
    diagnostic. The smoke gate holds the runtime for at least 50ms by default,
    can be tuned with `--tun-runtime-smoke-min-duration-ms`, and records
-   `elapsed_ms`, `duration_target_met`, and `loop_activity_observed` so the
-   evidence proves the packet loop ran instead of only opening the adapter.
+   `elapsed_ms`, `duration_target_met`, `loop_activity_observed`,
+   `clean_stop_observed`, `exit_reason`, and `stop_requested` so the evidence
+   proves the packet loop ran and exited through the managed stop path instead
+   of only opening the adapter.
    Local soak gate details include `min_duration_ms` and `duration_target_met`
    when a bounded runtime duration is required.
    `default-core-certify` builds on that gate by running the non-skipped soak

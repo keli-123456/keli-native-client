@@ -270,6 +270,10 @@ proxies:
         "tun-runtime-smoke-min-duration"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][14],
+        "tun-runtime-smoke-clean-stop"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -318,19 +322,23 @@ proxies:
         "tun-runtime-smoke-min-duration"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][8],
+        report["doctor"]["default_core_certification_capabilities"][6],
+        "tun-runtime-smoke-clean-stop"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][9],
         "soak-min-duration"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][10],
+        report["doctor"]["default_core_certification_capabilities"][11],
         "promotion-blockers"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][12],
+        report["doctor"]["default_core_certification_capabilities"][13],
         "text-summary"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][13],
+        report["doctor"]["default_core_certification_capabilities"][14],
         "support-bundle-export"
     );
     assert_eq!(
@@ -757,6 +765,9 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     assert!(certification["tun_runtime_smoke"]["elapsed_ms"].is_null());
     assert!(certification["tun_runtime_smoke"]["duration_target_met"].is_null());
     assert!(certification["tun_runtime_smoke"]["loop_activity_observed"].is_null());
+    assert!(certification["tun_runtime_smoke"]["clean_stop_observed"].is_null());
+    assert!(certification["tun_runtime_smoke"]["exit_reason"].is_null());
+    assert!(certification["tun_runtime_smoke"]["stop_requested"].is_null());
     assert!(certification["tun_runtime_smoke"]["report"].is_null());
     assert_eq!(
         certification["certification"]["tun_runtime_smoke_included"],

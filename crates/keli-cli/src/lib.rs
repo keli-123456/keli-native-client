@@ -76,11 +76,11 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 16;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 6;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 17;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 7;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 6;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 6;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 7;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 7;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 2;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -105,11 +105,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -6603,6 +6603,7 @@ pub struct TunRuntimeSmokeReport {
     pub elapsed: Duration,
     pub duration_target_met: bool,
     pub loop_activity_observed: bool,
+    pub clean_stop_observed: bool,
     pub report: Option<ManagedTunPacketLoopReport>,
 }
 
@@ -7122,10 +7123,12 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
             let duration_target_met = elapsed >= min_duration;
             let loop_activity_observed =
                 report.summary.idle_events > 0 || report.summary.processed_packets() > 0;
+            let clean_stop_observed = tun_runtime_smoke_clean_stop_observed(&report);
             let passed = tun_runtime_smoke_report_passed(
                 &report,
                 duration_target_met,
                 loop_activity_observed,
+                clean_stop_observed,
             );
             let detail = tun_runtime_smoke_detail(
                 &report,
@@ -7133,6 +7136,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 elapsed,
                 duration_target_met,
                 loop_activity_observed,
+                clean_stop_observed,
             );
             TunRuntimeSmokeReport {
                 passed,
@@ -7141,6 +7145,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 elapsed,
                 duration_target_met,
                 loop_activity_observed,
+                clean_stop_observed,
                 report: Some(report),
             }
         }
@@ -7151,6 +7156,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
             elapsed: Duration::from_millis(0),
             duration_target_met: false,
             loop_activity_observed: false,
+            clean_stop_observed: false,
             report: None,
         },
     }
@@ -7191,6 +7197,7 @@ fn tun_runtime_smoke_report_passed(
     report: &ManagedTunPacketLoopReport,
     duration_target_met: bool,
     loop_activity_observed: bool,
+    clean_stop_observed: bool,
 ) -> bool {
     let stop_state_valid = if report.owns_device {
         !report.stop_snapshot.running
@@ -7201,10 +7208,15 @@ fn tun_runtime_smoke_report_passed(
         && stop_state_valid
         && duration_target_met
         && loop_activity_observed
+        && clean_stop_observed
         && !report.summary.packet_limit_reached
         && report.summary.packet_errors == 0
         && report.summary.udp_relay_errors == 0
         && report.summary.tcp_session_errors == 0
+}
+
+fn tun_runtime_smoke_clean_stop_observed(report: &ManagedTunPacketLoopReport) -> bool {
+    report.summary.stop_requested && report.summary.exit_reason_label() == "stop-requested"
 }
 
 fn tun_runtime_smoke_detail(
@@ -7213,9 +7225,10 @@ fn tun_runtime_smoke_detail(
     elapsed: Duration,
     duration_target_met: bool,
     loop_activity_observed: bool,
+    clean_stop_observed: bool,
 ) -> String {
     format!(
-        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} exit_reason={} stop_requested={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
+        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} exit_reason={} stop_requested={} clean_stop_observed={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
         report.config.interface_name,
         report.owns_device,
         report.start_snapshot.running,
@@ -7224,6 +7237,7 @@ fn tun_runtime_smoke_detail(
         report.summary.idle_events,
         report.summary.exit_reason_label(),
         report.summary.stop_requested,
+        clean_stop_observed,
         report.summary.packet_limit_reached,
         report.summary.packet_errors,
         report.summary.udp_relay_errors,
@@ -7565,6 +7579,19 @@ fn tun_runtime_smoke_json_value(
         "elapsed_ms": report.map(|report| duration_millis_for_report(report.elapsed)),
         "duration_target_met": report.map(|report| report.duration_target_met),
         "loop_activity_observed": report.map(|report| report.loop_activity_observed),
+        "clean_stop_observed": report.map(|report| report.clean_stop_observed),
+        "exit_reason": report.and_then(|report| {
+            report
+                .report
+                .as_ref()
+                .map(|runtime_report| runtime_report.summary.exit_reason_label())
+        }),
+        "stop_requested": report.and_then(|report| {
+            report
+                .report
+                .as_ref()
+                .map(|runtime_report| runtime_report.summary.stop_requested)
+        }),
         "detail": report.map(|report| report.detail.as_str()),
         "report": report.and_then(|report| {
             report

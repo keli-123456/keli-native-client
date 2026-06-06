@@ -365,7 +365,8 @@ explicit platform gate that starts the default managed TUN runtime, opens packet
 I/O, requests a clean stop, and records the start/stop snapshots plus packet
 loop diagnostic without enabling that route-changing check by default. The gate
 holds the runtime for at least 50ms by default, records `elapsed_ms`,
-`duration_target_met`, and `loop_activity_observed`, and can be tuned with
+`duration_target_met`, `loop_activity_observed`, `clean_stop_observed`,
+`exit_reason`, and `stop_requested`, and can be tuned with
 `--tun-runtime-smoke-min-duration-ms`. When
 `--soak-min-duration-ms` is provided, the local soak gates hold the managed
 runtime alive for that minimum duration and report `min_duration_ms` plus
