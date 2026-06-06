@@ -1025,67 +1025,102 @@ struct WindowsTunRouteTakeoverStep {
 fn windows_configure_tun_interface(
     config: &TunDeviceConfig,
 ) -> Result<WindowsTunRouteTakeoverState, TunDeviceError> {
+    for command in windows_tun_interface_config_commands(config)? {
+        command.run()?;
+    }
+    apply_windows_tun_route_takeover(config)
+}
+
+fn windows_tun_interface_config_commands(
+    config: &TunDeviceConfig,
+) -> Result<Vec<WindowsTunCommand>, TunDeviceError> {
     let (address, prefix) = parse_tun_address_cidr_parts(&config.address_cidr)?;
-    match address {
+    Ok(match address {
         IpAddr::V4(address) => {
             let netmask = ipv4_prefix_to_netmask(prefix)?;
-            WindowsTunCommand::new(
-                "netsh",
-                [
-                    "interface".to_string(),
-                    "ipv4".to_string(),
-                    "set".to_string(),
-                    "address".to_string(),
-                    format!("name={}", config.interface_name),
-                    "static".to_string(),
-                    address.to_string(),
-                    netmask.to_string(),
-                ],
-            )
-            .run()?;
-            WindowsTunCommand::new(
-                "netsh",
-                [
-                    "interface".to_string(),
-                    "ipv4".to_string(),
-                    "set".to_string(),
-                    "subinterface".to_string(),
-                    config.interface_name.clone(),
-                    format!("mtu={}", config.mtu),
-                    "store=active".to_string(),
-                ],
-            )
-            .run()?;
+            vec![
+                WindowsTunCommand::new(
+                    "netsh",
+                    [
+                        "interface".to_string(),
+                        "ipv4".to_string(),
+                        "set".to_string(),
+                        "interface".to_string(),
+                        format!("interface={}", config.interface_name),
+                        "dadtransmits=0".to_string(),
+                        "store=active".to_string(),
+                    ],
+                ),
+                WindowsTunCommand::new(
+                    "netsh",
+                    [
+                        "interface".to_string(),
+                        "ipv4".to_string(),
+                        "set".to_string(),
+                        "address".to_string(),
+                        format!("name={}", config.interface_name),
+                        "source=static".to_string(),
+                        format!("address={address}"),
+                        format!("mask={netmask}"),
+                        "gateway=none".to_string(),
+                        "store=active".to_string(),
+                    ],
+                ),
+                WindowsTunCommand::new(
+                    "netsh",
+                    [
+                        "interface".to_string(),
+                        "ipv4".to_string(),
+                        "set".to_string(),
+                        "subinterface".to_string(),
+                        format!("interface={}", config.interface_name),
+                        format!("mtu={}", config.mtu),
+                        "store=active".to_string(),
+                    ],
+                ),
+            ]
         }
         IpAddr::V6(address) => {
-            WindowsTunCommand::new(
-                "netsh",
-                [
-                    "interface".to_string(),
-                    "ipv6".to_string(),
-                    "set".to_string(),
-                    "address".to_string(),
-                    format!("interface={}", config.interface_name),
-                    format!("address={address}/{prefix}"),
-                ],
-            )
-            .run()?;
-            WindowsTunCommand::new(
-                "netsh",
-                [
-                    "interface".to_string(),
-                    "ipv6".to_string(),
-                    "set".to_string(),
-                    "subinterface".to_string(),
-                    config.interface_name.clone(),
-                    format!("mtu={}", config.mtu),
-                    "store=active".to_string(),
-                ],
-            )
-            .run()?;
+            vec![
+                WindowsTunCommand::new(
+                    "netsh",
+                    [
+                        "interface".to_string(),
+                        "ipv6".to_string(),
+                        "set".to_string(),
+                        "interface".to_string(),
+                        format!("interface={}", config.interface_name),
+                        "dadtransmits=0".to_string(),
+                        "store=active".to_string(),
+                    ],
+                ),
+                WindowsTunCommand::new(
+                    "netsh",
+                    [
+                        "interface".to_string(),
+                        "ipv6".to_string(),
+                        "set".to_string(),
+                        "address".to_string(),
+                        format!("interface={}", config.interface_name),
+                        format!("address={address}/{prefix}"),
+                        "store=active".to_string(),
+                    ],
+                ),
+                WindowsTunCommand::new(
+                    "netsh",
+                    [
+                        "interface".to_string(),
+                        "ipv6".to_string(),
+                        "set".to_string(),
+                        "subinterface".to_string(),
+                        format!("interface={}", config.interface_name),
+                        format!("mtu={}", config.mtu),
+                        "store=active".to_string(),
+                    ],
+                ),
+            ]
         }
-    };
-    apply_windows_tun_route_takeover(config)
+    })
 }
 
 fn apply_windows_tun_route_takeover(
@@ -2309,6 +2344,104 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         std::fs::remove_dir_all(&temp_dir).ok();
 
         assert_eq!(resolved, dll_path);
+    }
+
+    #[test]
+    fn windows_tun_interface_config_commands_use_named_ipv4_static_address() {
+        let config =
+            TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500).expect("valid TUN config");
+
+        let commands =
+            windows_tun_interface_config_commands(&config).expect("interface config commands");
+
+        assert_eq!(commands.len(), 3);
+        assert_eq!(commands[0].program, "netsh");
+        assert_eq!(
+            commands[0].args,
+            strings(&[
+                "interface",
+                "ipv4",
+                "set",
+                "interface",
+                "interface=keli-tun0",
+                "dadtransmits=0",
+                "store=active"
+            ])
+        );
+        assert_eq!(
+            commands[1].args,
+            strings(&[
+                "interface",
+                "ipv4",
+                "set",
+                "address",
+                "name=keli-tun0",
+                "source=static",
+                "address=10.7.0.1",
+                "mask=255.255.255.0",
+                "gateway=none",
+                "store=active"
+            ])
+        );
+        assert_eq!(
+            commands[2].args,
+            strings(&[
+                "interface",
+                "ipv4",
+                "set",
+                "subinterface",
+                "interface=keli-tun0",
+                "mtu=1500",
+                "store=active"
+            ])
+        );
+    }
+
+    #[test]
+    fn windows_tun_interface_config_commands_use_active_ipv6_address_and_mtu() {
+        let config =
+            TunDeviceConfig::new("keli-tun0", "fd00::1/64", 1400).expect("valid TUN config");
+
+        let commands =
+            windows_tun_interface_config_commands(&config).expect("interface config commands");
+
+        assert_eq!(commands.len(), 3);
+        assert_eq!(
+            commands[0].args,
+            strings(&[
+                "interface",
+                "ipv6",
+                "set",
+                "interface",
+                "interface=keli-tun0",
+                "dadtransmits=0",
+                "store=active"
+            ])
+        );
+        assert_eq!(
+            commands[1].args,
+            strings(&[
+                "interface",
+                "ipv6",
+                "set",
+                "address",
+                "interface=keli-tun0",
+                "address=fd00::1/64",
+                "store=active"
+            ])
+        );
+        assert_eq!(
+            commands[2].args,
+            strings(&[
+                "interface",
+                "ipv6",
+                "set",
+                "subinterface",
+                "interface=keli-tun0",
+                "mtu=1400",
+                "store=active"
+            ])
+        );
     }
 
     #[test]

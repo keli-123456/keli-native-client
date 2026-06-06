@@ -129,9 +129,10 @@ The first implementation target is deliberately small:
    is present, validates that the Wintun API can be loaded, and exposes install
    requirements separately from Rust-side wiring. The Rust-side bridge now
    dynamically loads Wintun, owns adapter/session handles, configures address
-   and MTU with `netsh`, installs split-default route takeover entries for the
-   active address family, removes them on stop, and feeds packet I/O into the
-   existing net-core TUN loop. Doctor, support bundles, and readiness gates
+   and MTU with explicit active-store `netsh` arguments after disabling
+   duplicate-address detection for the TUN interface, installs split-default
+   route takeover entries for the active address family, removes them on stop,
+   and feeds packet I/O into the existing net-core TUN loop. Doctor, support bundles, and readiness gates
    include this backend status so packagers and UI flows can distinguish missing
    driver assets from runtime API availability. Backend checks also expose an
    install plan with the runtime target path, package-directory candidates, and
@@ -426,11 +427,13 @@ The first implementation target is deliberately small:
    interface address/listing with `netsh interface ipv4 show ...`, records a
    Windows `route print -4` table snapshot for gateway/interface/metric
    evidence, and records whether the packet loop observed either stimulus as a
-   dropped route. The route snapshot verifies the expected split-default
-   prefixes are present while the adapter is running and is a smoke gate; the
-   interface and route table lookups are report-only evidence for diagnosing
-   Windows address and source/route selection. The traffic stimulus remains
-   report-only by default
+   dropped route. The smoke runtime uses a block-default route engine so
+   ambient OS packets captured by split-default takeover cannot escape through
+   direct relay during certification. The route snapshot verifies the expected
+   split-default prefixes are present while the adapter is running and is a
+   smoke gate; the interface and route table lookups are report-only evidence
+   for diagnosing Windows address and source/route selection. The traffic
+   stimulus remains report-only by default
    (`traffic_stimulus_required=false`) while Windows socket source/route
    behavior is hardened, but successful evidence must match the dedicated
    `tun-runtime-smoke-traffic-stimulus` block rule. It records `elapsed_ms`,

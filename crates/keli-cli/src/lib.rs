@@ -7389,10 +7389,15 @@ fn collect_tun_runtime_smoke_evidence(min_duration: Duration) -> TunRuntimeSmoke
 }
 
 fn default_tun_runtime_smoke_runtime() -> MixedProxyRuntime {
-    let mut routes = RouteEngine::new(RouteAction::Direct);
+    let mut routes = RouteEngine::new(RouteAction::Block);
     routes.add_rule(RouteRule {
         name: TUN_RUNTIME_SMOKE_TRAFFIC_RULE.to_string(),
         matcher: RouteMatcher::IpExact(TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.ip()),
+        action: RouteAction::Block,
+    });
+    routes.add_rule(RouteRule {
+        name: TUN_RUNTIME_SMOKE_TRAFFIC_RULE.to_string(),
+        matcher: RouteMatcher::PortExact(TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.port()),
         action: RouteAction::Block,
     });
     MixedProxyRuntime::with_routes(routes)
@@ -7665,7 +7670,7 @@ fn tun_runtime_smoke_traffic_stimulus_drop_observed(report: &ManagedTunPacketLoo
 #[cfg(test)]
 mod tun_runtime_smoke_tests {
     use super::*;
-    use keli_net_core::{TunIpVersion, TunTransportProtocol};
+    use keli_net_core::{RouteDestination, RouteTarget, TunIpVersion, TunTransportProtocol};
 
     fn snapshot(running: bool) -> TunDeviceSnapshot {
         TunDeviceSnapshot {
@@ -7707,6 +7712,40 @@ mod tun_runtime_smoke_tests {
         };
 
         assert!(tun_runtime_smoke_traffic_stimulus_drop_observed(&report));
+    }
+
+    #[test]
+    fn default_tun_runtime_smoke_runtime_blocks_stimulus_ip_and_port() {
+        let runtime = default_tun_runtime_smoke_runtime();
+        let target_decision = runtime.routes.decide_destination(&RouteDestination::new(
+            RouteTarget::Ip(TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.ip()),
+            TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.port(),
+        ));
+
+        assert_eq!(target_decision.action, RouteAction::Block);
+        assert_eq!(
+            target_decision.matched_rule.as_deref(),
+            Some(TUN_RUNTIME_SMOKE_TRAFFIC_RULE)
+        );
+
+        let port_decision = runtime.routes.decide_destination(&RouteDestination::new(
+            RouteTarget::Ip("203.0.113.7".parse().expect("valid IP")),
+            TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.port(),
+        ));
+
+        assert_eq!(port_decision.action, RouteAction::Block);
+        assert_eq!(
+            port_decision.matched_rule.as_deref(),
+            Some(TUN_RUNTIME_SMOKE_TRAFFIC_RULE)
+        );
+
+        let ambient_decision = runtime.routes.decide_destination(&RouteDestination::new(
+            RouteTarget::Ip("203.0.113.7".parse().expect("valid IP")),
+            443,
+        ));
+
+        assert_eq!(ambient_decision.action, RouteAction::Block);
+        assert_eq!(ambient_decision.matched_rule, None);
     }
 }
 
