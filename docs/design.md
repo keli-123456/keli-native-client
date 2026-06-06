@@ -409,7 +409,7 @@ The first implementation target is deliberately small:
    explicit default-core gate. It combines doctor schema coverage, interop
    validation/registry coverage, local mixed soak gates, resource limits,
    resource-limit smoke coverage, route-rule runtime smoke coverage,
-   DNS policy smoke coverage, TCP relay smoke coverage, HTTP CONNECT relay smoke coverage, HTTP proxy relay smoke coverage, VLESS TCP relay smoke coverage, VMess TCP relay smoke coverage, UDP relay smoke coverage, managed
+   DNS policy smoke coverage, TCP relay smoke coverage, HTTP CONNECT relay smoke coverage, HTTP proxy relay smoke coverage, Trojan TLS TCP relay smoke coverage, VLESS TCP relay smoke coverage, VMess TCP relay smoke coverage, UDP relay smoke coverage, managed
    subscription reload smoke coverage, runtime recovery smoke coverage, managed
    panel/subscription smoke coverage, system proxy support, TUN backend wiring, route
    takeover wiring, and TUN preflight state into one text or JSON report.
@@ -439,6 +439,12 @@ The first implementation target is deliberately small:
    plain HTTP proxy GET request through the same mixed listener, verifies Keli
    rewrites it to origin-form before the encrypted Shadowsocks TCP server sees
    it, records `http-proxy`/outbound metrics, and stops cleanly. The default
+   Trojan TLS TCP relay smoke starts a managed mixed runtime from a local
+   Trojan TLS subscription node, performs a TLS handshake with a local
+   self-signed server using skip-cert verification, verifies the Trojan
+   password hash and CONNECT target at the local protocol server, completes
+   the payload round trip, records `socks5`/outbound metrics, and stops
+   cleanly. The default
    VLESS TCP relay smoke starts a managed mixed runtime from a local VLESS
    subscription node, drives SOCKS5 CONNECT through the selected VLESS
    outbound, verifies the VLESS request header at the local protocol server,
@@ -527,7 +533,7 @@ The first implementation target is deliberately small:
    `default-core-certify` builds on that gate by running the non-skipped soak
    checks and exporting one promotion artifact with the embedded readiness
    report, TUN backend packaging evidence, structured TUN preflight evidence,
-   route-rule smoke evidence, DNS policy smoke evidence, TCP relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP proxy relay smoke evidence, VLESS TCP relay smoke evidence, VMess TCP relay smoke evidence, UDP relay smoke evidence, subscription reload
+   route-rule smoke evidence, DNS policy smoke evidence, TCP relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, VLESS TCP relay smoke evidence, VMess TCP relay smoke evidence, UDP relay smoke evidence, subscription reload
    smoke evidence, resource-limit smoke evidence, panel/subscription smoke evidence, runtime recovery smoke evidence, certification
    parameters, and final
    `ready_for_default_core` decision for release automation and UI handoff. The
