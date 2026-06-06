@@ -419,13 +419,22 @@ The first implementation target is deliberately small:
    real platform gate that starts the managed TUN runtime, opens packet I/O,
    requests a clean stop, and records start/stop snapshots plus the packet-loop
    diagnostic. The smoke gate holds the runtime for at least 50ms by default,
-   can be tuned with `--tun-runtime-smoke-min-duration-ms`, and records
-   `elapsed_ms`, `duration_target_met`, `loop_activity_observed`,
-   `clean_stop_observed`, `exit_reason`, `stop_requested`,
+   can be tuned with `--tun-runtime-smoke-min-duration-ms`, sends a short UDP
+   traffic stimulus through the OS routing table to a controlled TUN-subnet
+   block target, and records whether that stimulus produced packet-loop traffic.
+   The traffic stimulus is report-only by default
+   (`traffic_stimulus_required=false`) so release checks can collect the
+   evidence before route/packet classification is hardened into a promotion
+   blocker. It records `elapsed_ms`, `duration_target_met`,
+   `loop_activity_observed`, `traffic_stimulus_required`,
+   `traffic_stimulus_observed`, `traffic_packets_observed`,
+   `traffic_drop_observed`, `traffic_stimulus_*`, `processed_packets`,
+   `idle_events`, `dropped_packets`, `unsupported_packets`, last unsupported
+   flow details, `clean_stop_observed`, `exit_reason`, `stop_requested`,
    `residual_state_clean`, and the remaining TUN/TCP session marker counts so
-   the evidence proves the packet loop ran, exited through the managed stop
-   path, and did not leave tracked TUN/TCP state behind instead of only opening
-   the adapter.
+   the evidence proves the packet loop ran, saw real traffic, exited through the
+   managed stop path, and did not leave tracked TUN/TCP state behind instead of
+   only opening the adapter.
    Local soak gate details include `min_duration_ms` and `duration_target_met`
    when a bounded runtime duration is required.
    `default-core-certify` builds on that gate by running the non-skipped soak
@@ -440,8 +449,8 @@ The first implementation target is deliberately small:
    The optional TUN runtime smoke gate is also carried into certification JSON,
    letting release automation distinguish "preflight says ready" from "the
    runtime actually started, opened packet I/O, stayed alive for the requested
-   smoke duration, observed loop activity, and stopped cleanly" on the target
-   machine.
+   smoke duration, observed real routed traffic, and stopped cleanly" on the
+   target machine.
    Doctor and support bundles now expose the certification schema version and
    capability list, and the readiness doctor-schema gate requires that schema
    to keep promotion evidence discoverable through the existing diagnostics

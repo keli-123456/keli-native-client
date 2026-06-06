@@ -50,13 +50,13 @@ fn doctor_report_lists_supported_outbounds() {
         "interop_matrix_capabilities=protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export"
     ));
     assert!(output.contains(
-        "readiness_check_capabilities=doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state"
+        "readiness_check_capabilities=doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus"
     ));
     assert!(output.contains(
         "tun_backend_check_capabilities=backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan"
     ));
     assert!(output.contains(
-        "default_core_certification_capabilities=schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export"
+        "default_core_certification_capabilities=schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export"
     ));
     assert!(output.contains(
         "supported_outbounds=direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic"
@@ -615,6 +615,10 @@ fn doctor_json_report_is_machine_readable() {
         report["readiness_check_capabilities"][15],
         "tun-runtime-smoke-residual-state"
     );
+    assert_eq!(
+        report["readiness_check_capabilities"][16],
+        "tun-runtime-smoke-traffic-stimulus"
+    );
     assert_eq!(report["tun_backend_check_capabilities"][0], "backend-kind");
     assert_eq!(
         report["tun_backend_check_capabilities"][2],
@@ -667,22 +671,26 @@ fn doctor_json_report_is_machine_readable() {
     );
     assert_eq!(
         report["default_core_certification_capabilities"][8],
+        "tun-runtime-smoke-traffic-stimulus"
+    );
+    assert_eq!(
+        report["default_core_certification_capabilities"][9],
         "non-skipped-soak"
     );
     assert_eq!(
-        report["default_core_certification_capabilities"][10],
+        report["default_core_certification_capabilities"][11],
         "soak-min-duration"
     );
     assert_eq!(
-        report["default_core_certification_capabilities"][12],
+        report["default_core_certification_capabilities"][13],
         "promotion-blockers"
     );
     assert_eq!(
-        report["default_core_certification_capabilities"][14],
+        report["default_core_certification_capabilities"][15],
         "text-summary"
     );
     assert_eq!(
-        report["default_core_certification_capabilities"][15],
+        report["default_core_certification_capabilities"][16],
         "support-bundle-export"
     );
     assert_eq!(

@@ -278,6 +278,10 @@ proxies:
         "tun-runtime-smoke-residual-state"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][16],
+        "tun-runtime-smoke-traffic-stimulus"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -334,19 +338,27 @@ proxies:
         "tun-runtime-smoke-residual-state"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][8],
+        "tun-runtime-smoke-traffic-stimulus"
+    );
+    assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][10],
+        "soak-parameters"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][11],
         "soak-min-duration"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][12],
+        report["doctor"]["default_core_certification_capabilities"][13],
         "promotion-blockers"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][14],
+        report["doctor"]["default_core_certification_capabilities"][15],
         "text-summary"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][15],
+        report["doctor"]["default_core_certification_capabilities"][16],
         "support-bundle-export"
     );
     assert_eq!(
@@ -773,6 +785,24 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     assert!(certification["tun_runtime_smoke"]["elapsed_ms"].is_null());
     assert!(certification["tun_runtime_smoke"]["duration_target_met"].is_null());
     assert!(certification["tun_runtime_smoke"]["loop_activity_observed"].is_null());
+    assert!(certification["tun_runtime_smoke"]["traffic_stimulus_required"].is_null());
+    assert!(certification["tun_runtime_smoke"]["traffic_stimulus_observed"].is_null());
+    assert!(certification["tun_runtime_smoke"]["traffic_packets_observed"].is_null());
+    assert!(certification["tun_runtime_smoke"]["traffic_drop_observed"].is_null());
+    assert!(certification["tun_runtime_smoke"]["traffic_stimulus_attempted"].is_null());
+    assert!(certification["tun_runtime_smoke"]["traffic_stimulus_target"].is_null());
+    assert!(certification["tun_runtime_smoke"]["traffic_stimulus_attempts"].is_null());
+    assert!(certification["tun_runtime_smoke"]["traffic_stimulus_sent_packets"].is_null());
+    assert!(certification["tun_runtime_smoke"]["traffic_stimulus_payload_bytes"].is_null());
+    assert!(certification["tun_runtime_smoke"]["traffic_stimulus_error_count"].is_null());
+    assert!(certification["tun_runtime_smoke"]["traffic_stimulus_errors"].is_null());
+    assert!(certification["tun_runtime_smoke"]["processed_packets"].is_null());
+    assert!(certification["tun_runtime_smoke"]["idle_events"].is_null());
+    assert!(certification["tun_runtime_smoke"]["dropped_packets"].is_null());
+    assert!(certification["tun_runtime_smoke"]["unsupported_packets"].is_null());
+    assert!(certification["tun_runtime_smoke"]["last_unsupported_flow"].is_null());
+    assert!(certification["tun_runtime_smoke"]["last_unsupported_route_action"].is_null());
+    assert!(certification["tun_runtime_smoke"]["last_unsupported_matched_rule"].is_null());
     assert!(certification["tun_runtime_smoke"]["clean_stop_observed"].is_null());
     assert!(certification["tun_runtime_smoke"]["residual_state_clean"].is_null());
     assert!(certification["tun_runtime_smoke"]["exit_reason"].is_null());

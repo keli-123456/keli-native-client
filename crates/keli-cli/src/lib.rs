@@ -34,8 +34,8 @@ use keli_net_core::{
     DnsQuestionType, DnsResolver, LocalInbound, OutboundConnection, OutboundRegistry,
     OutboundTarget, RegistryTunTcpSessionRelay, RegistryTunUdpRelay, RelayOptions, RouteAction,
     RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, Socks5Address, Socks5Command,
-    Socks5ReplyCode, SystemDnsResolver, TunPacketDevice, TunPacketLoopEvent, TunPacketLoopSummary,
-    TunTcpSessionTable, TunUdpRelay, DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+    Socks5ReplyCode, SystemDnsResolver, TunPacketDevice, TunPacketFlow, TunPacketLoopEvent,
+    TunPacketLoopSummary, TunTcpSessionTable, TunUdpRelay, DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
 };
 use keli_platform::{
     install_wintun_library, install_wintun_library_from_source_dir,
@@ -72,15 +72,23 @@ const DEFAULT_MIXED_SOAK_CONNECTIONS: usize = 25;
 const DEFAULT_MIXED_SOAK_MIN_DURATION: Duration = Duration::from_millis(0);
 const DEFAULT_READINESS_SOAK_CONNECTIONS: usize = 3;
 const DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION: Duration = Duration::from_millis(50);
+const DEFAULT_TUN_RUNTIME_SMOKE_TRAFFIC_REQUIRED: bool = false;
+const TUN_RUNTIME_SMOKE_TRAFFIC_TARGET: SocketAddr =
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 7, 0, 2)), 9);
+const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_WARMUP: Duration = Duration::from_millis(100);
+const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_ATTEMPTS: usize = 3;
+const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_INTERVAL: Duration = Duration::from_millis(10);
+const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_WRITE_TIMEOUT: Duration = Duration::from_millis(50);
+const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_PAYLOAD: &[u8] = b"keli-tun-runtime-smoke";
 const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 18;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 8;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 19;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 9;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 8;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 8;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 9;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 9;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 2;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -105,11 +113,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -6603,9 +6611,24 @@ pub struct TunRuntimeSmokeReport {
     pub elapsed: Duration,
     pub duration_target_met: bool,
     pub loop_activity_observed: bool,
+    pub traffic_stimulus_required: bool,
+    pub traffic_stimulus_observed: bool,
+    pub traffic_packets_observed: bool,
+    pub traffic_drop_observed: bool,
+    pub traffic_stimulus: TunRuntimeSmokeTrafficStimulusReport,
     pub clean_stop_observed: bool,
     pub residual_state_clean: bool,
     pub report: Option<ManagedTunPacketLoopReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunRuntimeSmokeTrafficStimulusReport {
+    pub attempted: bool,
+    pub target: SocketAddr,
+    pub attempts: usize,
+    pub sent_packets: usize,
+    pub payload_bytes: usize,
+    pub errors: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7120,25 +7143,39 @@ fn readiness_tun_runtime_smoke_gate(
 
 fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntimeSmokeReport {
     match run_default_tun_runtime_smoke(min_duration) {
-        Ok((report, elapsed)) => {
+        Ok((report, traffic_stimulus, elapsed)) => {
             let duration_target_met = elapsed >= min_duration;
             let loop_activity_observed =
                 report.summary.idle_events > 0 || report.summary.processed_packets() > 0;
+            let traffic_stimulus_required = DEFAULT_TUN_RUNTIME_SMOKE_TRAFFIC_REQUIRED;
+            let traffic_packets_observed = report.summary.processed_packets() > 0;
+            let traffic_stimulus_observed =
+                traffic_stimulus.sent_packets > 0 && traffic_packets_observed;
+            let traffic_drop_observed = report.summary.dropped_packets > 0;
             let clean_stop_observed = tun_runtime_smoke_clean_stop_observed(&report);
             let residual_state_clean = tun_runtime_smoke_residual_state_clean(&report);
             let passed = tun_runtime_smoke_report_passed(
                 &report,
+                &traffic_stimulus,
                 duration_target_met,
                 loop_activity_observed,
+                traffic_stimulus_required,
+                traffic_stimulus_observed,
+                traffic_packets_observed,
                 clean_stop_observed,
                 residual_state_clean,
             );
             let detail = tun_runtime_smoke_detail(
                 &report,
+                &traffic_stimulus,
                 min_duration,
                 elapsed,
                 duration_target_met,
                 loop_activity_observed,
+                traffic_stimulus_required,
+                traffic_stimulus_observed,
+                traffic_packets_observed,
+                traffic_drop_observed,
                 clean_stop_observed,
                 residual_state_clean,
             );
@@ -7149,6 +7186,11 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 elapsed,
                 duration_target_met,
                 loop_activity_observed,
+                traffic_stimulus_required,
+                traffic_stimulus_observed,
+                traffic_packets_observed,
+                traffic_drop_observed,
+                traffic_stimulus,
                 clean_stop_observed,
                 residual_state_clean,
                 report: Some(report),
@@ -7161,6 +7203,11 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
             elapsed: Duration::from_millis(0),
             duration_target_met: false,
             loop_activity_observed: false,
+            traffic_stimulus_required: DEFAULT_TUN_RUNTIME_SMOKE_TRAFFIC_REQUIRED,
+            traffic_stimulus_observed: false,
+            traffic_packets_observed: false,
+            traffic_drop_observed: false,
+            traffic_stimulus: tun_runtime_smoke_traffic_stimulus_not_attempted(),
             clean_stop_observed: false,
             residual_state_clean: false,
             report: None,
@@ -7170,39 +7217,123 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
 
 fn run_default_tun_runtime_smoke(
     min_duration: Duration,
-) -> Result<(ManagedTunPacketLoopReport, Duration), String> {
+) -> Result<
+    (
+        ManagedTunPacketLoopReport,
+        TunRuntimeSmokeTrafficStimulusReport,
+        Duration,
+    ),
+    String,
+> {
     let controller = NativeTunDeviceController::new();
-    let runtime = MixedProxyRuntime::default();
+    let runtime = default_tun_runtime_smoke_runtime();
     let started_at = Instant::now();
-    let (_, report) = run_with_optional_tun_runtime_background_report(
+    let (traffic_stimulus, report) = run_with_optional_tun_runtime_background_report(
         &controller,
         Some(default_tun_device_config()),
         &runtime,
         DEFAULT_TUN_DNS_TTL_SECONDS,
         DEFAULT_TUN_PACKET_LOOP_MAX_PACKETS,
-        || {
-            hold_tun_runtime_smoke_for_min_duration(min_duration);
-            Ok(())
-        },
+        || Ok(hold_tun_runtime_smoke_with_traffic_stimulus(min_duration)),
     )?;
     let elapsed = started_at.elapsed();
     let report =
         report.ok_or_else(|| "managed TUN runtime smoke did not produce a report".to_string())?;
-    Ok((report, elapsed))
+    Ok((report, traffic_stimulus, elapsed))
 }
 
-fn hold_tun_runtime_smoke_for_min_duration(min_duration: Duration) {
+fn hold_tun_runtime_smoke_with_traffic_stimulus(
+    min_duration: Duration,
+) -> TunRuntimeSmokeTrafficStimulusReport {
     let started_at = Instant::now();
+    thread::sleep(TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_WARMUP);
+    let traffic_stimulus = send_tun_runtime_smoke_traffic_stimulus();
+    hold_tun_runtime_smoke_until(started_at, min_duration);
+    traffic_stimulus
+}
+
+fn default_tun_runtime_smoke_runtime() -> MixedProxyRuntime {
+    let mut routes = RouteEngine::new(RouteAction::Direct);
+    routes.add_rule(RouteRule {
+        name: "tun-runtime-smoke-traffic-stimulus".to_string(),
+        matcher: RouteMatcher::IpExact(TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.ip()),
+        action: RouteAction::Block,
+    });
+    MixedProxyRuntime::with_routes(routes)
+}
+
+fn hold_tun_runtime_smoke_until(started_at: Instant, min_duration: Duration) {
     while started_at.elapsed() < min_duration {
         let remaining = min_duration.saturating_sub(started_at.elapsed());
         thread::sleep(remaining.min(MANAGED_TUN_IDLE_POLL_INTERVAL));
     }
 }
 
+fn send_tun_runtime_smoke_traffic_stimulus() -> TunRuntimeSmokeTrafficStimulusReport {
+    let mut report = TunRuntimeSmokeTrafficStimulusReport {
+        attempted: true,
+        target: TUN_RUNTIME_SMOKE_TRAFFIC_TARGET,
+        attempts: TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_ATTEMPTS,
+        sent_packets: 0,
+        payload_bytes: TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_PAYLOAD.len(),
+        errors: Vec::new(),
+    };
+    let socket = match UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)) {
+        Ok(socket) => socket,
+        Err(error) => {
+            report.errors.push(format!("bind UDP socket: {error}"));
+            return report;
+        }
+    };
+    if let Err(error) =
+        socket.set_write_timeout(Some(TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_WRITE_TIMEOUT))
+    {
+        report
+            .errors
+            .push(format!("set UDP write timeout: {error}"));
+    }
+    for attempt in 0..TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_ATTEMPTS {
+        match socket.send_to(
+            TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_PAYLOAD,
+            TUN_RUNTIME_SMOKE_TRAFFIC_TARGET,
+        ) {
+            Ok(sent) if sent == TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_PAYLOAD.len() => {
+                report.sent_packets += 1;
+            }
+            Ok(sent) => report.errors.push(format!(
+                "short UDP send attempt={} bytes={} expected={}",
+                attempt + 1,
+                sent,
+                TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_PAYLOAD.len()
+            )),
+            Err(error) => report
+                .errors
+                .push(format!("UDP send attempt={}: {error}", attempt + 1)),
+        }
+        thread::sleep(TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_INTERVAL);
+    }
+    report
+}
+
+fn tun_runtime_smoke_traffic_stimulus_not_attempted() -> TunRuntimeSmokeTrafficStimulusReport {
+    TunRuntimeSmokeTrafficStimulusReport {
+        attempted: false,
+        target: TUN_RUNTIME_SMOKE_TRAFFIC_TARGET,
+        attempts: 0,
+        sent_packets: 0,
+        payload_bytes: TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_PAYLOAD.len(),
+        errors: Vec::new(),
+    }
+}
+
 fn tun_runtime_smoke_report_passed(
     report: &ManagedTunPacketLoopReport,
+    traffic_stimulus: &TunRuntimeSmokeTrafficStimulusReport,
     duration_target_met: bool,
     loop_activity_observed: bool,
+    traffic_stimulus_required: bool,
+    traffic_stimulus_observed: bool,
+    traffic_packets_observed: bool,
     clean_stop_observed: bool,
     residual_state_clean: bool,
 ) -> bool {
@@ -7215,6 +7346,10 @@ fn tun_runtime_smoke_report_passed(
         && stop_state_valid
         && duration_target_met
         && loop_activity_observed
+        && (!traffic_stimulus_required
+            || (traffic_stimulus.attempted
+                && traffic_stimulus_observed
+                && traffic_packets_observed))
         && clean_stop_observed
         && residual_state_clean
         && !report.summary.packet_limit_reached
@@ -7235,21 +7370,37 @@ fn tun_runtime_smoke_residual_state_clean(report: &ManagedTunPacketLoopReport) -
 
 fn tun_runtime_smoke_detail(
     report: &ManagedTunPacketLoopReport,
+    traffic_stimulus: &TunRuntimeSmokeTrafficStimulusReport,
     min_duration: Duration,
     elapsed: Duration,
     duration_target_met: bool,
     loop_activity_observed: bool,
+    traffic_stimulus_required: bool,
+    traffic_stimulus_observed: bool,
+    traffic_packets_observed: bool,
+    traffic_drop_observed: bool,
     clean_stop_observed: bool,
     residual_state_clean: bool,
 ) -> String {
     format!(
-        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} exit_reason={} stop_requested={} clean_stop_observed={} residual_state_clean={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
+        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} dropped={} unsupported={} traffic_stimulus_required={} traffic_stimulus_attempted={} traffic_stimulus_observed={} traffic_stimulus_target={} traffic_stimulus_attempts={} traffic_stimulus_sent_packets={} traffic_stimulus_error_count={} traffic_packets_observed={} traffic_drop_observed={} exit_reason={} stop_requested={} clean_stop_observed={} residual_state_clean={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
         report.config.interface_name,
         report.owns_device,
         report.start_snapshot.running,
         report.stop_snapshot.running,
         report.summary.processed_packets(),
         report.summary.idle_events,
+        report.summary.dropped_packets,
+        report.summary.unsupported_packets,
+        traffic_stimulus_required,
+        traffic_stimulus.attempted,
+        traffic_stimulus_observed,
+        traffic_stimulus.target,
+        traffic_stimulus.attempts,
+        traffic_stimulus.sent_packets,
+        traffic_stimulus.errors.len(),
+        traffic_packets_observed,
+        traffic_drop_observed,
         report.summary.exit_reason_label(),
         report.summary.stop_requested,
         clean_stop_observed,
@@ -7598,6 +7749,71 @@ fn tun_runtime_smoke_json_value(
         "elapsed_ms": report.map(|report| duration_millis_for_report(report.elapsed)),
         "duration_target_met": report.map(|report| report.duration_target_met),
         "loop_activity_observed": report.map(|report| report.loop_activity_observed),
+        "traffic_stimulus_required": report.map(|report| report.traffic_stimulus_required),
+        "traffic_stimulus_observed": report.map(|report| report.traffic_stimulus_observed),
+        "traffic_packets_observed": report.map(|report| report.traffic_packets_observed),
+        "traffic_drop_observed": report.map(|report| report.traffic_drop_observed),
+        "traffic_stimulus_attempted": report.map(|report| report.traffic_stimulus.attempted),
+        "traffic_stimulus_target": report.map(|report| report.traffic_stimulus.target.to_string()),
+        "traffic_stimulus_attempts": report.map(|report| report.traffic_stimulus.attempts),
+        "traffic_stimulus_sent_packets": report.map(|report| report.traffic_stimulus.sent_packets),
+        "traffic_stimulus_payload_bytes": report.map(|report| report.traffic_stimulus.payload_bytes),
+        "traffic_stimulus_error_count": report.map(|report| report.traffic_stimulus.errors.len()),
+        "traffic_stimulus_errors": report.map(|report| &report.traffic_stimulus.errors),
+        "processed_packets": report.and_then(|report| {
+            report
+                .report
+                .as_ref()
+                .map(|runtime_report| runtime_report.summary.processed_packets())
+        }),
+        "idle_events": report.and_then(|report| {
+            report
+                .report
+                .as_ref()
+                .map(|runtime_report| runtime_report.summary.idle_events)
+        }),
+        "dropped_packets": report.and_then(|report| {
+            report
+                .report
+                .as_ref()
+                .map(|runtime_report| runtime_report.summary.dropped_packets)
+        }),
+        "unsupported_packets": report.and_then(|report| {
+            report
+                .report
+                .as_ref()
+                .map(|runtime_report| runtime_report.summary.unsupported_packets)
+        }),
+        "last_unsupported_flow": report.and_then(|report| {
+            report
+                .report
+                .as_ref()
+                .and_then(|runtime_report| runtime_report.summary.last_unsupported_flow.as_ref())
+                .map(tun_packet_flow_json_value)
+        }),
+        "last_unsupported_route_action": report.and_then(|report| {
+            report
+                .report
+                .as_ref()
+                .and_then(|runtime_report| {
+                    runtime_report
+                        .summary
+                        .last_unsupported_route_action
+                        .as_ref()
+                })
+                .map(route_action_json_value)
+        }),
+        "last_unsupported_matched_rule": report.and_then(|report| {
+            report
+                .report
+                .as_ref()
+                .and_then(|runtime_report| {
+                    runtime_report
+                        .summary
+                        .last_unsupported_matched_rule
+                        .as_deref()
+                })
+        }),
         "clean_stop_observed": report.map(|report| report.clean_stop_observed),
         "residual_state_clean": report.map(|report| report.residual_state_clean),
         "exit_reason": report.and_then(|report| {
@@ -7637,6 +7853,18 @@ fn tun_runtime_smoke_json_value(
                 .as_ref()
                 .map(managed_tun_runtime_report_json_value)
         }),
+    })
+}
+
+fn tun_packet_flow_json_value(flow: &TunPacketFlow) -> serde_json::Value {
+    serde_json::json!({
+        "ip_version": format!("{:?}", flow.ip_version),
+        "protocol": format!("{:?}", flow.protocol),
+        "ip_protocol_number": flow.protocol.ip_protocol_number(),
+        "source_ip": flow.source_ip.to_string(),
+        "destination_ip": flow.destination_ip.to_string(),
+        "source_port": flow.source_port,
+        "destination_port": flow.destination_port,
     })
 }
 
