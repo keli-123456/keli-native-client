@@ -101,11 +101,11 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 33;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 23;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 34;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 24;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 22;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 22;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 23;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 23;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -130,11 +130,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -6864,6 +6864,7 @@ pub struct DefaultCoreReadinessReport {
     pub route_rule_smoke: RouteRuleSmokeReport,
     pub dns_policy_smoke: DnsPolicySmokeReport,
     pub subscription_reload_smoke: SubscriptionReloadSmokeReport,
+    pub runtime_recovery_smoke: RuntimeRecoverySmokeReport,
     pub include_system_proxy_smoke: bool,
     pub system_proxy_smoke: Option<SystemProxySmokeReport>,
     pub include_tun_runtime_smoke: bool,
@@ -6883,6 +6884,7 @@ pub struct DefaultCoreCertificationReport {
     pub route_rule_smoke: RouteRuleSmokeReport,
     pub dns_policy_smoke: DnsPolicySmokeReport,
     pub subscription_reload_smoke: SubscriptionReloadSmokeReport,
+    pub runtime_recovery_smoke: RuntimeRecoverySmokeReport,
     pub include_system_proxy_smoke: bool,
     pub system_proxy_smoke: Option<SystemProxySmokeReport>,
     pub include_tun_runtime_smoke: bool,
@@ -6971,6 +6973,40 @@ pub struct SubscriptionReloadSmokeCaseReport {
     pub stop_timed_out: Option<bool>,
     pub passed: bool,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeRecoverySmokeReport {
+    pub passed: bool,
+    pub detail: String,
+    pub initial_generation: Option<u64>,
+    pub final_generation: Option<u64>,
+    pub final_selected_outbound: Option<String>,
+    pub preserved_after_failures: bool,
+    pub clean_stop_observed: bool,
+    pub stop_workers_remaining: Option<usize>,
+    pub stop_timed_out: Option<bool>,
+    pub cases: Vec<RuntimeRecoverySmokeCaseReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeRecoverySmokeCaseReport {
+    pub name: &'static str,
+    pub action: &'static str,
+    pub expected_error_kind: Option<&'static str>,
+    pub observed_error_kind: Option<String>,
+    pub error_detail: Option<String>,
+    pub expected_selected_outbound: Option<String>,
+    pub observed_selected_outbound: Option<String>,
+    pub expected_generation: Option<u64>,
+    pub observed_generation: Option<u64>,
+    pub runtime_still_running: Option<bool>,
+    pub active_subscription_usable: Option<bool>,
+    pub applied: Option<bool>,
+    pub clean_stop_observed: Option<bool>,
+    pub stop_workers_remaining: Option<usize>,
+    pub stop_timed_out: Option<bool>,
+    pub passed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7289,6 +7325,7 @@ fn collect_default_core_certification_report(
     let route_rule_smoke = readiness.route_rule_smoke.clone();
     let dns_policy_smoke = readiness.dns_policy_smoke.clone();
     let subscription_reload_smoke = readiness.subscription_reload_smoke.clone();
+    let runtime_recovery_smoke = readiness.runtime_recovery_smoke.clone();
     let system_proxy_smoke = readiness.system_proxy_smoke.clone();
     let system_proxy_smoke_ready = !include_system_proxy_smoke
         || system_proxy_smoke
@@ -7307,6 +7344,7 @@ fn collect_default_core_certification_report(
         && route_rule_smoke.passed
         && dns_policy_smoke.passed
         && subscription_reload_smoke.passed
+        && runtime_recovery_smoke.passed
         && system_proxy_smoke_ready
         && tun_runtime_smoke_ready;
 
@@ -7320,6 +7358,7 @@ fn collect_default_core_certification_report(
         route_rule_smoke,
         dns_policy_smoke,
         subscription_reload_smoke,
+        runtime_recovery_smoke,
         include_system_proxy_smoke,
         system_proxy_smoke,
         include_tun_runtime_smoke,
@@ -7355,6 +7394,7 @@ fn collect_readiness_check_report(
     let route_rule_smoke = collect_default_route_rule_smoke_report();
     let dns_policy_smoke = collect_default_dns_policy_smoke_report();
     let subscription_reload_smoke = collect_default_subscription_reload_smoke_report();
+    let runtime_recovery_smoke = collect_default_runtime_recovery_smoke_report();
     let mut system_proxy_smoke = None;
     let mut tun_runtime_smoke = None;
     let mut gates = vec![
@@ -7432,6 +7472,12 @@ fn collect_readiness_check_report(
             "managed-runtime",
             subscription_reload_smoke.passed,
             subscription_reload_smoke.detail.clone(),
+        ),
+        readiness_gate(
+            "runtime-recovery-smoke",
+            "stability",
+            runtime_recovery_smoke.passed,
+            runtime_recovery_smoke.detail.clone(),
         ),
         readiness_gate(
             "panel-subscription-state",
@@ -7566,6 +7612,7 @@ fn collect_readiness_check_report(
         route_rule_smoke,
         dns_policy_smoke,
         subscription_reload_smoke,
+        runtime_recovery_smoke,
         include_system_proxy_smoke,
         system_proxy_smoke,
         include_tun_runtime_smoke,
@@ -9016,6 +9063,429 @@ mod subscription_reload_smoke_tests {
         );
         assert_eq!(fallback.stale_health_pruned, Some(true));
         assert_eq!(fallback.selected_health_state.as_deref(), Some("unknown"));
+    }
+}
+
+fn collect_default_runtime_recovery_smoke_report() -> RuntimeRecoverySmokeReport {
+    let controller = SubscriptionReloadSmokeSystemProxyController;
+    let mut core = ManagedMixedController::new(&controller);
+    let mut cases = Vec::new();
+    let mut initial_generation = None;
+    let mut final_generation = None;
+    let mut final_selected_outbound = None;
+    let mut clean_stop_observed = false;
+    let mut stop_workers_remaining = None;
+    let mut stop_timed_out = None;
+
+    let started = match core.start_from_subscription_config_text(
+        &subscription_reload_smoke_config(&["SS-READY"]),
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-READY".to_string()),
+            system_proxy: false,
+            max_connection_workers: 2,
+            ..ManagedMixedOptions::default()
+        },
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            cases.push(runtime_recovery_smoke_error_case(
+                "start-runtime",
+                "start",
+                None,
+                Some("SS-READY"),
+                Some(1),
+                error,
+            ));
+            return finalize_runtime_recovery_smoke_report(
+                cases,
+                initial_generation,
+                final_generation,
+                final_selected_outbound,
+                false,
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+            );
+        }
+    };
+    initial_generation = Some(started.generation);
+    cases.push(runtime_recovery_smoke_status_case(
+        "start-runtime",
+        "start",
+        &started,
+        None,
+        None,
+        Some("SS-READY"),
+        Some(1),
+        None,
+    ));
+
+    let unknown_error = core
+        .reload_from_subscription_config_text(
+            &subscription_reload_smoke_config(&["SS-READY"]),
+            Some("MISSING".to_string()),
+        )
+        .expect_err("unknown outbound reload should be rejected");
+    let unknown_status = core.status();
+    cases.push(runtime_recovery_smoke_status_case(
+        "reject-unknown-outbound-reload",
+        "reload-rejected",
+        &unknown_status,
+        Some("outbound-not-found"),
+        Some(unknown_error),
+        Some("SS-READY"),
+        Some(1),
+        None,
+    ));
+
+    let unusable = r#"
+proxies:
+  - name: WG-SKIPPED
+    type: wireguard
+    server: wg.example.com
+    port: 51820
+    password: ignored
+"#;
+    match core.reload_from_subscription_config_text_with_update_plan(unusable) {
+        Ok(outcome) => {
+            cases.push(runtime_recovery_smoke_status_case(
+                "reject-unusable-subscription-update",
+                "planned-reload-rejected",
+                &outcome.status,
+                Some("no-supported-outbounds"),
+                outcome.error.clone(),
+                Some("SS-READY"),
+                Some(1),
+                Some(outcome.applied),
+            ));
+        }
+        Err(error) => {
+            let status = core.status();
+            cases.push(runtime_recovery_smoke_status_case(
+                "reject-unusable-subscription-update",
+                "planned-reload-rejected",
+                &status,
+                Some("no-supported-outbounds"),
+                Some(error),
+                Some("SS-READY"),
+                Some(1),
+                None,
+            ));
+        }
+    }
+
+    let preserved_after_failures = cases.iter().filter(|case| !case.passed).count() == 0
+        && core.status().selected_outbound.as_deref() == Some("SS-READY")
+        && core.status().generation == 1
+        && matches!(
+            core.status().status,
+            RuntimeStatus::Running {
+                ref selected_outbound,
+                generation,
+                ..
+            } if selected_outbound == "SS-READY" && generation == 1
+        );
+
+    match core.stop() {
+        Ok(stopped) => {
+            final_generation = Some(stopped.generation());
+            final_selected_outbound = Some("SS-READY".to_string());
+            let stop_drain = stopped.events().iter().rev().find_map(|event| {
+                if let Some(RuntimeDiagnostic::ManagedMixedStopDrain(diagnostic)) =
+                    event.diagnostic.as_ref()
+                {
+                    Some(diagnostic)
+                } else {
+                    None
+                }
+            });
+            stop_workers_remaining = stop_drain.map(|diagnostic| diagnostic.workers_remaining);
+            stop_timed_out = stop_drain.map(|diagnostic| diagnostic.timed_out);
+            clean_stop_observed = matches!(stopped.status(), RuntimeStatus::Stopped)
+                && stop_workers_remaining == Some(0)
+                && stop_timed_out == Some(false);
+            cases.push(runtime_recovery_smoke_stop_case(
+                clean_stop_observed,
+                final_generation,
+                stop_workers_remaining,
+                stop_timed_out,
+                None,
+            ));
+        }
+        Err(error) => cases.push(runtime_recovery_smoke_stop_case(
+            false,
+            None,
+            None,
+            None,
+            Some(error),
+        )),
+    }
+
+    finalize_runtime_recovery_smoke_report(
+        cases,
+        initial_generation,
+        final_generation,
+        final_selected_outbound,
+        preserved_after_failures,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+    )
+}
+
+fn finalize_runtime_recovery_smoke_report(
+    cases: Vec<RuntimeRecoverySmokeCaseReport>,
+    initial_generation: Option<u64>,
+    final_generation: Option<u64>,
+    final_selected_outbound: Option<String>,
+    preserved_after_failures: bool,
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+) -> RuntimeRecoverySmokeReport {
+    let passed_count = cases.iter().filter(|case| case.passed).count();
+    let failed: Vec<&str> = cases
+        .iter()
+        .filter(|case| !case.passed)
+        .map(|case| case.name)
+        .collect();
+    let passed = failed.is_empty() && preserved_after_failures && clean_stop_observed;
+    RuntimeRecoverySmokeReport {
+        passed,
+        detail: format!(
+            "cases={} passed={} failed={} failed_cases={} initial_generation={} final_generation={} final_selected={} preserved_after_failures={} clean_stop_observed={} stop_workers_remaining={} stop_timed_out={}",
+            cases.len(),
+            passed_count,
+            failed.len(),
+            if failed.is_empty() {
+                "-".to_string()
+            } else {
+                failed.join(",")
+            },
+            optional_u64_label(initial_generation),
+            optional_u64_label(final_generation),
+            final_selected_outbound.as_deref().unwrap_or("-"),
+            preserved_after_failures,
+            clean_stop_observed,
+            optional_usize_label(stop_workers_remaining),
+            optional_bool_label(stop_timed_out)
+        ),
+        initial_generation,
+        final_generation,
+        final_selected_outbound,
+        preserved_after_failures,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+        cases,
+    }
+}
+
+fn runtime_recovery_smoke_status_case(
+    name: &'static str,
+    action: &'static str,
+    status: &ManagedMixedStatusSnapshot,
+    expected_error_kind: Option<&'static str>,
+    error_detail: Option<String>,
+    expected_selected_outbound: Option<&'static str>,
+    expected_generation: Option<u64>,
+    applied: Option<bool>,
+) -> RuntimeRecoverySmokeCaseReport {
+    let observed_error_kind = status
+        .last_error
+        .as_ref()
+        .map(client_error_kind_label)
+        .map(str::to_string);
+    let runtime_still_running = matches!(
+        &status.status,
+        RuntimeStatus::Running {
+            selected_outbound,
+            generation,
+            ..
+        } if expected_selected_outbound
+            .is_none_or(|expected| selected_outbound == expected)
+            && expected_generation.is_none_or(|expected| *generation == expected)
+    );
+    let active_subscription_usable = status.subscription.as_ref().map(|subscription| {
+        subscription.usable
+            && expected_selected_outbound
+                .is_none_or(|expected| subscription.selected_outbound == expected)
+    });
+    let error_matches = expected_error_kind
+        .map(|expected| observed_error_kind.as_deref() == Some(expected))
+        .unwrap_or_else(|| observed_error_kind.is_none());
+    let selected_matches = expected_selected_outbound
+        .map(|expected| status.selected_outbound.as_deref() == Some(expected))
+        .unwrap_or(true);
+    let generation_matches = expected_generation
+        .map(|expected| status.generation == expected)
+        .unwrap_or(true);
+    let applied_matches = applied != Some(true);
+    let passed = runtime_still_running
+        && active_subscription_usable.unwrap_or(false)
+        && error_matches
+        && selected_matches
+        && generation_matches
+        && applied_matches;
+
+    RuntimeRecoverySmokeCaseReport {
+        name,
+        action,
+        expected_error_kind,
+        observed_error_kind,
+        error_detail,
+        expected_selected_outbound: expected_selected_outbound.map(str::to_string),
+        observed_selected_outbound: status.selected_outbound.clone(),
+        expected_generation,
+        observed_generation: Some(status.generation),
+        runtime_still_running: Some(runtime_still_running),
+        active_subscription_usable,
+        applied,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+    }
+}
+
+fn runtime_recovery_smoke_stop_case(
+    clean_stop_observed: bool,
+    final_generation: Option<u64>,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+    error: Option<String>,
+) -> RuntimeRecoverySmokeCaseReport {
+    RuntimeRecoverySmokeCaseReport {
+        name: "stop-runtime-after-recovery",
+        action: "stop",
+        expected_error_kind: None,
+        observed_error_kind: None,
+        error_detail: error,
+        expected_selected_outbound: None,
+        observed_selected_outbound: None,
+        expected_generation: Some(1),
+        observed_generation: final_generation,
+        runtime_still_running: None,
+        active_subscription_usable: None,
+        applied: None,
+        clean_stop_observed: Some(clean_stop_observed),
+        stop_workers_remaining,
+        stop_timed_out,
+        passed: clean_stop_observed && final_generation == Some(1),
+    }
+}
+
+fn runtime_recovery_smoke_error_case(
+    name: &'static str,
+    action: &'static str,
+    expected_error_kind: Option<&'static str>,
+    expected_selected_outbound: Option<&'static str>,
+    expected_generation: Option<u64>,
+    error: String,
+) -> RuntimeRecoverySmokeCaseReport {
+    RuntimeRecoverySmokeCaseReport {
+        name,
+        action,
+        expected_error_kind,
+        observed_error_kind: None,
+        error_detail: Some(error),
+        expected_selected_outbound: expected_selected_outbound.map(str::to_string),
+        observed_selected_outbound: None,
+        expected_generation,
+        observed_generation: None,
+        runtime_still_running: None,
+        active_subscription_usable: None,
+        applied: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed: false,
+    }
+}
+
+fn client_error_kind_label(error: &ClientErrorKind) -> &'static str {
+    match error {
+        ClientErrorKind::CoreNotStarted => "core-not-started",
+        ClientErrorKind::DnsTimeout => "dns-timeout",
+        ClientErrorKind::TcpConnectTimeout => "tcp-connect-timeout",
+        ClientErrorKind::TlsHandshakeFailed => "tls-handshake-failed",
+        ClientErrorKind::WebSocketUpgradeFailed => "websocket-upgrade-failed",
+        ClientErrorKind::ProxyAuthFailed => "proxy-auth-failed",
+        ClientErrorKind::RelayStalled => "relay-stalled",
+        ClientErrorKind::TunPermissionMissing => "tun-permission-missing",
+        ClientErrorKind::SystemProxyLoop => "system-proxy-loop",
+        ClientErrorKind::RouteNoOutbound => "route-no-outbound",
+        ClientErrorKind::NoSupportedOutbounds => "no-supported-outbounds",
+        ClientErrorKind::OutboundNotFound(_) => "outbound-not-found",
+        ClientErrorKind::PanelTrafficRestricted { .. } => "panel-traffic-restricted",
+        ClientErrorKind::ConfigInvalid(_) => "config-invalid",
+    }
+}
+
+#[cfg(test)]
+mod runtime_recovery_smoke_tests {
+    use super::*;
+
+    #[test]
+    fn default_runtime_recovery_smoke_rejects_bad_reloads_without_dropping_runtime() {
+        let report = collect_default_runtime_recovery_smoke_report();
+
+        assert!(report.passed, "{}", report.detail);
+        assert_eq!(report.initial_generation, Some(1));
+        assert_eq!(report.final_generation, Some(1));
+        assert_eq!(report.final_selected_outbound.as_deref(), Some("SS-READY"));
+        assert!(report.preserved_after_failures);
+        assert!(report.clean_stop_observed);
+        assert_eq!(report.stop_workers_remaining, Some(0));
+        assert_eq!(report.stop_timed_out, Some(false));
+        assert_eq!(report.cases.len(), 4);
+
+        for case_name in [
+            "start-runtime",
+            "reject-unknown-outbound-reload",
+            "reject-unusable-subscription-update",
+            "stop-runtime-after-recovery",
+        ] {
+            let case = report
+                .cases
+                .iter()
+                .find(|case| case.name == case_name)
+                .unwrap_or_else(|| panic!("missing runtime recovery smoke case {case_name}"));
+            assert!(case.passed, "{case:?}");
+        }
+
+        let unknown = report
+            .cases
+            .iter()
+            .find(|case| case.name == "reject-unknown-outbound-reload")
+            .expect("unknown outbound recovery case");
+        assert_eq!(
+            unknown.observed_error_kind.as_deref(),
+            Some("outbound-not-found")
+        );
+        assert_eq!(
+            unknown.observed_selected_outbound.as_deref(),
+            Some("SS-READY")
+        );
+        assert_eq!(unknown.observed_generation, Some(1));
+        assert_eq!(unknown.runtime_still_running, Some(true));
+
+        let unusable = report
+            .cases
+            .iter()
+            .find(|case| case.name == "reject-unusable-subscription-update")
+            .expect("unusable subscription recovery case");
+        assert_eq!(
+            unusable.observed_error_kind.as_deref(),
+            Some("no-supported-outbounds")
+        );
+        assert_eq!(unusable.applied, Some(false));
+        assert_eq!(
+            unusable.observed_selected_outbound.as_deref(),
+            Some("SS-READY")
+        );
+        assert_eq!(unusable.runtime_still_running, Some(true));
     }
 }
 
@@ -10661,6 +11131,14 @@ fn write_readiness_check_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "readiness runtime_recovery_smoke status={} cases={} detail={}",
+        runtime_recovery_smoke_status_label(&report.runtime_recovery_smoke),
+        report.runtime_recovery_smoke.cases.len(),
+        report.runtime_recovery_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "readiness system_proxy_smoke status={} included={} detail={}",
         system_proxy_smoke_status_label(
             report.include_system_proxy_smoke,
@@ -10732,6 +11210,9 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         "dns_policy_smoke": dns_policy_smoke_json_value(&report.dns_policy_smoke),
         "subscription_reload_smoke": subscription_reload_smoke_json_value(
             &report.subscription_reload_smoke
+        ),
+        "runtime_recovery_smoke": runtime_recovery_smoke_json_value(
+            &report.runtime_recovery_smoke
         ),
         "system_proxy_smoke": system_proxy_smoke_json_value(
             report.include_system_proxy_smoke,
@@ -10857,6 +11338,14 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification runtime_recovery_smoke status={} cases={} detail={}",
+        runtime_recovery_smoke_status_label(&report.runtime_recovery_smoke),
+        report.runtime_recovery_smoke.cases.len(),
+        report.runtime_recovery_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification system_proxy_smoke status={} included={} detail={}",
         system_proxy_smoke_status_label(
             report.include_system_proxy_smoke,
@@ -10949,6 +11438,7 @@ fn default_core_certification_json_value(
             "route_rule_smoke_passed": report.route_rule_smoke.passed,
             "dns_policy_smoke_passed": report.dns_policy_smoke.passed,
             "subscription_reload_smoke_passed": report.subscription_reload_smoke.passed,
+            "runtime_recovery_smoke_passed": report.runtime_recovery_smoke.passed,
             "system_proxy_smoke_included": report.include_system_proxy_smoke,
             "system_proxy_smoke_passed": if report.include_system_proxy_smoke {
                 report.system_proxy_smoke.as_ref().map(|smoke| smoke.passed)
@@ -10974,6 +11464,9 @@ fn default_core_certification_json_value(
         "dns_policy_smoke": dns_policy_smoke_json_value(&report.dns_policy_smoke),
         "subscription_reload_smoke": subscription_reload_smoke_json_value(
             &report.subscription_reload_smoke
+        ),
+        "runtime_recovery_smoke": runtime_recovery_smoke_json_value(
+            &report.runtime_recovery_smoke
         ),
         "system_proxy_smoke": system_proxy_smoke_json_value(
             report.include_system_proxy_smoke,
@@ -11124,6 +11617,61 @@ fn subscription_reload_smoke_case_json_value(
         "stop_timed_out": case.stop_timed_out,
         "passed": case.passed,
         "error": &case.error,
+    })
+}
+
+fn runtime_recovery_smoke_status_label(report: &RuntimeRecoverySmokeReport) -> &'static str {
+    if report.passed {
+        "passed"
+    } else {
+        "failed"
+    }
+}
+
+fn runtime_recovery_smoke_json_value(report: &RuntimeRecoverySmokeReport) -> serde_json::Value {
+    let cases: Vec<_> = report
+        .cases
+        .iter()
+        .map(runtime_recovery_smoke_case_json_value)
+        .collect();
+    serde_json::json!({
+        "status": runtime_recovery_smoke_status_label(report),
+        "passed": report.passed,
+        "detail": &report.detail,
+        "initial_generation": report.initial_generation,
+        "final_generation": report.final_generation,
+        "final_selected_outbound": &report.final_selected_outbound,
+        "preserved_after_failures": report.preserved_after_failures,
+        "clean_stop_observed": report.clean_stop_observed,
+        "stop_workers_remaining": report.stop_workers_remaining,
+        "stop_timed_out": report.stop_timed_out,
+        "case_count": report.cases.len(),
+        "passed_case_count": report.cases.iter().filter(|case| case.passed).count(),
+        "failed_case_count": report.cases.iter().filter(|case| !case.passed).count(),
+        "cases": cases,
+    })
+}
+
+fn runtime_recovery_smoke_case_json_value(
+    case: &RuntimeRecoverySmokeCaseReport,
+) -> serde_json::Value {
+    serde_json::json!({
+        "name": case.name,
+        "action": case.action,
+        "expected_error_kind": case.expected_error_kind,
+        "observed_error_kind": &case.observed_error_kind,
+        "error_detail": &case.error_detail,
+        "expected_selected_outbound": &case.expected_selected_outbound,
+        "observed_selected_outbound": &case.observed_selected_outbound,
+        "expected_generation": case.expected_generation,
+        "observed_generation": case.observed_generation,
+        "runtime_still_running": case.runtime_still_running,
+        "active_subscription_usable": case.active_subscription_usable,
+        "applied": case.applied,
+        "clean_stop_observed": case.clean_stop_observed,
+        "stop_workers_remaining": case.stop_workers_remaining,
+        "stop_timed_out": case.stop_timed_out,
+        "passed": case.passed,
     })
 }
 

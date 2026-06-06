@@ -409,7 +409,7 @@ The first implementation target is deliberately small:
    explicit default-core gate. It combines doctor schema coverage, interop
    validation/registry coverage, local mixed soak gates, resource limits,
    route-rule runtime smoke coverage, DNS policy smoke coverage, managed
-   subscription reload smoke coverage, managed
+   subscription reload smoke coverage, runtime recovery smoke coverage, managed
    panel/subscription state, system proxy support, TUN backend wiring, route
    takeover wiring, and TUN preflight state into one text or JSON report.
    Gates can pass, fail, or be skipped, so CI and desktop integrations can see
@@ -430,7 +430,11 @@ The first implementation target is deliberately small:
    health, proves planned reload preserves the selected outbound when it still
    exists, proves fallback to the new subscription default when the selected
    node disappears, verifies stale health pruning, and requires a clean
-   background stop with zero workers remaining. When release
+   background stop with zero workers remaining. The default runtime recovery
+   smoke verifies rejected control-plane changes do not drop the active
+   managed runtime: an unknown outbound reload and an unusable subscription
+   update must both be rejected while preserving selected outbound, generation,
+   usable active subscription, and clean stop-drain evidence. When release
    checks are allowed to touch Windows proxy settings,
    `--include-system-proxy-smoke`
    adds a real platform takeover gate that snapshots the current system proxy,
@@ -488,12 +492,13 @@ The first implementation target is deliberately small:
    checks and exporting one promotion artifact with the embedded readiness
    report, TUN backend packaging evidence, structured TUN preflight evidence,
    route-rule smoke evidence, DNS policy smoke evidence, subscription reload
-   smoke evidence, certification
+   smoke evidence, runtime recovery smoke evidence, certification
    parameters, and final
    `ready_for_default_core` decision for release automation and UI handoff. The
    certification artifact mirrors the blocker summary as `promotion_blockers`
    and reports `blocking_gate_count` alongside the soak, route-rule,
-   DNS-policy, subscription-reload, preflight, and backend evidence.
+   DNS-policy, subscription-reload, runtime-recovery, preflight, and backend
+   evidence.
    Certification parameters include `soak_min_duration_ms`, so a promotion
    record can prove both traffic success and a minimum managed-runtime window.
    The optional TUN runtime smoke gate is also carried into certification JSON,

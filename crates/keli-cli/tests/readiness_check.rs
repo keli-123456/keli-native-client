@@ -27,7 +27,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(report["schema_version"], READINESS_CHECK_SCHEMA_VERSION);
     assert_eq!(report["ready_for_default_core"], false);
     assert_eq!(report["status"], "not-ready");
-    assert_eq!(report["summary"]["total_gate_count"], 14);
+    assert_eq!(report["summary"]["total_gate_count"], 15);
     assert_eq!(report["summary"]["skipped_gate_count"], 2);
     assert_eq!(report["soak_min_duration_ms"], 0);
     assert_eq!(
@@ -147,6 +147,63 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(fallback["observed_selected_outbound"], "SS-FALLBACK");
     assert_eq!(fallback["stale_health_pruned"], true);
     assert_eq!(fallback["selected_health_state"], "unknown");
+    assert_eq!(report["runtime_recovery_smoke"]["status"], "passed");
+    assert_eq!(report["runtime_recovery_smoke"]["passed"], true);
+    assert_eq!(report["runtime_recovery_smoke"]["case_count"], 4);
+    assert_eq!(report["runtime_recovery_smoke"]["failed_case_count"], 0);
+    assert_eq!(report["runtime_recovery_smoke"]["initial_generation"], 1);
+    assert_eq!(report["runtime_recovery_smoke"]["final_generation"], 1);
+    assert_eq!(
+        report["runtime_recovery_smoke"]["final_selected_outbound"],
+        "SS-READY"
+    );
+    assert_eq!(
+        report["runtime_recovery_smoke"]["preserved_after_failures"],
+        true
+    );
+    assert_eq!(
+        report["runtime_recovery_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        report["runtime_recovery_smoke"]["stop_workers_remaining"],
+        0
+    );
+    assert_eq!(report["runtime_recovery_smoke"]["stop_timed_out"], false);
+    let recovery_cases = report["runtime_recovery_smoke"]["cases"]
+        .as_array()
+        .expect("runtime recovery smoke cases");
+    let recovery_case_names: Vec<_> = recovery_cases
+        .iter()
+        .filter_map(|case| case["name"].as_str())
+        .collect();
+    for expected in [
+        "start-runtime",
+        "reject-unknown-outbound-reload",
+        "reject-unusable-subscription-update",
+        "stop-runtime-after-recovery",
+    ] {
+        assert!(
+            recovery_case_names.contains(&expected),
+            "missing runtime recovery smoke case {expected}: {recovery_case_names:?}"
+        );
+    }
+    let unknown = recovery_cases
+        .iter()
+        .find(|case| case["name"] == "reject-unknown-outbound-reload")
+        .expect("unknown outbound recovery case");
+    assert_eq!(unknown["observed_error_kind"], "outbound-not-found");
+    assert_eq!(unknown["observed_selected_outbound"], "SS-READY");
+    assert_eq!(unknown["observed_generation"], 1);
+    assert_eq!(unknown["runtime_still_running"], true);
+    let unusable = recovery_cases
+        .iter()
+        .find(|case| case["name"] == "reject-unusable-subscription-update")
+        .expect("unusable subscription recovery case");
+    assert_eq!(unusable["observed_error_kind"], "no-supported-outbounds");
+    assert_eq!(unusable["applied"], false);
+    assert_eq!(unusable["observed_selected_outbound"], "SS-READY");
+    assert_eq!(unusable["runtime_still_running"], true);
     assert!(report["system_proxy_smoke"]["config"].is_null());
     assert!(report["system_proxy_smoke"]["original_snapshot"].is_null());
     assert!(report["system_proxy_smoke"]["applied_snapshot"].is_null());
@@ -307,6 +364,14 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
         .expect("subscription reload detail")
         .contains("final_selected=SS-FALLBACK"));
 
+    let runtime_recovery = gate(gates, "runtime-recovery-smoke");
+    assert_eq!(runtime_recovery["category"], "stability");
+    assert_eq!(runtime_recovery["status"], "passed");
+    assert!(runtime_recovery["detail"]
+        .as_str()
+        .expect("runtime recovery detail")
+        .contains("preserved_after_failures=true"));
+
     let tun = gate(gates, "tun-preflight");
     assert_eq!(tun["category"], "platform");
     assert!(tun["detail"]
@@ -409,7 +474,7 @@ fn readiness_check_text_reports_gate_summary() {
 
     let output = String::from_utf8(output).expect("readiness text");
     assert!(output.contains(&format!(
-        "readiness status=not-ready schema_version={} gates=14",
+        "readiness status=not-ready schema_version={} gates=15",
         READINESS_CHECK_SCHEMA_VERSION
     )));
     assert!(output.contains("blockers="));
@@ -419,11 +484,15 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(output.contains(
         "readiness gate=subscription-reload-smoke category=managed-runtime status=passed"
     ));
+    assert!(
+        output.contains("readiness gate=runtime-recovery-smoke category=stability status=passed")
+    );
     assert!(output.contains("readiness gate=tun-backend category=platform status="));
     assert!(output.contains("readiness tun_preflight status="));
     assert!(output.contains("readiness route_rule_smoke status=passed cases=3"));
     assert!(output.contains("readiness dns_policy_smoke status=passed cases=4"));
     assert!(output.contains("readiness subscription_reload_smoke status=passed cases=4"));
+    assert!(output.contains("readiness runtime_recovery_smoke status=passed cases=4"));
     assert!(output.contains("readiness system_proxy_smoke status=not-run included=false"));
     assert!(output.contains("readiness tun_runtime_smoke status=not-run included=false"));
     assert!(
@@ -522,6 +591,33 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     );
     assert_eq!(
         report["readiness"]["subscription_reload_smoke"]["case_count"],
+        4
+    );
+    assert_eq!(
+        report["certification"]["runtime_recovery_smoke_passed"],
+        true
+    );
+    assert_eq!(report["runtime_recovery_smoke"]["status"], "passed");
+    assert_eq!(report["runtime_recovery_smoke"]["case_count"], 4);
+    assert_eq!(report["runtime_recovery_smoke"]["failed_case_count"], 0);
+    assert_eq!(
+        report["runtime_recovery_smoke"]["final_selected_outbound"],
+        "SS-READY"
+    );
+    assert_eq!(
+        report["runtime_recovery_smoke"]["preserved_after_failures"],
+        true
+    );
+    assert_eq!(
+        report["runtime_recovery_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        report["readiness"]["runtime_recovery_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(
+        report["readiness"]["runtime_recovery_smoke"]["case_count"],
         4
     );
     assert_eq!(
@@ -652,6 +748,7 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert_eq!(gate(gates, "route-rule-smoke")["status"], "passed");
     assert_eq!(gate(gates, "dns-policy-smoke")["status"], "passed");
     assert_eq!(gate(gates, "subscription-reload-smoke")["status"], "passed");
+    assert_eq!(gate(gates, "runtime-recovery-smoke")["status"], "passed");
     assert_eq!(gate(gates, "mixed-soak-socks5")["status"], "passed");
     assert_eq!(gate(gates, "mixed-soak-http-connect")["status"], "passed");
 }
@@ -682,6 +779,9 @@ fn default_core_certification_text_reports_summary_and_gates() {
     assert!(output.contains("default_core_certification dns_policy_smoke status=passed cases=4"));
     assert!(output
         .contains("default_core_certification subscription_reload_smoke status=passed cases=4"));
+    assert!(
+        output.contains("default_core_certification runtime_recovery_smoke status=passed cases=4")
+    );
     assert!(output
         .contains("default_core_certification system_proxy_smoke status=not-run included=false"));
     assert!(output
