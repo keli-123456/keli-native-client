@@ -387,10 +387,14 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][41],
-        "vless-tcp-relay-smoke"
+        "tuic-quic-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][42],
+        "vless-tcp-relay-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][43],
         "vmess-tcp-relay-smoke"
     );
     assert_eq!(
@@ -575,10 +579,14 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][41],
-        "vless-tcp-relay-smoke"
+        "tuic-quic-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][42],
+        "vless-tcp-relay-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][43],
         "vmess-tcp-relay-smoke"
     );
     assert_eq!(
@@ -1236,6 +1244,51 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     );
     assert_eq!(
         certification["readiness"]["hy2_quic_tcp_relay_smoke"]["case_count"],
+        4
+    );
+    assert_eq!(
+        certification["certification"]["tuic_quic_tcp_relay_smoke_passed"],
+        true
+    );
+    assert_eq!(
+        certification["tuic_quic_tcp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(certification["tuic_quic_tcp_relay_smoke"]["case_count"], 4);
+    assert_eq!(
+        certification["tuic_quic_tcp_relay_smoke"]["failed_case_count"],
+        0
+    );
+    assert_eq!(
+        certification["tuic_quic_tcp_relay_smoke"]["selected_outbound"],
+        "TUIC-QUIC-TCP-SMOKE"
+    );
+    assert_eq!(
+        certification["tuic_quic_tcp_relay_smoke"]["target"],
+        "example.com:443"
+    );
+    assert_eq!(
+        certification["tuic_quic_tcp_relay_smoke"]["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        certification["tuic_quic_tcp_relay_smoke"]["server_received_payload"],
+        true
+    );
+    assert_eq!(
+        certification["tuic_quic_tcp_relay_smoke"]["metrics_recorded"],
+        true
+    );
+    assert_eq!(
+        certification["tuic_quic_tcp_relay_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        certification["readiness"]["tuic_quic_tcp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(
+        certification["readiness"]["tuic_quic_tcp_relay_smoke"]["case_count"],
         4
     );
     assert_eq!(
