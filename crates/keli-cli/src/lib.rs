@@ -101,11 +101,11 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 34;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 24;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 35;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 25;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 23;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 23;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 24;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 24;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -130,11 +130,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -6863,6 +6863,7 @@ pub struct DefaultCoreReadinessReport {
     pub tun_preflight: TunDevicePreflight,
     pub route_rule_smoke: RouteRuleSmokeReport,
     pub dns_policy_smoke: DnsPolicySmokeReport,
+    pub resource_limit_smoke: ResourceLimitSmokeReport,
     pub subscription_reload_smoke: SubscriptionReloadSmokeReport,
     pub runtime_recovery_smoke: RuntimeRecoverySmokeReport,
     pub include_system_proxy_smoke: bool,
@@ -6883,6 +6884,7 @@ pub struct DefaultCoreCertificationReport {
     pub tun_preflight: TunDevicePreflight,
     pub route_rule_smoke: RouteRuleSmokeReport,
     pub dns_policy_smoke: DnsPolicySmokeReport,
+    pub resource_limit_smoke: ResourceLimitSmokeReport,
     pub subscription_reload_smoke: SubscriptionReloadSmokeReport,
     pub runtime_recovery_smoke: RuntimeRecoverySmokeReport,
     pub include_system_proxy_smoke: bool,
@@ -6932,6 +6934,46 @@ pub struct DnsPolicySmokeCaseReport {
     pub expected_response: String,
     pub observed_response: Option<String>,
     pub target_contacted: Option<bool>,
+    pub passed: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResourceLimitSmokeReport {
+    pub passed: bool,
+    pub detail: String,
+    pub max_connection_workers: usize,
+    pub busy_worker_count: Option<usize>,
+    pub rejected_connection_count: u64,
+    pub connection_limit_error_count: u64,
+    pub worker_limit_enforced: bool,
+    pub metrics_recorded: bool,
+    pub workers_drained: bool,
+    pub clean_stop_observed: bool,
+    pub stop_workers_remaining: Option<usize>,
+    pub stop_timed_out: Option<bool>,
+    pub cases: Vec<ResourceLimitSmokeCaseReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResourceLimitSmokeCaseReport {
+    pub name: &'static str,
+    pub action: &'static str,
+    pub expected_max_connection_workers: Option<usize>,
+    pub observed_max_connection_workers: Option<usize>,
+    pub expected_active_connection_workers: Option<usize>,
+    pub observed_active_connection_workers: Option<usize>,
+    pub expected_rejection_count: Option<u64>,
+    pub observed_rejection_count: Option<u64>,
+    pub expected_error_kind: Option<&'static str>,
+    pub observed_error_kind: Option<String>,
+    pub runtime_running: Option<bool>,
+    pub worker_limit_enforced: Option<bool>,
+    pub metrics_recorded: Option<bool>,
+    pub workers_drained: Option<bool>,
+    pub clean_stop_observed: Option<bool>,
+    pub stop_workers_remaining: Option<usize>,
+    pub stop_timed_out: Option<bool>,
     pub passed: bool,
     pub error: Option<String>,
 }
@@ -7324,6 +7366,7 @@ fn collect_default_core_certification_report(
     let tun_preflight = readiness.tun_preflight.clone();
     let route_rule_smoke = readiness.route_rule_smoke.clone();
     let dns_policy_smoke = readiness.dns_policy_smoke.clone();
+    let resource_limit_smoke = readiness.resource_limit_smoke.clone();
     let subscription_reload_smoke = readiness.subscription_reload_smoke.clone();
     let runtime_recovery_smoke = readiness.runtime_recovery_smoke.clone();
     let system_proxy_smoke = readiness.system_proxy_smoke.clone();
@@ -7343,6 +7386,7 @@ fn collect_default_core_certification_report(
         && tun_preflight.ready
         && route_rule_smoke.passed
         && dns_policy_smoke.passed
+        && resource_limit_smoke.passed
         && subscription_reload_smoke.passed
         && runtime_recovery_smoke.passed
         && system_proxy_smoke_ready
@@ -7357,6 +7401,7 @@ fn collect_default_core_certification_report(
         tun_preflight,
         route_rule_smoke,
         dns_policy_smoke,
+        resource_limit_smoke,
         subscription_reload_smoke,
         runtime_recovery_smoke,
         include_system_proxy_smoke,
@@ -7393,6 +7438,7 @@ fn collect_readiness_check_report(
     let tun_preflight = collect_default_tun_preflight();
     let route_rule_smoke = collect_default_route_rule_smoke_report();
     let dns_policy_smoke = collect_default_dns_policy_smoke_report();
+    let resource_limit_smoke = collect_default_resource_limit_smoke_report();
     let subscription_reload_smoke = collect_default_subscription_reload_smoke_report();
     let runtime_recovery_smoke = collect_default_runtime_recovery_smoke_report();
     let mut system_proxy_smoke = None;
@@ -7445,14 +7491,16 @@ fn collect_readiness_check_report(
                 && doctor.managed_status_recent_event_limit > 0
                 && doctor.managed_connection_report_history_limit > 0
                 && doctor.managed_connection_worker_limit > 0
-                && doctor.tun_tcp_max_active_sessions_default > 0,
+                && doctor.tun_tcp_max_active_sessions_default > 0
+                && resource_limit_smoke.passed,
             format!(
-                "runtime_events={} recent_events={} connection_history={} workers={} tun_tcp_sessions={}",
+                "runtime_events={} recent_events={} connection_history={} workers={} tun_tcp_sessions={} resource_limit_smoke={}",
                 doctor.runtime_event_history_limit,
                 doctor.managed_status_recent_event_limit,
                 doctor.managed_connection_report_history_limit,
                 doctor.managed_connection_worker_limit,
-                doctor.tun_tcp_max_active_sessions_default
+                doctor.tun_tcp_max_active_sessions_default,
+                resource_limit_smoke.detail
             ),
         ),
         readiness_gate(
@@ -7611,6 +7659,7 @@ fn collect_readiness_check_report(
         tun_preflight,
         route_rule_smoke,
         dns_policy_smoke,
+        resource_limit_smoke,
         subscription_reload_smoke,
         runtime_recovery_smoke,
         include_system_proxy_smoke,
@@ -8995,6 +9044,522 @@ fn optional_bool_label(value: Option<bool>) -> &'static str {
         Some(true) => "true",
         Some(false) => "false",
         None => "-",
+    }
+}
+
+fn collect_default_resource_limit_smoke_report() -> ResourceLimitSmokeReport {
+    let controller = SubscriptionReloadSmokeSystemProxyController;
+    let mut core = ManagedMixedController::new(&controller);
+    let mut cases = Vec::new();
+    let mut busy_worker_count = None;
+    let mut rejected_connection_count = 0;
+    let mut connection_limit_error_count = 0;
+    let mut worker_limit_enforced = false;
+    let mut metrics_recorded = false;
+    let mut workers_drained = false;
+    let mut clean_stop_observed = false;
+    let mut stop_workers_remaining = None;
+    let mut stop_timed_out = None;
+
+    let started = match core.start_from_subscription_config_text(
+        &subscription_reload_smoke_config(&["SS-READY"]),
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-READY".to_string()),
+            system_proxy: false,
+            max_connection_workers: 1,
+            ..ManagedMixedOptions::default()
+        },
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            cases.push(resource_limit_smoke_error_case(
+                "start-resource-limit-runtime",
+                "start",
+                error,
+            ));
+            return finalize_resource_limit_smoke_report(
+                cases,
+                busy_worker_count,
+                rejected_connection_count,
+                connection_limit_error_count,
+                worker_limit_enforced,
+                metrics_recorded,
+                workers_drained,
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+            );
+        }
+    };
+    cases.push(resource_limit_smoke_status_case(
+        "start-resource-limit-runtime",
+        "start",
+        &started,
+        Some(1),
+        Some(0),
+        Some(0),
+        None,
+        None,
+        None,
+        None,
+    ));
+
+    let Some(listen_addr) = started.listen_addr else {
+        cases.push(resource_limit_smoke_error_case(
+            "occupy-worker-slot",
+            "connect",
+            "managed listener address missing".to_string(),
+        ));
+        let _ = core.stop();
+        return finalize_resource_limit_smoke_report(
+            cases,
+            busy_worker_count,
+            rejected_connection_count,
+            connection_limit_error_count,
+            worker_limit_enforced,
+            metrics_recorded,
+            workers_drained,
+            clean_stop_observed,
+            stop_workers_remaining,
+            stop_timed_out,
+        );
+    };
+
+    let mut stalled_client = match open_resource_limit_smoke_socks5_handshake(listen_addr) {
+        Ok(client) => Some(client),
+        Err(error) => {
+            cases.push(resource_limit_smoke_error_case(
+                "occupy-worker-slot",
+                "connect",
+                error,
+            ));
+            None
+        }
+    };
+
+    if stalled_client.is_some() {
+        let busy = wait_for_resource_limit_smoke_status(&core, |status| {
+            status.active_connection_workers == 1 && status.active_client_connections == 1
+        });
+        busy_worker_count = Some(busy.active_connection_workers);
+        cases.push(resource_limit_smoke_status_case(
+            "occupy-worker-slot",
+            "connect",
+            &busy,
+            Some(1),
+            Some(1),
+            Some(0),
+            None,
+            None,
+            None,
+            None,
+        ));
+
+        let rejection_error = attempt_resource_limit_smoke_rejected_socks5_hello(listen_addr).err();
+        let rejected = wait_for_resource_limit_smoke_status(&core, |status| {
+            status.connection_metrics.connection_limit_rejection_count >= 1
+        });
+        rejected_connection_count = rejected.connection_metrics.connection_limit_rejection_count;
+        connection_limit_error_count =
+            resource_limit_error_kind_count(&rejected.connection_metrics);
+        let observed_error_kind = resource_limit_observed_error_kind(&rejected.connection_metrics);
+        worker_limit_enforced = rejection_error.is_none()
+            && rejected.max_connection_workers == 1
+            && rejected.active_connection_workers == 1
+            && rejected.available_connection_worker_slots == 0
+            && rejected_connection_count >= 1;
+        metrics_recorded = rejected.connection_metrics.total_connection_count >= 1
+            && rejected.connection_metrics.failure_count >= 1
+            && rejected_connection_count >= 1
+            && connection_limit_error_count >= 1
+            && observed_error_kind.as_deref() == Some("connection_limit_reached");
+        let mut rejection_case = resource_limit_smoke_status_case(
+            "reject-over-worker-limit",
+            "connect-rejected",
+            &rejected,
+            Some(1),
+            Some(1),
+            Some(1),
+            Some("connection_limit_reached"),
+            Some(worker_limit_enforced),
+            Some(metrics_recorded),
+            None,
+        );
+        rejection_case.error = rejection_error;
+        rejection_case.passed = rejection_case.passed && rejection_case.error.is_none();
+        cases.push(rejection_case);
+    }
+
+    drop(stalled_client.take());
+    let drained = wait_for_resource_limit_smoke_status(&core, |status| {
+        status.active_connection_workers == 0 && status.active_client_connections == 0
+    });
+    workers_drained = drained.active_connection_workers == 0
+        && drained.active_client_connections == 0
+        && drained.available_connection_worker_slots == drained.max_connection_workers;
+    cases.push(resource_limit_smoke_status_case(
+        "drain-worker-slot",
+        "drop-client",
+        &drained,
+        Some(1),
+        Some(0),
+        Some(rejected_connection_count),
+        Some("connection_limit_reached"),
+        None,
+        None,
+        Some(workers_drained),
+    ));
+
+    match core.stop() {
+        Ok(stopped) => {
+            let stop_drain = stopped.events().iter().rev().find_map(|event| {
+                if let Some(RuntimeDiagnostic::ManagedMixedStopDrain(diagnostic)) =
+                    event.diagnostic.as_ref()
+                {
+                    Some(diagnostic)
+                } else {
+                    None
+                }
+            });
+            stop_workers_remaining = stop_drain.map(|diagnostic| diagnostic.workers_remaining);
+            stop_timed_out = stop_drain.map(|diagnostic| diagnostic.timed_out);
+            clean_stop_observed = matches!(stopped.status(), RuntimeStatus::Stopped)
+                && stop_workers_remaining == Some(0)
+                && stop_timed_out == Some(false);
+            cases.push(resource_limit_smoke_stop_case(
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+                None,
+            ));
+        }
+        Err(error) => cases.push(resource_limit_smoke_stop_case(
+            false,
+            None,
+            None,
+            Some(error),
+        )),
+    }
+
+    finalize_resource_limit_smoke_report(
+        cases,
+        busy_worker_count,
+        rejected_connection_count,
+        connection_limit_error_count,
+        worker_limit_enforced,
+        metrics_recorded,
+        workers_drained,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+    )
+}
+
+fn finalize_resource_limit_smoke_report(
+    cases: Vec<ResourceLimitSmokeCaseReport>,
+    busy_worker_count: Option<usize>,
+    rejected_connection_count: u64,
+    connection_limit_error_count: u64,
+    worker_limit_enforced: bool,
+    metrics_recorded: bool,
+    workers_drained: bool,
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+) -> ResourceLimitSmokeReport {
+    let passed_count = cases.iter().filter(|case| case.passed).count();
+    let failed: Vec<&str> = cases
+        .iter()
+        .filter(|case| !case.passed)
+        .map(|case| case.name)
+        .collect();
+    let passed = failed.is_empty()
+        && worker_limit_enforced
+        && metrics_recorded
+        && workers_drained
+        && clean_stop_observed;
+    ResourceLimitSmokeReport {
+        passed,
+        detail: format!(
+            "cases={} passed={} failed={} failed_cases={} max_workers=1 busy_workers={} rejected_connections={} connection_limit_errors={} worker_limit_enforced={} metrics_recorded={} workers_drained={} clean_stop_observed={} stop_workers_remaining={} stop_timed_out={}",
+            cases.len(),
+            passed_count,
+            failed.len(),
+            if failed.is_empty() {
+                "-".to_string()
+            } else {
+                failed.join(",")
+            },
+            optional_usize_label(busy_worker_count),
+            rejected_connection_count,
+            connection_limit_error_count,
+            worker_limit_enforced,
+            metrics_recorded,
+            workers_drained,
+            clean_stop_observed,
+            optional_usize_label(stop_workers_remaining),
+            optional_bool_label(stop_timed_out)
+        ),
+        max_connection_workers: 1,
+        busy_worker_count,
+        rejected_connection_count,
+        connection_limit_error_count,
+        worker_limit_enforced,
+        metrics_recorded,
+        workers_drained,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+        cases,
+    }
+}
+
+fn resource_limit_smoke_status_case(
+    name: &'static str,
+    action: &'static str,
+    status: &ManagedMixedStatusSnapshot,
+    expected_max_connection_workers: Option<usize>,
+    expected_active_connection_workers: Option<usize>,
+    expected_rejection_count: Option<u64>,
+    expected_error_kind: Option<&'static str>,
+    worker_limit_enforced: Option<bool>,
+    metrics_recorded: Option<bool>,
+    workers_drained: Option<bool>,
+) -> ResourceLimitSmokeCaseReport {
+    let runtime_running = matches!(&status.status, RuntimeStatus::Running { .. });
+    let observed_rejection_count = Some(status.connection_metrics.connection_limit_rejection_count);
+    let observed_error_kind = resource_limit_observed_error_kind(&status.connection_metrics);
+    let passed = runtime_running
+        && expected_max_connection_workers
+            .is_none_or(|expected| status.max_connection_workers == expected)
+        && expected_active_connection_workers
+            .is_none_or(|expected| status.active_connection_workers == expected)
+        && expected_rejection_count.is_none_or(|expected| {
+            status.connection_metrics.connection_limit_rejection_count >= expected
+        })
+        && expected_error_kind
+            .is_none_or(|expected| observed_error_kind.as_deref() == Some(expected))
+        && worker_limit_enforced.unwrap_or(true)
+        && metrics_recorded.unwrap_or(true)
+        && workers_drained.unwrap_or(true);
+
+    ResourceLimitSmokeCaseReport {
+        name,
+        action,
+        expected_max_connection_workers,
+        observed_max_connection_workers: Some(status.max_connection_workers),
+        expected_active_connection_workers,
+        observed_active_connection_workers: Some(status.active_connection_workers),
+        expected_rejection_count,
+        observed_rejection_count,
+        expected_error_kind,
+        observed_error_kind,
+        runtime_running: Some(runtime_running),
+        worker_limit_enforced,
+        metrics_recorded,
+        workers_drained,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+        error: None,
+    }
+}
+
+fn resource_limit_smoke_stop_case(
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+    error: Option<String>,
+) -> ResourceLimitSmokeCaseReport {
+    ResourceLimitSmokeCaseReport {
+        name: "stop-resource-limit-runtime",
+        action: "stop",
+        expected_max_connection_workers: Some(1),
+        observed_max_connection_workers: Some(1),
+        expected_active_connection_workers: Some(0),
+        observed_active_connection_workers: Some(0),
+        expected_rejection_count: None,
+        observed_rejection_count: None,
+        expected_error_kind: None,
+        observed_error_kind: None,
+        runtime_running: Some(false),
+        worker_limit_enforced: None,
+        metrics_recorded: None,
+        workers_drained: None,
+        clean_stop_observed: Some(clean_stop_observed),
+        stop_workers_remaining,
+        stop_timed_out,
+        passed: clean_stop_observed && error.is_none(),
+        error,
+    }
+}
+
+fn resource_limit_smoke_error_case(
+    name: &'static str,
+    action: &'static str,
+    error: String,
+) -> ResourceLimitSmokeCaseReport {
+    ResourceLimitSmokeCaseReport {
+        name,
+        action,
+        expected_max_connection_workers: Some(1),
+        observed_max_connection_workers: None,
+        expected_active_connection_workers: None,
+        observed_active_connection_workers: None,
+        expected_rejection_count: None,
+        observed_rejection_count: None,
+        expected_error_kind: None,
+        observed_error_kind: None,
+        runtime_running: None,
+        worker_limit_enforced: None,
+        metrics_recorded: None,
+        workers_drained: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed: false,
+        error: Some(error),
+    }
+}
+
+fn wait_for_resource_limit_smoke_status<C, F>(
+    core: &ManagedMixedController<'_, C>,
+    mut predicate: F,
+) -> ManagedMixedStatusSnapshot
+where
+    C: SystemProxyController + ?Sized,
+    F: FnMut(&ManagedMixedStatusSnapshot) -> bool,
+{
+    for _ in 0..80 {
+        let status = core.status();
+        if predicate(&status) {
+            return status;
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    core.status()
+}
+
+fn open_resource_limit_smoke_socks5_handshake(
+    listen_addr: SocketAddr,
+) -> Result<TcpStream, String> {
+    let mut client =
+        TcpStream::connect(listen_addr).map_err(|error| format!("connect listener: {error}"))?;
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("set read timeout: {error}"))?;
+    client
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("set write timeout: {error}"))?;
+    client
+        .write_all(&[0x05, 0x01, 0x00])
+        .map_err(|error| format!("write SOCKS5 hello: {error}"))?;
+    let mut hello = [0; 2];
+    client
+        .read_exact(&mut hello)
+        .map_err(|error| format!("read SOCKS5 hello response: {error}"))?;
+    if hello != [0x05, 0x00] {
+        return Err(format!("unexpected SOCKS5 hello response: {hello:?}"));
+    }
+    Ok(client)
+}
+
+fn attempt_resource_limit_smoke_rejected_socks5_hello(
+    listen_addr: SocketAddr,
+) -> Result<(), String> {
+    let mut client =
+        TcpStream::connect(listen_addr).map_err(|error| format!("connect listener: {error}"))?;
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("set read timeout: {error}"))?;
+    client
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("set write timeout: {error}"))?;
+    if client.write_all(&[0x05, 0x01, 0x00]).is_err() {
+        return Ok(());
+    }
+    let mut hello = [0; 2];
+    match client.read_exact(&mut hello) {
+        Ok(()) => Err(format!("over-limit SOCKS5 hello was accepted: {hello:?}")),
+        Err(_) => Ok(()),
+    }
+}
+
+fn resource_limit_error_kind_count(metrics: &ConnectionMetricsSnapshot) -> u64 {
+    metrics
+        .error_kind_counts
+        .iter()
+        .find(|entry| entry.error_kind == ConnectionErrorKind::ConnectionLimitReached)
+        .map(|entry| entry.count)
+        .unwrap_or(0)
+}
+
+fn resource_limit_observed_error_kind(metrics: &ConnectionMetricsSnapshot) -> Option<String> {
+    metrics
+        .recent_connections
+        .iter()
+        .rev()
+        .find_map(|report| report.error_kind.map(|kind| kind.as_str().to_string()))
+}
+
+#[cfg(test)]
+mod resource_limit_smoke_tests {
+    use super::*;
+
+    #[test]
+    fn default_resource_limit_smoke_enforces_worker_limit_and_records_metrics() {
+        let report = collect_default_resource_limit_smoke_report();
+
+        assert!(report.passed, "{}", report.detail);
+        assert_eq!(report.max_connection_workers, 1);
+        assert_eq!(report.busy_worker_count, Some(1));
+        assert_eq!(report.rejected_connection_count, 1);
+        assert_eq!(report.connection_limit_error_count, 1);
+        assert!(report.worker_limit_enforced);
+        assert!(report.metrics_recorded);
+        assert!(report.workers_drained);
+        assert!(report.clean_stop_observed);
+        assert_eq!(report.stop_workers_remaining, Some(0));
+        assert_eq!(report.stop_timed_out, Some(false));
+        assert_eq!(report.cases.len(), 5);
+
+        for case_name in [
+            "start-resource-limit-runtime",
+            "occupy-worker-slot",
+            "reject-over-worker-limit",
+            "drain-worker-slot",
+            "stop-resource-limit-runtime",
+        ] {
+            let case = report
+                .cases
+                .iter()
+                .find(|case| case.name == case_name)
+                .unwrap_or_else(|| panic!("missing resource limit smoke case {case_name}"));
+            assert!(case.passed, "{case:?}");
+        }
+
+        let reject = report
+            .cases
+            .iter()
+            .find(|case| case.name == "reject-over-worker-limit")
+            .expect("reject case");
+        assert_eq!(
+            reject.observed_error_kind.as_deref(),
+            Some("connection_limit_reached")
+        );
+        assert_eq!(reject.worker_limit_enforced, Some(true));
+        assert_eq!(reject.metrics_recorded, Some(true));
+        assert_eq!(reject.observed_rejection_count, Some(1));
+
+        let drain = report
+            .cases
+            .iter()
+            .find(|case| case.name == "drain-worker-slot")
+            .expect("drain case");
+        assert_eq!(drain.workers_drained, Some(true));
+        assert_eq!(drain.observed_active_connection_workers, Some(0));
     }
 }
 
@@ -11123,6 +11688,14 @@ fn write_readiness_check_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "readiness resource_limit_smoke status={} cases={} detail={}",
+        resource_limit_smoke_status_label(&report.resource_limit_smoke),
+        report.resource_limit_smoke.cases.len(),
+        report.resource_limit_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "readiness subscription_reload_smoke status={} cases={} detail={}",
         subscription_reload_smoke_status_label(&report.subscription_reload_smoke),
         report.subscription_reload_smoke.cases.len(),
@@ -11208,6 +11781,7 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         "tun_preflight": tun_preflight_json_value(&report.tun_preflight),
         "route_rule_smoke": route_rule_smoke_json_value(&report.route_rule_smoke),
         "dns_policy_smoke": dns_policy_smoke_json_value(&report.dns_policy_smoke),
+        "resource_limit_smoke": resource_limit_smoke_json_value(&report.resource_limit_smoke),
         "subscription_reload_smoke": subscription_reload_smoke_json_value(
             &report.subscription_reload_smoke
         ),
@@ -11330,6 +11904,14 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification resource_limit_smoke status={} cases={} detail={}",
+        resource_limit_smoke_status_label(&report.resource_limit_smoke),
+        report.resource_limit_smoke.cases.len(),
+        report.resource_limit_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification subscription_reload_smoke status={} cases={} detail={}",
         subscription_reload_smoke_status_label(&report.subscription_reload_smoke),
         report.subscription_reload_smoke.cases.len(),
@@ -11437,6 +12019,7 @@ fn default_core_certification_json_value(
             "tun_preflight_ready": report.tun_preflight.ready,
             "route_rule_smoke_passed": report.route_rule_smoke.passed,
             "dns_policy_smoke_passed": report.dns_policy_smoke.passed,
+            "resource_limit_smoke_passed": report.resource_limit_smoke.passed,
             "subscription_reload_smoke_passed": report.subscription_reload_smoke.passed,
             "runtime_recovery_smoke_passed": report.runtime_recovery_smoke.passed,
             "system_proxy_smoke_included": report.include_system_proxy_smoke,
@@ -11462,6 +12045,7 @@ fn default_core_certification_json_value(
         "tun_preflight": tun_preflight_json_value(&report.tun_preflight),
         "route_rule_smoke": route_rule_smoke_json_value(&report.route_rule_smoke),
         "dns_policy_smoke": dns_policy_smoke_json_value(&report.dns_policy_smoke),
+        "resource_limit_smoke": resource_limit_smoke_json_value(&report.resource_limit_smoke),
         "subscription_reload_smoke": subscription_reload_smoke_json_value(
             &report.subscription_reload_smoke
         ),
@@ -11553,6 +12137,65 @@ fn dns_policy_smoke_case_json_value(case: &DnsPolicySmokeCaseReport) -> serde_js
         "expected_response": &case.expected_response,
         "observed_response": &case.observed_response,
         "target_contacted": case.target_contacted,
+        "passed": case.passed,
+        "error": &case.error,
+    })
+}
+
+fn resource_limit_smoke_status_label(report: &ResourceLimitSmokeReport) -> &'static str {
+    if report.passed {
+        "passed"
+    } else {
+        "failed"
+    }
+}
+
+fn resource_limit_smoke_json_value(report: &ResourceLimitSmokeReport) -> serde_json::Value {
+    let cases: Vec<_> = report
+        .cases
+        .iter()
+        .map(resource_limit_smoke_case_json_value)
+        .collect();
+    serde_json::json!({
+        "status": resource_limit_smoke_status_label(report),
+        "passed": report.passed,
+        "detail": &report.detail,
+        "max_connection_workers": report.max_connection_workers,
+        "busy_worker_count": report.busy_worker_count,
+        "rejected_connection_count": report.rejected_connection_count,
+        "connection_limit_error_count": report.connection_limit_error_count,
+        "worker_limit_enforced": report.worker_limit_enforced,
+        "metrics_recorded": report.metrics_recorded,
+        "workers_drained": report.workers_drained,
+        "clean_stop_observed": report.clean_stop_observed,
+        "stop_workers_remaining": report.stop_workers_remaining,
+        "stop_timed_out": report.stop_timed_out,
+        "case_count": report.cases.len(),
+        "passed_case_count": report.cases.iter().filter(|case| case.passed).count(),
+        "failed_case_count": report.cases.iter().filter(|case| !case.passed).count(),
+        "cases": cases,
+    })
+}
+
+fn resource_limit_smoke_case_json_value(case: &ResourceLimitSmokeCaseReport) -> serde_json::Value {
+    serde_json::json!({
+        "name": case.name,
+        "action": case.action,
+        "expected_max_connection_workers": case.expected_max_connection_workers,
+        "observed_max_connection_workers": case.observed_max_connection_workers,
+        "expected_active_connection_workers": case.expected_active_connection_workers,
+        "observed_active_connection_workers": case.observed_active_connection_workers,
+        "expected_rejection_count": case.expected_rejection_count,
+        "observed_rejection_count": case.observed_rejection_count,
+        "expected_error_kind": case.expected_error_kind,
+        "observed_error_kind": &case.observed_error_kind,
+        "runtime_running": case.runtime_running,
+        "worker_limit_enforced": case.worker_limit_enforced,
+        "metrics_recorded": case.metrics_recorded,
+        "workers_drained": case.workers_drained,
+        "clean_stop_observed": case.clean_stop_observed,
+        "stop_workers_remaining": case.stop_workers_remaining,
+        "stop_timed_out": case.stop_timed_out,
         "passed": case.passed,
         "error": &case.error,
     })

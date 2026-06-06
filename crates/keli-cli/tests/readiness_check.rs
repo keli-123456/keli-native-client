@@ -91,6 +91,55 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
         .find(|case| case["name"] == "address-family-http-connect")
         .expect("address family DNS policy smoke case");
     assert_eq!(dns_address_family["target_contacted"], false);
+    assert_eq!(report["resource_limit_smoke"]["status"], "passed");
+    assert_eq!(report["resource_limit_smoke"]["passed"], true);
+    assert_eq!(report["resource_limit_smoke"]["case_count"], 5);
+    assert_eq!(report["resource_limit_smoke"]["failed_case_count"], 0);
+    assert_eq!(report["resource_limit_smoke"]["max_connection_workers"], 1);
+    assert_eq!(report["resource_limit_smoke"]["busy_worker_count"], 1);
+    assert_eq!(
+        report["resource_limit_smoke"]["rejected_connection_count"],
+        1
+    );
+    assert_eq!(
+        report["resource_limit_smoke"]["connection_limit_error_count"],
+        1
+    );
+    assert_eq!(
+        report["resource_limit_smoke"]["worker_limit_enforced"],
+        true
+    );
+    assert_eq!(report["resource_limit_smoke"]["metrics_recorded"], true);
+    assert_eq!(report["resource_limit_smoke"]["workers_drained"], true);
+    assert_eq!(report["resource_limit_smoke"]["clean_stop_observed"], true);
+    assert_eq!(report["resource_limit_smoke"]["stop_workers_remaining"], 0);
+    assert_eq!(report["resource_limit_smoke"]["stop_timed_out"], false);
+    let resource_cases = report["resource_limit_smoke"]["cases"]
+        .as_array()
+        .expect("resource limit smoke cases");
+    let resource_case_names: Vec<_> = resource_cases
+        .iter()
+        .filter_map(|case| case["name"].as_str())
+        .collect();
+    for expected in [
+        "start-resource-limit-runtime",
+        "occupy-worker-slot",
+        "reject-over-worker-limit",
+        "drain-worker-slot",
+        "stop-resource-limit-runtime",
+    ] {
+        assert!(
+            resource_case_names.contains(&expected),
+            "missing resource limit smoke case {expected}: {resource_case_names:?}"
+        );
+    }
+    let rejected = resource_cases
+        .iter()
+        .find(|case| case["name"] == "reject-over-worker-limit")
+        .expect("resource limit reject case");
+    assert_eq!(rejected["observed_error_kind"], "connection_limit_reached");
+    assert_eq!(rejected["worker_limit_enforced"], true);
+    assert_eq!(rejected["metrics_recorded"], true);
     assert_eq!(report["subscription_reload_smoke"]["status"], "passed");
     assert_eq!(report["subscription_reload_smoke"]["passed"], true);
     assert_eq!(report["subscription_reload_smoke"]["case_count"], 4);
@@ -356,6 +405,18 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
         .expect("DNS policy detail")
         .contains("cases=4"));
 
+    let resource_limits = gate(gates, "resource-limits");
+    assert_eq!(resource_limits["category"], "stability");
+    assert_eq!(resource_limits["status"], "passed");
+    assert!(resource_limits["detail"]
+        .as_str()
+        .expect("resource limits detail")
+        .contains("resource_limit_smoke=cases=5"));
+    assert!(resource_limits["detail"]
+        .as_str()
+        .expect("resource limits detail")
+        .contains("worker_limit_enforced=true"));
+
     let subscription_reload = gate(gates, "subscription-reload-smoke");
     assert_eq!(subscription_reload["category"], "managed-runtime");
     assert_eq!(subscription_reload["status"], "passed");
@@ -491,6 +552,7 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(output.contains("readiness tun_preflight status="));
     assert!(output.contains("readiness route_rule_smoke status=passed cases=3"));
     assert!(output.contains("readiness dns_policy_smoke status=passed cases=4"));
+    assert!(output.contains("readiness resource_limit_smoke status=passed cases=5"));
     assert!(output.contains("readiness subscription_reload_smoke status=passed cases=4"));
     assert!(output.contains("readiness runtime_recovery_smoke status=passed cases=4"));
     assert!(output.contains("readiness system_proxy_smoke status=not-run included=false"));
@@ -570,6 +632,21 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert_eq!(report["dns_policy_smoke"]["failed_case_count"], 0);
     assert_eq!(report["readiness"]["dns_policy_smoke"]["status"], "passed");
     assert_eq!(report["readiness"]["dns_policy_smoke"]["case_count"], 4);
+    assert_eq!(report["certification"]["resource_limit_smoke_passed"], true);
+    assert_eq!(report["resource_limit_smoke"]["status"], "passed");
+    assert_eq!(report["resource_limit_smoke"]["case_count"], 5);
+    assert_eq!(report["resource_limit_smoke"]["failed_case_count"], 0);
+    assert_eq!(
+        report["resource_limit_smoke"]["worker_limit_enforced"],
+        true
+    );
+    assert_eq!(report["resource_limit_smoke"]["metrics_recorded"], true);
+    assert_eq!(report["resource_limit_smoke"]["workers_drained"], true);
+    assert_eq!(
+        report["readiness"]["resource_limit_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(report["readiness"]["resource_limit_smoke"]["case_count"], 5);
     assert_eq!(
         report["certification"]["subscription_reload_smoke_passed"],
         true
@@ -747,6 +824,7 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     let gates = report["readiness"]["gates"].as_array().expect("gates");
     assert_eq!(gate(gates, "route-rule-smoke")["status"], "passed");
     assert_eq!(gate(gates, "dns-policy-smoke")["status"], "passed");
+    assert_eq!(gate(gates, "resource-limits")["status"], "passed");
     assert_eq!(gate(gates, "subscription-reload-smoke")["status"], "passed");
     assert_eq!(gate(gates, "runtime-recovery-smoke")["status"], "passed");
     assert_eq!(gate(gates, "mixed-soak-socks5")["status"], "passed");
@@ -777,6 +855,9 @@ fn default_core_certification_text_reports_summary_and_gates() {
     assert!(output.contains("default_core_certification tun_preflight status="));
     assert!(output.contains("default_core_certification route_rule_smoke status=passed cases=3"));
     assert!(output.contains("default_core_certification dns_policy_smoke status=passed cases=4"));
+    assert!(
+        output.contains("default_core_certification resource_limit_smoke status=passed cases=5")
+    );
     assert!(output
         .contains("default_core_certification subscription_reload_smoke status=passed cases=4"));
     assert!(

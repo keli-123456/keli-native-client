@@ -358,7 +358,8 @@ registry registration coverage. Support bundles include the same matrix, so UI
 and support flows can inspect protocol readiness without scraping this document.
 `readiness-check` adds a default-core gate for CI and desktop integration: it
 combines doctor schema coverage, interop matrix coverage, resource limits,
-route-rule runtime smoke coverage, DNS policy smoke coverage,
+resource-limit smoke coverage, route-rule runtime smoke coverage,
+DNS policy smoke coverage,
 subscription reload smoke coverage, runtime recovery smoke coverage,
 panel/subscription status surfaces, system proxy support, TUN preflight state,
 TUN backend wiring, route takeover wiring, and optional local mixed soak gates
@@ -377,6 +378,11 @@ listener was not contacted. The default DNS policy smoke proves local DNS leak
 prevention, address-family filtering, and SOCKS5 UDP DNS hijack responses
 without external network access by combining HTTP CONNECT failures with
 controlled DNS A-query responses.
+The default resource-limit smoke starts a local managed mixed runtime with one
+connection worker, holds one SOCKS5 handshake open to occupy that worker,
+verifies a second connection is rejected with `connection_limit_reached`
+metrics, then releases the held client and confirms workers drain before clean
+stop.
 The default subscription reload smoke starts a local managed mixed runtime from
 a multi-node subscription, records node health, verifies a planned update that
 preserves the selected outbound, verifies a second update that falls back to the
@@ -439,8 +445,9 @@ runtime alive for that minimum duration and report `min_duration_ms` plus
 `default-core-certify` runs the non-skipped readiness gates and emits a
 single certification artifact that embeds the readiness report, TUN backend
 packaging evidence, structured TUN preflight evidence, route-rule smoke
-evidence, DNS policy smoke evidence, subscription reload smoke evidence, soak
-parameters, runtime recovery smoke evidence, and the final
+evidence, DNS policy smoke evidence, resource-limit smoke evidence,
+subscription reload smoke evidence, soak parameters, runtime recovery smoke
+evidence, and the final
 `ready_for_default_core` decision for release automation and desktop UI
 handoff. Its JSON output mirrors
 the readiness blockers as `promotion_blockers` and includes a
@@ -487,16 +494,17 @@ UI, and support tooling. `keli-cli readiness-check --format json` exports the
 current default-core readiness gates plus a blocker summary, including skipped
 or failed gates, plus route-rule smoke evidence for local mixed-inbound routing
 decisions and DNS policy smoke evidence for leak prevention, address-family
-filtering, and hijacked DNS responses, plus subscription reload smoke evidence
-for selected-node preservation, default fallback, health pruning, and clean
-managed-runtime stop, plus runtime recovery smoke evidence for rejected reloads
-preserving the active core, so UI and release automation can track what is
-still blocking default-core use.
+filtering, and hijacked DNS responses, plus resource-limit smoke evidence for
+worker-limit rejection metrics and worker drain, plus subscription reload smoke
+evidence for selected-node preservation, default fallback, health pruning, and
+clean managed-runtime stop, plus runtime recovery smoke evidence for rejected
+reloads preserving the active core, so UI and release automation can track what
+is still blocking default-core use.
 `keli-cli default-core-certify --format json` exports the corresponding
 machine-level certification evidence with real soak gates and TUN backend
 packaging state, structured TUN preflight state, route-rule smoke evidence, DNS
-policy smoke evidence, and promotion blockers for default-core promotion
-checks. Add
+policy smoke evidence, resource-limit smoke evidence, and promotion blockers
+for default-core promotion checks. Add
 `--include-tun-runtime-smoke` when the
 certification run should also prove the native TUN runtime can start, open
 packet I/O, stay alive for the requested minimum smoke duration, and stop

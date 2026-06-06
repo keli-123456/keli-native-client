@@ -408,7 +408,8 @@ The first implementation target is deliberately small:
    `readiness-check` now turns these production-readiness signals into an
    explicit default-core gate. It combines doctor schema coverage, interop
    validation/registry coverage, local mixed soak gates, resource limits,
-   route-rule runtime smoke coverage, DNS policy smoke coverage, managed
+   resource-limit smoke coverage, route-rule runtime smoke coverage,
+   DNS policy smoke coverage, managed
    subscription reload smoke coverage, runtime recovery smoke coverage, managed
    panel/subscription state, system proxy support, TUN backend wiring, route
    takeover wiring, and TUN preflight state into one text or JSON report.
@@ -426,7 +427,11 @@ The first implementation target is deliberately small:
    policy smoke proves local DNS leak prevention, address-family filtering, and
    SOCKS5 UDP DNS hijack responses without external network access by combining
    HTTP CONNECT failures with controlled DNS A-query responses. The default
-   subscription reload smoke starts a local managed mixed runtime, records node
+   resource-limit smoke starts a local managed mixed runtime with one
+   connection worker, holds one SOCKS5 handshake open to occupy that worker,
+   verifies a second connection is rejected with `connection_limit_reached`
+   metrics, then releases the held client and confirms workers drain before
+   clean stop. The default subscription reload smoke starts a local managed mixed runtime, records node
    health, proves planned reload preserves the selected outbound when it still
    exists, proves fallback to the new subscription default when the selected
    node disappears, verifies stale health pruning, and requires a clean
@@ -492,13 +497,13 @@ The first implementation target is deliberately small:
    checks and exporting one promotion artifact with the embedded readiness
    report, TUN backend packaging evidence, structured TUN preflight evidence,
    route-rule smoke evidence, DNS policy smoke evidence, subscription reload
-   smoke evidence, runtime recovery smoke evidence, certification
+   smoke evidence, resource-limit smoke evidence, runtime recovery smoke evidence, certification
    parameters, and final
    `ready_for_default_core` decision for release automation and UI handoff. The
    certification artifact mirrors the blocker summary as `promotion_blockers`
    and reports `blocking_gate_count` alongside the soak, route-rule,
-   DNS-policy, subscription-reload, runtime-recovery, preflight, and backend
-   evidence.
+   DNS-policy, resource-limit, subscription-reload, runtime-recovery,
+   preflight, and backend evidence.
    Certification parameters include `soak_min_duration_ms`, so a promotion
    record can prove both traffic success and a minimum managed-runtime window.
    The optional TUN runtime smoke gate is also carried into certification JSON,
