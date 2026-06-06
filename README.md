@@ -361,7 +361,7 @@ combines doctor schema coverage, interop matrix coverage, resource limits,
 resource-limit smoke coverage, route-rule runtime smoke coverage,
 DNS policy smoke coverage,
 subscription reload smoke coverage, runtime recovery smoke coverage,
-panel/subscription status surfaces, system proxy support, TUN preflight state,
+panel/subscription smoke coverage, system proxy support, TUN preflight state,
 TUN backend wiring, route takeover wiring, and optional local mixed soak gates
 into one text or JSON report. The report is allowed to say `not-ready` when the
 local platform still lacks a required handoff such as Wintun packaging,
@@ -383,6 +383,11 @@ connection worker, holds one SOCKS5 handshake open to occupy that worker,
 verifies a second connection is rejected with `connection_limit_reached`
 metrics, then releases the held client and confirms workers drain before clean
 stop.
+The default panel/subscription smoke records a restricted panel state, verifies
+that restricted traffic blocks start, reload, node probe, and recommended
+switch actions, confirms the already-running core stays on the selected
+outbound while restricted, then clears the panel restriction and verifies the
+runtime can reload and stop cleanly.
 The default subscription reload smoke starts a local managed mixed runtime from
 a multi-node subscription, records node health, verifies a planned update that
 preserves the selected outbound, verifies a second update that falls back to the
@@ -495,16 +500,17 @@ current default-core readiness gates plus a blocker summary, including skipped
 or failed gates, plus route-rule smoke evidence for local mixed-inbound routing
 decisions and DNS policy smoke evidence for leak prevention, address-family
 filtering, and hijacked DNS responses, plus resource-limit smoke evidence for
-worker-limit rejection metrics and worker drain, plus subscription reload smoke
-evidence for selected-node preservation, default fallback, health pruning, and
-clean managed-runtime stop, plus runtime recovery smoke evidence for rejected
-reloads preserving the active core, so UI and release automation can track what
-is still blocking default-core use.
+worker-limit rejection metrics and worker drain, plus panel/subscription smoke
+evidence for restricted traffic blocking and recovery after clearing panel
+state, plus subscription reload smoke evidence for selected-node preservation,
+default fallback, health pruning, and clean managed-runtime stop, plus runtime
+recovery smoke evidence for rejected reloads preserving the active core, so UI
+and release automation can track what is still blocking default-core use.
 `keli-cli default-core-certify --format json` exports the corresponding
 machine-level certification evidence with real soak gates and TUN backend
 packaging state, structured TUN preflight state, route-rule smoke evidence, DNS
-policy smoke evidence, resource-limit smoke evidence, and promotion blockers
-for default-core promotion checks. Add
+policy smoke evidence, resource-limit smoke evidence, panel/subscription smoke
+evidence, and promotion blockers for default-core promotion checks. Add
 `--include-tun-runtime-smoke` when the
 certification run should also prove the native TUN runtime can start, open
 packet I/O, stay alive for the requested minimum smoke duration, and stop

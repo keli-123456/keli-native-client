@@ -358,6 +358,10 @@ proxies:
         "tun-runtime-smoke-route-selection-evidence"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][34],
+        "panel-subscription-smoke"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -508,6 +512,10 @@ proxies:
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][33],
         "support-bundle-export"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][34],
+        "panel-subscription-smoke"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
@@ -982,6 +990,43 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     assert_eq!(
         certification["readiness"]["resource_limit_smoke"]["case_count"],
         5
+    );
+    assert_eq!(
+        certification["certification"]["panel_subscription_smoke_passed"],
+        true
+    );
+    assert_eq!(
+        certification["panel_subscription_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(certification["panel_subscription_smoke"]["case_count"], 9);
+    assert_eq!(
+        certification["panel_subscription_smoke"]["failed_case_count"],
+        0
+    );
+    assert_eq!(
+        certification["panel_subscription_smoke"]["start_blocked"],
+        true
+    );
+    assert_eq!(
+        certification["panel_subscription_smoke"]["reload_blocked"],
+        true
+    );
+    assert_eq!(
+        certification["panel_subscription_smoke"]["runtime_preserved_while_restricted"],
+        true
+    );
+    assert_eq!(
+        certification["panel_subscription_smoke"]["clear_allowed_runtime"],
+        true
+    );
+    assert_eq!(
+        certification["readiness"]["panel_subscription_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(
+        certification["readiness"]["panel_subscription_smoke"]["case_count"],
+        9
     );
     assert_eq!(
         certification["certification"]["subscription_reload_smoke_passed"],

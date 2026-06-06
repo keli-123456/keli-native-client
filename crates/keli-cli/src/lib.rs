@@ -16,7 +16,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use keli_client_core::{
     build_connection_plan, plan_subscription_update, ClientErrorKind, ClientRuntime,
-    ConnectionPhase, ConnectionPlan, PanelState, RuntimeConfig, RuntimeDiagnostic, RuntimeEvent,
+    ConnectionPhase, ConnectionPlan, PanelAccountState, PanelRiskControlState, PanelState,
+    PanelUserState, RuntimeConfig, RuntimeDiagnostic, RuntimeEvent,
     RuntimeManagedMixedStopDrainDiagnostic, RuntimeManagedNodeProbeSweepDiagnostic, RuntimeStatus,
     RuntimeTunPacketDroppedRouteDiagnostic, RuntimeTunPacketLoopDiagnostic, SkippedProfileSummary,
     SubscriptionNodeCapability, SubscriptionUpdateReport, DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
@@ -101,11 +102,11 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 35;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 25;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 36;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 26;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 24;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 24;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 25;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 25;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -130,11 +131,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -6864,6 +6865,7 @@ pub struct DefaultCoreReadinessReport {
     pub route_rule_smoke: RouteRuleSmokeReport,
     pub dns_policy_smoke: DnsPolicySmokeReport,
     pub resource_limit_smoke: ResourceLimitSmokeReport,
+    pub panel_subscription_smoke: PanelSubscriptionSmokeReport,
     pub subscription_reload_smoke: SubscriptionReloadSmokeReport,
     pub runtime_recovery_smoke: RuntimeRecoverySmokeReport,
     pub include_system_proxy_smoke: bool,
@@ -6885,6 +6887,7 @@ pub struct DefaultCoreCertificationReport {
     pub route_rule_smoke: RouteRuleSmokeReport,
     pub dns_policy_smoke: DnsPolicySmokeReport,
     pub resource_limit_smoke: ResourceLimitSmokeReport,
+    pub panel_subscription_smoke: PanelSubscriptionSmokeReport,
     pub subscription_reload_smoke: SubscriptionReloadSmokeReport,
     pub runtime_recovery_smoke: RuntimeRecoverySmokeReport,
     pub include_system_proxy_smoke: bool,
@@ -6976,6 +6979,51 @@ pub struct ResourceLimitSmokeCaseReport {
     pub stop_timed_out: Option<bool>,
     pub passed: bool,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PanelSubscriptionSmokeReport {
+    pub passed: bool,
+    pub detail: String,
+    pub restricted_account_state: &'static str,
+    pub restricted_risk_control: &'static str,
+    pub start_blocked: bool,
+    pub reload_blocked: bool,
+    pub probe_blocked: bool,
+    pub apply_blocked: bool,
+    pub runtime_preserved_while_restricted: bool,
+    pub clear_allowed_runtime: bool,
+    pub final_selected_outbound: Option<String>,
+    pub clean_stop_observed: bool,
+    pub stop_workers_remaining: Option<usize>,
+    pub stop_timed_out: Option<bool>,
+    pub cases: Vec<PanelSubscriptionSmokeCaseReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PanelSubscriptionSmokeCaseReport {
+    pub name: &'static str,
+    pub action: &'static str,
+    pub expected_error_kind: Option<&'static str>,
+    pub observed_error_kind: Option<String>,
+    pub error_detail: Option<String>,
+    pub expected_selected_outbound: Option<String>,
+    pub observed_selected_outbound: Option<String>,
+    pub expected_generation: Option<u64>,
+    pub observed_generation: Option<u64>,
+    pub runtime_running: Option<bool>,
+    pub panel_state_present: Option<bool>,
+    pub restrict_traffic: Option<bool>,
+    pub start_blocked: Option<bool>,
+    pub reload_blocked: Option<bool>,
+    pub probe_blocked: Option<bool>,
+    pub apply_blocked: Option<bool>,
+    pub runtime_preserved: Option<bool>,
+    pub clear_allowed_runtime: Option<bool>,
+    pub clean_stop_observed: Option<bool>,
+    pub stop_workers_remaining: Option<usize>,
+    pub stop_timed_out: Option<bool>,
+    pub passed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7367,6 +7415,7 @@ fn collect_default_core_certification_report(
     let route_rule_smoke = readiness.route_rule_smoke.clone();
     let dns_policy_smoke = readiness.dns_policy_smoke.clone();
     let resource_limit_smoke = readiness.resource_limit_smoke.clone();
+    let panel_subscription_smoke = readiness.panel_subscription_smoke.clone();
     let subscription_reload_smoke = readiness.subscription_reload_smoke.clone();
     let runtime_recovery_smoke = readiness.runtime_recovery_smoke.clone();
     let system_proxy_smoke = readiness.system_proxy_smoke.clone();
@@ -7387,6 +7436,7 @@ fn collect_default_core_certification_report(
         && route_rule_smoke.passed
         && dns_policy_smoke.passed
         && resource_limit_smoke.passed
+        && panel_subscription_smoke.passed
         && subscription_reload_smoke.passed
         && runtime_recovery_smoke.passed
         && system_proxy_smoke_ready
@@ -7402,6 +7452,7 @@ fn collect_default_core_certification_report(
         route_rule_smoke,
         dns_policy_smoke,
         resource_limit_smoke,
+        panel_subscription_smoke,
         subscription_reload_smoke,
         runtime_recovery_smoke,
         include_system_proxy_smoke,
@@ -7439,6 +7490,7 @@ fn collect_readiness_check_report(
     let route_rule_smoke = collect_default_route_rule_smoke_report();
     let dns_policy_smoke = collect_default_dns_policy_smoke_report();
     let resource_limit_smoke = collect_default_resource_limit_smoke_report();
+    let panel_subscription_smoke = collect_default_panel_subscription_smoke_report();
     let subscription_reload_smoke = collect_default_subscription_reload_smoke_report();
     let runtime_recovery_smoke = collect_default_runtime_recovery_smoke_report();
     let mut system_proxy_smoke = None;
@@ -7538,8 +7590,12 @@ fn collect_readiness_check_report(
                     .contains(&"subscription-url-update-status")
                 && doctor
                     .managed_status_schema_capabilities
-                    .contains(&"node-health-udp-aware-recommendation"),
-            "panel-state subscription-url-update-status node-health-udp-aware-recommendation".to_string(),
+                    .contains(&"node-health-udp-aware-recommendation")
+                && panel_subscription_smoke.passed,
+            format!(
+                "panel-state subscription-url-update-status node-health-udp-aware-recommendation panel_subscription_smoke={}",
+                panel_subscription_smoke.detail
+            ),
         ),
         readiness_gate(
             "support-diagnostics",
@@ -7660,6 +7716,7 @@ fn collect_readiness_check_report(
         route_rule_smoke,
         dns_policy_smoke,
         resource_limit_smoke,
+        panel_subscription_smoke,
         subscription_reload_smoke,
         runtime_recovery_smoke,
         include_system_proxy_smoke,
@@ -9560,6 +9617,705 @@ mod resource_limit_smoke_tests {
             .expect("drain case");
         assert_eq!(drain.workers_drained, Some(true));
         assert_eq!(drain.observed_active_connection_workers, Some(0));
+    }
+}
+
+fn collect_default_panel_subscription_smoke_report() -> PanelSubscriptionSmokeReport {
+    let controller = SubscriptionReloadSmokeSystemProxyController;
+    let mut core = ManagedMixedController::new(&controller);
+    let mut cases = Vec::new();
+    let mut reload_blocked = false;
+    let mut probe_blocked = false;
+    let mut apply_blocked = false;
+    let mut runtime_preserved_while_restricted = false;
+    let mut clear_allowed_runtime = false;
+    let mut final_selected_outbound = None;
+    let mut clean_stop_observed = false;
+    let mut stop_workers_remaining = None;
+    let mut stop_timed_out = None;
+    let config = subscription_reload_smoke_config(&["SS-READY"]);
+    let restricted_panel = panel_subscription_smoke_restricted_panel_state();
+
+    let restricted_status = core.record_panel_state(restricted_panel.clone());
+    cases.push(panel_subscription_smoke_status_case(
+        "record-restricted-panel-before-start",
+        "record-panel-state",
+        &restricted_status,
+        PanelSubscriptionSmokeCaseExpectations {
+            expected_error_kind: None,
+            error_detail: None,
+            expected_selected_outbound: None,
+            expected_generation: Some(0),
+            expected_runtime_running: Some(false),
+            expected_panel_state_present: Some(true),
+            expected_restrict_traffic: Some(true),
+            start_blocked: None,
+            reload_blocked: None,
+            probe_blocked: None,
+            apply_blocked: None,
+            runtime_preserved: None,
+            clear_allowed_runtime: None,
+        },
+    ));
+
+    let start_error = match core.start_from_subscription_config_text(
+        &config,
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-READY".to_string()),
+            system_proxy: false,
+            max_connection_workers: 2,
+            ..ManagedMixedOptions::default()
+        },
+    ) {
+        Ok(_) => None,
+        Err(error) => Some(error),
+    };
+    let start_blocked = start_error
+        .as_deref()
+        .and_then(panel_subscription_smoke_error_kind_from_detail)
+        .as_deref()
+        == Some("panel-traffic-restricted");
+    let blocked_start_status = core.status();
+    cases.push(panel_subscription_smoke_status_case(
+        "block-start-while-restricted",
+        "start-rejected",
+        &blocked_start_status,
+        PanelSubscriptionSmokeCaseExpectations {
+            expected_error_kind: Some("panel-traffic-restricted"),
+            error_detail: start_error,
+            expected_selected_outbound: None,
+            expected_generation: Some(0),
+            expected_runtime_running: Some(false),
+            expected_panel_state_present: Some(true),
+            expected_restrict_traffic: Some(true),
+            start_blocked: Some(start_blocked),
+            reload_blocked: None,
+            probe_blocked: None,
+            apply_blocked: None,
+            runtime_preserved: None,
+            clear_allowed_runtime: None,
+        },
+    ));
+    if core.is_running() {
+        let _ = core.stop();
+    }
+
+    core.clear_panel_state();
+    let started = match core.start_from_subscription_config_text(
+        &config,
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-READY".to_string()),
+            system_proxy: false,
+            max_connection_workers: 2,
+            ..ManagedMixedOptions::default()
+        },
+    ) {
+        Ok(status) => {
+            cases.push(panel_subscription_smoke_status_case(
+                "clear-and-start-runtime",
+                "clear-panel-state-start",
+                &status,
+                PanelSubscriptionSmokeCaseExpectations {
+                    expected_error_kind: None,
+                    error_detail: None,
+                    expected_selected_outbound: Some("SS-READY"),
+                    expected_generation: Some(1),
+                    expected_runtime_running: Some(true),
+                    expected_panel_state_present: Some(false),
+                    expected_restrict_traffic: None,
+                    start_blocked: None,
+                    reload_blocked: None,
+                    probe_blocked: None,
+                    apply_blocked: None,
+                    runtime_preserved: None,
+                    clear_allowed_runtime: Some(true),
+                },
+            ));
+            Some(status)
+        }
+        Err(error) => {
+            cases.push(panel_subscription_smoke_error_case(
+                "clear-and-start-runtime",
+                "clear-panel-state-start",
+                Some("SS-READY"),
+                Some(1),
+                error,
+            ));
+            None
+        }
+    };
+
+    if started.is_none() {
+        return finalize_panel_subscription_smoke_report(
+            cases,
+            start_blocked,
+            reload_blocked,
+            probe_blocked,
+            apply_blocked,
+            runtime_preserved_while_restricted,
+            clear_allowed_runtime,
+            final_selected_outbound,
+            clean_stop_observed,
+            stop_workers_remaining,
+            stop_timed_out,
+        );
+    }
+
+    let restricted_running = core.record_panel_state(restricted_panel);
+    cases.push(panel_subscription_smoke_status_case(
+        "record-restricted-panel-during-runtime",
+        "record-panel-state",
+        &restricted_running,
+        PanelSubscriptionSmokeCaseExpectations {
+            expected_error_kind: None,
+            error_detail: None,
+            expected_selected_outbound: Some("SS-READY"),
+            expected_generation: Some(1),
+            expected_runtime_running: Some(true),
+            expected_panel_state_present: Some(true),
+            expected_restrict_traffic: Some(true),
+            start_blocked: None,
+            reload_blocked: None,
+            probe_blocked: None,
+            apply_blocked: None,
+            runtime_preserved: None,
+            clear_allowed_runtime: None,
+        },
+    ));
+
+    let reload_error = core
+        .reload_from_subscription_config_text(&config, Some("SS-READY".to_string()))
+        .err();
+    reload_blocked = reload_error
+        .as_deref()
+        .and_then(panel_subscription_smoke_error_kind_from_detail)
+        .as_deref()
+        == Some("panel-traffic-restricted");
+    let reload_status = core.status();
+    runtime_preserved_while_restricted = panel_subscription_smoke_runtime_preserved(&reload_status);
+    cases.push(panel_subscription_smoke_status_case(
+        "block-reload-while-restricted",
+        "reload-rejected",
+        &reload_status,
+        PanelSubscriptionSmokeCaseExpectations {
+            expected_error_kind: Some("panel-traffic-restricted"),
+            error_detail: reload_error,
+            expected_selected_outbound: Some("SS-READY"),
+            expected_generation: Some(1),
+            expected_runtime_running: Some(true),
+            expected_panel_state_present: Some(true),
+            expected_restrict_traffic: Some(true),
+            start_blocked: None,
+            reload_blocked: Some(reload_blocked),
+            probe_blocked: None,
+            apply_blocked: None,
+            runtime_preserved: Some(runtime_preserved_while_restricted),
+            clear_allowed_runtime: None,
+        },
+    ));
+
+    let probe_error = core
+        .probe_node_health(ManagedNodeProbeOptions {
+            outbound_tag: "SS-READY".to_string(),
+            target: "127.0.0.1:1".to_string(),
+            payload: Vec::new(),
+            expect: Vec::new(),
+            inbound: SmokeInboundKind::Socks5,
+            first_byte_timeout: Duration::from_millis(20),
+            udp_available: None,
+            udp_probe: None,
+        })
+        .err();
+    probe_blocked = probe_error
+        .as_deref()
+        .and_then(panel_subscription_smoke_error_kind_from_detail)
+        .as_deref()
+        == Some("panel-traffic-restricted");
+    let probe_status = core.status();
+    cases.push(panel_subscription_smoke_status_case(
+        "block-node-probe-while-restricted",
+        "probe-rejected",
+        &probe_status,
+        PanelSubscriptionSmokeCaseExpectations {
+            expected_error_kind: Some("panel-traffic-restricted"),
+            error_detail: probe_error,
+            expected_selected_outbound: Some("SS-READY"),
+            expected_generation: Some(1),
+            expected_runtime_running: Some(true),
+            expected_panel_state_present: Some(true),
+            expected_restrict_traffic: Some(true),
+            start_blocked: None,
+            reload_blocked: None,
+            probe_blocked: Some(probe_blocked),
+            apply_blocked: None,
+            runtime_preserved: Some(panel_subscription_smoke_runtime_preserved(&probe_status)),
+            clear_allowed_runtime: None,
+        },
+    ));
+
+    let apply_error = core.apply_recommended_outbound().err();
+    apply_blocked = apply_error
+        .as_deref()
+        .and_then(panel_subscription_smoke_error_kind_from_detail)
+        .as_deref()
+        == Some("panel-traffic-restricted");
+    let apply_status = core.status();
+    cases.push(panel_subscription_smoke_status_case(
+        "block-recommended-switch-while-restricted",
+        "recommended-switch-rejected",
+        &apply_status,
+        PanelSubscriptionSmokeCaseExpectations {
+            expected_error_kind: Some("panel-traffic-restricted"),
+            error_detail: apply_error,
+            expected_selected_outbound: Some("SS-READY"),
+            expected_generation: Some(1),
+            expected_runtime_running: Some(true),
+            expected_panel_state_present: Some(true),
+            expected_restrict_traffic: Some(true),
+            start_blocked: None,
+            reload_blocked: None,
+            probe_blocked: None,
+            apply_blocked: Some(apply_blocked),
+            runtime_preserved: Some(panel_subscription_smoke_runtime_preserved(&apply_status)),
+            clear_allowed_runtime: None,
+        },
+    ));
+
+    core.clear_panel_state();
+    match core.reload_from_subscription_config_text(&config, Some("SS-READY".to_string())) {
+        Ok(status) => {
+            final_selected_outbound = status.selected_outbound.clone();
+            clear_allowed_runtime = panel_subscription_smoke_runtime_reloaded_after_clear(&status);
+            cases.push(panel_subscription_smoke_status_case(
+                "clear-restriction-allows-reload",
+                "clear-panel-state-reload",
+                &status,
+                PanelSubscriptionSmokeCaseExpectations {
+                    expected_error_kind: None,
+                    error_detail: None,
+                    expected_selected_outbound: Some("SS-READY"),
+                    expected_generation: Some(2),
+                    expected_runtime_running: Some(true),
+                    expected_panel_state_present: Some(false),
+                    expected_restrict_traffic: None,
+                    start_blocked: None,
+                    reload_blocked: None,
+                    probe_blocked: None,
+                    apply_blocked: None,
+                    runtime_preserved: None,
+                    clear_allowed_runtime: Some(clear_allowed_runtime),
+                },
+            ));
+        }
+        Err(error) => cases.push(panel_subscription_smoke_error_case(
+            "clear-restriction-allows-reload",
+            "clear-panel-state-reload",
+            Some("SS-READY"),
+            Some(2),
+            error,
+        )),
+    }
+
+    match core.stop() {
+        Ok(stopped) => {
+            let final_generation = Some(stopped.generation());
+            let stop_drain = stopped.events().iter().rev().find_map(|event| {
+                if let Some(RuntimeDiagnostic::ManagedMixedStopDrain(diagnostic)) =
+                    event.diagnostic.as_ref()
+                {
+                    Some(diagnostic)
+                } else {
+                    None
+                }
+            });
+            stop_workers_remaining = stop_drain.map(|diagnostic| diagnostic.workers_remaining);
+            stop_timed_out = stop_drain.map(|diagnostic| diagnostic.timed_out);
+            clean_stop_observed = matches!(stopped.status(), RuntimeStatus::Stopped)
+                && stop_workers_remaining == Some(0)
+                && stop_timed_out == Some(false);
+            cases.push(panel_subscription_smoke_stop_case(
+                clean_stop_observed,
+                final_generation,
+                stop_workers_remaining,
+                stop_timed_out,
+                None,
+            ));
+        }
+        Err(error) => cases.push(panel_subscription_smoke_stop_case(
+            false,
+            None,
+            None,
+            None,
+            Some(error),
+        )),
+    }
+
+    finalize_panel_subscription_smoke_report(
+        cases,
+        start_blocked,
+        reload_blocked,
+        probe_blocked,
+        apply_blocked,
+        runtime_preserved_while_restricted,
+        clear_allowed_runtime,
+        final_selected_outbound,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+    )
+}
+
+fn panel_subscription_smoke_restricted_panel_state() -> PanelState {
+    PanelState::new(
+        PanelUserState {
+            account_state: PanelAccountState::Limited,
+            used_bytes: Some(1024),
+            total_bytes: Some(1024),
+            expires_at: None,
+        },
+        PanelRiskControlState::Restricted,
+    )
+    .with_support_note("panel smoke restricted traffic")
+}
+
+fn finalize_panel_subscription_smoke_report(
+    cases: Vec<PanelSubscriptionSmokeCaseReport>,
+    start_blocked: bool,
+    reload_blocked: bool,
+    probe_blocked: bool,
+    apply_blocked: bool,
+    runtime_preserved_while_restricted: bool,
+    clear_allowed_runtime: bool,
+    final_selected_outbound: Option<String>,
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+) -> PanelSubscriptionSmokeReport {
+    let passed_count = cases.iter().filter(|case| case.passed).count();
+    let failed: Vec<&str> = cases
+        .iter()
+        .filter(|case| !case.passed)
+        .map(|case| case.name)
+        .collect();
+    let passed = failed.is_empty()
+        && start_blocked
+        && reload_blocked
+        && probe_blocked
+        && apply_blocked
+        && runtime_preserved_while_restricted
+        && clear_allowed_runtime
+        && clean_stop_observed;
+    PanelSubscriptionSmokeReport {
+        passed,
+        detail: format!(
+            "cases={} passed={} failed={} failed_cases={} restricted_account=limited restricted_risk=restricted start_blocked={} reload_blocked={} probe_blocked={} apply_blocked={} runtime_preserved={} clear_allowed_runtime={} final_selected={} clean_stop_observed={} stop_workers_remaining={} stop_timed_out={}",
+            cases.len(),
+            passed_count,
+            failed.len(),
+            if failed.is_empty() {
+                "-".to_string()
+            } else {
+                failed.join(",")
+            },
+            start_blocked,
+            reload_blocked,
+            probe_blocked,
+            apply_blocked,
+            runtime_preserved_while_restricted,
+            clear_allowed_runtime,
+            final_selected_outbound.as_deref().unwrap_or("-"),
+            clean_stop_observed,
+            optional_usize_label(stop_workers_remaining),
+            optional_bool_label(stop_timed_out)
+        ),
+        restricted_account_state: "limited",
+        restricted_risk_control: "restricted",
+        start_blocked,
+        reload_blocked,
+        probe_blocked,
+        apply_blocked,
+        runtime_preserved_while_restricted,
+        clear_allowed_runtime,
+        final_selected_outbound,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+        cases,
+    }
+}
+
+#[derive(Debug)]
+struct PanelSubscriptionSmokeCaseExpectations {
+    expected_error_kind: Option<&'static str>,
+    error_detail: Option<String>,
+    expected_selected_outbound: Option<&'static str>,
+    expected_generation: Option<u64>,
+    expected_runtime_running: Option<bool>,
+    expected_panel_state_present: Option<bool>,
+    expected_restrict_traffic: Option<bool>,
+    start_blocked: Option<bool>,
+    reload_blocked: Option<bool>,
+    probe_blocked: Option<bool>,
+    apply_blocked: Option<bool>,
+    runtime_preserved: Option<bool>,
+    clear_allowed_runtime: Option<bool>,
+}
+
+fn panel_subscription_smoke_status_case(
+    name: &'static str,
+    action: &'static str,
+    status: &ManagedMixedStatusSnapshot,
+    expected: PanelSubscriptionSmokeCaseExpectations,
+) -> PanelSubscriptionSmokeCaseReport {
+    let runtime_running = matches!(&status.status, RuntimeStatus::Running { .. });
+    let observed_error_kind = expected
+        .error_detail
+        .as_deref()
+        .and_then(panel_subscription_smoke_error_kind_from_detail)
+        .or_else(|| {
+            expected.expected_error_kind.and_then(|_| {
+                status
+                    .last_error
+                    .as_ref()
+                    .map(client_error_kind_label)
+                    .map(str::to_string)
+            })
+        });
+    let panel_state_present = status.panel_state.is_some();
+    let restrict_traffic = status
+        .panel_state
+        .as_ref()
+        .map(PanelState::should_restrict_traffic);
+    let error_matches = expected
+        .expected_error_kind
+        .map(|expected| observed_error_kind.as_deref() == Some(expected))
+        .unwrap_or_else(|| observed_error_kind.is_none());
+    let selected_matches = expected
+        .expected_selected_outbound
+        .map(|expected| status.selected_outbound.as_deref() == Some(expected))
+        .unwrap_or(true);
+    let generation_matches = expected
+        .expected_generation
+        .map(|expected| status.generation == expected)
+        .unwrap_or(true);
+    let runtime_matches = expected
+        .expected_runtime_running
+        .map(|expected| runtime_running == expected)
+        .unwrap_or(true);
+    let panel_state_matches = expected
+        .expected_panel_state_present
+        .map(|expected| panel_state_present == expected)
+        .unwrap_or(true);
+    let restrict_matches = expected
+        .expected_restrict_traffic
+        .map(|expected| restrict_traffic == Some(expected))
+        .unwrap_or(true);
+    let passed = error_matches
+        && selected_matches
+        && generation_matches
+        && runtime_matches
+        && panel_state_matches
+        && restrict_matches
+        && expected.start_blocked.unwrap_or(true)
+        && expected.reload_blocked.unwrap_or(true)
+        && expected.probe_blocked.unwrap_or(true)
+        && expected.apply_blocked.unwrap_or(true)
+        && expected.runtime_preserved.unwrap_or(true)
+        && expected.clear_allowed_runtime.unwrap_or(true);
+
+    PanelSubscriptionSmokeCaseReport {
+        name,
+        action,
+        expected_error_kind: expected.expected_error_kind,
+        observed_error_kind,
+        error_detail: expected.error_detail,
+        expected_selected_outbound: expected.expected_selected_outbound.map(str::to_string),
+        observed_selected_outbound: status.selected_outbound.clone(),
+        expected_generation: expected.expected_generation,
+        observed_generation: Some(status.generation),
+        runtime_running: Some(runtime_running),
+        panel_state_present: Some(panel_state_present),
+        restrict_traffic,
+        start_blocked: expected.start_blocked,
+        reload_blocked: expected.reload_blocked,
+        probe_blocked: expected.probe_blocked,
+        apply_blocked: expected.apply_blocked,
+        runtime_preserved: expected.runtime_preserved,
+        clear_allowed_runtime: expected.clear_allowed_runtime,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+    }
+}
+
+fn panel_subscription_smoke_stop_case(
+    clean_stop_observed: bool,
+    final_generation: Option<u64>,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+    error: Option<String>,
+) -> PanelSubscriptionSmokeCaseReport {
+    PanelSubscriptionSmokeCaseReport {
+        name: "stop-runtime-after-panel-smoke",
+        action: "stop",
+        expected_error_kind: None,
+        observed_error_kind: None,
+        error_detail: error,
+        expected_selected_outbound: None,
+        observed_selected_outbound: None,
+        expected_generation: Some(2),
+        observed_generation: final_generation,
+        runtime_running: Some(false),
+        panel_state_present: Some(false),
+        restrict_traffic: None,
+        start_blocked: None,
+        reload_blocked: None,
+        probe_blocked: None,
+        apply_blocked: None,
+        runtime_preserved: None,
+        clear_allowed_runtime: None,
+        clean_stop_observed: Some(clean_stop_observed),
+        stop_workers_remaining,
+        stop_timed_out,
+        passed: clean_stop_observed && final_generation == Some(2),
+    }
+}
+
+fn panel_subscription_smoke_error_case(
+    name: &'static str,
+    action: &'static str,
+    expected_selected_outbound: Option<&'static str>,
+    expected_generation: Option<u64>,
+    error: String,
+) -> PanelSubscriptionSmokeCaseReport {
+    PanelSubscriptionSmokeCaseReport {
+        name,
+        action,
+        expected_error_kind: None,
+        observed_error_kind: panel_subscription_smoke_error_kind_from_detail(&error),
+        error_detail: Some(error),
+        expected_selected_outbound: expected_selected_outbound.map(str::to_string),
+        observed_selected_outbound: None,
+        expected_generation,
+        observed_generation: None,
+        runtime_running: None,
+        panel_state_present: None,
+        restrict_traffic: None,
+        start_blocked: None,
+        reload_blocked: None,
+        probe_blocked: None,
+        apply_blocked: None,
+        runtime_preserved: None,
+        clear_allowed_runtime: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed: false,
+    }
+}
+
+fn panel_subscription_smoke_error_kind_from_detail(error: &str) -> Option<String> {
+    if error.contains("PanelTrafficRestricted") {
+        Some("panel-traffic-restricted".to_string())
+    } else {
+        None
+    }
+}
+
+fn panel_subscription_smoke_runtime_preserved(status: &ManagedMixedStatusSnapshot) -> bool {
+    status.selected_outbound.as_deref() == Some("SS-READY")
+        && status.generation == 1
+        && matches!(
+            status.status,
+            RuntimeStatus::Running {
+                ref selected_outbound,
+                generation,
+                ..
+            } if selected_outbound == "SS-READY" && generation == 1
+        )
+}
+
+fn panel_subscription_smoke_runtime_reloaded_after_clear(
+    status: &ManagedMixedStatusSnapshot,
+) -> bool {
+    status.panel_state.is_none()
+        && status.selected_outbound.as_deref() == Some("SS-READY")
+        && status.generation == 2
+        && matches!(
+            status.status,
+            RuntimeStatus::Running {
+                ref selected_outbound,
+                generation,
+                ..
+            } if selected_outbound == "SS-READY" && generation == 2
+        )
+}
+
+#[cfg(test)]
+mod panel_subscription_smoke_tests {
+    use super::*;
+
+    #[test]
+    fn default_panel_subscription_smoke_blocks_restricted_panel_and_recovers() {
+        let report = collect_default_panel_subscription_smoke_report();
+
+        assert!(report.passed, "{}", report.detail);
+        assert_eq!(report.restricted_account_state, "limited");
+        assert_eq!(report.restricted_risk_control, "restricted");
+        assert!(report.start_blocked);
+        assert!(report.reload_blocked);
+        assert!(report.probe_blocked);
+        assert!(report.apply_blocked);
+        assert!(report.runtime_preserved_while_restricted);
+        assert!(report.clear_allowed_runtime);
+        assert_eq!(report.final_selected_outbound.as_deref(), Some("SS-READY"));
+        assert!(report.clean_stop_observed);
+        assert_eq!(report.stop_workers_remaining, Some(0));
+        assert_eq!(report.stop_timed_out, Some(false));
+        assert_eq!(report.cases.len(), 9);
+
+        for case_name in [
+            "record-restricted-panel-before-start",
+            "block-start-while-restricted",
+            "clear-and-start-runtime",
+            "record-restricted-panel-during-runtime",
+            "block-reload-while-restricted",
+            "block-node-probe-while-restricted",
+            "block-recommended-switch-while-restricted",
+            "clear-restriction-allows-reload",
+            "stop-runtime-after-panel-smoke",
+        ] {
+            let case = report
+                .cases
+                .iter()
+                .find(|case| case.name == case_name)
+                .unwrap_or_else(|| panic!("missing panel smoke case {case_name}"));
+            assert!(case.passed, "{case:?}");
+        }
+
+        let reload = report
+            .cases
+            .iter()
+            .find(|case| case.name == "block-reload-while-restricted")
+            .expect("reload block case");
+        assert_eq!(
+            reload.observed_error_kind.as_deref(),
+            Some("panel-traffic-restricted")
+        );
+        assert_eq!(reload.runtime_preserved, Some(true));
+        assert_eq!(reload.restrict_traffic, Some(true));
+
+        let clear = report
+            .cases
+            .iter()
+            .find(|case| case.name == "clear-restriction-allows-reload")
+            .expect("clear reload case");
+        assert_eq!(clear.clear_allowed_runtime, Some(true));
+        assert_eq!(clear.panel_state_present, Some(false));
+        assert_eq!(clear.observed_generation, Some(2));
     }
 }
 
@@ -11696,6 +12452,14 @@ fn write_readiness_check_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "readiness panel_subscription_smoke status={} cases={} detail={}",
+        panel_subscription_smoke_status_label(&report.panel_subscription_smoke),
+        report.panel_subscription_smoke.cases.len(),
+        report.panel_subscription_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "readiness subscription_reload_smoke status={} cases={} detail={}",
         subscription_reload_smoke_status_label(&report.subscription_reload_smoke),
         report.subscription_reload_smoke.cases.len(),
@@ -11782,6 +12546,9 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         "route_rule_smoke": route_rule_smoke_json_value(&report.route_rule_smoke),
         "dns_policy_smoke": dns_policy_smoke_json_value(&report.dns_policy_smoke),
         "resource_limit_smoke": resource_limit_smoke_json_value(&report.resource_limit_smoke),
+        "panel_subscription_smoke": panel_subscription_smoke_json_value(
+            &report.panel_subscription_smoke
+        ),
         "subscription_reload_smoke": subscription_reload_smoke_json_value(
             &report.subscription_reload_smoke
         ),
@@ -11912,6 +12679,14 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification panel_subscription_smoke status={} cases={} detail={}",
+        panel_subscription_smoke_status_label(&report.panel_subscription_smoke),
+        report.panel_subscription_smoke.cases.len(),
+        report.panel_subscription_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification subscription_reload_smoke status={} cases={} detail={}",
         subscription_reload_smoke_status_label(&report.subscription_reload_smoke),
         report.subscription_reload_smoke.cases.len(),
@@ -12020,6 +12795,7 @@ fn default_core_certification_json_value(
             "route_rule_smoke_passed": report.route_rule_smoke.passed,
             "dns_policy_smoke_passed": report.dns_policy_smoke.passed,
             "resource_limit_smoke_passed": report.resource_limit_smoke.passed,
+            "panel_subscription_smoke_passed": report.panel_subscription_smoke.passed,
             "subscription_reload_smoke_passed": report.subscription_reload_smoke.passed,
             "runtime_recovery_smoke_passed": report.runtime_recovery_smoke.passed,
             "system_proxy_smoke_included": report.include_system_proxy_smoke,
@@ -12046,6 +12822,9 @@ fn default_core_certification_json_value(
         "route_rule_smoke": route_rule_smoke_json_value(&report.route_rule_smoke),
         "dns_policy_smoke": dns_policy_smoke_json_value(&report.dns_policy_smoke),
         "resource_limit_smoke": resource_limit_smoke_json_value(&report.resource_limit_smoke),
+        "panel_subscription_smoke": panel_subscription_smoke_json_value(
+            &report.panel_subscription_smoke
+        ),
         "subscription_reload_smoke": subscription_reload_smoke_json_value(
             &report.subscription_reload_smoke
         ),
@@ -12198,6 +12977,72 @@ fn resource_limit_smoke_case_json_value(case: &ResourceLimitSmokeCaseReport) -> 
         "stop_timed_out": case.stop_timed_out,
         "passed": case.passed,
         "error": &case.error,
+    })
+}
+
+fn panel_subscription_smoke_status_label(report: &PanelSubscriptionSmokeReport) -> &'static str {
+    if report.passed {
+        "passed"
+    } else {
+        "failed"
+    }
+}
+
+fn panel_subscription_smoke_json_value(report: &PanelSubscriptionSmokeReport) -> serde_json::Value {
+    let cases: Vec<_> = report
+        .cases
+        .iter()
+        .map(panel_subscription_smoke_case_json_value)
+        .collect();
+    serde_json::json!({
+        "status": panel_subscription_smoke_status_label(report),
+        "passed": report.passed,
+        "detail": &report.detail,
+        "restricted_account_state": report.restricted_account_state,
+        "restricted_risk_control": report.restricted_risk_control,
+        "start_blocked": report.start_blocked,
+        "reload_blocked": report.reload_blocked,
+        "probe_blocked": report.probe_blocked,
+        "apply_blocked": report.apply_blocked,
+        "runtime_preserved_while_restricted": report.runtime_preserved_while_restricted,
+        "clear_allowed_runtime": report.clear_allowed_runtime,
+        "final_selected_outbound": &report.final_selected_outbound,
+        "clean_stop_observed": report.clean_stop_observed,
+        "stop_workers_remaining": report.stop_workers_remaining,
+        "stop_timed_out": report.stop_timed_out,
+        "case_count": report.cases.len(),
+        "passed_case_count": report.cases.iter().filter(|case| case.passed).count(),
+        "failed_case_count": report.cases.iter().filter(|case| !case.passed).count(),
+        "cases": cases,
+    })
+}
+
+fn panel_subscription_smoke_case_json_value(
+    case: &PanelSubscriptionSmokeCaseReport,
+) -> serde_json::Value {
+    serde_json::json!({
+        "name": case.name,
+        "action": case.action,
+        "expected_error_kind": case.expected_error_kind,
+        "observed_error_kind": &case.observed_error_kind,
+        "error_detail": &case.error_detail,
+        "expected_selected_outbound": &case.expected_selected_outbound,
+        "observed_selected_outbound": &case.observed_selected_outbound,
+        "expected_generation": case.expected_generation,
+        "observed_generation": case.observed_generation,
+        "runtime_running": case.runtime_running,
+        "panel_state_present": case.panel_state_present,
+        "restrict_traffic": case.restrict_traffic,
+        "start_blocked": case.start_blocked,
+        "reload_blocked": case.reload_blocked,
+        "probe_blocked": case.probe_blocked,
+        "apply_blocked": case.apply_blocked,
+        "runtime_preserved": case.runtime_preserved,
+        "clear_allowed_runtime": case.clear_allowed_runtime,
+        "clean_stop_observed": case.clean_stop_observed,
+        "stop_workers_remaining": case.stop_workers_remaining,
+        "stop_timed_out": case.stop_timed_out,
+        "passed": case.passed,
     })
 }
 

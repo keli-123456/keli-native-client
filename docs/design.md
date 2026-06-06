@@ -411,7 +411,7 @@ The first implementation target is deliberately small:
    resource-limit smoke coverage, route-rule runtime smoke coverage,
    DNS policy smoke coverage, managed
    subscription reload smoke coverage, runtime recovery smoke coverage, managed
-   panel/subscription state, system proxy support, TUN backend wiring, route
+   panel/subscription smoke coverage, system proxy support, TUN backend wiring, route
    takeover wiring, and TUN preflight state into one text or JSON report.
    Gates can pass, fail, or be skipped, so CI and desktop integrations can see
    exactly why the native core is or is not ready to become the default Keli core
@@ -431,7 +431,11 @@ The first implementation target is deliberately small:
    connection worker, holds one SOCKS5 handshake open to occupy that worker,
    verifies a second connection is rejected with `connection_limit_reached`
    metrics, then releases the held client and confirms workers drain before
-   clean stop. The default subscription reload smoke starts a local managed mixed runtime, records node
+   clean stop. The default panel/subscription smoke records a restricted panel
+   state, verifies restricted traffic blocks start, reload, node probe, and
+   recommended switch actions, confirms the already-running core stays on the
+   selected outbound while restricted, then clears the panel restriction and
+   verifies the runtime can reload and stop cleanly. The default subscription reload smoke starts a local managed mixed runtime, records node
    health, proves planned reload preserves the selected outbound when it still
    exists, proves fallback to the new subscription default when the selected
    node disappears, verifies stale health pruning, and requires a clean
@@ -497,12 +501,12 @@ The first implementation target is deliberately small:
    checks and exporting one promotion artifact with the embedded readiness
    report, TUN backend packaging evidence, structured TUN preflight evidence,
    route-rule smoke evidence, DNS policy smoke evidence, subscription reload
-   smoke evidence, resource-limit smoke evidence, runtime recovery smoke evidence, certification
+   smoke evidence, resource-limit smoke evidence, panel/subscription smoke evidence, runtime recovery smoke evidence, certification
    parameters, and final
    `ready_for_default_core` decision for release automation and UI handoff. The
    certification artifact mirrors the blocker summary as `promotion_blockers`
    and reports `blocking_gate_count` alongside the soak, route-rule,
-   DNS-policy, resource-limit, subscription-reload, runtime-recovery,
+   DNS-policy, resource-limit, panel/subscription, subscription-reload, runtime-recovery,
    preflight, and backend evidence.
    Certification parameters include `soak_min_duration_ms`, so a promotion
    record can prove both traffic success and a minimum managed-runtime window.

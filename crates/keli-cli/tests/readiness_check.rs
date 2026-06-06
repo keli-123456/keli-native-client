@@ -140,6 +140,77 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(rejected["observed_error_kind"], "connection_limit_reached");
     assert_eq!(rejected["worker_limit_enforced"], true);
     assert_eq!(rejected["metrics_recorded"], true);
+    assert_eq!(report["panel_subscription_smoke"]["status"], "passed");
+    assert_eq!(report["panel_subscription_smoke"]["passed"], true);
+    assert_eq!(report["panel_subscription_smoke"]["case_count"], 9);
+    assert_eq!(report["panel_subscription_smoke"]["failed_case_count"], 0);
+    assert_eq!(
+        report["panel_subscription_smoke"]["restricted_account_state"],
+        "limited"
+    );
+    assert_eq!(
+        report["panel_subscription_smoke"]["restricted_risk_control"],
+        "restricted"
+    );
+    assert_eq!(report["panel_subscription_smoke"]["start_blocked"], true);
+    assert_eq!(report["panel_subscription_smoke"]["reload_blocked"], true);
+    assert_eq!(report["panel_subscription_smoke"]["probe_blocked"], true);
+    assert_eq!(report["panel_subscription_smoke"]["apply_blocked"], true);
+    assert_eq!(
+        report["panel_subscription_smoke"]["runtime_preserved_while_restricted"],
+        true
+    );
+    assert_eq!(
+        report["panel_subscription_smoke"]["clear_allowed_runtime"],
+        true
+    );
+    assert_eq!(
+        report["panel_subscription_smoke"]["final_selected_outbound"],
+        "SS-READY"
+    );
+    assert_eq!(
+        report["panel_subscription_smoke"]["clean_stop_observed"],
+        true
+    );
+    let panel_cases = report["panel_subscription_smoke"]["cases"]
+        .as_array()
+        .expect("panel subscription smoke cases");
+    let panel_case_names: Vec<_> = panel_cases
+        .iter()
+        .filter_map(|case| case["name"].as_str())
+        .collect();
+    for expected in [
+        "record-restricted-panel-before-start",
+        "block-start-while-restricted",
+        "clear-and-start-runtime",
+        "record-restricted-panel-during-runtime",
+        "block-reload-while-restricted",
+        "block-node-probe-while-restricted",
+        "block-recommended-switch-while-restricted",
+        "clear-restriction-allows-reload",
+        "stop-runtime-after-panel-smoke",
+    ] {
+        assert!(
+            panel_case_names.contains(&expected),
+            "missing panel smoke case {expected}: {panel_case_names:?}"
+        );
+    }
+    let reload_block = panel_cases
+        .iter()
+        .find(|case| case["name"] == "block-reload-while-restricted")
+        .expect("panel reload block case");
+    assert_eq!(
+        reload_block["observed_error_kind"],
+        "panel-traffic-restricted"
+    );
+    assert_eq!(reload_block["runtime_preserved"], true);
+    let clear_reload = panel_cases
+        .iter()
+        .find(|case| case["name"] == "clear-restriction-allows-reload")
+        .expect("panel clear reload case");
+    assert_eq!(clear_reload["clear_allowed_runtime"], true);
+    assert_eq!(clear_reload["panel_state_present"], false);
+    assert_eq!(clear_reload["observed_generation"], 2);
     assert_eq!(report["subscription_reload_smoke"]["status"], "passed");
     assert_eq!(report["subscription_reload_smoke"]["passed"], true);
     assert_eq!(report["subscription_reload_smoke"]["case_count"], 4);
@@ -417,6 +488,18 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
         .expect("resource limits detail")
         .contains("worker_limit_enforced=true"));
 
+    let panel_state = gate(gates, "panel-subscription-state");
+    assert_eq!(panel_state["category"], "managed-runtime");
+    assert_eq!(panel_state["status"], "passed");
+    assert!(panel_state["detail"]
+        .as_str()
+        .expect("panel state detail")
+        .contains("panel_subscription_smoke=cases=9"));
+    assert!(panel_state["detail"]
+        .as_str()
+        .expect("panel state detail")
+        .contains("runtime_preserved=true"));
+
     let subscription_reload = gate(gates, "subscription-reload-smoke");
     assert_eq!(subscription_reload["category"], "managed-runtime");
     assert_eq!(subscription_reload["status"], "passed");
@@ -553,6 +636,7 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(output.contains("readiness route_rule_smoke status=passed cases=3"));
     assert!(output.contains("readiness dns_policy_smoke status=passed cases=4"));
     assert!(output.contains("readiness resource_limit_smoke status=passed cases=5"));
+    assert!(output.contains("readiness panel_subscription_smoke status=passed cases=9"));
     assert!(output.contains("readiness subscription_reload_smoke status=passed cases=4"));
     assert!(output.contains("readiness runtime_recovery_smoke status=passed cases=4"));
     assert!(output.contains("readiness system_proxy_smoke status=not-run included=false"));
@@ -647,6 +731,33 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
         "passed"
     );
     assert_eq!(report["readiness"]["resource_limit_smoke"]["case_count"], 5);
+    assert_eq!(
+        report["certification"]["panel_subscription_smoke_passed"],
+        true
+    );
+    assert_eq!(report["panel_subscription_smoke"]["status"], "passed");
+    assert_eq!(report["panel_subscription_smoke"]["case_count"], 9);
+    assert_eq!(report["panel_subscription_smoke"]["failed_case_count"], 0);
+    assert_eq!(report["panel_subscription_smoke"]["start_blocked"], true);
+    assert_eq!(report["panel_subscription_smoke"]["reload_blocked"], true);
+    assert_eq!(report["panel_subscription_smoke"]["probe_blocked"], true);
+    assert_eq!(report["panel_subscription_smoke"]["apply_blocked"], true);
+    assert_eq!(
+        report["panel_subscription_smoke"]["runtime_preserved_while_restricted"],
+        true
+    );
+    assert_eq!(
+        report["panel_subscription_smoke"]["clear_allowed_runtime"],
+        true
+    );
+    assert_eq!(
+        report["readiness"]["panel_subscription_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(
+        report["readiness"]["panel_subscription_smoke"]["case_count"],
+        9
+    );
     assert_eq!(
         report["certification"]["subscription_reload_smoke_passed"],
         true
@@ -825,6 +936,7 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert_eq!(gate(gates, "route-rule-smoke")["status"], "passed");
     assert_eq!(gate(gates, "dns-policy-smoke")["status"], "passed");
     assert_eq!(gate(gates, "resource-limits")["status"], "passed");
+    assert_eq!(gate(gates, "panel-subscription-state")["status"], "passed");
     assert_eq!(gate(gates, "subscription-reload-smoke")["status"], "passed");
     assert_eq!(gate(gates, "runtime-recovery-smoke")["status"], "passed");
     assert_eq!(gate(gates, "mixed-soak-socks5")["status"], "passed");
@@ -858,6 +970,8 @@ fn default_core_certification_text_reports_summary_and_gates() {
     assert!(
         output.contains("default_core_certification resource_limit_smoke status=passed cases=5")
     );
+    assert!(output
+        .contains("default_core_certification panel_subscription_smoke status=passed cases=9"));
     assert!(output
         .contains("default_core_certification subscription_reload_smoke status=passed cases=4"));
     assert!(
