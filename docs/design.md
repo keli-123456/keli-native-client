@@ -432,6 +432,11 @@ The first implementation target is deliberately small:
    outbound to a loopback encrypted TCP echo server, verifies the payload round
    trip, confirms the SS server saw the expected target/payload, and checks
    managed `socks5`/outbound metrics plus clean stop-drain evidence. The
+   default SOCKS5 TCP outbound relay smoke starts a managed mixed runtime from
+   a local SOCKS5 subscription node, drives SOCKS5 CONNECT through the selected
+   SOCKS5 outbound, verifies username/password auth and CONNECT target at a
+   local SOCKS5 proxy server, completes the payload round trip, records
+   `socks5`/outbound metrics, and stops cleanly. The
    default HTTP CONNECT relay smoke drives the same encrypted TCP outbound
    through the HTTP CONNECT inbound path, proving system-proxy-style traffic
    can complete the payload round trip, record `http-connect`/outbound
@@ -567,7 +572,7 @@ The first implementation target is deliberately small:
    `default-core-certify` builds on that gate by running the non-skipped soak
    checks and exporting one promotion artifact with the embedded readiness
    report, TUN backend packaging evidence, structured TUN preflight evidence,
-   route-rule smoke evidence, DNS policy smoke evidence, TCP relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VMess TCP relay smoke evidence, Mieru TCP relay smoke evidence, UDP relay smoke evidence, subscription reload
+   route-rule smoke evidence, DNS policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VMess TCP relay smoke evidence, Mieru TCP relay smoke evidence, UDP relay smoke evidence, subscription reload
    smoke evidence, resource-limit smoke evidence, panel/subscription smoke evidence, runtime recovery smoke evidence, certification
    parameters, and final
    `ready_for_default_core` decision for release automation and UI handoff. The
