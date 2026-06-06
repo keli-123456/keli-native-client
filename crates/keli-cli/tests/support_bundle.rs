@@ -294,6 +294,10 @@ proxies:
         "tun-runtime-smoke-route-takeover-snapshot"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][20],
+        "tun-runtime-smoke-route-selection-evidence"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -367,26 +371,30 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][12],
-        "non-skipped-soak"
+        "tun-runtime-smoke-route-selection-evidence"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][13],
-        "soak-parameters"
+        "non-skipped-soak"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][14],
+        "soak-parameters"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][15],
         "soak-min-duration"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][16],
+        report["doctor"]["default_core_certification_capabilities"][17],
         "promotion-blockers"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][18],
+        report["doctor"]["default_core_certification_capabilities"][19],
         "text-summary"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][19],
+        report["doctor"]["default_core_certification_capabilities"][20],
         "support-bundle-export"
     );
     assert_eq!(
@@ -839,6 +847,19 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     assert!(certification["tun_runtime_smoke"]["traffic_stimulus_payload_bytes"].is_null());
     assert!(certification["tun_runtime_smoke"]["traffic_stimulus_error_count"].is_null());
     assert!(certification["tun_runtime_smoke"]["traffic_stimulus_errors"].is_null());
+    assert!(
+        certification["tun_runtime_smoke"]["traffic_stimulus_route_lookup_attempted"].is_null()
+    );
+    assert!(certification["tun_runtime_smoke"]["traffic_stimulus_route_lookup_command"].is_null());
+    assert!(
+        certification["tun_runtime_smoke"]["traffic_stimulus_route_lookup_exit_success"].is_null()
+    );
+    assert!(
+        certification["tun_runtime_smoke"]["traffic_stimulus_route_lookup_exit_code"].is_null()
+    );
+    assert!(certification["tun_runtime_smoke"]["traffic_stimulus_route_lookup_stdout"].is_null());
+    assert!(certification["tun_runtime_smoke"]["traffic_stimulus_route_lookup_stderr"].is_null());
+    assert!(certification["tun_runtime_smoke"]["traffic_stimulus_route_lookup_error"].is_null());
     assert!(certification["tun_runtime_smoke"]["traffic_stimulus_ping_attempted"].is_null());
     assert!(certification["tun_runtime_smoke"]["traffic_stimulus_ping_command"].is_null());
     assert!(certification["tun_runtime_smoke"]["traffic_stimulus_ping_timeout_ms"].is_null());

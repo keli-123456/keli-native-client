@@ -85,16 +85,16 @@ const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_INTERVAL: Duration = Duration::from_mil
 const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_WRITE_TIMEOUT: Duration = Duration::from_millis(50);
 const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_PAYLOAD: &[u8] = b"keli-tun-runtime-smoke";
 const TUN_RUNTIME_SMOKE_TRAFFIC_PING_TIMEOUT_MS: u64 = 250;
-const TUN_RUNTIME_SMOKE_TRAFFIC_PING_OUTPUT_CHAR_LIMIT: usize = 1200;
+const TUN_RUNTIME_SMOKE_COMMAND_OUTPUT_CHAR_LIMIT: usize = 2400;
 const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 22;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 12;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 23;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 13;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 12;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 12;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 13;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 13;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 3;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -119,11 +119,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-route-takeover-snapshot";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-route-takeover-snapshot,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -6709,6 +6709,13 @@ pub struct TunRuntimeSmokeTrafficStimulusReport {
     pub sent_packets: usize,
     pub payload_bytes: usize,
     pub errors: Vec<String>,
+    pub route_lookup_attempted: bool,
+    pub route_lookup_command: String,
+    pub route_lookup_exit_success: Option<bool>,
+    pub route_lookup_exit_code: Option<i32>,
+    pub route_lookup_stdout: Option<String>,
+    pub route_lookup_stderr: Option<String>,
+    pub route_lookup_error: Option<String>,
     pub ping_attempted: bool,
     pub ping_command: String,
     pub ping_timeout_ms: u64,
@@ -7382,6 +7389,13 @@ fn send_tun_runtime_smoke_traffic_stimulus() -> TunRuntimeSmokeTrafficStimulusRe
         sent_packets: 0,
         payload_bytes: TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_PAYLOAD.len(),
         errors: Vec::new(),
+        route_lookup_attempted: false,
+        route_lookup_command: tun_runtime_smoke_route_lookup_command(),
+        route_lookup_exit_success: None,
+        route_lookup_exit_code: None,
+        route_lookup_stdout: None,
+        route_lookup_stderr: None,
+        route_lookup_error: None,
         ping_attempted: false,
         ping_command: tun_runtime_smoke_ping_command(),
         ping_timeout_ms: TUN_RUNTIME_SMOKE_TRAFFIC_PING_TIMEOUT_MS,
@@ -7391,6 +7405,7 @@ fn send_tun_runtime_smoke_traffic_stimulus() -> TunRuntimeSmokeTrafficStimulusRe
         ping_stderr: None,
         ping_error: None,
     };
+    run_tun_runtime_smoke_route_lookup(&mut report);
     match UdpSocket::bind(TUN_RUNTIME_SMOKE_TRAFFIC_SOURCE) {
         Ok(socket) => {
             if let Err(error) =
@@ -7438,6 +7453,13 @@ fn tun_runtime_smoke_traffic_stimulus_not_attempted() -> TunRuntimeSmokeTrafficS
         sent_packets: 0,
         payload_bytes: TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_PAYLOAD.len(),
         errors: Vec::new(),
+        route_lookup_attempted: false,
+        route_lookup_command: tun_runtime_smoke_route_lookup_command(),
+        route_lookup_exit_success: None,
+        route_lookup_exit_code: None,
+        route_lookup_stdout: None,
+        route_lookup_stderr: None,
+        route_lookup_error: None,
         ping_attempted: false,
         ping_command: tun_runtime_smoke_ping_command(),
         ping_timeout_ms: TUN_RUNTIME_SMOKE_TRAFFIC_PING_TIMEOUT_MS,
@@ -7446,6 +7468,25 @@ fn tun_runtime_smoke_traffic_stimulus_not_attempted() -> TunRuntimeSmokeTrafficS
         ping_stdout: None,
         ping_stderr: None,
         ping_error: None,
+    }
+}
+
+fn tun_runtime_smoke_route_lookup_command() -> String {
+    "route print -4".to_string()
+}
+
+fn run_tun_runtime_smoke_route_lookup(report: &mut TunRuntimeSmokeTrafficStimulusReport) {
+    report.route_lookup_attempted = true;
+    match Command::new("route").args(["print", "-4"]).output() {
+        Ok(output) => {
+            report.route_lookup_exit_success = Some(output.status.success());
+            report.route_lookup_exit_code = output.status.code();
+            report.route_lookup_stdout = Some(tun_runtime_smoke_command_output(&output.stdout));
+            report.route_lookup_stderr = Some(tun_runtime_smoke_command_output(&output.stderr));
+        }
+        Err(error) => {
+            report.route_lookup_error = Some(format!("run route lookup: {error}"));
+        }
     }
 }
 
@@ -7482,7 +7523,7 @@ fn tun_runtime_smoke_command_output(output: &[u8]) -> String {
     let mut characters = value.chars();
     let mut collected: String = characters
         .by_ref()
-        .take(TUN_RUNTIME_SMOKE_TRAFFIC_PING_OUTPUT_CHAR_LIMIT)
+        .take(TUN_RUNTIME_SMOKE_COMMAND_OUTPUT_CHAR_LIMIT)
         .collect();
     if characters.next().is_some() {
         collected.push_str("...<truncated>");
@@ -7638,8 +7679,21 @@ fn tun_runtime_smoke_detail(
         .as_deref()
         .map(sanitize_runtime_note_value)
         .unwrap_or_else(|| "-".to_string());
+    let route_lookup_exit_success = traffic_stimulus
+        .route_lookup_exit_success
+        .map(|success| success.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let route_lookup_exit_code = traffic_stimulus
+        .route_lookup_exit_code
+        .map(|code| code.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let route_lookup_error = traffic_stimulus
+        .route_lookup_error
+        .as_deref()
+        .map(sanitize_runtime_note_value)
+        .unwrap_or_else(|| "-".to_string());
     format!(
-        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} dropped={} unsupported={} route_takeover_expected_prefixes_present={} route_takeover_missing_prefixes={} traffic_stimulus_required={} traffic_stimulus_attempted={} traffic_stimulus_observed={} traffic_stimulus_source={} traffic_stimulus_target={} traffic_stimulus_attempts={} traffic_stimulus_sent_packets={} traffic_stimulus_error_count={} traffic_stimulus_ping_attempted={} traffic_stimulus_ping_command={} traffic_stimulus_ping_timeout_ms={} traffic_stimulus_ping_exit_success={} traffic_stimulus_ping_exit_code={} traffic_stimulus_ping_error={} traffic_packets_observed={} traffic_drop_observed={} traffic_stimulus_drop_observed={} last_dropped_matched_rule={} exit_reason={} stop_requested={} clean_stop_observed={} residual_state_clean={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
+        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} dropped={} unsupported={} route_takeover_expected_prefixes_present={} route_takeover_missing_prefixes={} traffic_stimulus_required={} traffic_stimulus_attempted={} traffic_stimulus_observed={} traffic_stimulus_source={} traffic_stimulus_target={} traffic_stimulus_attempts={} traffic_stimulus_sent_packets={} traffic_stimulus_error_count={} traffic_stimulus_route_lookup_attempted={} traffic_stimulus_route_lookup_exit_success={} traffic_stimulus_route_lookup_exit_code={} traffic_stimulus_route_lookup_error={} traffic_stimulus_ping_attempted={} traffic_stimulus_ping_command={} traffic_stimulus_ping_timeout_ms={} traffic_stimulus_ping_exit_success={} traffic_stimulus_ping_exit_code={} traffic_stimulus_ping_error={} traffic_packets_observed={} traffic_drop_observed={} traffic_stimulus_drop_observed={} last_dropped_matched_rule={} exit_reason={} stop_requested={} clean_stop_observed={} residual_state_clean={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
         report.config.interface_name,
         report.owns_device,
         report.start_snapshot.running,
@@ -7658,6 +7712,10 @@ fn tun_runtime_smoke_detail(
         traffic_stimulus.attempts,
         traffic_stimulus.sent_packets,
         traffic_stimulus.errors.len(),
+        traffic_stimulus.route_lookup_attempted,
+        route_lookup_exit_success,
+        route_lookup_exit_code,
+        route_lookup_error,
         traffic_stimulus.ping_attempted,
         sanitize_runtime_note_value(&traffic_stimulus.ping_command),
         traffic_stimulus.ping_timeout_ms,
@@ -8113,6 +8171,34 @@ fn tun_runtime_smoke_json_value(
     field!(
         "traffic_stimulus_errors",
         report.map(|report| &report.traffic_stimulus.errors)
+    );
+    field!(
+        "traffic_stimulus_route_lookup_attempted",
+        report.map(|report| report.traffic_stimulus.route_lookup_attempted)
+    );
+    field!(
+        "traffic_stimulus_route_lookup_command",
+        report.map(|report| report.traffic_stimulus.route_lookup_command.as_str())
+    );
+    field!(
+        "traffic_stimulus_route_lookup_exit_success",
+        report.and_then(|report| report.traffic_stimulus.route_lookup_exit_success)
+    );
+    field!(
+        "traffic_stimulus_route_lookup_exit_code",
+        report.and_then(|report| report.traffic_stimulus.route_lookup_exit_code)
+    );
+    field!(
+        "traffic_stimulus_route_lookup_stdout",
+        report.and_then(|report| report.traffic_stimulus.route_lookup_stdout.as_deref())
+    );
+    field!(
+        "traffic_stimulus_route_lookup_stderr",
+        report.and_then(|report| report.traffic_stimulus.route_lookup_stderr.as_deref())
+    );
+    field!(
+        "traffic_stimulus_route_lookup_error",
+        report.and_then(|report| report.traffic_stimulus.route_lookup_error.as_deref())
     );
     field!(
         "traffic_stimulus_ping_attempted",

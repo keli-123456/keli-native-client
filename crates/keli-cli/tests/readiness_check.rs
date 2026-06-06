@@ -61,6 +61,13 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_payload_bytes"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_error_count"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_errors"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_route_lookup_attempted"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_route_lookup_command"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_route_lookup_exit_success"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_route_lookup_exit_code"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_route_lookup_stdout"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_route_lookup_stderr"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_route_lookup_error"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_ping_attempted"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_ping_command"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_ping_timeout_ms"].is_null());
@@ -309,6 +316,13 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_payload_bytes"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_error_count"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_errors"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_route_lookup_attempted"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_route_lookup_command"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_route_lookup_exit_success"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_route_lookup_exit_code"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_route_lookup_stdout"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_route_lookup_stderr"].is_null());
+    assert!(report["tun_runtime_smoke"]["traffic_stimulus_route_lookup_error"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_ping_attempted"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_ping_command"].is_null());
     assert!(report["tun_runtime_smoke"]["traffic_stimulus_ping_timeout_ms"].is_null());
