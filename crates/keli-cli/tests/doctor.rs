@@ -51,7 +51,7 @@ fn doctor_report_lists_supported_outbounds() {
         "readiness_check_capabilities=doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates"
     ));
     assert!(output.contains(
-        "tun_backend_check_capabilities=backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail"
+        "tun_backend_check_capabilities=backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install"
     ));
     assert!(output.contains(
         "supported_outbounds=direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic"
@@ -589,6 +589,10 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(
         report["tun_backend_check_capabilities"][8],
         "readiness-blocker-detail"
+    );
+    assert_eq!(
+        report["tun_backend_check_capabilities"][9],
+        "validated-runtime-install"
     );
     assert_eq!(
         report["resource_limits"]["runtime_event_history"],

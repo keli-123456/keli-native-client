@@ -138,6 +138,9 @@ IPv6 TUN addresses) and removes them on stop so traffic capture is paired with
 cleanup. Doctor, support bundles, and readiness checks include this backend
 detail so the default-core blocker is actionable instead of a generic
 unavailable state.
+`tun-backend-install` can copy an extracted official `wintun.dll` into the CLI
+runtime directory after validating that the DLL exports the Wintun API, then
+returns a text or JSON install report for packagers and local setup scripts.
 A bounded managed TUN packet-loop runner now ties lifecycle guard, packet I/O,
 net-core loop summary, and owned-device cleanup into one tested control path.
 Direct UDP TUN relay can execute an injected UDP relay, wrap the relay payload
@@ -387,6 +390,7 @@ $env:CARGO_INCREMENTAL='0'; cargo test --workspace -j 1
 cargo run -p keli-cli -- doctor
 cargo run -p keli-cli -- doctor --format json
 cargo run -p keli-cli -- tun-backend-check --format json
+cargo run -p keli-cli -- tun-backend-install --source C:\path\to\wintun.dll --format json
 cargo run -p keli-cli -- interop-matrix --format json
 cargo run -p keli-cli -- readiness-check --format json
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml

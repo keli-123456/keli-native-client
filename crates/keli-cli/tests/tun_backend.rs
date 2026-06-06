@@ -1,4 +1,8 @@
-use keli_cli::{write_tun_backend_check_report, ProbeOutputFormat};
+use std::path::PathBuf;
+
+use keli_cli::{
+    write_tun_backend_check_report, write_tun_backend_install_report, ProbeOutputFormat,
+};
 use serde_json::Value;
 
 #[test]
@@ -51,4 +55,19 @@ fn tun_backend_check_text_reports_install_or_wiring_detail() {
     assert!(output.contains("packet_io_wired=true"));
     assert!(output.contains("route_takeover_wired=true"));
     assert!(output.contains("searched_path="));
+}
+
+#[test]
+fn tun_backend_install_reports_missing_source_path() {
+    let mut output = Vec::new();
+
+    let error = write_tun_backend_install_report(
+        PathBuf::from(r"C:\definitely-missing\wintun.dll"),
+        None,
+        ProbeOutputFormat::Json,
+        &mut output,
+    )
+    .expect_err("missing source should fail");
+
+    assert!(error.contains("Wintun source DLL was not found"));
 }

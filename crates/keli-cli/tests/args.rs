@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
 use keli_cli::{
@@ -110,6 +111,29 @@ fn parses_tun_backend_check_json_command() {
         command,
         CliCommand::TunBackendCheck {
             output: ProbeOutputFormat::Json
+        }
+    );
+}
+
+#[test]
+fn parses_tun_backend_install_json_command() {
+    let command = parse_cli_command([
+        "tun-backend-install",
+        "--source",
+        r"C:\wintun\bin\amd64\wintun.dll",
+        "--target-dir",
+        r"C:\keli\runtime",
+        "--format",
+        "json",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::TunBackendInstall {
+            source: PathBuf::from(r"C:\wintun\bin\amd64\wintun.dll"),
+            target_dir: Some(PathBuf::from(r"C:\keli\runtime")),
+            output: ProbeOutputFormat::Json,
         }
     );
 }

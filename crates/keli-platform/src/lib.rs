@@ -1,4 +1,5 @@
 use std::fmt;
+use std::fs;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -278,6 +279,16 @@ pub struct TunBackendStatus {
     pub install_required: bool,
     pub searched_paths: Vec<String>,
     pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WintunInstallReport {
+    pub source_path: String,
+    pub target_path: String,
+    pub copied_bytes: u64,
+    pub previous_target_present: bool,
+    pub driver_api_available: bool,
+    pub ready_after_install: bool,
 }
 
 impl TunBackendStatus {
@@ -737,6 +748,85 @@ fn windows_tun_driver_api_available(path: &Path) -> Result<(), String> {
         let _ = path;
         Err("Wintun API can only be loaded on Windows".to_string())
     }
+}
+
+pub fn install_wintun_library(
+    source_path: impl AsRef<Path>,
+    target_dir: Option<impl AsRef<Path>>,
+) -> Result<WintunInstallReport, TunDeviceError> {
+    let source_path = source_path.as_ref();
+    if !source_path.is_file() {
+        return Err(TunDeviceError::Io(format!(
+            "Wintun source DLL was not found: {}",
+            source_path.display()
+        )));
+    }
+    windows_tun_driver_api_available(source_path).map_err(|error| {
+        TunDeviceError::Io(format!("source Wintun DLL failed API validation: {error}"))
+    })?;
+
+    let target_dir = match target_dir {
+        Some(target_dir) => target_dir.as_ref().to_path_buf(),
+        None => default_wintun_install_dir()?,
+    };
+    fs::create_dir_all(&target_dir).map_err(|error| {
+        TunDeviceError::Io(format!(
+            "create Wintun target directory {}: {error}",
+            target_dir.display()
+        ))
+    })?;
+    let target_path = target_dir.join("wintun.dll");
+    let previous_target_present = target_path.is_file();
+
+    let source_canonical = fs::canonicalize(source_path).map_err(|error| {
+        TunDeviceError::Io(format!(
+            "canonicalize Wintun source {}: {error}",
+            source_path.display()
+        ))
+    })?;
+    let target_canonical = fs::canonicalize(&target_path).ok();
+    if target_canonical.as_ref() != Some(&source_canonical) {
+        fs::copy(source_path, &target_path).map_err(|error| {
+            TunDeviceError::Io(format!(
+                "copy Wintun DLL {} -> {}: {error}",
+                source_path.display(),
+                target_path.display()
+            ))
+        })?;
+    }
+
+    windows_tun_driver_api_available(&target_path).map_err(|error| {
+        TunDeviceError::Io(format!(
+            "installed Wintun DLL failed API validation: {error}"
+        ))
+    })?;
+    let copied_bytes = fs::metadata(&target_path)
+        .map_err(|error| {
+            TunDeviceError::Io(format!(
+                "stat installed Wintun DLL {}: {error}",
+                target_path.display()
+            ))
+        })?
+        .len();
+    let backend = windows_tun_backend_status(vec![target_path.clone()]);
+
+    Ok(WintunInstallReport {
+        source_path: source_path.display().to_string(),
+        target_path: target_path.display().to_string(),
+        copied_bytes,
+        previous_target_present,
+        driver_api_available: backend.driver_api_available,
+        ready_after_install: backend.is_ready(),
+    })
+}
+
+fn default_wintun_install_dir() -> Result<PathBuf, TunDeviceError> {
+    let current_exe = std::env::current_exe()
+        .map_err(|error| TunDeviceError::Io(format!("resolve current executable: {error}")))?;
+    current_exe
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| TunDeviceError::Io("current executable has no parent directory".to_string()))
 }
 
 fn windows_tun_library_search_paths() -> Vec<PathBuf> {

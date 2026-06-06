@@ -133,7 +133,10 @@ The first implementation target is deliberately small:
    active address family, removes them on stop, and feeds packet I/O into the
    existing net-core TUN loop. Doctor, support bundles, and readiness gates
    include this backend status so packagers and UI flows can distinguish missing
-   driver assets from runtime API availability.
+   driver assets from runtime API availability. `tun-backend-install` adds a
+   validated install path for an extracted official `wintun.dll`, copying it to
+   the runtime directory and reporting whether the backend is ready after the
+   install.
    DNS hijack now has a local SOCKS5 UDP path for A/AAAA wire queries, using the
    existing DNS engine and policy controls to return synthetic DNS responses
    instead of relaying hijacked DNS traffic to the original resolver.

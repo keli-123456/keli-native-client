@@ -255,6 +255,10 @@ proxies:
         "readiness-blocker-detail"
     );
     assert_eq!(
+        report["doctor"]["tun_backend_check_capabilities"][9],
+        "validated-runtime-install"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
