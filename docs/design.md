@@ -421,9 +421,11 @@ The first implementation target is deliberately small:
    diagnostic. The smoke gate holds the runtime for at least 50ms by default,
    can be tuned with `--tun-runtime-smoke-min-duration-ms`, and records
    `elapsed_ms`, `duration_target_met`, `loop_activity_observed`,
-   `clean_stop_observed`, `exit_reason`, and `stop_requested` so the evidence
-   proves the packet loop ran and exited through the managed stop path instead
-   of only opening the adapter.
+   `clean_stop_observed`, `exit_reason`, `stop_requested`,
+   `residual_state_clean`, and the remaining TUN/TCP session marker counts so
+   the evidence proves the packet loop ran, exited through the managed stop
+   path, and did not leave tracked TUN/TCP state behind instead of only opening
+   the adapter.
    Local soak gate details include `min_duration_ms` and `duration_target_met`
    when a bounded runtime duration is required.
    `default-core-certify` builds on that gate by running the non-skipped soak
