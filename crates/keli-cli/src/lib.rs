@@ -101,11 +101,11 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 32;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 22;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 33;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 23;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 21;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 21;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 22;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 22;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -130,11 +130,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,route-rule-smoke,dns-policy-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,route-rule-smoke,dns-policy-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -6863,6 +6863,7 @@ pub struct DefaultCoreReadinessReport {
     pub tun_preflight: TunDevicePreflight,
     pub route_rule_smoke: RouteRuleSmokeReport,
     pub dns_policy_smoke: DnsPolicySmokeReport,
+    pub subscription_reload_smoke: SubscriptionReloadSmokeReport,
     pub include_system_proxy_smoke: bool,
     pub system_proxy_smoke: Option<SystemProxySmokeReport>,
     pub include_tun_runtime_smoke: bool,
@@ -6881,6 +6882,7 @@ pub struct DefaultCoreCertificationReport {
     pub tun_preflight: TunDevicePreflight,
     pub route_rule_smoke: RouteRuleSmokeReport,
     pub dns_policy_smoke: DnsPolicySmokeReport,
+    pub subscription_reload_smoke: SubscriptionReloadSmokeReport,
     pub include_system_proxy_smoke: bool,
     pub system_proxy_smoke: Option<SystemProxySmokeReport>,
     pub include_tun_runtime_smoke: bool,
@@ -6928,6 +6930,45 @@ pub struct DnsPolicySmokeCaseReport {
     pub expected_response: String,
     pub observed_response: Option<String>,
     pub target_contacted: Option<bool>,
+    pub passed: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionReloadSmokeReport {
+    pub passed: bool,
+    pub detail: String,
+    pub initial_generation: Option<u64>,
+    pub final_generation: Option<u64>,
+    pub final_selected_outbound: Option<String>,
+    pub clean_stop_observed: bool,
+    pub stop_workers_remaining: Option<usize>,
+    pub stop_timed_out: Option<bool>,
+    pub cases: Vec<SubscriptionReloadSmokeCaseReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionReloadSmokeCaseReport {
+    pub name: &'static str,
+    pub action: &'static str,
+    pub expected_selected_outbound: Option<String>,
+    pub observed_selected_outbound: Option<String>,
+    pub expected_generation: Option<u64>,
+    pub observed_generation: Option<u64>,
+    pub expected_reason: Option<&'static str>,
+    pub observed_reason: Option<String>,
+    pub applied: Option<bool>,
+    pub selected_outbound_preserved: Option<bool>,
+    pub selected_outbound_changed: Option<bool>,
+    pub added_tags: Vec<String>,
+    pub removed_tags: Vec<String>,
+    pub retained_tags: Vec<String>,
+    pub stale_health_pruned: Option<bool>,
+    pub selected_health_present: Option<bool>,
+    pub selected_health_state: Option<String>,
+    pub clean_stop_observed: Option<bool>,
+    pub stop_workers_remaining: Option<usize>,
+    pub stop_timed_out: Option<bool>,
     pub passed: bool,
     pub error: Option<String>,
 }
@@ -7247,6 +7288,7 @@ fn collect_default_core_certification_report(
     let tun_preflight = readiness.tun_preflight.clone();
     let route_rule_smoke = readiness.route_rule_smoke.clone();
     let dns_policy_smoke = readiness.dns_policy_smoke.clone();
+    let subscription_reload_smoke = readiness.subscription_reload_smoke.clone();
     let system_proxy_smoke = readiness.system_proxy_smoke.clone();
     let system_proxy_smoke_ready = !include_system_proxy_smoke
         || system_proxy_smoke
@@ -7264,6 +7306,7 @@ fn collect_default_core_certification_report(
         && tun_preflight.ready
         && route_rule_smoke.passed
         && dns_policy_smoke.passed
+        && subscription_reload_smoke.passed
         && system_proxy_smoke_ready
         && tun_runtime_smoke_ready;
 
@@ -7276,6 +7319,7 @@ fn collect_default_core_certification_report(
         tun_preflight,
         route_rule_smoke,
         dns_policy_smoke,
+        subscription_reload_smoke,
         include_system_proxy_smoke,
         system_proxy_smoke,
         include_tun_runtime_smoke,
@@ -7310,6 +7354,7 @@ fn collect_readiness_check_report(
     let tun_preflight = collect_default_tun_preflight();
     let route_rule_smoke = collect_default_route_rule_smoke_report();
     let dns_policy_smoke = collect_default_dns_policy_smoke_report();
+    let subscription_reload_smoke = collect_default_subscription_reload_smoke_report();
     let mut system_proxy_smoke = None;
     let mut tun_runtime_smoke = None;
     let mut gates = vec![
@@ -7381,6 +7426,12 @@ fn collect_readiness_check_report(
             "dns",
             dns_policy_smoke.passed,
             dns_policy_smoke.detail.clone(),
+        ),
+        readiness_gate(
+            "subscription-reload-smoke",
+            "managed-runtime",
+            subscription_reload_smoke.passed,
+            subscription_reload_smoke.detail.clone(),
         ),
         readiness_gate(
             "panel-subscription-state",
@@ -7514,6 +7565,7 @@ fn collect_readiness_check_report(
         tun_preflight,
         route_rule_smoke,
         dns_policy_smoke,
+        subscription_reload_smoke,
         include_system_proxy_smoke,
         system_proxy_smoke,
         include_tun_runtime_smoke,
@@ -8429,6 +8481,541 @@ mod dns_policy_smoke_tests {
             .find(|case| case.name == "address-family-http-connect")
             .expect("address-family DNS policy case");
         assert_eq!(address_family.target_contacted, Some(false));
+    }
+}
+
+fn collect_default_subscription_reload_smoke_report() -> SubscriptionReloadSmokeReport {
+    let controller = SubscriptionReloadSmokeSystemProxyController;
+    let mut core = ManagedMixedController::new(&controller);
+    let mut cases = Vec::new();
+    let mut initial_generation = None;
+    let mut final_generation = None;
+    let mut final_selected_outbound = None;
+    let mut clean_stop_observed = false;
+    let mut stop_workers_remaining = None;
+    let mut stop_timed_out = None;
+
+    let started = match core.start_from_subscription_config_text(
+        &subscription_reload_smoke_config(&["SS-OLD", "SS-STAY"]),
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-STAY".to_string()),
+            system_proxy: false,
+            max_connection_workers: 2,
+            ..ManagedMixedOptions::default()
+        },
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            cases.push(subscription_reload_smoke_error_case(
+                "start-subscription-runtime",
+                "start",
+                Some("SS-STAY"),
+                Some(1),
+                None,
+                error,
+            ));
+            return finalize_subscription_reload_smoke_report(
+                cases,
+                initial_generation,
+                final_generation,
+                final_selected_outbound,
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+            );
+        }
+    };
+    initial_generation = Some(started.generation);
+    cases.push(subscription_reload_smoke_start_case(&started));
+
+    let preserve_result = (|| -> Result<ManagedSubscriptionUpdateOutcome, String> {
+        core.record_node_health(ManagedNodeHealthStatus::healthy(
+            "SS-OLD",
+            Some(80),
+            true,
+            true,
+        ))?;
+        core.record_node_health(ManagedNodeHealthStatus::healthy(
+            "SS-STAY",
+            Some(42),
+            true,
+            true,
+        ))?;
+        core.reload_from_subscription_config_text_with_update_plan(
+            &subscription_reload_smoke_config(&["SS-STAY", "SS-NEW"]),
+        )
+    })();
+    match preserve_result {
+        Ok(outcome) => cases.push(subscription_reload_smoke_update_case(
+            "preserve-selected-outbound",
+            "planned-reload",
+            &outcome,
+            "selected-outbound-preserved",
+            "SS-STAY",
+            2,
+            true,
+            false,
+            &["SS-NEW"],
+            &["SS-OLD"],
+            &["SS-STAY"],
+            Some("SS-OLD"),
+        )),
+        Err(error) => cases.push(subscription_reload_smoke_error_case(
+            "preserve-selected-outbound",
+            "planned-reload",
+            Some("SS-STAY"),
+            Some(2),
+            Some("selected-outbound-preserved"),
+            error,
+        )),
+    }
+
+    let fallback_result = core.reload_from_subscription_config_text_with_update_plan(
+        &subscription_reload_smoke_config(&["SS-FALLBACK", "SS-ALT"]),
+    );
+    match fallback_result {
+        Ok(outcome) => {
+            final_selected_outbound = outcome.status.selected_outbound.clone();
+            cases.push(subscription_reload_smoke_update_case(
+                "fallback-to-new-default",
+                "planned-reload",
+                &outcome,
+                "selected-outbound-missing-use-default",
+                "SS-FALLBACK",
+                3,
+                false,
+                true,
+                &["SS-FALLBACK", "SS-ALT"],
+                &["SS-STAY", "SS-NEW"],
+                &[],
+                Some("SS-STAY"),
+            ));
+        }
+        Err(error) => cases.push(subscription_reload_smoke_error_case(
+            "fallback-to-new-default",
+            "planned-reload",
+            Some("SS-FALLBACK"),
+            Some(3),
+            Some("selected-outbound-missing-use-default"),
+            error,
+        )),
+    }
+
+    match core.stop() {
+        Ok(stopped) => {
+            final_generation = Some(stopped.generation());
+            let stop_drain = stopped.events().iter().rev().find_map(|event| {
+                if let Some(RuntimeDiagnostic::ManagedMixedStopDrain(diagnostic)) =
+                    event.diagnostic.as_ref()
+                {
+                    Some(diagnostic)
+                } else {
+                    None
+                }
+            });
+            stop_workers_remaining = stop_drain.map(|diagnostic| diagnostic.workers_remaining);
+            stop_timed_out = stop_drain.map(|diagnostic| diagnostic.timed_out);
+            clean_stop_observed = matches!(stopped.status(), RuntimeStatus::Stopped)
+                && stop_workers_remaining == Some(0)
+                && stop_timed_out == Some(false);
+            cases.push(subscription_reload_smoke_stop_case(
+                clean_stop_observed,
+                final_generation,
+                stop_workers_remaining,
+                stop_timed_out,
+                None,
+            ));
+        }
+        Err(error) => cases.push(subscription_reload_smoke_stop_case(
+            false,
+            None,
+            None,
+            None,
+            Some(error),
+        )),
+    }
+
+    finalize_subscription_reload_smoke_report(
+        cases,
+        initial_generation,
+        final_generation,
+        final_selected_outbound,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+    )
+}
+
+#[derive(Debug)]
+struct SubscriptionReloadSmokeSystemProxyController;
+
+impl SystemProxyController for SubscriptionReloadSmokeSystemProxyController {
+    fn snapshot(&self) -> Result<SystemProxySnapshot, keli_platform::SystemProxyError> {
+        Ok(SystemProxySnapshot::default())
+    }
+
+    fn apply(
+        &self,
+        _config: &SystemProxyConfig,
+    ) -> Result<SystemProxySnapshot, keli_platform::SystemProxyError> {
+        Ok(SystemProxySnapshot::default())
+    }
+
+    fn restore(
+        &self,
+        _snapshot: &SystemProxySnapshot,
+    ) -> Result<(), keli_platform::SystemProxyError> {
+        Ok(())
+    }
+}
+
+fn subscription_reload_smoke_config(tags: &[&str]) -> String {
+    let mut config = String::from("proxies:\n");
+    for tag in tags {
+        config.push_str(&format!(
+            r#"  - name: {tag}
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+"#
+        ));
+    }
+    config
+}
+
+fn finalize_subscription_reload_smoke_report(
+    cases: Vec<SubscriptionReloadSmokeCaseReport>,
+    initial_generation: Option<u64>,
+    final_generation: Option<u64>,
+    final_selected_outbound: Option<String>,
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+) -> SubscriptionReloadSmokeReport {
+    let passed_count = cases.iter().filter(|case| case.passed).count();
+    let failed: Vec<&str> = cases
+        .iter()
+        .filter(|case| !case.passed)
+        .map(|case| case.name)
+        .collect();
+    let passed = failed.is_empty();
+    SubscriptionReloadSmokeReport {
+        passed,
+        detail: format!(
+            "cases={} passed={} failed={} failed_cases={} initial_generation={} final_generation={} final_selected={} clean_stop_observed={} stop_workers_remaining={} stop_timed_out={}",
+            cases.len(),
+            passed_count,
+            failed.len(),
+            if failed.is_empty() {
+                "-".to_string()
+            } else {
+                failed.join(",")
+            },
+            optional_u64_label(initial_generation),
+            optional_u64_label(final_generation),
+            final_selected_outbound.as_deref().unwrap_or("-"),
+            clean_stop_observed,
+            optional_usize_label(stop_workers_remaining),
+            optional_bool_label(stop_timed_out)
+        ),
+        initial_generation,
+        final_generation,
+        final_selected_outbound,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+        cases,
+    }
+}
+
+fn subscription_reload_smoke_start_case(
+    status: &ManagedMixedStatusSnapshot,
+) -> SubscriptionReloadSmokeCaseReport {
+    let selected = status.selected_outbound.clone();
+    let selected_health_present = status
+        .subscription
+        .as_ref()
+        .and_then(|subscription| subscription.health_for("SS-STAY"))
+        .is_some();
+    let selected_health_state = status
+        .subscription
+        .as_ref()
+        .and_then(|subscription| subscription.health_for("SS-STAY"))
+        .map(|health| health.state.label().to_string());
+    let passed = matches!(
+        &status.status,
+        RuntimeStatus::Running {
+            selected_outbound,
+            generation,
+            ..
+        } if selected_outbound == "SS-STAY" && *generation == 1
+    ) && status.generation == 1
+        && selected.as_deref() == Some("SS-STAY")
+        && status
+            .subscription
+            .as_ref()
+            .is_some_and(|subscription| subscription.usable && subscription.supported_count() == 2)
+        && selected_health_present;
+
+    SubscriptionReloadSmokeCaseReport {
+        name: "start-subscription-runtime",
+        action: "start",
+        expected_selected_outbound: Some("SS-STAY".to_string()),
+        observed_selected_outbound: selected,
+        expected_generation: Some(1),
+        observed_generation: Some(status.generation),
+        expected_reason: None,
+        observed_reason: None,
+        applied: None,
+        selected_outbound_preserved: None,
+        selected_outbound_changed: None,
+        added_tags: Vec::new(),
+        removed_tags: Vec::new(),
+        retained_tags: Vec::new(),
+        stale_health_pruned: None,
+        selected_health_present: Some(selected_health_present),
+        selected_health_state,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+        error: None,
+    }
+}
+
+fn subscription_reload_smoke_update_case(
+    name: &'static str,
+    action: &'static str,
+    outcome: &ManagedSubscriptionUpdateOutcome,
+    expected_reason: &'static str,
+    expected_selected_outbound: &'static str,
+    expected_generation: u64,
+    expected_preserved: bool,
+    expected_changed: bool,
+    expected_added: &[&str],
+    expected_removed: &[&str],
+    expected_retained: &[&str],
+    stale_health_tag: Option<&str>,
+) -> SubscriptionReloadSmokeCaseReport {
+    let selected_health = outcome
+        .status
+        .subscription
+        .as_ref()
+        .and_then(|subscription| subscription.health_for(expected_selected_outbound));
+    let selected_health_present = selected_health.is_some();
+    let selected_health_state = selected_health.map(|health| health.state.label().to_string());
+    let stale_health_pruned = stale_health_tag.map(|tag| {
+        outcome
+            .status
+            .subscription
+            .as_ref()
+            .is_some_and(|subscription| subscription.health_for(tag).is_none())
+    });
+    let added_matches = tags_match(&outcome.report.added_tags, expected_added);
+    let removed_matches = tags_match(&outcome.report.removed_tags, expected_removed);
+    let retained_matches = tags_match(&outcome.report.retained_tags, expected_retained);
+    let passed = outcome.applied
+        && outcome.error.is_none()
+        && outcome.report.reason.label() == expected_reason
+        && outcome.report.planned_selected_outbound.as_deref() == Some(expected_selected_outbound)
+        && outcome.status.selected_outbound.as_deref() == Some(expected_selected_outbound)
+        && outcome.status.generation == expected_generation
+        && outcome.report.selected_outbound_preserved == expected_preserved
+        && outcome.report.selected_outbound_changed == expected_changed
+        && added_matches
+        && removed_matches
+        && retained_matches
+        && stale_health_pruned.unwrap_or(true)
+        && selected_health_present;
+
+    SubscriptionReloadSmokeCaseReport {
+        name,
+        action,
+        expected_selected_outbound: Some(expected_selected_outbound.to_string()),
+        observed_selected_outbound: outcome.status.selected_outbound.clone(),
+        expected_generation: Some(expected_generation),
+        observed_generation: Some(outcome.status.generation),
+        expected_reason: Some(expected_reason),
+        observed_reason: Some(outcome.report.reason.label().to_string()),
+        applied: Some(outcome.applied),
+        selected_outbound_preserved: Some(outcome.report.selected_outbound_preserved),
+        selected_outbound_changed: Some(outcome.report.selected_outbound_changed),
+        added_tags: outcome.report.added_tags.clone(),
+        removed_tags: outcome.report.removed_tags.clone(),
+        retained_tags: outcome.report.retained_tags.clone(),
+        stale_health_pruned,
+        selected_health_present: Some(selected_health_present),
+        selected_health_state,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+        error: outcome.error.clone(),
+    }
+}
+
+fn subscription_reload_smoke_stop_case(
+    clean_stop_observed: bool,
+    final_generation: Option<u64>,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+    error: Option<String>,
+) -> SubscriptionReloadSmokeCaseReport {
+    SubscriptionReloadSmokeCaseReport {
+        name: "stop-subscription-runtime",
+        action: "stop",
+        expected_selected_outbound: None,
+        observed_selected_outbound: None,
+        expected_generation: Some(3),
+        observed_generation: final_generation,
+        expected_reason: None,
+        observed_reason: None,
+        applied: None,
+        selected_outbound_preserved: None,
+        selected_outbound_changed: None,
+        added_tags: Vec::new(),
+        removed_tags: Vec::new(),
+        retained_tags: Vec::new(),
+        stale_health_pruned: None,
+        selected_health_present: None,
+        selected_health_state: None,
+        clean_stop_observed: Some(clean_stop_observed),
+        stop_workers_remaining,
+        stop_timed_out,
+        passed: clean_stop_observed && final_generation == Some(3) && error.is_none(),
+        error,
+    }
+}
+
+fn subscription_reload_smoke_error_case(
+    name: &'static str,
+    action: &'static str,
+    expected_selected_outbound: Option<&'static str>,
+    expected_generation: Option<u64>,
+    expected_reason: Option<&'static str>,
+    error: String,
+) -> SubscriptionReloadSmokeCaseReport {
+    SubscriptionReloadSmokeCaseReport {
+        name,
+        action,
+        expected_selected_outbound: expected_selected_outbound.map(str::to_string),
+        observed_selected_outbound: None,
+        expected_generation,
+        observed_generation: None,
+        expected_reason,
+        observed_reason: None,
+        applied: None,
+        selected_outbound_preserved: None,
+        selected_outbound_changed: None,
+        added_tags: Vec::new(),
+        removed_tags: Vec::new(),
+        retained_tags: Vec::new(),
+        stale_health_pruned: None,
+        selected_health_present: None,
+        selected_health_state: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed: false,
+        error: Some(error),
+    }
+}
+
+fn tags_match(actual: &[String], expected: &[&str]) -> bool {
+    actual.len() == expected.len()
+        && expected
+            .iter()
+            .all(|expected| actual.iter().any(|actual| actual == expected))
+}
+
+fn optional_u64_label(value: Option<u64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn optional_usize_label(value: Option<usize>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn optional_bool_label(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "true",
+        Some(false) => "false",
+        None => "-",
+    }
+}
+
+#[cfg(test)]
+mod subscription_reload_smoke_tests {
+    use super::*;
+
+    #[test]
+    fn default_subscription_reload_smoke_preserves_fallbacks_prunes_and_stops_cleanly() {
+        let report = collect_default_subscription_reload_smoke_report();
+
+        assert!(report.passed, "{}", report.detail);
+        assert_eq!(report.initial_generation, Some(1));
+        assert_eq!(report.final_generation, Some(3));
+        assert_eq!(
+            report.final_selected_outbound.as_deref(),
+            Some("SS-FALLBACK")
+        );
+        assert!(report.clean_stop_observed);
+        assert_eq!(report.stop_workers_remaining, Some(0));
+        assert_eq!(report.stop_timed_out, Some(false));
+        assert_eq!(report.cases.len(), 4);
+
+        for case_name in [
+            "start-subscription-runtime",
+            "preserve-selected-outbound",
+            "fallback-to-new-default",
+            "stop-subscription-runtime",
+        ] {
+            let case = report
+                .cases
+                .iter()
+                .find(|case| case.name == case_name)
+                .unwrap_or_else(|| panic!("missing subscription reload smoke case {case_name}"));
+            assert!(case.passed, "{case:?}");
+        }
+
+        let preserve = report
+            .cases
+            .iter()
+            .find(|case| case.name == "preserve-selected-outbound")
+            .expect("preserve case");
+        assert_eq!(
+            preserve.observed_reason.as_deref(),
+            Some("selected-outbound-preserved")
+        );
+        assert_eq!(
+            preserve.observed_selected_outbound.as_deref(),
+            Some("SS-STAY")
+        );
+        assert_eq!(preserve.stale_health_pruned, Some(true));
+        assert_eq!(preserve.selected_health_state.as_deref(), Some("healthy"));
+
+        let fallback = report
+            .cases
+            .iter()
+            .find(|case| case.name == "fallback-to-new-default")
+            .expect("fallback case");
+        assert_eq!(
+            fallback.observed_reason.as_deref(),
+            Some("selected-outbound-missing-use-default")
+        );
+        assert_eq!(
+            fallback.observed_selected_outbound.as_deref(),
+            Some("SS-FALLBACK")
+        );
+        assert_eq!(fallback.stale_health_pruned, Some(true));
+        assert_eq!(fallback.selected_health_state.as_deref(), Some("unknown"));
     }
 }
 
@@ -10066,6 +10653,14 @@ fn write_readiness_check_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "readiness subscription_reload_smoke status={} cases={} detail={}",
+        subscription_reload_smoke_status_label(&report.subscription_reload_smoke),
+        report.subscription_reload_smoke.cases.len(),
+        report.subscription_reload_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "readiness system_proxy_smoke status={} included={} detail={}",
         system_proxy_smoke_status_label(
             report.include_system_proxy_smoke,
@@ -10135,6 +10730,9 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         "tun_preflight": tun_preflight_json_value(&report.tun_preflight),
         "route_rule_smoke": route_rule_smoke_json_value(&report.route_rule_smoke),
         "dns_policy_smoke": dns_policy_smoke_json_value(&report.dns_policy_smoke),
+        "subscription_reload_smoke": subscription_reload_smoke_json_value(
+            &report.subscription_reload_smoke
+        ),
         "system_proxy_smoke": system_proxy_smoke_json_value(
             report.include_system_proxy_smoke,
             report.system_proxy_smoke.as_ref()
@@ -10251,6 +10849,14 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification subscription_reload_smoke status={} cases={} detail={}",
+        subscription_reload_smoke_status_label(&report.subscription_reload_smoke),
+        report.subscription_reload_smoke.cases.len(),
+        report.subscription_reload_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification system_proxy_smoke status={} included={} detail={}",
         system_proxy_smoke_status_label(
             report.include_system_proxy_smoke,
@@ -10342,6 +10948,7 @@ fn default_core_certification_json_value(
             "tun_preflight_ready": report.tun_preflight.ready,
             "route_rule_smoke_passed": report.route_rule_smoke.passed,
             "dns_policy_smoke_passed": report.dns_policy_smoke.passed,
+            "subscription_reload_smoke_passed": report.subscription_reload_smoke.passed,
             "system_proxy_smoke_included": report.include_system_proxy_smoke,
             "system_proxy_smoke_passed": if report.include_system_proxy_smoke {
                 report.system_proxy_smoke.as_ref().map(|smoke| smoke.passed)
@@ -10365,6 +10972,9 @@ fn default_core_certification_json_value(
         "tun_preflight": tun_preflight_json_value(&report.tun_preflight),
         "route_rule_smoke": route_rule_smoke_json_value(&report.route_rule_smoke),
         "dns_policy_smoke": dns_policy_smoke_json_value(&report.dns_policy_smoke),
+        "subscription_reload_smoke": subscription_reload_smoke_json_value(
+            &report.subscription_reload_smoke
+        ),
         "system_proxy_smoke": system_proxy_smoke_json_value(
             report.include_system_proxy_smoke,
             report.system_proxy_smoke.as_ref()
@@ -10450,6 +11060,68 @@ fn dns_policy_smoke_case_json_value(case: &DnsPolicySmokeCaseReport) -> serde_js
         "expected_response": &case.expected_response,
         "observed_response": &case.observed_response,
         "target_contacted": case.target_contacted,
+        "passed": case.passed,
+        "error": &case.error,
+    })
+}
+
+fn subscription_reload_smoke_status_label(report: &SubscriptionReloadSmokeReport) -> &'static str {
+    if report.passed {
+        "passed"
+    } else {
+        "failed"
+    }
+}
+
+fn subscription_reload_smoke_json_value(
+    report: &SubscriptionReloadSmokeReport,
+) -> serde_json::Value {
+    let cases: Vec<_> = report
+        .cases
+        .iter()
+        .map(subscription_reload_smoke_case_json_value)
+        .collect();
+    serde_json::json!({
+        "status": subscription_reload_smoke_status_label(report),
+        "passed": report.passed,
+        "detail": &report.detail,
+        "initial_generation": report.initial_generation,
+        "final_generation": report.final_generation,
+        "final_selected_outbound": &report.final_selected_outbound,
+        "clean_stop_observed": report.clean_stop_observed,
+        "stop_workers_remaining": report.stop_workers_remaining,
+        "stop_timed_out": report.stop_timed_out,
+        "case_count": report.cases.len(),
+        "passed_case_count": report.cases.iter().filter(|case| case.passed).count(),
+        "failed_case_count": report.cases.iter().filter(|case| !case.passed).count(),
+        "cases": cases,
+    })
+}
+
+fn subscription_reload_smoke_case_json_value(
+    case: &SubscriptionReloadSmokeCaseReport,
+) -> serde_json::Value {
+    serde_json::json!({
+        "name": case.name,
+        "action": case.action,
+        "expected_selected_outbound": &case.expected_selected_outbound,
+        "observed_selected_outbound": &case.observed_selected_outbound,
+        "expected_generation": case.expected_generation,
+        "observed_generation": case.observed_generation,
+        "expected_reason": case.expected_reason,
+        "observed_reason": &case.observed_reason,
+        "applied": case.applied,
+        "selected_outbound_preserved": case.selected_outbound_preserved,
+        "selected_outbound_changed": case.selected_outbound_changed,
+        "added_tags": &case.added_tags,
+        "removed_tags": &case.removed_tags,
+        "retained_tags": &case.retained_tags,
+        "stale_health_pruned": case.stale_health_pruned,
+        "selected_health_present": case.selected_health_present,
+        "selected_health_state": &case.selected_health_state,
+        "clean_stop_observed": case.clean_stop_observed,
+        "stop_workers_remaining": case.stop_workers_remaining,
+        "stop_timed_out": case.stop_timed_out,
         "passed": case.passed,
         "error": &case.error,
     })
