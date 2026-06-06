@@ -1,6 +1,9 @@
 use std::time::Duration;
 
-use keli_cli::{write_readiness_check_report, ProbeOutputFormat, READINESS_CHECK_SCHEMA_VERSION};
+use keli_cli::{
+    write_default_core_certification_report, write_readiness_check_report, ProbeOutputFormat,
+    DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION, READINESS_CHECK_SCHEMA_VERSION,
+};
 use serde_json::Value;
 
 #[test]
@@ -103,6 +106,75 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(
         output.contains("readiness gate=mixed-soak-http-connect category=stability status=skipped")
     );
+}
+
+#[test]
+fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
+    let mut output = Vec::new();
+
+    write_default_core_certification_report(
+        ProbeOutputFormat::Json,
+        2,
+        Duration::from_secs(2),
+        2,
+        &mut output,
+    )
+    .expect("write default core certification");
+
+    let report: Value = serde_json::from_slice(&output).expect("certification JSON");
+    assert_eq!(report["kind"], "keli_default_core_certification");
+    assert_eq!(
+        report["schema_version"],
+        DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION
+    );
+    assert_eq!(report["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(report["certification"]["soak_connections"], 2);
+    assert_eq!(report["certification"]["first_byte_timeout_ms"], 2000);
+    assert_eq!(report["certification"]["max_connection_workers"], 2);
+    assert_eq!(report["readiness"]["kind"], "keli_default_core_readiness");
+    assert_eq!(report["readiness"]["summary"]["skipped_gate_count"], 0);
+    assert_eq!(
+        report["readiness"]["schema_version"],
+        READINESS_CHECK_SCHEMA_VERSION
+    );
+    assert!(report["tun_backend"]["backend"].is_string());
+    assert!(report["tun_backend_status"].is_string());
+
+    let ready = report["ready_for_default_core"]
+        .as_bool()
+        .expect("ready boolean");
+    assert_eq!(report["certification"]["ready_for_default_core"], ready);
+    assert_eq!(
+        report["status"].as_str().expect("status"),
+        if ready { "ready" } else { "not-ready" }
+    );
+
+    let gates = report["readiness"]["gates"].as_array().expect("gates");
+    assert_eq!(gate(gates, "mixed-soak-socks5")["status"], "passed");
+    assert_eq!(gate(gates, "mixed-soak-http-connect")["status"], "passed");
+}
+
+#[test]
+fn default_core_certification_text_reports_summary_and_gates() {
+    let mut output = Vec::new();
+
+    write_default_core_certification_report(
+        ProbeOutputFormat::Text,
+        2,
+        Duration::from_secs(2),
+        2,
+        &mut output,
+    )
+    .expect("write default core certification");
+
+    let output = String::from_utf8(output).expect("certification text");
+    assert!(output.contains("default_core_certification status="));
+    assert!(output.contains("schema_version=1"));
+    assert!(output.contains("tun_backend_status="));
+    assert!(output.contains("parameters soak_connections=2 first_byte_timeout_ms=2000"));
+    assert!(output.contains(
+        "default_core_certification readiness_gate=mixed-soak-socks5 category=stability status=passed"
+    ));
 }
 
 fn gate<'a>(gates: &'a [Value], name: &str) -> &'a Value {

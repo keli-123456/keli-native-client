@@ -77,6 +77,7 @@ pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 7;
 pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 2;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 1;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 1;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 2;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -120,6 +121,12 @@ pub enum CliCommand {
         first_byte_timeout: Duration,
         max_connection_workers: usize,
         skip_soak: bool,
+    },
+    DefaultCoreCertify {
+        output: ProbeOutputFormat,
+        soak_connections: usize,
+        first_byte_timeout: Duration,
+        max_connection_workers: usize,
     },
     TunPreflight {
         config: TunDeviceConfig,
@@ -3917,6 +3924,7 @@ pub fn parse_cli_command(
         Some("doctor") => parse_doctor(args),
         Some("interop-matrix") => parse_interop_matrix(args),
         Some("readiness-check") => parse_readiness_check(args),
+        Some("default-core-certify") => parse_default_core_certify(args),
         Some("tun-preflight") => parse_tun_preflight(args),
         Some("tun-backend-check") => parse_tun_backend_check(args),
         Some("tun-backend-install") => parse_tun_backend_install(args),
@@ -3957,6 +3965,21 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 first_byte_timeout,
                 max_connection_workers,
                 skip_soak,
+                &mut stdout,
+            )
+        }
+        CliCommand::DefaultCoreCertify {
+            output,
+            soak_connections,
+            first_byte_timeout,
+            max_connection_workers,
+        } => {
+            let mut stdout = io::stdout();
+            write_default_core_certification_report(
+                output,
+                soak_connections,
+                first_byte_timeout,
+                max_connection_workers,
                 &mut stdout,
             )
         }
@@ -4180,7 +4203,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
 pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
-        "usage: keli-cli [doctor|interop-matrix|readiness-check|tun-preflight|tun-backend-check|tun-backend-install|version|subscription-fetch|subscription-update|listen-mixed|probe-outbound|smoke-mixed|soak-mixed|profile-check|support-bundle]"
+        "usage: keli-cli [doctor|interop-matrix|readiness-check|default-core-certify|tun-preflight|tun-backend-check|tun-backend-install|version|subscription-fetch|subscription-update|listen-mixed|probe-outbound|smoke-mixed|soak-mixed|profile-check|support-bundle]"
     )?;
     writeln!(writer, "       keli-cli doctor [--format text|json]")?;
     writeln!(
@@ -4190,6 +4213,10 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     writeln!(
         writer,
         "       keli-cli readiness-check [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--skip-soak]"
+    )?;
+    writeln!(
+        writer,
+        "       keli-cli default-core-certify [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024]"
     )?;
     writeln!(
         writer,
@@ -4327,6 +4354,54 @@ fn parse_readiness_check(args: impl Iterator<Item = String>) -> Result<CliComman
         first_byte_timeout,
         max_connection_workers,
         skip_soak,
+    })
+}
+
+fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliCommand, String> {
+    let mut output = ProbeOutputFormat::Text;
+    let mut soak_connections = DEFAULT_READINESS_SOAK_CONNECTIONS;
+    let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
+    let mut max_connection_workers = DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS;
+    let mut args = args.peekable();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--format" => {
+                output = parse_probe_output_format(
+                    args.next()
+                        .ok_or_else(|| "--format requires text or json".to_string())?,
+                )?;
+            }
+            "--soak-connections" => {
+                soak_connections = parse_positive_usize(
+                    args.next()
+                        .ok_or_else(|| "--soak-connections requires a value".to_string())?,
+                    "--soak-connections",
+                )?;
+            }
+            "--first-byte-timeout-ms" => {
+                first_byte_timeout = parse_duration_ms(
+                    args.next()
+                        .ok_or_else(|| "--first-byte-timeout-ms requires a value".to_string())?,
+                    "--first-byte-timeout-ms",
+                )?;
+            }
+            "--max-connection-workers" => {
+                max_connection_workers = parse_positive_usize(
+                    args.next()
+                        .ok_or_else(|| "--max-connection-workers requires a value".to_string())?,
+                    "--max-connection-workers",
+                )?;
+            }
+            other => return Err(format!("unknown default-core-certify option: {other}")),
+        }
+    }
+
+    Ok(CliCommand::DefaultCoreCertify {
+        output,
+        soak_connections,
+        first_byte_timeout,
+        max_connection_workers,
     })
 }
 
@@ -6152,6 +6227,18 @@ pub struct DefaultCoreReadinessReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefaultCoreCertificationReport {
+    pub schema_version: u32,
+    pub version: &'static str,
+    pub ready_for_default_core: bool,
+    pub readiness: DefaultCoreReadinessReport,
+    pub tun_backend: TunBackendStatus,
+    pub soak_connections: usize,
+    pub first_byte_timeout: Duration,
+    pub max_connection_workers: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadinessGateReport {
     pub name: &'static str,
     pub category: &'static str,
@@ -6196,6 +6283,63 @@ pub fn write_readiness_check_report(
         ProbeOutputFormat::Text => write_readiness_check_text_report(&mut writer, &report),
         ProbeOutputFormat::Json => write_readiness_check_json_report(&mut writer, &report),
     }
+}
+
+pub fn write_default_core_certification_report(
+    output: ProbeOutputFormat,
+    soak_connections: usize,
+    first_byte_timeout: Duration,
+    max_connection_workers: usize,
+    mut writer: impl Write,
+) -> Result<(), String> {
+    let report = collect_default_core_certification_report(
+        soak_connections,
+        first_byte_timeout,
+        max_connection_workers,
+    )?;
+    match output {
+        ProbeOutputFormat::Text => {
+            write_default_core_certification_text_report(&mut writer, &report)
+        }
+        ProbeOutputFormat::Json => {
+            write_default_core_certification_json_report(&mut writer, &report)
+        }
+    }
+}
+
+fn collect_default_core_certification_report(
+    soak_connections: usize,
+    first_byte_timeout: Duration,
+    max_connection_workers: usize,
+) -> Result<DefaultCoreCertificationReport, String> {
+    if soak_connections == 0 {
+        return Err("default-core-certify soak connections must be greater than 0".to_string());
+    }
+    if max_connection_workers == 0 {
+        return Err(
+            "default-core-certify max connection workers must be greater than 0".to_string(),
+        );
+    }
+
+    let readiness = collect_readiness_check_report(
+        soak_connections,
+        first_byte_timeout,
+        max_connection_workers,
+        false,
+    )?;
+    let tun_backend = TunBackendStatus::detect();
+    let ready_for_default_core = readiness.ready_for_default_core && tun_backend.is_ready();
+
+    Ok(DefaultCoreCertificationReport {
+        schema_version: DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION,
+        version: env!("CARGO_PKG_VERSION"),
+        ready_for_default_core,
+        readiness,
+        tun_backend,
+        soak_connections,
+        first_byte_timeout,
+        max_connection_workers,
+    })
 }
 
 fn collect_readiness_check_report(
@@ -6513,6 +6657,103 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         },
         "gates": gates,
     })
+}
+
+fn write_default_core_certification_text_report(
+    writer: &mut impl Write,
+    report: &DefaultCoreCertificationReport,
+) -> Result<(), String> {
+    let summary = readiness_summary_counts(&report.readiness.gates);
+    writeln!(
+        writer,
+        "default_core_certification status={} schema_version={} version={} ready_for_default_core={} gates={} passed={} failed={} warning={} skipped={} tun_backend_status={} install_required={} driver_library_present={} driver_api_available={} driver_library_path={}",
+        if report.ready_for_default_core {
+            "ready"
+        } else {
+            "not-ready"
+        },
+        report.schema_version,
+        report.version,
+        report.ready_for_default_core,
+        summary.total,
+        summary.passed,
+        summary.failed,
+        summary.warning,
+        summary.skipped,
+        if report.tun_backend.is_ready() {
+            "ready"
+        } else {
+            "not-ready"
+        },
+        report.tun_backend.install_required,
+        report.tun_backend.driver_library_present,
+        report.tun_backend.driver_api_available,
+        report
+            .tun_backend
+            .driver_library_path
+            .as_deref()
+            .unwrap_or("-")
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
+        "default_core_certification parameters soak_connections={} first_byte_timeout_ms={} max_connection_workers={}",
+        report.soak_connections,
+        duration_millis_for_report(report.first_byte_timeout),
+        report.max_connection_workers
+    )
+    .map_err(|error| error.to_string())?;
+    for gate in &report.readiness.gates {
+        writeln!(
+            writer,
+            "default_core_certification readiness_gate={} category={} status={} detail={}",
+            gate.name,
+            gate.category,
+            gate.status.label(),
+            gate.detail
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn write_default_core_certification_json_report(
+    writer: &mut impl Write,
+    report: &DefaultCoreCertificationReport,
+) -> Result<(), String> {
+    let value = default_core_certification_json_value(report);
+    serde_json::to_writer_pretty(&mut *writer, &value).map_err(|error| error.to_string())?;
+    writeln!(writer).map_err(|error| error.to_string())
+}
+
+fn default_core_certification_json_value(
+    report: &DefaultCoreCertificationReport,
+) -> serde_json::Value {
+    let summary = readiness_summary_counts(&report.readiness.gates);
+    serde_json::json!({
+        "status": if report.ready_for_default_core { "ready" } else { "not-ready" },
+        "kind": "keli_default_core_certification",
+        "schema_version": report.schema_version,
+        "version": report.version,
+        "ready_for_default_core": report.ready_for_default_core,
+        "certification": {
+            "ready_for_default_core": report.ready_for_default_core,
+            "soak_connections": report.soak_connections,
+            "first_byte_timeout_ms": duration_millis_for_report(report.first_byte_timeout),
+            "max_connection_workers": report.max_connection_workers,
+            "failed_gate_count": summary.failed,
+            "warning_gate_count": summary.warning,
+            "skipped_gate_count": summary.skipped,
+            "tun_backend_ready": report.tun_backend.is_ready(),
+        },
+        "readiness": readiness_check_json_value(&report.readiness),
+        "tun_backend_status": if report.tun_backend.is_ready() { "ready" } else { "not-ready" },
+        "tun_backend": tun_backend_json_value(&report.tun_backend),
+    })
+}
+
+fn duration_millis_for_report(duration: Duration) -> u64 {
+    duration.as_millis().min(u128::from(u64::MAX)) as u64
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

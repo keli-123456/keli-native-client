@@ -345,6 +345,10 @@ into one text or JSON report. The report is allowed to say `not-ready` when the
 local platform still lacks a required handoff such as Wintun packaging,
 lifecycle control, or packet I/O, making remaining default-core blockers
 explicit.
+`default-core-certify` runs the non-skipped readiness gates and emits a
+single certification artifact that embeds the readiness report, TUN backend
+packaging evidence, soak parameters, and the final `ready_for_default_core`
+decision for release automation and desktop UI handoff.
 
 ## Protocol Matrix
 
@@ -372,6 +376,9 @@ the current protocol matrix with validation and registry sample counts for CI,
 UI, and support tooling. `keli-cli readiness-check --format json` exports the
 current default-core readiness gates, including skipped or failed gates, so UI
 and release automation can track what is still blocking default-core use.
+`keli-cli default-core-certify --format json` exports the corresponding
+machine-level certification evidence with real soak gates and TUN backend
+packaging state for default-core promotion checks.
 
 ## Design Principles
 
@@ -393,6 +400,7 @@ cargo run -p keli-cli -- tun-backend-check --format json
 cargo run -p keli-cli -- tun-backend-install --source C:\path\to\wintun.dll --format json
 cargo run -p keli-cli -- interop-matrix --format json
 cargo run -p keli-cli -- readiness-check --format json
+cargo run -p keli-cli -- default-core-certify --format json
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
 cargo run -p keli-cli -- subscription-update --current-config active.yaml --new-config subscription.yaml --current-outbound proxy --format json
 cargo run -p keli-cli -- soak-mixed --connections 25 --format json

@@ -400,6 +400,10 @@ The first implementation target is deliberately small:
    Gates can pass, fail, or be skipped, so CI and desktop integrations can see
    exactly why the native core is or is not ready to become the default Keli core
    on a given machine.
+   `default-core-certify` builds on that gate by running the non-skipped soak
+   checks and exporting one promotion artifact with the embedded readiness
+   report, TUN backend packaging evidence, certification parameters, and final
+   `ready_for_default_core` decision for release automation and UI handoff.
 
 The managed mixed runtime now supports a background handle with runtime status,
 generation tracking, event history, explicit stop, system proxy restoration, and
