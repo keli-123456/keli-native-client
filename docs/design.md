@@ -353,7 +353,9 @@ The first implementation target is deliberately small:
    support tooling.
    Runtime events can also carry the managed TUN packet-loop report as a
    structured diagnostic payload, giving UI and support tooling direct access
-   to counters and sanitized last-error fields without parsing the text note.
+   to counters, sanitized last-error fields, and bounded
+   `recent_dropped_routes` entries with flow, route action, matched rule, and
+   DNS-hijack state without parsing the text note.
    Managed mixed status snapshots can be exported as stable JSON, including
    recent events, structured diagnostics, subscription health, DNS policy,
    system proxy config, panel restriction state, and redacted node capability
@@ -494,7 +496,10 @@ failure timestamps plus transfer-byte, timing, route-action, and inbound
 aggregates, and `listen-mixed --max-connection-workers` lets clients
 tune the cap. Its status snapshot reports active/peak workers and
 active/peak client connections plus remaining worker slots, so clients can detect
-saturation before rejections. Managed shutdown closes active mixed client
+saturation before rejections. TUN runtime diagnostics in recent events expose
+structured `recent_dropped_routes` entries with flow, route action, matched
+rule, and DNS-hijack state, so UI/support tooling can inspect recent blocked
+TUN traffic instead of relying only on the last dropped flow. Managed shutdown closes active mixed client
 streams and uses a bounded worker drain, so held handshakes cannot stall core
 stop. That drain result is recorded
 as a structured runtime diagnostic with closed-connection, drained-worker,

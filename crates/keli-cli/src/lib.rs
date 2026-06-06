@@ -18,8 +18,8 @@ use keli_client_core::{
     build_connection_plan, plan_subscription_update, ClientErrorKind, ClientRuntime,
     ConnectionPhase, ConnectionPlan, PanelState, RuntimeConfig, RuntimeDiagnostic, RuntimeEvent,
     RuntimeManagedMixedStopDrainDiagnostic, RuntimeManagedNodeProbeSweepDiagnostic, RuntimeStatus,
-    RuntimeTunPacketLoopDiagnostic, SkippedProfileSummary, SubscriptionNodeCapability,
-    SubscriptionUpdateReport, DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
+    RuntimeTunPacketDroppedRouteDiagnostic, RuntimeTunPacketLoopDiagnostic, SkippedProfileSummary,
+    SubscriptionNodeCapability, SubscriptionUpdateReport, DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
 };
 use keli_net_core::{
     build_dns_error_response, build_dns_response, encode_socks5_udp_datagram,
@@ -91,12 +91,12 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 25;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 15;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 26;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 16;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 15;
 pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 15;
-pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 3;
+pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 4;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
 const SUPPORTED_UDP_OUTBOUNDS: &str =
@@ -108,7 +108,7 @@ const ROUTE_RULE_CAPABILITIES: &str =
 const MANAGED_CONNECTION_METRIC_CAPABILITIES: &str =
     "total-connection-count,success-count,failure-count,connection-limit-rejection-count,error-kind-counts,route-action-counts,inbound-counts,total-upload-bytes,total-download-bytes,total-connect-ms,timed-connect-count,average-connect-ms,total-first-byte-ms,timed-first-byte-count,average-first-byte-ms,last-connection-timestamp,last-success-timestamp,last-failure-timestamp,recent-connection-reports,history-limit";
 const MANAGED_STATUS_SCHEMA_CAPABILITIES: &str =
-    "schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,node-health-udp-aware-recommendation,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state,subscription-url-update-status";
+    "schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,runtime-tun-drop-history,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,node-health-udp-aware-recommendation,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state,subscription-url-update-status";
 const SUBSCRIPTION_FETCH_CAPABILITIES: &str =
     "http,https,timeout,max-bytes,redacted-source,profile-check-summary";
 const SUBSCRIPTION_UPDATE_CAPABILITIES: &str =
@@ -1001,6 +1001,12 @@ pub fn managed_tun_runtime_report_diagnostic(
         tcp_relay_plans: report.summary.tcp_relay_plans,
         udp_relay_plans: report.summary.udp_relay_plans,
         dropped_packets: report.summary.dropped_packets,
+        recent_dropped_routes: report
+            .summary
+            .recent_dropped_routes
+            .iter()
+            .map(tun_packet_route_decision_diagnostic)
+            .collect(),
         last_dropped_flow: report
             .summary
             .last_dropped_flow
@@ -1036,6 +1042,20 @@ pub fn managed_tun_runtime_report_diagnostic(
             .as_ref()
             .map(|error| sanitize_runtime_note_value(&error.to_string())),
     })
+}
+
+fn tun_packet_route_decision_diagnostic(
+    decision: &TunPacketRouteDecision,
+) -> RuntimeTunPacketDroppedRouteDiagnostic {
+    RuntimeTunPacketDroppedRouteDiagnostic {
+        flow: tun_packet_flow_note_value(&decision.flow),
+        route_action: route_action_note_value(&decision.action),
+        matched_rule: decision
+            .matched_rule
+            .as_deref()
+            .map(sanitize_runtime_note_value),
+        dns_hijacked: decision.dns_hijacked,
+    }
 }
 
 pub fn managed_mixed_stop_drain_note(
@@ -2555,6 +2575,7 @@ fn runtime_diagnostic_json_value(diagnostic: &RuntimeDiagnostic) -> serde_json::
             "tcp_relay_plans": diagnostic.tcp_relay_plans,
             "udp_relay_plans": diagnostic.udp_relay_plans,
             "dropped_packets": diagnostic.dropped_packets,
+            "recent_dropped_routes": diagnostic.recent_dropped_routes.iter().map(runtime_tun_dropped_route_diagnostic_json_value).collect::<Vec<_>>(),
             "last_dropped_flow": diagnostic.last_dropped_flow.as_deref(),
             "last_dropped_route_action": diagnostic.last_dropped_route_action.as_deref(),
             "last_dropped_matched_rule": diagnostic.last_dropped_matched_rule.as_deref(),
@@ -2596,6 +2617,17 @@ fn runtime_diagnostic_json_value(diagnostic: &RuntimeDiagnostic) -> serde_json::
             "recommended_switch_reason": &diagnostic.recommended_switch_reason,
         }),
     }
+}
+
+fn runtime_tun_dropped_route_diagnostic_json_value(
+    diagnostic: &RuntimeTunPacketDroppedRouteDiagnostic,
+) -> serde_json::Value {
+    serde_json::json!({
+        "flow": &diagnostic.flow,
+        "route_action": &diagnostic.route_action,
+        "matched_rule": diagnostic.matched_rule.as_deref(),
+        "dns_hijacked": diagnostic.dns_hijacked,
+    })
 }
 
 fn client_error_json_value(error: &ClientErrorKind) -> serde_json::Value {
@@ -7786,6 +7818,57 @@ mod tun_runtime_smoke_tests {
         };
 
         assert!(tun_runtime_smoke_traffic_stimulus_drop_observed(&report));
+    }
+
+    #[test]
+    fn managed_tun_runtime_diagnostic_includes_recent_dropped_routes() {
+        let dropped_route = TunPacketRouteDecision {
+            flow: TunPacketFlow {
+                ip_version: TunIpVersion::Ipv4,
+                protocol: TunTransportProtocol::Udp,
+                source_ip: IpAddr::V4(Ipv4Addr::new(10, 7, 0, 2)),
+                destination_ip: TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.ip(),
+                source_port: Some(49152),
+                destination_port: Some(TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.port()),
+            },
+            action: RouteAction::Block,
+            matched_rule: Some(TUN_RUNTIME_SMOKE_TRAFFIC_RULE.to_string()),
+            dns_hijacked: false,
+        };
+        let mut summary = TunPacketLoopSummary {
+            dropped_packets: 1,
+            last_dropped_flow: Some(dropped_route.flow.clone()),
+            last_dropped_route_action: Some(dropped_route.action.clone()),
+            last_dropped_matched_rule: dropped_route.matched_rule.clone(),
+            recent_dropped_routes: vec![dropped_route],
+            ..TunPacketLoopSummary::default()
+        };
+        summary.stop_requested = true;
+
+        let report = ManagedTunPacketLoopReport {
+            config: default_tun_device_config(),
+            start_snapshot: snapshot(true),
+            stop_snapshot: snapshot(false),
+            owns_device: true,
+            summary,
+        };
+        let RuntimeDiagnostic::TunPacketLoop(diagnostic) =
+            managed_tun_runtime_report_diagnostic(&report)
+        else {
+            panic!("expected TUN packet loop diagnostic");
+        };
+
+        assert_eq!(diagnostic.recent_dropped_routes.len(), 1);
+        assert_eq!(
+            diagnostic.recent_dropped_routes[0].flow,
+            "10.7.0.2:49152-_198.18.0.1:9/17"
+        );
+        assert_eq!(diagnostic.recent_dropped_routes[0].route_action, "block");
+        assert_eq!(
+            diagnostic.recent_dropped_routes[0].matched_rule.as_deref(),
+            Some(TUN_RUNTIME_SMOKE_TRAFFIC_RULE)
+        );
+        assert!(!diagnostic.recent_dropped_routes[0].dns_hijacked);
     }
 
     #[test]

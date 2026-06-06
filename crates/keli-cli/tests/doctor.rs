@@ -77,7 +77,7 @@ fn doctor_report_lists_supported_outbounds() {
         "managed_connection_metric_capabilities=total-connection-count,success-count,failure-count,connection-limit-rejection-count,error-kind-counts,route-action-counts,inbound-counts,total-upload-bytes,total-download-bytes,total-connect-ms,timed-connect-count,average-connect-ms,total-first-byte-ms,timed-first-byte-count,average-first-byte-ms,last-connection-timestamp,last-success-timestamp,last-failure-timestamp,recent-connection-reports,history-limit"
     ));
     assert!(output.contains(
-        "managed_status_schema_capabilities=schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,node-health-udp-aware-recommendation,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state,subscription-url-update-status"
+        "managed_status_schema_capabilities=schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,runtime-tun-drop-history,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,node-health-udp-aware-recommendation,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state,subscription-url-update-status"
     ));
     assert!(output.contains(&format!(
         "resource_limits runtime_event_history={} managed_status_recent_events={} managed_connection_report_history={} managed_connection_workers={} tun_tcp_max_active_sessions={}",
@@ -543,39 +543,43 @@ fn doctor_json_report_is_machine_readable() {
         "runtime-event-diagnostics"
     );
     assert_eq!(
-        report["managed_status_schema_capabilities"][14],
+        report["managed_status_schema_capabilities"][12],
+        "runtime-tun-drop-history"
+    );
+    assert_eq!(
+        report["managed_status_schema_capabilities"][15],
         "subscription-status"
     );
     assert_eq!(
-        report["managed_status_schema_capabilities"][16],
+        report["managed_status_schema_capabilities"][17],
         "node-health-coverage"
     );
     assert_eq!(
-        report["managed_status_schema_capabilities"][17],
+        report["managed_status_schema_capabilities"][18],
         "node-health-switch-readiness"
     );
     assert_eq!(
-        report["managed_status_schema_capabilities"][18],
+        report["managed_status_schema_capabilities"][19],
         "node-health-switch-reason"
     );
     assert_eq!(
-        report["managed_status_schema_capabilities"][19],
+        report["managed_status_schema_capabilities"][20],
         "node-health-sweep-diagnostic"
     );
     assert_eq!(
-        report["managed_status_schema_capabilities"][20],
+        report["managed_status_schema_capabilities"][21],
         "node-health-udp-probe"
     );
     assert_eq!(
-        report["managed_status_schema_capabilities"][21],
+        report["managed_status_schema_capabilities"][22],
         "node-health-udp-aware-recommendation"
     );
     assert_eq!(
-        report["managed_status_schema_capabilities"][25],
+        report["managed_status_schema_capabilities"][26],
         "panel-state"
     );
     assert_eq!(
-        report["managed_status_schema_capabilities"][26],
+        report["managed_status_schema_capabilities"][27],
         "subscription-url-update-status"
     );
     assert_eq!(

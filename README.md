@@ -83,7 +83,10 @@ direct, block, DNS hijack, and outbound-tag decisions plus inbound distribution
 for SOCKS5, HTTP CONNECT, and listener-level rejections. `listen-mixed`
 can tune this cap with `--max-connection-workers`, and managed status reports
 active/peak workers, active/peak client connections, and remaining worker slots for
-saturation diagnostics. Managed shutdown closes active mixed client streams and
+saturation diagnostics. TUN runtime diagnostics in recent events include
+structured `recent_dropped_routes` with flow, route action, matched rule, and
+DNS-hijack state, so UI/support tooling can inspect recently blocked TUN
+traffic instead of relying only on the last dropped flow. Managed shutdown closes active mixed client streams and
 uses a bounded worker drain, so held handshakes cannot stall core stop. That
 stop drain is also recorded as a
 structured runtime diagnostic with closed-connection, drained-worker,
@@ -305,7 +308,9 @@ They expose the same state as a stable exit-reason label for UI and support
 tooling.
 Managed runtime events now also carry the TUN packet-loop report as a
 structured diagnostic payload, so UI and support tooling can read counters and
-last-error fields without parsing the text note.
+last-error fields without parsing the text note. Those diagnostics also expose
+bounded `recent_dropped_routes` entries for recent blocked TUN flows, including
+route action, matched rule, and DNS-hijack state.
 Managed mixed status snapshots can now be exported as stable JSON, including
 recent runtime events, structured diagnostics, subscription health, DNS policy,
 system proxy config, panel restriction state, and redacted node capability

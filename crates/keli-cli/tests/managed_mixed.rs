@@ -19,7 +19,8 @@ use keli_cli::{
 use keli_client_core::{
     ClientErrorKind, PanelAccountState, PanelRiskControlState, PanelState, PanelUserState,
     RuntimeDiagnostic, RuntimeEvent, RuntimeManagedMixedStopDrainDiagnostic, RuntimeStatus,
-    RuntimeTunPacketLoopDiagnostic, SubscriptionUpdateReason, DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
+    RuntimeTunPacketDroppedRouteDiagnostic, RuntimeTunPacketLoopDiagnostic,
+    SubscriptionUpdateReason, DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT,
 };
 use keli_net_core::{
     ConnectionErrorKind, ConnectionReport, DnsAddressFamilyPolicy, DnsLocalResolutionPolicy,
@@ -2055,6 +2056,12 @@ fn managed_mixed_status_json_includes_tun_runtime_diagnostic() {
         tcp_relay_plans: 2,
         udp_relay_plans: 1,
         dropped_packets: 1,
+        recent_dropped_routes: vec![RuntimeTunPacketDroppedRouteDiagnostic {
+            flow: "10.7.0.2:54321->198.18.0.1:9/17".to_string(),
+            route_action: "block".to_string(),
+            matched_rule: Some("tun-runtime-smoke-traffic-stimulus".to_string()),
+            dns_hijacked: false,
+        }],
         last_dropped_flow: Some("10.7.0.2:54321->198.18.0.1:9/17".to_string()),
         last_dropped_route_action: Some("block".to_string()),
         last_dropped_matched_rule: Some("tun-runtime-smoke-traffic-stimulus".to_string()),
@@ -2116,6 +2123,22 @@ fn managed_mixed_status_json_includes_tun_runtime_diagnostic() {
     assert_eq!(diagnostic["tcp_session_events"], 2);
     assert_eq!(diagnostic["tcp_max_active_sessions"], 17);
     assert_eq!(diagnostic["dropped_packets"], 1);
+    assert_eq!(
+        diagnostic["recent_dropped_routes"][0]["flow"],
+        "10.7.0.2:54321->198.18.0.1:9/17"
+    );
+    assert_eq!(
+        diagnostic["recent_dropped_routes"][0]["route_action"],
+        "block"
+    );
+    assert_eq!(
+        diagnostic["recent_dropped_routes"][0]["matched_rule"],
+        "tun-runtime-smoke-traffic-stimulus"
+    );
+    assert_eq!(
+        diagnostic["recent_dropped_routes"][0]["dns_hijacked"],
+        false
+    );
     assert_eq!(
         diagnostic["last_dropped_flow"],
         "10.7.0.2:54321->198.18.0.1:9/17"

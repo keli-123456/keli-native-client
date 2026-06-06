@@ -666,6 +666,7 @@ pub struct RuntimeTunPacketLoopDiagnostic {
     pub tcp_relay_plans: usize,
     pub udp_relay_plans: usize,
     pub dropped_packets: usize,
+    pub recent_dropped_routes: Vec<RuntimeTunPacketDroppedRouteDiagnostic>,
     pub last_dropped_flow: Option<String>,
     pub last_dropped_route_action: Option<String>,
     pub last_dropped_matched_rule: Option<String>,
@@ -676,6 +677,14 @@ pub struct RuntimeTunPacketLoopDiagnostic {
     pub last_packet_error: Option<String>,
     pub last_udp_relay_error: Option<String>,
     pub last_tcp_session_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeTunPacketDroppedRouteDiagnostic {
+    pub flow: String,
+    pub route_action: String,
+    pub matched_rule: Option<String>,
+    pub dns_hijacked: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1614,6 +1623,7 @@ proxies:
             tcp_relay_plans: 0,
             udp_relay_plans: 0,
             dropped_packets: 0,
+            recent_dropped_routes: Vec::new(),
             last_dropped_flow: None,
             last_dropped_route_action: None,
             last_dropped_matched_rule: None,

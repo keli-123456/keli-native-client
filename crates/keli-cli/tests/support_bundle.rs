@@ -186,35 +186,39 @@ proxies:
         "runtime-event-diagnostics"
     );
     assert_eq!(
-        report["doctor"]["managed_status_schema_capabilities"][16],
-        "node-health-coverage"
+        report["doctor"]["managed_status_schema_capabilities"][12],
+        "runtime-tun-drop-history"
     );
     assert_eq!(
         report["doctor"]["managed_status_schema_capabilities"][17],
-        "node-health-switch-readiness"
+        "node-health-coverage"
     );
     assert_eq!(
         report["doctor"]["managed_status_schema_capabilities"][18],
-        "node-health-switch-reason"
+        "node-health-switch-readiness"
     );
     assert_eq!(
         report["doctor"]["managed_status_schema_capabilities"][19],
-        "node-health-sweep-diagnostic"
+        "node-health-switch-reason"
     );
     assert_eq!(
         report["doctor"]["managed_status_schema_capabilities"][20],
-        "node-health-udp-probe"
+        "node-health-sweep-diagnostic"
     );
     assert_eq!(
         report["doctor"]["managed_status_schema_capabilities"][21],
+        "node-health-udp-probe"
+    );
+    assert_eq!(
+        report["doctor"]["managed_status_schema_capabilities"][22],
         "node-health-udp-aware-recommendation"
     );
     assert_eq!(
-        report["doctor"]["managed_status_schema_capabilities"][25],
+        report["doctor"]["managed_status_schema_capabilities"][26],
         "panel-state"
     );
     assert_eq!(
-        report["doctor"]["managed_status_schema_capabilities"][26],
+        report["doctor"]["managed_status_schema_capabilities"][27],
         "subscription-url-update-status"
     );
     assert_eq!(
