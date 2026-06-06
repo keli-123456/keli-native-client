@@ -458,6 +458,12 @@ the selected outbound to a loopback encrypted UDP echo server, verifies the
 payload round trip, confirms the SS server saw the expected target/payload,
 and checks managed `socks5-udp`/outbound metrics plus clean stop-drain
 evidence.
+The default SOCKS5 UDP outbound relay smoke starts a managed mixed runtime
+from a local SOCKS5 subscription node, sends a SOCKS5 UDP associate datagram
+through the selected SOCKS5 UDP outbound, verifies username/password auth, UDP
+ASSOCIATE, target, and payload at a local SOCKS5 proxy server, completes the
+UDP payload round trip, records `socks5-udp`/outbound metrics, and stops
+cleanly.
 The default resource-limit smoke starts a local managed mixed runtime with one
 connection worker, holds one SOCKS5 handshake open to occupy that worker,
 verifies a second connection is rejected with `connection_limit_reached`
@@ -530,7 +536,7 @@ runtime alive for that minimum duration and report `min_duration_ms` plus
 `default-core-certify` runs the non-skipped readiness gates and emits a
 single certification artifact that embeds the readiness report, TUN backend
 packaging evidence, structured TUN preflight evidence, route-rule smoke
-evidence, DNS policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VMess TCP relay smoke evidence, Mieru TCP relay smoke evidence, UDP relay smoke evidence,
+evidence, DNS policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VMess TCP relay smoke evidence, Mieru TCP relay smoke evidence, UDP relay smoke evidence, SOCKS5 UDP outbound relay smoke evidence,
 resource-limit smoke evidence,
 subscription reload smoke evidence, soak parameters, runtime recovery smoke
 evidence, and the final
@@ -595,7 +601,8 @@ SOCKS5 CONNECT through a selected local TUIC QUIC outbound, plus VLESS TCP relay
 SOCKS5 CONNECT through a selected local VLESS outbound, plus VMess TCP relay smoke evidence for
 SOCKS5 CONNECT through a selected local VMess outbound, plus Mieru TCP relay smoke evidence for
 SOCKS5 CONNECT through a selected local Mieru outbound, plus UDP relay smoke evidence for
-SOCKS5 UDP associate through a selected local Shadowsocks outbound, plus
+SOCKS5 UDP associate through a selected local Shadowsocks outbound, plus SOCKS5 UDP outbound relay smoke evidence for
+SOCKS5 UDP associate through a selected local SOCKS5 outbound, plus
 resource-limit smoke evidence for
 worker-limit rejection metrics and worker drain, plus panel/subscription smoke
 evidence for restricted traffic blocking and recovery after clearing panel
@@ -606,7 +613,7 @@ and release automation can track what is still blocking default-core use.
 `keli-cli default-core-certify --format json` exports the corresponding
 machine-level certification evidence with real soak gates and TUN backend
 packaging state, structured TUN preflight state, route-rule smoke evidence, DNS
-policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VMess TCP relay smoke evidence, Mieru TCP relay smoke evidence, UDP relay smoke evidence, resource-limit smoke evidence, panel/subscription smoke
+policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VMess TCP relay smoke evidence, Mieru TCP relay smoke evidence, UDP relay smoke evidence, SOCKS5 UDP outbound relay smoke evidence, resource-limit smoke evidence, panel/subscription smoke
 evidence, and promotion blockers for default-core promotion checks. Add
 `--include-tun-runtime-smoke` when the
 certification run should also prove the native TUN runtime can start, open
