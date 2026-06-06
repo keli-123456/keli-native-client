@@ -357,14 +357,18 @@ local platform still lacks a required handoff such as Wintun packaging,
 lifecycle control, or packet I/O, making remaining default-core blockers
 explicit. JSON output now also includes `blocking_gates`, and text output
 prints matching `readiness blocker=...` lines, so UI and release checks can
-consume the promotion blockers without re-filtering every gate. When
+consume the promotion blockers without re-filtering every gate. JSON output
+also embeds the default `tun_preflight` object using the same shape
+as `tun-preflight --format json`, so platform handoff evidence is available
+without parsing gate detail strings. When
 `--soak-min-duration-ms` is provided, the local soak gates hold the managed
 runtime alive for that minimum duration and report `min_duration_ms` plus
 `duration_target_met` in the gate detail.
 `default-core-certify` runs the non-skipped readiness gates and emits a
 single certification artifact that embeds the readiness report, TUN backend
-packaging evidence, soak parameters, and the final `ready_for_default_core`
-decision for release automation and desktop UI handoff. Its JSON output mirrors
+packaging evidence, structured TUN preflight evidence, soak parameters, and the
+final `ready_for_default_core` decision for release automation and desktop UI
+handoff. Its JSON output mirrors
 the readiness blockers as `promotion_blockers` and includes a
 `blocking_gate_count` in the certification summary. Certification parameters now
 also include `soak_min_duration_ms`, so long-running promotion checks can prove
@@ -405,7 +409,8 @@ or failed gates, so UI and release automation can track what is still blocking
 default-core use.
 `keli-cli default-core-certify --format json` exports the corresponding
 machine-level certification evidence with real soak gates and TUN backend
-packaging state plus promotion blockers for default-core promotion checks.
+packaging state, structured TUN preflight state, and promotion blockers for
+default-core promotion checks.
 `keli-cli support-bundle --include-certification` embeds that evidence into the
 redacted support bundle.
 

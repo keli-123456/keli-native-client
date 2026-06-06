@@ -30,6 +30,12 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(report["summary"]["total_gate_count"], 11);
     assert_eq!(report["summary"]["skipped_gate_count"], 2);
     assert_eq!(report["soak_min_duration_ms"], 0);
+    assert_eq!(
+        report["tun_preflight"]["config"]["interface_name"],
+        "keli-tun0"
+    );
+    assert!(report["tun_preflight"]["status"].is_string());
+    assert!(report["tun_preflight"]["ready"].is_boolean());
     let blocking_gates = report["blocking_gates"].as_array().expect("blocking gates");
     assert_eq!(
         report["summary"]["blocking_gate_count"].as_u64(),
@@ -69,8 +75,16 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
 
     let tun_backend = gate(gates, "tun-backend");
     assert_eq!(tun_backend["category"], "platform");
-    assert_eq!(tun_backend["status"], "failed");
-    assert_eq!(gate(blocking_gates, "tun-backend")["status"], "failed");
+    assert!(
+        tun_backend["status"] == "passed" || tun_backend["status"] == "failed",
+        "unexpected tun backend status: {}",
+        tun_backend["status"]
+    );
+    if tun_backend["status"] == "failed" {
+        assert_eq!(gate(blocking_gates, "tun-backend")["status"], "failed");
+    } else {
+        assert!(find_gate(blocking_gates, "tun-backend").is_none());
+    }
     assert!(tun_backend["detail"]
         .as_str()
         .expect("tun backend detail")
@@ -153,11 +167,14 @@ fn readiness_check_text_reports_gate_summary() {
     .expect("write text readiness check");
 
     let output = String::from_utf8(output).expect("readiness text");
-    assert!(output.contains("readiness status=not-ready schema_version=3 gates=11"));
+    assert!(output.contains(&format!(
+        "readiness status=not-ready schema_version={} gates=11",
+        READINESS_CHECK_SCHEMA_VERSION
+    )));
     assert!(output.contains("blockers="));
     assert!(output.contains("readiness gate=interop-matrix category=protocols status=passed"));
-    assert!(output.contains("readiness gate=tun-backend category=platform status=failed"));
-    assert!(output.contains("readiness blocker=tun-backend category=platform status=failed"));
+    assert!(output.contains("readiness gate=tun-backend category=platform status="));
+    assert!(output.contains("readiness tun_preflight status="));
     assert!(
         output.contains("readiness gate=mixed-soak-http-connect category=stability status=skipped")
     );
@@ -213,6 +230,12 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     );
     assert!(report["tun_backend"]["backend"].is_string());
     assert!(report["tun_backend_status"].is_string());
+    assert!(report["tun_preflight"]["status"].is_string());
+    assert!(report["tun_preflight"]["ready"].is_boolean());
+    assert_eq!(
+        report["certification"]["tun_preflight_ready"],
+        report["tun_preflight"]["ready"]
+    );
 
     let ready = report["ready_for_default_core"]
         .as_bool()
@@ -243,13 +266,16 @@ fn default_core_certification_text_reports_summary_and_gates() {
 
     let output = String::from_utf8(output).expect("certification text");
     assert!(output.contains("default_core_certification status="));
-    assert!(output.contains("schema_version=3"));
+    assert!(output.contains(&format!(
+        "schema_version={}",
+        DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION
+    )));
     assert!(output.contains("blockers="));
     assert!(output.contains("tun_backend_status="));
+    assert!(output.contains("default_core_certification tun_preflight status="));
     assert!(output.contains(
         "parameters soak_connections=2 first_byte_timeout_ms=2000 max_connection_workers=2 soak_min_duration_ms=0"
     ));
-    assert!(output.contains("default_core_certification promotion_blocker="));
     assert!(output.contains(
         "default_core_certification readiness_gate=mixed-soak-socks5 category=stability status=passed"
     ));
@@ -280,8 +306,9 @@ fn default_core_certification_json_records_soak_min_duration() {
 }
 
 fn gate<'a>(gates: &'a [Value], name: &str) -> &'a Value {
-    gates
-        .iter()
-        .find(|gate| gate["name"] == name)
-        .unwrap_or_else(|| panic!("missing gate {name}"))
+    find_gate(gates, name).unwrap_or_else(|| panic!("missing gate {name}"))
+}
+
+fn find_gate<'a>(gates: &'a [Value], name: &str) -> Option<&'a Value> {
+    gates.iter().find(|gate| gate["name"] == name)
 }

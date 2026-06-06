@@ -75,11 +75,11 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 13;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 3;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 14;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 4;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 3;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 3;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 4;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 4;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 2;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -104,11 +104,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,tun-backend-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -6500,6 +6500,7 @@ pub struct DefaultCoreReadinessReport {
     pub version: &'static str,
     pub ready_for_default_core: bool,
     pub soak_min_duration: Duration,
+    pub tun_preflight: TunDevicePreflight,
     pub gates: Vec<ReadinessGateReport>,
 }
 
@@ -6510,6 +6511,7 @@ pub struct DefaultCoreCertificationReport {
     pub ready_for_default_core: bool,
     pub readiness: DefaultCoreReadinessReport,
     pub tun_backend: TunBackendStatus,
+    pub tun_preflight: TunDevicePreflight,
     pub soak_connections: usize,
     pub first_byte_timeout: Duration,
     pub max_connection_workers: usize,
@@ -6648,7 +6650,9 @@ fn collect_default_core_certification_report(
         false,
     )?;
     let tun_backend = TunBackendStatus::detect();
-    let ready_for_default_core = readiness.ready_for_default_core && tun_backend.is_ready();
+    let tun_preflight = readiness.tun_preflight.clone();
+    let ready_for_default_core =
+        readiness.ready_for_default_core && tun_backend.is_ready() && tun_preflight.ready;
 
     Ok(DefaultCoreCertificationReport {
         schema_version: DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION,
@@ -6656,6 +6660,7 @@ fn collect_default_core_certification_report(
         ready_for_default_core,
         readiness,
         tun_backend,
+        tun_preflight,
         soak_connections,
         first_byte_timeout,
         max_connection_workers,
@@ -6856,6 +6861,7 @@ fn collect_readiness_check_report(
         version: env!("CARGO_PKG_VERSION"),
         ready_for_default_core,
         soak_min_duration,
+        tun_preflight,
         gates,
     })
 }
@@ -6963,6 +6969,20 @@ fn write_readiness_check_text_report(
         duration_millis_for_report(report.soak_min_duration)
     )
     .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
+        "readiness tun_preflight status={} ready={} state={} lifecycle_available={} packet_io_available={} interface={} address={} mtu={} reason={}",
+        report.tun_preflight.readiness.label(),
+        report.tun_preflight.ready,
+        tun_device_state(&report.tun_preflight.status),
+        report.tun_preflight.status.lifecycle_available,
+        report.tun_preflight.status.packet_io_available,
+        report.tun_preflight.config.interface_name,
+        report.tun_preflight.config.address_cidr,
+        report.tun_preflight.config.mtu,
+        report.tun_preflight.reason.as_deref().unwrap_or("-")
+    )
+    .map_err(|error| error.to_string())?;
     for gate in readiness_blocking_gates(&report.gates) {
         writeln!(
             writer,
@@ -7000,6 +7020,7 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         "version": report.version,
         "ready_for_default_core": report.ready_for_default_core,
         "soak_min_duration_ms": duration_millis_for_report(report.soak_min_duration),
+        "tun_preflight": tun_preflight_json_value(&report.tun_preflight),
         "summary": {
             "total_gate_count": summary.total,
             "passed_gate_count": summary.passed,
@@ -7075,6 +7096,20 @@ fn write_default_core_certification_text_report(
         duration_millis_for_report(report.soak_min_duration)
     )
     .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
+        "default_core_certification tun_preflight status={} ready={} state={} lifecycle_available={} packet_io_available={} interface={} address={} mtu={} reason={}",
+        report.tun_preflight.readiness.label(),
+        report.tun_preflight.ready,
+        tun_device_state(&report.tun_preflight.status),
+        report.tun_preflight.status.lifecycle_available,
+        report.tun_preflight.status.packet_io_available,
+        report.tun_preflight.config.interface_name,
+        report.tun_preflight.config.address_cidr,
+        report.tun_preflight.config.mtu,
+        report.tun_preflight.reason.as_deref().unwrap_or("-")
+    )
+    .map_err(|error| error.to_string())?;
     for gate in readiness_blocking_gates(&report.readiness.gates) {
         writeln!(
             writer,
@@ -7134,11 +7169,13 @@ fn default_core_certification_json_value(
             "skipped_gate_count": summary.skipped,
             "blocking_gate_count": summary.blocking,
             "tun_backend_ready": report.tun_backend.is_ready(),
+            "tun_preflight_ready": report.tun_preflight.ready,
         },
         "readiness": readiness_check_json_value(&report.readiness),
         "promotion_blockers": promotion_blockers,
         "tun_backend_status": if report.tun_backend.is_ready() { "ready" } else { "not-ready" },
         "tun_backend": tun_backend_json_value(&report.tun_backend),
+        "tun_preflight": tun_preflight_json_value(&report.tun_preflight),
     })
 }
 

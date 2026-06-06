@@ -412,14 +412,18 @@ The first implementation target is deliberately small:
    on a given machine. The report now also carries a blocker summary
    (`blocking_gates` in JSON and `readiness blocker=...` lines in text) so
    promotion tooling can consume the actionable default-core blockers directly.
-   Local soak gate details include `min_duration_ms` and `duration_target_met`
-   when a bounded runtime duration is required.
+   JSON output also embeds the default `tun_preflight` object using the same
+   shape as `tun-preflight --format json`, so UI and CI can verify platform
+   handoff evidence without parsing gate detail strings. Local soak gate
+   details include `min_duration_ms` and `duration_target_met` when a bounded
+   runtime duration is required.
    `default-core-certify` builds on that gate by running the non-skipped soak
    checks and exporting one promotion artifact with the embedded readiness
-   report, TUN backend packaging evidence, certification parameters, and final
-   `ready_for_default_core` decision for release automation and UI handoff. The
-   certification artifact mirrors the blocker summary as `promotion_blockers`
-   and reports `blocking_gate_count` alongside the soak and backend evidence.
+   report, TUN backend packaging evidence, structured TUN preflight evidence,
+   certification parameters, and final `ready_for_default_core` decision for
+   release automation and UI handoff. The certification artifact mirrors the
+   blocker summary as `promotion_blockers` and reports `blocking_gate_count`
+   alongside the soak, preflight, and backend evidence.
    Certification parameters include `soak_min_duration_ms`, so a promotion
    record can prove both traffic success and a minimum managed-runtime window.
    Doctor and support bundles now expose the certification schema version and

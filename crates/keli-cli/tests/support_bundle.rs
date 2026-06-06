@@ -258,6 +258,10 @@ proxies:
         "soak-min-duration"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][11],
+        "tun-preflight-evidence"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -294,19 +298,23 @@ proxies:
         "tun-backend-evidence"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][5],
+        report["doctor"]["default_core_certification_capabilities"][3],
+        "tun-preflight-evidence"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][6],
         "soak-min-duration"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][7],
+        report["doctor"]["default_core_certification_capabilities"][8],
         "promotion-blockers"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][9],
+        report["doctor"]["default_core_certification_capabilities"][10],
         "text-summary"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][10],
+        report["doctor"]["default_core_certification_capabilities"][11],
         "support-bundle-export"
     );
     assert_eq!(
@@ -723,6 +731,16 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     );
     assert!(certification["tun_backend"]["backend"].is_string());
     assert!(certification["tun_backend_status"].is_string());
+    assert!(certification["tun_preflight"]["status"].is_string());
+    assert!(certification["tun_preflight"]["ready"].is_boolean());
+    assert_eq!(
+        certification["certification"]["tun_preflight_ready"],
+        certification["tun_preflight"]["ready"]
+    );
+    assert_eq!(
+        certification["readiness"]["tun_preflight"]["config"]["interface_name"],
+        "keli-tun0"
+    );
 
     let ready = certification["ready_for_default_core"]
         .as_bool()
