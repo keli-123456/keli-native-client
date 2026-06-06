@@ -54,7 +54,8 @@ use keli_platform::{
     TunRouteTakeoverSnapshot, WintunInstallReport,
 };
 use keli_protocol::{
-    detect_subscription_input_format, encode_hy2_tcp_request, encode_trojan_tcp_request_header,
+    detect_subscription_input_format, encode_hy2_tcp_request,
+    encode_shadowsocks_tcp_request_header, encode_trojan_tcp_request_header,
     encode_tuic_connect_command, encode_vless_tcp_request_header, parse_mihomo_outbound_profiles,
     parse_subscription_outbound_profiles, Endpoint, OutboundProfile, ParsedOutboundProfiles,
     ProxyProtocol, SecurityKind, SkippedOutboundProfile, TransportKind,
@@ -125,6 +126,13 @@ const TROJAN_TLS_TCP_RELAY_SMOKE_TARGET_HOST: &str = "example.com";
 const TROJAN_TLS_TCP_RELAY_SMOKE_TARGET_PORT: u16 = 443;
 const TROJAN_TLS_TCP_RELAY_SMOKE_PAYLOAD: &[u8] = b"keli-trojan-smoke";
 const TROJAN_TLS_TCP_RELAY_SMOKE_RESPONSE: &[u8] = b"keli-trojan-pong";
+const ANYTLS_TLS_TCP_RELAY_SMOKE_OUTBOUND: &str = "ANYTLS-TLS-TCP-SMOKE";
+const ANYTLS_TLS_TCP_RELAY_SMOKE_PASSWORD: &str = "keli-anytls-secret";
+const ANYTLS_TLS_TCP_RELAY_SMOKE_SNI: &str = "edge.example";
+const ANYTLS_TLS_TCP_RELAY_SMOKE_TARGET_HOST: &str = "example.com";
+const ANYTLS_TLS_TCP_RELAY_SMOKE_TARGET_PORT: u16 = 443;
+const ANYTLS_TLS_TCP_RELAY_SMOKE_PAYLOAD: &[u8] = b"keli-anytls-smoke";
+const ANYTLS_TLS_TCP_RELAY_SMOKE_RESPONSE: &[u8] = b"keli-anytls-pong";
 const HY2_QUIC_TCP_RELAY_SMOKE_OUTBOUND: &str = "HY2-QUIC-TCP-SMOKE";
 const HY2_QUIC_TCP_RELAY_SMOKE_PASSWORD: &str = "keli-hy2-secret";
 const HY2_QUIC_TCP_RELAY_SMOKE_SNI: &str = "localhost";
@@ -181,11 +189,11 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(2);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 45;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 35;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 46;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 36;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 34;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 34;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 35;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 35;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -210,11 +218,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,tcp-relay-smoke,http-connect-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vmess-tcp-relay-smoke";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,tcp-relay-smoke,http-connect-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,anytls-tls-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vmess-tcp-relay-smoke";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,tcp-relay-smoke,http-connect-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vmess-tcp-relay-smoke";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,tcp-relay-smoke,http-connect-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,anytls-tls-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vmess-tcp-relay-smoke";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -6947,6 +6955,7 @@ pub struct DefaultCoreReadinessReport {
     pub http_connect_relay_smoke: TcpRelaySmokeReport,
     pub http_proxy_relay_smoke: TcpRelaySmokeReport,
     pub trojan_tls_tcp_relay_smoke: TcpRelaySmokeReport,
+    pub anytls_tls_tcp_relay_smoke: TcpRelaySmokeReport,
     pub hy2_quic_tcp_relay_smoke: TcpRelaySmokeReport,
     pub tuic_quic_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vless_tcp_relay_smoke: TcpRelaySmokeReport,
@@ -6978,6 +6987,7 @@ pub struct DefaultCoreCertificationReport {
     pub http_connect_relay_smoke: TcpRelaySmokeReport,
     pub http_proxy_relay_smoke: TcpRelaySmokeReport,
     pub trojan_tls_tcp_relay_smoke: TcpRelaySmokeReport,
+    pub anytls_tls_tcp_relay_smoke: TcpRelaySmokeReport,
     pub hy2_quic_tcp_relay_smoke: TcpRelaySmokeReport,
     pub tuic_quic_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vless_tcp_relay_smoke: TcpRelaySmokeReport,
@@ -7617,6 +7627,7 @@ fn collect_default_core_certification_report(
     let http_connect_relay_smoke = readiness.http_connect_relay_smoke.clone();
     let http_proxy_relay_smoke = readiness.http_proxy_relay_smoke.clone();
     let trojan_tls_tcp_relay_smoke = readiness.trojan_tls_tcp_relay_smoke.clone();
+    let anytls_tls_tcp_relay_smoke = readiness.anytls_tls_tcp_relay_smoke.clone();
     let hy2_quic_tcp_relay_smoke = readiness.hy2_quic_tcp_relay_smoke.clone();
     let tuic_quic_tcp_relay_smoke = readiness.tuic_quic_tcp_relay_smoke.clone();
     let vless_tcp_relay_smoke = readiness.vless_tcp_relay_smoke.clone();
@@ -7647,6 +7658,7 @@ fn collect_default_core_certification_report(
         && http_connect_relay_smoke.passed
         && http_proxy_relay_smoke.passed
         && trojan_tls_tcp_relay_smoke.passed
+        && anytls_tls_tcp_relay_smoke.passed
         && hy2_quic_tcp_relay_smoke.passed
         && tuic_quic_tcp_relay_smoke.passed
         && vless_tcp_relay_smoke.passed
@@ -7672,6 +7684,7 @@ fn collect_default_core_certification_report(
         http_connect_relay_smoke,
         http_proxy_relay_smoke,
         trojan_tls_tcp_relay_smoke,
+        anytls_tls_tcp_relay_smoke,
         hy2_quic_tcp_relay_smoke,
         tuic_quic_tcp_relay_smoke,
         vless_tcp_relay_smoke,
@@ -7719,6 +7732,7 @@ fn collect_readiness_check_report(
     let http_connect_relay_smoke = collect_default_http_connect_relay_smoke_report();
     let http_proxy_relay_smoke = collect_default_http_proxy_relay_smoke_report();
     let trojan_tls_tcp_relay_smoke = collect_default_trojan_tls_tcp_relay_smoke_report();
+    let anytls_tls_tcp_relay_smoke = collect_default_anytls_tls_tcp_relay_smoke_report();
     let hy2_quic_tcp_relay_smoke = collect_default_hy2_quic_tcp_relay_smoke_report();
     let tuic_quic_tcp_relay_smoke = collect_default_tuic_quic_tcp_relay_smoke_report();
     let vless_tcp_relay_smoke = collect_default_vless_tcp_relay_smoke_report();
@@ -7825,6 +7839,12 @@ fn collect_readiness_check_report(
             "protocols",
             trojan_tls_tcp_relay_smoke.passed,
             trojan_tls_tcp_relay_smoke.detail.clone(),
+        ),
+        readiness_gate(
+            "anytls-tls-tcp-relay-smoke",
+            "protocols",
+            anytls_tls_tcp_relay_smoke.passed,
+            anytls_tls_tcp_relay_smoke.detail.clone(),
         ),
         readiness_gate(
             "hy2-quic-tcp-relay-smoke",
@@ -8008,6 +8028,7 @@ fn collect_readiness_check_report(
         http_connect_relay_smoke,
         http_proxy_relay_smoke,
         trojan_tls_tcp_relay_smoke,
+        anytls_tls_tcp_relay_smoke,
         hy2_quic_tcp_relay_smoke,
         tuic_quic_tcp_relay_smoke,
         vless_tcp_relay_smoke,
@@ -11526,6 +11547,772 @@ mod trojan_tls_tcp_relay_smoke_tests {
         assert_eq!(
             round_trip.observed_response.as_deref(),
             Some("keli-trojan-pong")
+        );
+        assert_eq!(round_trip.round_trip_observed, Some(true));
+        assert_eq!(round_trip.server_received_payload, Some(true));
+    }
+}
+
+fn collect_default_anytls_tls_tcp_relay_smoke_report() -> TcpRelaySmokeReport {
+    let mut cases = Vec::new();
+    let mut selected_outbound = None;
+    let request_payload_bytes = ANYTLS_TLS_TCP_RELAY_SMOKE_PAYLOAD.len();
+    let mut response_payload_bytes = None;
+    let mut round_trip_observed = false;
+    let mut server_received_payload = false;
+    let mut metrics_recorded = false;
+    let mut metrics_total_connections = 0;
+    let mut metrics_success_count = 0;
+    let mut metrics_inbound_count = 0;
+    let mut metrics_outbound_route_count = 0;
+    let mut clean_stop_observed = false;
+    let mut stop_workers_remaining = None;
+    let mut stop_timed_out = None;
+
+    let (anytls_port, anytls_thread) = match spawn_anytls_tls_tcp_relay_smoke_server() {
+        Ok(server) => server,
+        Err(error) => {
+            cases.push(anytls_tls_tcp_relay_smoke_error_case(
+                "start-anytls-tls-tcp-server",
+                "start-protocol-server",
+                error,
+            ));
+            return finalize_anytls_tls_tcp_relay_smoke_report(
+                cases,
+                selected_outbound,
+                request_payload_bytes,
+                response_payload_bytes,
+                round_trip_observed,
+                server_received_payload,
+                metrics_recorded,
+                metrics_total_connections,
+                metrics_success_count,
+                metrics_inbound_count,
+                metrics_outbound_route_count,
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+            );
+        }
+    };
+
+    let controller = SubscriptionReloadSmokeSystemProxyController;
+    let mut core = ManagedMixedController::new(&controller);
+    let config = anytls_tls_tcp_relay_smoke_config(anytls_port);
+    let relay_options = RelayOptions {
+        first_byte_timeout: Some(TCP_RELAY_SMOKE_TIMEOUT),
+        idle_timeout: Some(TCP_RELAY_SMOKE_TIMEOUT),
+    };
+
+    let started = match core.start_from_subscription_config_text(
+        &config,
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some(ANYTLS_TLS_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+            relay_options,
+            system_proxy: false,
+            max_connection_workers: 2,
+            ..ManagedMixedOptions::default()
+        },
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            cases.push(anytls_tls_tcp_relay_smoke_error_case(
+                "start-anytls-tls-tcp-relay-runtime",
+                "start",
+                error,
+            ));
+            let _ = join_tcp_relay_smoke_server(anytls_thread);
+            return finalize_anytls_tls_tcp_relay_smoke_report(
+                cases,
+                selected_outbound,
+                request_payload_bytes,
+                response_payload_bytes,
+                round_trip_observed,
+                server_received_payload,
+                metrics_recorded,
+                metrics_total_connections,
+                metrics_success_count,
+                metrics_inbound_count,
+                metrics_outbound_route_count,
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+            );
+        }
+    };
+    selected_outbound = started.selected_outbound.clone();
+    cases.push(anytls_tls_tcp_relay_smoke_start_case(&started));
+
+    if let Some(listen_addr) = started.listen_addr {
+        let exchange_result = run_anytls_tls_tcp_relay_smoke_exchange(listen_addr);
+        let server_result = join_tcp_relay_smoke_server(anytls_thread);
+        if let Ok(exchange) = exchange_result.as_ref() {
+            response_payload_bytes = Some(exchange.response_payload.len());
+            round_trip_observed = exchange.response_payload == ANYTLS_TLS_TCP_RELAY_SMOKE_RESPONSE;
+        }
+        if let Ok(server) = server_result.as_ref() {
+            server_received_payload = server.received_expected_payload;
+        }
+        cases.push(anytls_tls_tcp_relay_smoke_exchange_case(
+            exchange_result,
+            server_result,
+            round_trip_observed,
+            server_received_payload,
+        ));
+
+        let status = wait_for_udp_relay_smoke_status(&core, |status| {
+            anytls_tls_tcp_relay_smoke_metrics_recorded(&status.connection_metrics)
+        });
+        metrics_total_connections = status.connection_metrics.total_connection_count;
+        metrics_success_count = status.connection_metrics.success_count;
+        metrics_inbound_count = udp_relay_smoke_inbound_count(&status.connection_metrics, "socks5");
+        metrics_outbound_route_count =
+            anytls_tls_tcp_relay_smoke_outbound_route_count(&status.connection_metrics);
+        metrics_recorded = anytls_tls_tcp_relay_smoke_metrics_recorded(&status.connection_metrics);
+        cases.push(anytls_tls_tcp_relay_smoke_metrics_case(
+            &status,
+            metrics_recorded,
+        ));
+    } else {
+        cases.push(anytls_tls_tcp_relay_smoke_error_case(
+            "anytls-tls-tcp-relay-round-trip",
+            "socks5-connect",
+            "managed mixed runtime did not expose a listen address".to_string(),
+        ));
+        let _ = join_tcp_relay_smoke_server(anytls_thread);
+    }
+
+    match core.stop() {
+        Ok(stopped) => {
+            let stop_drain = stopped.events().iter().rev().find_map(|event| {
+                if let Some(RuntimeDiagnostic::ManagedMixedStopDrain(diagnostic)) =
+                    event.diagnostic.as_ref()
+                {
+                    Some(diagnostic)
+                } else {
+                    None
+                }
+            });
+            stop_workers_remaining = stop_drain.map(|diagnostic| diagnostic.workers_remaining);
+            stop_timed_out = stop_drain.map(|diagnostic| diagnostic.timed_out);
+            clean_stop_observed = matches!(stopped.status(), RuntimeStatus::Stopped)
+                && stop_workers_remaining == Some(0)
+                && stop_timed_out == Some(false);
+            cases.push(anytls_tls_tcp_relay_smoke_stop_case(
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+                None,
+            ));
+        }
+        Err(error) => cases.push(anytls_tls_tcp_relay_smoke_stop_case(
+            clean_stop_observed,
+            stop_workers_remaining,
+            stop_timed_out,
+            Some(error),
+        )),
+    }
+
+    finalize_anytls_tls_tcp_relay_smoke_report(
+        cases,
+        selected_outbound,
+        request_payload_bytes,
+        response_payload_bytes,
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+    )
+}
+
+fn anytls_tls_tcp_relay_smoke_config(anytls_port: u16) -> String {
+    format!(
+        r#"
+proxies:
+  - name: {ANYTLS_TLS_TCP_RELAY_SMOKE_OUTBOUND}
+    type: anytls
+    server: 127.0.0.1
+    port: {anytls_port}
+    password: {ANYTLS_TLS_TCP_RELAY_SMOKE_PASSWORD}
+    tls: true
+    sni: {ANYTLS_TLS_TCP_RELAY_SMOKE_SNI}
+    skip-cert-verify: true
+    network: tcp
+"#
+    )
+}
+
+fn finalize_anytls_tls_tcp_relay_smoke_report(
+    cases: Vec<TcpRelaySmokeCaseReport>,
+    selected_outbound: Option<String>,
+    request_payload_bytes: usize,
+    response_payload_bytes: Option<usize>,
+    round_trip_observed: bool,
+    server_received_payload: bool,
+    metrics_recorded: bool,
+    metrics_total_connections: u64,
+    metrics_success_count: u64,
+    metrics_inbound_count: u64,
+    metrics_outbound_route_count: u64,
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+) -> TcpRelaySmokeReport {
+    let failed = cases
+        .iter()
+        .filter(|case| !case.passed)
+        .map(|case| case.name)
+        .collect::<Vec<_>>();
+    let passed = failed.is_empty()
+        && selected_outbound.as_deref() == Some(ANYTLS_TLS_TCP_RELAY_SMOKE_OUTBOUND)
+        && round_trip_observed
+        && server_received_payload
+        && metrics_recorded
+        && clean_stop_observed;
+    let target = anytls_tls_tcp_relay_smoke_target();
+    let detail = format!(
+        "cases={} passed={} failed={} failed_cases={} selected={} target={} request_bytes={} response_bytes={} round_trip_observed={} server_received_payload={} metrics_recorded={} metrics_total={} metrics_success={} metrics_inbound_socks5={} metrics_outbound_route={} clean_stop_observed={} stop_workers_remaining={} stop_timed_out={}",
+        cases.len(),
+        passed,
+        failed.len(),
+        if failed.is_empty() {
+            "-".to_string()
+        } else {
+            failed.join(",")
+        },
+        selected_outbound.as_deref().unwrap_or("-"),
+        target,
+        request_payload_bytes,
+        response_payload_bytes
+            .map(|bytes| bytes.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining
+            .map(|workers| workers.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        stop_timed_out
+            .map(|timed_out| timed_out.to_string())
+            .unwrap_or_else(|| "-".to_string())
+    );
+    TcpRelaySmokeReport {
+        passed,
+        detail,
+        selected_outbound,
+        target,
+        request_payload_bytes,
+        response_payload_bytes,
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+        cases,
+    }
+}
+
+fn anytls_tls_tcp_relay_smoke_start_case(
+    status: &ManagedMixedStatusSnapshot,
+) -> TcpRelaySmokeCaseReport {
+    let selected = status.selected_outbound.clone();
+    let passed = selected.as_deref() == Some(ANYTLS_TLS_TCP_RELAY_SMOKE_OUTBOUND)
+        && status.generation == 1
+        && matches!(&status.status, RuntimeStatus::Running { .. });
+    TcpRelaySmokeCaseReport {
+        name: "start-anytls-tls-tcp-relay-runtime",
+        action: "start",
+        expected_selected_outbound: Some(ANYTLS_TLS_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: selected,
+        expected_generation: Some(1),
+        observed_generation: Some(status.generation),
+        target: anytls_tls_tcp_relay_smoke_target(),
+        expected_response: None,
+        observed_response: None,
+        request_payload_bytes: None,
+        response_payload_bytes: None,
+        runtime_running: Some(matches!(&status.status, RuntimeStatus::Running { .. })),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+        error: None,
+    }
+}
+
+fn anytls_tls_tcp_relay_smoke_exchange_case(
+    exchange_result: Result<TcpRelaySmokeExchangeObservation, String>,
+    server_result: Result<TcpRelaySmokeServerObservation, String>,
+    round_trip_observed: bool,
+    server_received_payload: bool,
+) -> TcpRelaySmokeCaseReport {
+    let error = match (&exchange_result, &server_result) {
+        (Ok(_), Ok(_)) => None,
+        (Err(exchange), Ok(_)) => Some(exchange.clone()),
+        (Ok(_), Err(server)) => Some(server.clone()),
+        (Err(exchange), Err(server)) => Some(format!("{exchange}; {server}")),
+    };
+    let exchange = exchange_result.ok();
+    let passed = error.is_none() && round_trip_observed && server_received_payload;
+    TcpRelaySmokeCaseReport {
+        name: "anytls-tls-tcp-protocol-round-trip",
+        action: "socks5-connect",
+        expected_selected_outbound: Some(ANYTLS_TLS_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: anytls_tls_tcp_relay_smoke_target(),
+        expected_response: Some(
+            String::from_utf8_lossy(ANYTLS_TLS_TCP_RELAY_SMOKE_RESPONSE).to_string(),
+        ),
+        observed_response: exchange
+            .as_ref()
+            .map(|exchange| String::from_utf8_lossy(&exchange.response_payload).to_string()),
+        request_payload_bytes: Some(ANYTLS_TLS_TCP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: exchange
+            .as_ref()
+            .map(|exchange| exchange.response_payload.len()),
+        runtime_running: None,
+        round_trip_observed: Some(round_trip_observed),
+        server_received_payload: Some(server_received_payload),
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+        error,
+    }
+}
+
+fn anytls_tls_tcp_relay_smoke_metrics_case(
+    status: &ManagedMixedStatusSnapshot,
+    metrics_recorded: bool,
+) -> TcpRelaySmokeCaseReport {
+    let metrics = &status.connection_metrics;
+    let inbound_count = udp_relay_smoke_inbound_count(metrics, "socks5");
+    let outbound_route_count = anytls_tls_tcp_relay_smoke_outbound_route_count(metrics);
+    TcpRelaySmokeCaseReport {
+        name: "record-anytls-tls-tcp-relay-metrics",
+        action: "status",
+        expected_selected_outbound: Some(ANYTLS_TLS_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: status.selected_outbound.clone(),
+        expected_generation: Some(1),
+        observed_generation: Some(status.generation),
+        target: anytls_tls_tcp_relay_smoke_target(),
+        expected_response: None,
+        observed_response: None,
+        request_payload_bytes: Some(ANYTLS_TLS_TCP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: Some(ANYTLS_TLS_TCP_RELAY_SMOKE_RESPONSE.len()),
+        runtime_running: Some(matches!(&status.status, RuntimeStatus::Running { .. })),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: Some(metrics_recorded),
+        metrics_total_connections: Some(metrics.total_connection_count),
+        metrics_success_count: Some(metrics.success_count),
+        metrics_inbound_count: Some(inbound_count),
+        metrics_outbound_route_count: Some(outbound_route_count),
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed: metrics_recorded,
+        error: None,
+    }
+}
+
+fn anytls_tls_tcp_relay_smoke_stop_case(
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+    error: Option<String>,
+) -> TcpRelaySmokeCaseReport {
+    TcpRelaySmokeCaseReport {
+        name: "stop-anytls-tls-tcp-relay-runtime",
+        action: "stop",
+        expected_selected_outbound: None,
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: anytls_tls_tcp_relay_smoke_target(),
+        expected_response: None,
+        observed_response: None,
+        request_payload_bytes: None,
+        response_payload_bytes: None,
+        runtime_running: Some(false),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: Some(clean_stop_observed),
+        stop_workers_remaining,
+        stop_timed_out,
+        passed: clean_stop_observed && error.is_none(),
+        error,
+    }
+}
+
+fn anytls_tls_tcp_relay_smoke_error_case(
+    name: &'static str,
+    action: &'static str,
+    error: String,
+) -> TcpRelaySmokeCaseReport {
+    TcpRelaySmokeCaseReport {
+        name,
+        action,
+        expected_selected_outbound: Some(ANYTLS_TLS_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: anytls_tls_tcp_relay_smoke_target(),
+        expected_response: Some(
+            String::from_utf8_lossy(ANYTLS_TLS_TCP_RELAY_SMOKE_RESPONSE).to_string(),
+        ),
+        observed_response: None,
+        request_payload_bytes: Some(ANYTLS_TLS_TCP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: None,
+        runtime_running: None,
+        round_trip_observed: Some(false),
+        server_received_payload: Some(false),
+        metrics_recorded: Some(false),
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed: false,
+        error: Some(error),
+    }
+}
+
+fn run_anytls_tls_tcp_relay_smoke_exchange(
+    listen_addr: SocketAddr,
+) -> Result<TcpRelaySmokeExchangeObservation, String> {
+    let mut client = TcpStream::connect(listen_addr)
+        .map_err(|error| format!("connect AnyTLS TLS TCP smoke listener {listen_addr}: {error}"))?;
+    client
+        .set_read_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+        .map_err(|error| format!("set AnyTLS TLS TCP smoke client read timeout: {error}"))?;
+    client
+        .set_write_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+        .map_err(|error| format!("set AnyTLS TLS TCP smoke client write timeout: {error}"))?;
+    let target = OutboundTarget::new(
+        ANYTLS_TLS_TCP_RELAY_SMOKE_TARGET_HOST,
+        ANYTLS_TLS_TCP_RELAY_SMOKE_TARGET_PORT,
+    );
+    write_smoke_connect(&mut client, &target, SmokeInboundKind::Socks5)?;
+    client
+        .write_all(ANYTLS_TLS_TCP_RELAY_SMOKE_PAYLOAD)
+        .map_err(|error| format!("write AnyTLS TLS TCP smoke payload: {error}"))?;
+    let mut response = vec![0; ANYTLS_TLS_TCP_RELAY_SMOKE_RESPONSE.len()];
+    client
+        .read_exact(&mut response)
+        .map_err(|error| format!("read AnyTLS TLS TCP smoke response: {error}"))?;
+    client.shutdown(Shutdown::Both).ok();
+    Ok(TcpRelaySmokeExchangeObservation {
+        response_payload: response,
+    })
+}
+
+fn spawn_anytls_tls_tcp_relay_smoke_server() -> Result<
+    (
+        u16,
+        thread::JoinHandle<Result<TcpRelaySmokeServerObservation, String>>,
+    ),
+    String,
+> {
+    let server_config = anytls_tls_tcp_relay_smoke_server_config()?;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|error| format!("bind AnyTLS TLS TCP smoke server: {error}"))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| format!("set AnyTLS TLS TCP smoke accept mode: {error}"))?;
+    let listen_port = listener
+        .local_addr()
+        .map_err(|error| format!("read AnyTLS TLS TCP smoke address: {error}"))?
+        .port();
+    let handle = thread::spawn(move || -> Result<TcpRelaySmokeServerObservation, String> {
+        let deadline = Instant::now() + TCP_RELAY_SMOKE_TIMEOUT;
+        let (stream, _) = loop {
+            match listener.accept() {
+                Ok(accepted) => break accepted,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= deadline {
+                        return Err("AnyTLS TLS TCP smoke accept timed out".to_string());
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => return Err(format!("accept AnyTLS TLS TCP smoke server: {error}")),
+            }
+        };
+        stream
+            .set_nonblocking(false)
+            .map_err(|error| format!("set AnyTLS TLS TCP smoke stream blocking mode: {error}"))?;
+        stream
+            .set_read_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+            .map_err(|error| format!("set AnyTLS TLS TCP smoke read timeout: {error}"))?;
+        stream
+            .set_write_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+            .map_err(|error| format!("set AnyTLS TLS TCP smoke write timeout: {error}"))?;
+        let connection = rustls::ServerConnection::new(server_config)
+            .map_err(|error| format!("create AnyTLS TLS TCP smoke TLS connection: {error}"))?;
+        let mut stream = rustls::StreamOwned::new(connection, stream);
+
+        anytls_tls_tcp_relay_smoke_read_auth(&mut stream)?;
+
+        let (cmd, sid, settings) = anytls_tls_tcp_relay_smoke_read_frame(&mut stream)?;
+        if (cmd, sid) != (4, 0) {
+            return Err(format!(
+                "unexpected AnyTLS settings frame: expected cmd=4 sid=0, got cmd={cmd} sid={sid}"
+            ));
+        }
+        let settings = String::from_utf8(settings)
+            .map_err(|error| format!("read AnyTLS settings as UTF-8: {error}"))?;
+        if !settings.contains("v=2")
+            || !settings.contains("client=keli-native-client/")
+            || !settings.contains("padding-md5=")
+        {
+            return Err(format!("unexpected AnyTLS settings payload: {settings}"));
+        }
+
+        let (cmd, sid, data) = anytls_tls_tcp_relay_smoke_read_frame(&mut stream)?;
+        if (cmd, sid, data.len()) != (1, 1, 0) {
+            return Err(format!(
+                "unexpected AnyTLS start frame: expected cmd=1 sid=1 len=0, got cmd={cmd} sid={sid} len={}",
+                data.len()
+            ));
+        }
+
+        let expected_target = encode_shadowsocks_tcp_request_header(&Endpoint::new(
+            ANYTLS_TLS_TCP_RELAY_SMOKE_TARGET_HOST,
+            ANYTLS_TLS_TCP_RELAY_SMOKE_TARGET_PORT,
+        ))
+        .map_err(|error| format!("encode expected AnyTLS target header: {error}"))?;
+        let (cmd, sid, observed_target) = anytls_tls_tcp_relay_smoke_read_frame(&mut stream)?;
+        if (cmd, sid) != (2, 1) || observed_target != expected_target {
+            return Err(format!(
+                "unexpected AnyTLS target frame: expected cmd=2 sid=1 target {:?}, got cmd={cmd} sid={sid} target {:?}",
+                expected_target, observed_target
+            ));
+        }
+
+        let (cmd, sid, payload) = anytls_tls_tcp_relay_smoke_read_frame(&mut stream)?;
+        if (cmd, sid) != (2, 1) || payload != ANYTLS_TLS_TCP_RELAY_SMOKE_PAYLOAD {
+            return Err(format!(
+                "unexpected AnyTLS payload frame: expected cmd=2 sid=1 payload {:?}, got cmd={cmd} sid={sid} payload {:?}",
+                ANYTLS_TLS_TCP_RELAY_SMOKE_PAYLOAD, payload
+            ));
+        }
+
+        anytls_tls_tcp_relay_smoke_write_frame(&mut stream, 10, 0, b"v=2")?;
+        anytls_tls_tcp_relay_smoke_write_frame(&mut stream, 7, 1, b"")?;
+        anytls_tls_tcp_relay_smoke_write_frame(
+            &mut stream,
+            2,
+            1,
+            ANYTLS_TLS_TCP_RELAY_SMOKE_RESPONSE,
+        )?;
+        stream
+            .flush()
+            .map_err(|error| format!("flush AnyTLS TLS TCP smoke response: {error}"))?;
+        Ok(TcpRelaySmokeServerObservation {
+            received_expected_payload: true,
+        })
+    });
+    Ok((listen_port, handle))
+}
+
+fn anytls_tls_tcp_relay_smoke_read_auth(stream: &mut impl Read) -> Result<(), String> {
+    let mut header = [0; 34];
+    stream
+        .read_exact(&mut header)
+        .map_err(|error| format!("read AnyTLS auth header: {error}"))?;
+    let expected = Sha256::digest(ANYTLS_TLS_TCP_RELAY_SMOKE_PASSWORD.as_bytes());
+    if &header[..32] != expected.as_slice() {
+        return Err(format!(
+            "unexpected AnyTLS auth digest: expected {:?}, got {:?}",
+            expected.as_slice(),
+            &header[..32]
+        ));
+    }
+    let padding_len = u16::from_be_bytes([header[32], header[33]]) as usize;
+    if padding_len != 30 {
+        return Err(format!(
+            "unexpected AnyTLS auth padding length: expected 30, got {padding_len}"
+        ));
+    }
+    let mut padding = vec![0; padding_len];
+    stream
+        .read_exact(&mut padding)
+        .map_err(|error| format!("read AnyTLS auth padding: {error}"))?;
+    Ok(())
+}
+
+fn anytls_tls_tcp_relay_smoke_read_frame(
+    stream: &mut impl Read,
+) -> Result<(u8, u32, Vec<u8>), String> {
+    let mut header = [0; 7];
+    stream
+        .read_exact(&mut header)
+        .map_err(|error| format!("read AnyTLS frame header: {error}"))?;
+    let cmd = header[0];
+    let sid = u32::from_be_bytes([header[1], header[2], header[3], header[4]]);
+    let len = u16::from_be_bytes([header[5], header[6]]) as usize;
+    let mut data = vec![0; len];
+    stream
+        .read_exact(&mut data)
+        .map_err(|error| format!("read AnyTLS frame payload: {error}"))?;
+    Ok((cmd, sid, data))
+}
+
+fn anytls_tls_tcp_relay_smoke_write_frame(
+    stream: &mut impl Write,
+    cmd: u8,
+    sid: u32,
+    data: &[u8],
+) -> Result<(), String> {
+    let mut header = [0; 7];
+    header[0] = cmd;
+    header[1..5].copy_from_slice(&sid.to_be_bytes());
+    header[5..7].copy_from_slice(&(data.len() as u16).to_be_bytes());
+    stream
+        .write_all(&header)
+        .map_err(|error| format!("write AnyTLS frame header: {error}"))?;
+    stream
+        .write_all(data)
+        .map_err(|error| format!("write AnyTLS frame payload: {error}"))
+}
+
+fn anytls_tls_tcp_relay_smoke_server_config() -> Result<Arc<rustls::ServerConfig>, String> {
+    let cert = generate_simple_self_signed(vec![ANYTLS_TLS_TCP_RELAY_SMOKE_SNI.to_string()])
+        .map_err(|error| format!("generate AnyTLS TLS TCP smoke cert: {error}"))?;
+    let cert_der: CertificateDer<'static> = cert.cert.der().clone();
+    let key_der = PrivateKeyDer::Pkcs8(cert.signing_key.serialize_der().into());
+    rustls::ServerConfig::builder_with_provider(rustls::crypto::ring::default_provider().into())
+        .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+        .map_err(|error| format!("configure AnyTLS TLS TCP smoke protocols: {error}"))?
+        .with_no_client_auth()
+        .with_single_cert(vec![cert_der], key_der)
+        .map(Arc::new)
+        .map_err(|error| format!("configure AnyTLS TLS TCP smoke certificate: {error}"))
+}
+
+fn anytls_tls_tcp_relay_smoke_metrics_recorded(metrics: &ConnectionMetricsSnapshot) -> bool {
+    metrics.total_connection_count >= 1
+        && metrics.success_count >= 1
+        && udp_relay_smoke_inbound_count(metrics, "socks5") >= 1
+        && anytls_tls_tcp_relay_smoke_outbound_route_count(metrics) >= 1
+        && metrics.total_upload_bytes >= ANYTLS_TLS_TCP_RELAY_SMOKE_PAYLOAD.len() as u64
+        && metrics.total_download_bytes >= ANYTLS_TLS_TCP_RELAY_SMOKE_RESPONSE.len() as u64
+}
+
+fn anytls_tls_tcp_relay_smoke_outbound_route_count(metrics: &ConnectionMetricsSnapshot) -> u64 {
+    metrics
+        .route_action_counts
+        .iter()
+        .find(|entry| {
+            entry.route_action
+                == RouteAction::Outbound(ANYTLS_TLS_TCP_RELAY_SMOKE_OUTBOUND.to_string())
+        })
+        .map(|entry| entry.count)
+        .unwrap_or(0)
+}
+
+fn anytls_tls_tcp_relay_smoke_target() -> String {
+    format!(
+        "{}:{}",
+        ANYTLS_TLS_TCP_RELAY_SMOKE_TARGET_HOST, ANYTLS_TLS_TCP_RELAY_SMOKE_TARGET_PORT
+    )
+}
+
+#[cfg(test)]
+mod anytls_tls_tcp_relay_smoke_tests {
+    use super::*;
+
+    #[test]
+    fn default_anytls_tls_tcp_relay_smoke_proves_tls_anytls_round_trip() {
+        let report = collect_default_anytls_tls_tcp_relay_smoke_report();
+
+        assert!(report.passed, "{report:#?}");
+        assert_eq!(
+            report.selected_outbound.as_deref(),
+            Some(ANYTLS_TLS_TCP_RELAY_SMOKE_OUTBOUND)
+        );
+        assert_eq!(report.target, anytls_tls_tcp_relay_smoke_target());
+        assert_eq!(
+            report.request_payload_bytes,
+            ANYTLS_TLS_TCP_RELAY_SMOKE_PAYLOAD.len()
+        );
+        assert_eq!(
+            report.response_payload_bytes,
+            Some(ANYTLS_TLS_TCP_RELAY_SMOKE_RESPONSE.len())
+        );
+        assert!(report.round_trip_observed);
+        assert!(report.server_received_payload);
+        assert!(report.metrics_recorded);
+        assert!(report.metrics_total_connections >= 1);
+        assert!(report.metrics_success_count >= 1);
+        assert!(report.metrics_inbound_count >= 1);
+        assert!(report.metrics_outbound_route_count >= 1);
+        assert!(report.clean_stop_observed);
+        assert_eq!(report.stop_workers_remaining, Some(0));
+        assert_eq!(report.stop_timed_out, Some(false));
+
+        let case_names = report
+            .cases
+            .iter()
+            .map(|case| case.name)
+            .collect::<Vec<_>>();
+        for expected in [
+            "start-anytls-tls-tcp-relay-runtime",
+            "anytls-tls-tcp-protocol-round-trip",
+            "record-anytls-tls-tcp-relay-metrics",
+            "stop-anytls-tls-tcp-relay-runtime",
+        ] {
+            assert!(
+                case_names.contains(&expected),
+                "missing AnyTLS TLS TCP relay smoke case {expected}: {case_names:?}"
+            );
+        }
+        let round_trip = report
+            .cases
+            .iter()
+            .find(|case| case.name == "anytls-tls-tcp-protocol-round-trip")
+            .expect("round trip case");
+        assert_eq!(
+            round_trip.observed_response.as_deref(),
+            Some("keli-anytls-pong")
         );
         assert_eq!(round_trip.round_trip_observed, Some(true));
         assert_eq!(round_trip.server_received_payload, Some(true));
@@ -19267,6 +20054,14 @@ fn write_readiness_check_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "readiness anytls_tls_tcp_relay_smoke status={} cases={} detail={}",
+        tcp_relay_smoke_status_label(&report.anytls_tls_tcp_relay_smoke),
+        report.anytls_tls_tcp_relay_smoke.cases.len(),
+        report.anytls_tls_tcp_relay_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "readiness hy2_quic_tcp_relay_smoke status={} cases={} detail={}",
         tcp_relay_smoke_status_label(&report.hy2_quic_tcp_relay_smoke),
         report.hy2_quic_tcp_relay_smoke.cases.len(),
@@ -19417,6 +20212,9 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         ),
         "trojan_tls_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.trojan_tls_tcp_relay_smoke
+        ),
+        "anytls_tls_tcp_relay_smoke": tcp_relay_smoke_json_value(
+            &report.anytls_tls_tcp_relay_smoke
         ),
         "hy2_quic_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.hy2_quic_tcp_relay_smoke
@@ -19589,6 +20387,14 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification anytls_tls_tcp_relay_smoke status={} cases={} detail={}",
+        tcp_relay_smoke_status_label(&report.anytls_tls_tcp_relay_smoke),
+        report.anytls_tls_tcp_relay_smoke.cases.len(),
+        report.anytls_tls_tcp_relay_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification hy2_quic_tcp_relay_smoke status={} cases={} detail={}",
         tcp_relay_smoke_status_label(&report.hy2_quic_tcp_relay_smoke),
         report.hy2_quic_tcp_relay_smoke.cases.len(),
@@ -19756,6 +20562,7 @@ fn default_core_certification_json_value(
             "http_connect_relay_smoke_passed": report.http_connect_relay_smoke.passed,
             "http_proxy_relay_smoke_passed": report.http_proxy_relay_smoke.passed,
             "trojan_tls_tcp_relay_smoke_passed": report.trojan_tls_tcp_relay_smoke.passed,
+            "anytls_tls_tcp_relay_smoke_passed": report.anytls_tls_tcp_relay_smoke.passed,
             "hy2_quic_tcp_relay_smoke_passed": report.hy2_quic_tcp_relay_smoke.passed,
             "tuic_quic_tcp_relay_smoke_passed": report.tuic_quic_tcp_relay_smoke.passed,
             "vless_tcp_relay_smoke_passed": report.vless_tcp_relay_smoke.passed,
@@ -19797,6 +20604,9 @@ fn default_core_certification_json_value(
         ),
         "trojan_tls_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.trojan_tls_tcp_relay_smoke
+        ),
+        "anytls_tls_tcp_relay_smoke": tcp_relay_smoke_json_value(
+            &report.anytls_tls_tcp_relay_smoke
         ),
         "hy2_quic_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.hy2_quic_tcp_relay_smoke

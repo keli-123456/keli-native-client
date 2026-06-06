@@ -383,18 +383,22 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][40],
-        "hy2-quic-tcp-relay-smoke"
+        "anytls-tls-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][41],
-        "tuic-quic-tcp-relay-smoke"
+        "hy2-quic-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][42],
-        "vless-tcp-relay-smoke"
+        "tuic-quic-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][43],
+        "vless-tcp-relay-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][44],
         "vmess-tcp-relay-smoke"
     );
     assert_eq!(
@@ -575,18 +579,22 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][40],
-        "hy2-quic-tcp-relay-smoke"
+        "anytls-tls-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][41],
-        "tuic-quic-tcp-relay-smoke"
+        "hy2-quic-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][42],
-        "vless-tcp-relay-smoke"
+        "tuic-quic-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][43],
+        "vless-tcp-relay-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][44],
         "vmess-tcp-relay-smoke"
     );
     assert_eq!(
@@ -1199,6 +1207,51 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     );
     assert_eq!(
         certification["readiness"]["trojan_tls_tcp_relay_smoke"]["case_count"],
+        4
+    );
+    assert_eq!(
+        certification["certification"]["anytls_tls_tcp_relay_smoke_passed"],
+        true
+    );
+    assert_eq!(
+        certification["anytls_tls_tcp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(certification["anytls_tls_tcp_relay_smoke"]["case_count"], 4);
+    assert_eq!(
+        certification["anytls_tls_tcp_relay_smoke"]["failed_case_count"],
+        0
+    );
+    assert_eq!(
+        certification["anytls_tls_tcp_relay_smoke"]["selected_outbound"],
+        "ANYTLS-TLS-TCP-SMOKE"
+    );
+    assert_eq!(
+        certification["anytls_tls_tcp_relay_smoke"]["target"],
+        "example.com:443"
+    );
+    assert_eq!(
+        certification["anytls_tls_tcp_relay_smoke"]["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        certification["anytls_tls_tcp_relay_smoke"]["server_received_payload"],
+        true
+    );
+    assert_eq!(
+        certification["anytls_tls_tcp_relay_smoke"]["metrics_recorded"],
+        true
+    );
+    assert_eq!(
+        certification["anytls_tls_tcp_relay_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        certification["readiness"]["anytls_tls_tcp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(
+        certification["readiness"]["anytls_tls_tcp_relay_smoke"]["case_count"],
         4
     );
     assert_eq!(
