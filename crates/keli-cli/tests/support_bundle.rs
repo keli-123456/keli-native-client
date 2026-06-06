@@ -230,6 +230,10 @@ proxies:
         "http-connect"
     );
     assert_eq!(
+        report["doctor"]["stability_diagnostic_capabilities"][6],
+        "min-duration"
+    );
+    assert_eq!(
         report["doctor"]["interop_matrix_capabilities"][0],
         "protocol-summary"
     );

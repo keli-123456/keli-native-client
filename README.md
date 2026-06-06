@@ -331,7 +331,10 @@ The CLI now also exposes `soak-mixed`, a deterministic local stability
 diagnostic that runs repeated loopback echo traffic through one managed mixed
 runtime, then reports connection metrics, worker/client peaks, and stop-drain
 state in text or JSON. Doctor and support bundles advertise this stability
-diagnostic surface so CI, UI, and support tooling can discover it.
+diagnostic surface so CI, UI, and support tooling can discover it. The soak
+runner also supports `--min-duration-ms` so release checks can keep the managed
+runtime alive after the requested traffic completes, then verify clean
+stop-drain behavior for a bounded long-running window.
 `interop-matrix` exposes a machine-readable production-readiness matrix for the
 native core: each supported protocol reports covered transports, TCP/UDP relay
 support, subscription profile sources, profile validation coverage, and
@@ -412,4 +415,5 @@ cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
 cargo run -p keli-cli -- support-bundle --include-certification
 cargo run -p keli-cli -- subscription-update --current-config active.yaml --new-config subscription.yaml --current-outbound proxy --format json
 cargo run -p keli-cli -- soak-mixed --connections 25 --format json
+cargo run -p keli-cli -- soak-mixed --connections 25 --min-duration-ms 60000 --format json
 ```

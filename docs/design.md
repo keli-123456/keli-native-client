@@ -385,8 +385,10 @@ The first implementation target is deliberately small:
    The first deterministic soak boundary is now `soak-mixed`: it runs repeated
    loopback echo traffic through one managed mixed runtime and reports
    completed/failed connections, aggregate managed connection metrics,
-   worker/client peaks, and stop-drain state as text or JSON. Doctor and
-   support bundles advertise this stability diagnostic surface.
+   worker/client peaks, and stop-drain state as text or JSON. `--min-duration-ms`
+   can hold the managed runtime alive after traffic completes, then verify
+   clean stop-drain behavior for bounded long-running stability checks. Doctor
+   and support bundles advertise this stability diagnostic surface.
    `interop-matrix` now exposes the current protocol readiness matrix as text
    or JSON, including covered transports, TCP/UDP relay support, profile source
    coverage, validation sample counts, and outbound registry registration

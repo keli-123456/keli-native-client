@@ -1,6 +1,9 @@
 use std::time::Duration;
 
-use keli_cli::{write_soak_mixed_report, ProbeOutputFormat, SmokeInboundKind};
+use keli_cli::{
+    write_soak_mixed_report, write_soak_mixed_report_with_min_duration, ProbeOutputFormat,
+    SmokeInboundKind,
+};
 
 #[test]
 fn soak_mixed_json_reports_repeated_socks5_round_trips() {
@@ -23,6 +26,8 @@ fn soak_mixed_json_reports_repeated_socks5_round_trips() {
     assert_eq!(report["requested_connections"], 5);
     assert_eq!(report["completed_connections"], 5);
     assert_eq!(report["failed_connections"], 0);
+    assert_eq!(report["min_duration_ms"], 0);
+    assert_eq!(report["duration_target_met"], true);
     assert_eq!(report["payload_bytes_per_connection"], 14);
     assert_eq!(report["connection_metrics"]["total_connection_count"], 5);
     assert_eq!(report["connection_metrics"]["success_count"], 5);
@@ -74,9 +79,37 @@ fn soak_mixed_text_reports_http_connect_success() {
     assert!(output.contains("requested_connections=3"));
     assert!(output.contains("completed_connections=3"));
     assert!(output.contains("failed_connections=0"));
+    assert!(output.contains("min_duration_ms=0"));
+    assert!(output.contains("duration_target_met=true"));
     assert!(output.contains("total_connection_count=3"));
     assert!(output.contains("success_count=3"));
     assert!(output.contains("failure_count=0"));
     assert!(output.contains("stop_workers_remaining=0"));
     assert!(output.contains("stop_timed_out=false"));
+}
+
+#[test]
+fn soak_mixed_json_can_hold_runtime_for_min_duration() {
+    let mut output = Vec::new();
+
+    write_soak_mixed_report_with_min_duration(
+        1,
+        SmokeInboundKind::Socks5,
+        Duration::from_secs(2),
+        1,
+        Duration::from_millis(75),
+        ProbeOutputFormat::Json,
+        &mut output,
+    )
+    .expect("mixed SOCKS5 timed soak");
+
+    let report: serde_json::Value = serde_json::from_slice(&output).expect("soak JSON");
+    assert_eq!(report["status"], "ok");
+    assert_eq!(report["requested_connections"], 1);
+    assert_eq!(report["completed_connections"], 1);
+    assert_eq!(report["min_duration_ms"], 75);
+    assert_eq!(report["duration_target_met"], true);
+    assert!(report["elapsed_ms"].as_u64().expect("elapsed milliseconds") >= 75);
+    assert_eq!(report["stop_drain"]["workers_remaining"], 0);
+    assert_eq!(report["stop_drain"]["timed_out"], false);
 }

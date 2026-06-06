@@ -805,6 +805,8 @@ fn parses_soak_mixed_json_command() {
         "1500",
         "--max-connection-workers",
         "3",
+        "--min-duration-ms",
+        "250",
     ])
     .expect("command should parse");
 
@@ -816,6 +818,7 @@ fn parses_soak_mixed_json_command() {
             output: ProbeOutputFormat::Json,
             first_byte_timeout: Duration::from_millis(1500),
             max_connection_workers: 3,
+            min_duration: Duration::from_millis(250),
         }
     );
 }

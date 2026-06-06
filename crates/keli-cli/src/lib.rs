@@ -68,12 +68,13 @@ const DEFAULT_TUN_PACKET_LOOP_MAX_PACKETS: usize = usize::MAX;
 const DEFAULT_TUN_TCP_SERVER_INITIAL_SEQUENCE_NUMBER: u32 = 1;
 const DEFAULT_TUN_TCP_WINDOW_SIZE: u16 = 0x4000;
 const DEFAULT_MIXED_SOAK_CONNECTIONS: usize = 25;
+const DEFAULT_MIXED_SOAK_MIN_DURATION: Duration = Duration::from_millis(0);
 const DEFAULT_READINESS_SOAK_CONNECTIONS: usize = 3;
 const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 8;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 9;
 pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 3;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 1;
@@ -98,7 +99,7 @@ const SUBSCRIPTION_UPDATE_CAPABILITIES: &str =
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
     "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic";
 const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
-    "local-mixed-soak,loopback-echo,managed-metrics,worker-drain,socks5,http-connect";
+    "local-mixed-soak,loopback-echo,managed-metrics,worker-drain,socks5,http-connect,min-duration";
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
@@ -196,6 +197,7 @@ pub enum CliCommand {
         output: ProbeOutputFormat,
         first_byte_timeout: Duration,
         max_connection_workers: usize,
+        min_duration: Duration,
     },
     ProfileCheck {
         profile_config: String,
@@ -263,6 +265,8 @@ pub struct MixedSoakReport {
     pub listen_addr: SocketAddr,
     pub target_addr: SocketAddr,
     pub elapsed: Duration,
+    pub min_duration: Duration,
+    pub duration_target_met: bool,
     pub payload_bytes_per_connection: usize,
     pub connection_metrics: ConnectionMetricsSnapshot,
     pub max_connection_workers: usize,
@@ -4168,13 +4172,15 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             output,
             first_byte_timeout,
             max_connection_workers,
+            min_duration,
         } => {
             let mut stdout = io::stdout();
-            write_soak_mixed_report(
+            write_soak_mixed_report_with_min_duration(
                 connections,
                 inbound,
                 first_byte_timeout,
                 max_connection_workers,
+                min_duration,
                 output,
                 &mut stdout,
             )
@@ -4277,7 +4283,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli soak-mixed [--connections 25] [--inbound socks5|http-connect] [--format text|json] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024]"
+        "       keli-cli soak-mixed [--connections 25] [--inbound socks5|http-connect] [--format text|json] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--min-duration-ms 1]"
     )?;
     writeln!(
         writer,
@@ -5080,6 +5086,7 @@ fn parse_soak_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, St
     let mut output = ProbeOutputFormat::Text;
     let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut max_connection_workers = DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS;
+    let mut min_duration = DEFAULT_MIXED_SOAK_MIN_DURATION;
     let mut args = args.peekable();
 
     while let Some(arg) = args.next() {
@@ -5118,6 +5125,13 @@ fn parse_soak_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, St
                     "--max-connection-workers",
                 )?;
             }
+            "--min-duration-ms" => {
+                min_duration = parse_duration_ms(
+                    args.next()
+                        .ok_or_else(|| "--min-duration-ms requires a value".to_string())?,
+                    "--min-duration-ms",
+                )?;
+            }
             other => return Err(format!("unknown soak-mixed option: {other}")),
         }
     }
@@ -5128,6 +5142,7 @@ fn parse_soak_mixed(args: impl Iterator<Item = String>) -> Result<CliCommand, St
         output,
         first_byte_timeout,
         max_connection_workers,
+        min_duration,
     })
 }
 
@@ -8959,11 +8974,32 @@ pub fn write_soak_mixed_report(
     output: ProbeOutputFormat,
     mut writer: impl Write,
 ) -> Result<(), String> {
-    let report = run_soak_mixed(
+    write_soak_mixed_report_with_min_duration(
         connections,
         inbound,
         first_byte_timeout,
         max_connection_workers,
+        DEFAULT_MIXED_SOAK_MIN_DURATION,
+        output,
+        &mut writer,
+    )
+}
+
+pub fn write_soak_mixed_report_with_min_duration(
+    connections: usize,
+    inbound: SmokeInboundKind,
+    first_byte_timeout: Duration,
+    max_connection_workers: usize,
+    min_duration: Duration,
+    output: ProbeOutputFormat,
+    mut writer: impl Write,
+) -> Result<(), String> {
+    let report = run_soak_mixed_with_min_duration(
+        connections,
+        inbound,
+        first_byte_timeout,
+        max_connection_workers,
+        min_duration,
     )?;
     write_soak_mixed_result(&mut writer, &report, output)
 }
@@ -8973,6 +9009,22 @@ pub fn run_soak_mixed(
     inbound: SmokeInboundKind,
     first_byte_timeout: Duration,
     max_connection_workers: usize,
+) -> Result<MixedSoakReport, String> {
+    run_soak_mixed_with_min_duration(
+        connections,
+        inbound,
+        first_byte_timeout,
+        max_connection_workers,
+        DEFAULT_MIXED_SOAK_MIN_DURATION,
+    )
+}
+
+pub fn run_soak_mixed_with_min_duration(
+    connections: usize,
+    inbound: SmokeInboundKind,
+    first_byte_timeout: Duration,
+    max_connection_workers: usize,
+    min_duration: Duration,
 ) -> Result<MixedSoakReport, String> {
     if connections == 0 {
         return Err("soak-mixed connections must be greater than 0".to_string());
@@ -9020,6 +9072,13 @@ pub fn run_soak_mixed(
         }
     }
 
+    if first_error.is_none() {
+        while started.elapsed() < min_duration {
+            let remaining = min_duration.saturating_sub(started.elapsed());
+            thread::sleep(remaining.min(Duration::from_millis(25)));
+        }
+    }
+    let elapsed = started.elapsed();
     echo_stop.store(true, Ordering::SeqCst);
     stop.store(true, Ordering::SeqCst);
     let stop_drain = server
@@ -9058,7 +9117,9 @@ pub fn run_soak_mixed(
         inbound,
         listen_addr,
         target_addr,
-        elapsed: started.elapsed(),
+        elapsed,
+        min_duration,
+        duration_target_met: elapsed >= min_duration,
         payload_bytes_per_connection: MIXED_SOAK_PAYLOAD.len(),
         connection_metrics,
         max_connection_workers,
@@ -9161,12 +9222,14 @@ fn write_soak_mixed_result(
         ProbeOutputFormat::Text => {
             writeln!(
                 writer,
-                "soak status=ok inbound={} requested_connections={} completed_connections={} failed_connections={} elapsed_ms={} total_connection_count={} success_count={} failure_count={} peak_connection_workers={} peak_client_connections={} stop_workers_remaining={} stop_timed_out={}",
+                "soak status=ok inbound={} requested_connections={} completed_connections={} failed_connections={} elapsed_ms={} min_duration_ms={} duration_target_met={} total_connection_count={} success_count={} failure_count={} peak_connection_workers={} peak_client_connections={} stop_workers_remaining={} stop_timed_out={}",
                 report.inbound.cli_value(),
                 report.requested_connections,
                 report.completed_connections,
                 report.failed_connections,
                 duration_millis(report.elapsed),
+                duration_millis(report.min_duration),
+                report.duration_target_met,
                 report.connection_metrics.total_connection_count,
                 report.connection_metrics.success_count,
                 report.connection_metrics.failure_count,
@@ -9188,6 +9251,8 @@ fn write_soak_mixed_result(
                 "listen_addr": report.listen_addr.to_string(),
                 "target_addr": report.target_addr.to_string(),
                 "elapsed_ms": duration_millis(report.elapsed),
+                "min_duration_ms": duration_millis(report.min_duration),
+                "duration_target_met": report.duration_target_met,
                 "payload_bytes_per_connection": report.payload_bytes_per_connection,
                 "connection_metrics": connection_metrics_json_value(&report.connection_metrics),
                 "worker_gauge": {
