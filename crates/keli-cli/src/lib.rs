@@ -101,11 +101,11 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 30;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 20;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 31;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 21;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 19;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 19;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 20;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 20;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -130,11 +130,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,route-rule-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,route-rule-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -6861,6 +6861,7 @@ pub struct DefaultCoreReadinessReport {
     pub ready_for_default_core: bool,
     pub soak_min_duration: Duration,
     pub tun_preflight: TunDevicePreflight,
+    pub route_rule_smoke: RouteRuleSmokeReport,
     pub include_system_proxy_smoke: bool,
     pub system_proxy_smoke: Option<SystemProxySmokeReport>,
     pub include_tun_runtime_smoke: bool,
@@ -6877,6 +6878,7 @@ pub struct DefaultCoreCertificationReport {
     pub readiness: DefaultCoreReadinessReport,
     pub tun_backend: TunBackendStatus,
     pub tun_preflight: TunDevicePreflight,
+    pub route_rule_smoke: RouteRuleSmokeReport,
     pub include_system_proxy_smoke: bool,
     pub system_proxy_smoke: Option<SystemProxySmokeReport>,
     pub include_tun_runtime_smoke: bool,
@@ -6886,6 +6888,26 @@ pub struct DefaultCoreCertificationReport {
     pub first_byte_timeout: Duration,
     pub max_connection_workers: usize,
     pub soak_min_duration: Duration,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteRuleSmokeReport {
+    pub passed: bool,
+    pub detail: String,
+    pub cases: Vec<RouteRuleSmokeCaseReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteRuleSmokeCaseReport {
+    pub name: &'static str,
+    pub inbound: &'static str,
+    pub matcher: &'static str,
+    pub target: String,
+    pub expected_response: String,
+    pub observed_response: Option<String>,
+    pub target_contacted: Option<bool>,
+    pub passed: bool,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7201,6 +7223,7 @@ fn collect_default_core_certification_report(
     )?;
     let tun_backend = TunBackendStatus::detect();
     let tun_preflight = readiness.tun_preflight.clone();
+    let route_rule_smoke = readiness.route_rule_smoke.clone();
     let system_proxy_smoke = readiness.system_proxy_smoke.clone();
     let system_proxy_smoke_ready = !include_system_proxy_smoke
         || system_proxy_smoke
@@ -7216,6 +7239,7 @@ fn collect_default_core_certification_report(
     let ready_for_default_core = readiness.ready_for_default_core
         && tun_backend.is_ready()
         && tun_preflight.ready
+        && route_rule_smoke.passed
         && system_proxy_smoke_ready
         && tun_runtime_smoke_ready;
 
@@ -7226,6 +7250,7 @@ fn collect_default_core_certification_report(
         readiness,
         tun_backend,
         tun_preflight,
+        route_rule_smoke,
         include_system_proxy_smoke,
         system_proxy_smoke,
         include_tun_runtime_smoke,
@@ -7258,6 +7283,7 @@ fn collect_readiness_check_report(
     let doctor = collect_doctor_report();
     let interop = collect_interop_matrix_report();
     let tun_preflight = collect_default_tun_preflight();
+    let route_rule_smoke = collect_default_route_rule_smoke_report();
     let mut system_proxy_smoke = None;
     let mut tun_runtime_smoke = None;
     let mut gates = vec![
@@ -7317,6 +7343,12 @@ fn collect_readiness_check_report(
                 doctor.managed_connection_worker_limit,
                 doctor.tun_tcp_max_active_sessions_default
             ),
+        ),
+        readiness_gate(
+            "route-rule-smoke",
+            "routing",
+            route_rule_smoke.passed,
+            route_rule_smoke.detail.clone(),
         ),
         readiness_gate(
             "panel-subscription-state",
@@ -7448,6 +7480,7 @@ fn collect_readiness_check_report(
         ready_for_default_core,
         soak_min_duration,
         tun_preflight,
+        route_rule_smoke,
         include_system_proxy_smoke,
         system_proxy_smoke,
         include_tun_runtime_smoke,
@@ -7518,6 +7551,400 @@ fn readiness_soak_gate(
             status: ReadinessGateStatus::Failed,
             detail: error,
         },
+    }
+}
+
+fn collect_default_route_rule_smoke_report() -> RouteRuleSmokeReport {
+    let mut cases = Vec::new();
+    cases.push(run_http_route_rule_block_smoke_case(
+        "domain-suffix-block",
+        "domain-suffix",
+        RouteMatcher::DomainSuffix("blocked.example".to_string()),
+        "ads.blocked.example",
+        443,
+        None,
+    ));
+    cases.push(run_socks5_route_rule_block_smoke_case(
+        "cidr-block",
+        "ip-cidr",
+        RouteMatcher::IpCidr(
+            RouteIpCidr::new("127.42.0.1".parse().expect("valid smoke IP"), 8)
+                .expect("valid smoke CIDR"),
+        ),
+        "127.42.0.1",
+        443,
+    ));
+
+    match TcpListener::bind("127.0.0.1:0") {
+        Ok(target) => {
+            let target_port = match target.local_addr() {
+                Ok(addr) => addr.port(),
+                Err(error) => {
+                    cases.push(route_rule_smoke_error_case(
+                        "port-block",
+                        "http-connect",
+                        "port-exact",
+                        "127.0.0.1:0".to_string(),
+                        http_route_rule_smoke_expected_response(),
+                        format!("read route-rule smoke target address: {error}"),
+                    ));
+                    return finalize_route_rule_smoke_report(cases);
+                }
+            };
+            if let Err(error) = target.set_nonblocking(true) {
+                cases.push(route_rule_smoke_error_case(
+                    "port-block",
+                    "http-connect",
+                    "port-exact",
+                    format!("127.0.0.1:{target_port}"),
+                    http_route_rule_smoke_expected_response(),
+                    format!("set route-rule smoke target nonblocking: {error}"),
+                ));
+            } else {
+                cases.push(run_http_route_rule_block_smoke_case(
+                    "port-block",
+                    "port-exact",
+                    RouteMatcher::PortExact(target_port),
+                    "127.0.0.1",
+                    target_port,
+                    Some(&target),
+                ));
+            }
+        }
+        Err(error) => cases.push(route_rule_smoke_error_case(
+            "port-block",
+            "http-connect",
+            "port-exact",
+            "127.0.0.1:0".to_string(),
+            http_route_rule_smoke_expected_response(),
+            format!("bind route-rule smoke target: {error}"),
+        )),
+    }
+
+    finalize_route_rule_smoke_report(cases)
+}
+
+fn finalize_route_rule_smoke_report(cases: Vec<RouteRuleSmokeCaseReport>) -> RouteRuleSmokeReport {
+    let passed_count = cases.iter().filter(|case| case.passed).count();
+    let failed: Vec<&str> = cases
+        .iter()
+        .filter(|case| !case.passed)
+        .map(|case| case.name)
+        .collect();
+    let passed = failed.is_empty();
+    RouteRuleSmokeReport {
+        passed,
+        detail: format!(
+            "cases={} passed={} failed={} failed_cases={}",
+            cases.len(),
+            passed_count,
+            failed.len(),
+            if failed.is_empty() {
+                "-".to_string()
+            } else {
+                failed.join(",")
+            }
+        ),
+        cases,
+    }
+}
+
+fn run_http_route_rule_block_smoke_case(
+    name: &'static str,
+    matcher_label: &'static str,
+    matcher: RouteMatcher,
+    target_host: &str,
+    target_port: u16,
+    target_listener: Option<&TcpListener>,
+) -> RouteRuleSmokeCaseReport {
+    let expected_response = http_route_rule_smoke_expected_response();
+    let target = format!("{target_host}:{target_port}");
+    let result = (|| -> Result<(Vec<u8>, Option<bool>), String> {
+        let mut routes = RouteEngine::new(RouteAction::Direct);
+        routes.add_rule(RouteRule {
+            name: format!("route-smoke:{name}"),
+            matcher,
+            action: RouteAction::Block,
+        });
+        let runtime = MixedProxyRuntime::with_routes(routes);
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .map_err(|error| format!("bind route-rule smoke listener: {error}"))?;
+        let listen_addr = listener
+            .local_addr()
+            .map_err(|error| format!("read route-rule smoke listener addr: {error}"))?;
+        let server = thread::spawn(move || -> io::Result<()> {
+            let (mut stream, _) = listener.accept()?;
+            handle_mixed_connection_with_routes(&mut stream, &runtime)
+        });
+
+        let mut client = TcpStream::connect(listen_addr)
+            .map_err(|error| format!("connect route-rule smoke listener: {error}"))?;
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .map_err(|error| format!("set route-rule smoke read timeout: {error}"))?;
+        client
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .map_err(|error| format!("set route-rule smoke write timeout: {error}"))?;
+        write!(
+            client,
+            "CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n"
+        )
+        .map_err(|error| format!("write route-rule smoke HTTP CONNECT: {error}"))?;
+        let response = read_route_rule_smoke_http_response(&mut client)?;
+        client.shutdown(Shutdown::Both).ok();
+        server
+            .join()
+            .map_err(|_| "route-rule smoke HTTP worker panicked".to_string())?
+            .map_err(|error| format!("route-rule smoke HTTP worker failed: {error}"))?;
+        Ok((
+            response,
+            target_listener.map(route_rule_smoke_target_contacted),
+        ))
+    })();
+
+    route_rule_smoke_case_from_result(
+        name,
+        "http-connect",
+        matcher_label,
+        target,
+        expected_response,
+        result,
+    )
+}
+
+fn run_socks5_route_rule_block_smoke_case(
+    name: &'static str,
+    matcher_label: &'static str,
+    matcher: RouteMatcher,
+    target_host: &str,
+    target_port: u16,
+) -> RouteRuleSmokeCaseReport {
+    let expected_response =
+        route_rule_smoke_response_label(&socks5_reply(Socks5ReplyCode::ConnectionNotAllowed));
+    let target = format!("{target_host}:{target_port}");
+    let result = (|| -> Result<(Vec<u8>, Option<bool>), String> {
+        let mut routes = RouteEngine::new(RouteAction::Direct);
+        routes.add_rule(RouteRule {
+            name: format!("route-smoke:{name}"),
+            matcher,
+            action: RouteAction::Block,
+        });
+        let runtime = MixedProxyRuntime::with_routes(routes);
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .map_err(|error| format!("bind route-rule smoke listener: {error}"))?;
+        let listen_addr = listener
+            .local_addr()
+            .map_err(|error| format!("read route-rule smoke listener addr: {error}"))?;
+        let server = thread::spawn(move || -> io::Result<()> {
+            let (mut stream, _) = listener.accept()?;
+            handle_mixed_connection_with_routes(&mut stream, &runtime)
+        });
+
+        let target = OutboundTarget::new(target_host, target_port);
+        let mut client = TcpStream::connect(listen_addr)
+            .map_err(|error| format!("connect route-rule smoke listener: {error}"))?;
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .map_err(|error| format!("set route-rule smoke read timeout: {error}"))?;
+        client
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .map_err(|error| format!("set route-rule smoke write timeout: {error}"))?;
+        write_route_rule_smoke_socks5_connect(&mut client, &target)?;
+        let mut response = vec![0; socks5_reply(Socks5ReplyCode::ConnectionNotAllowed).len()];
+        client
+            .read_exact(&mut response)
+            .map_err(|error| format!("read route-rule smoke SOCKS5 block response: {error}"))?;
+        client.shutdown(Shutdown::Both).ok();
+        server
+            .join()
+            .map_err(|_| "route-rule smoke SOCKS5 worker panicked".to_string())?
+            .map_err(|error| format!("route-rule smoke SOCKS5 worker failed: {error}"))?;
+        Ok((response, None))
+    })();
+
+    route_rule_smoke_case_from_result(
+        name,
+        "socks5",
+        matcher_label,
+        target,
+        expected_response,
+        result,
+    )
+}
+
+fn route_rule_smoke_case_from_result(
+    name: &'static str,
+    inbound: &'static str,
+    matcher: &'static str,
+    target: String,
+    expected_response: String,
+    result: Result<(Vec<u8>, Option<bool>), String>,
+) -> RouteRuleSmokeCaseReport {
+    match result {
+        Ok((response, target_contacted)) => {
+            let observed_response = route_rule_smoke_response_label(&response);
+            let passed = observed_response == expected_response && target_contacted != Some(true);
+            RouteRuleSmokeCaseReport {
+                name,
+                inbound,
+                matcher,
+                target,
+                expected_response,
+                observed_response: Some(observed_response),
+                target_contacted,
+                passed,
+                error: None,
+            }
+        }
+        Err(error) => {
+            route_rule_smoke_error_case(name, inbound, matcher, target, expected_response, error)
+        }
+    }
+}
+
+fn route_rule_smoke_error_case(
+    name: &'static str,
+    inbound: &'static str,
+    matcher: &'static str,
+    target: String,
+    expected_response: String,
+    error: String,
+) -> RouteRuleSmokeCaseReport {
+    RouteRuleSmokeCaseReport {
+        name,
+        inbound,
+        matcher,
+        target,
+        expected_response,
+        observed_response: None,
+        target_contacted: None,
+        passed: false,
+        error: Some(error),
+    }
+}
+
+fn http_route_rule_smoke_expected_response() -> String {
+    route_rule_smoke_response_label(http_forbidden_response())
+}
+
+fn read_route_rule_smoke_http_response(stream: &mut TcpStream) -> Result<Vec<u8>, String> {
+    let mut response = Vec::new();
+    let mut byte = [0; 1];
+    while response.len() < 1024 {
+        stream
+            .read_exact(&mut byte)
+            .map_err(|error| format!("read route-rule smoke HTTP response: {error}"))?;
+        response.push(byte[0]);
+        if response.ends_with(b"\r\n\r\n") {
+            return Ok(response);
+        }
+    }
+    Err("route-rule smoke HTTP response header is too large".to_string())
+}
+
+fn write_route_rule_smoke_socks5_connect(
+    client: &mut TcpStream,
+    target: &OutboundTarget,
+) -> Result<(), String> {
+    client
+        .write_all(&[0x05, 0x01, 0x00])
+        .map_err(|error| format!("write route-rule smoke SOCKS5 hello: {error}"))?;
+    let mut hello = [0; 2];
+    client
+        .read_exact(&mut hello)
+        .map_err(|error| format!("read route-rule smoke SOCKS5 hello response: {error}"))?;
+    if hello != [0x05, 0x00] {
+        return Err(format!(
+            "unexpected route-rule smoke SOCKS5 hello response: {hello:?}"
+        ));
+    }
+
+    let mut request = vec![0x05, 0x01, 0x00];
+    match target.host.parse::<IpAddr>() {
+        Ok(IpAddr::V4(ip)) => {
+            request.push(0x01);
+            request.extend_from_slice(&ip.octets());
+        }
+        Ok(IpAddr::V6(ip)) => {
+            request.push(0x04);
+            request.extend_from_slice(&ip.octets());
+        }
+        Err(_) => {
+            let host = target.host.as_bytes();
+            if host.len() > u8::MAX as usize {
+                return Err(format!(
+                    "route-rule smoke target host is too long: {}",
+                    target.host
+                ));
+            }
+            request.push(0x03);
+            request.push(host.len() as u8);
+            request.extend_from_slice(host);
+        }
+    }
+    request.extend_from_slice(&target.port.to_be_bytes());
+    client
+        .write_all(&request)
+        .map_err(|error| format!("write route-rule smoke SOCKS5 connect: {error}"))
+}
+
+fn route_rule_smoke_target_contacted(listener: &TcpListener) -> bool {
+    match listener.accept() {
+        Ok((stream, _)) => {
+            stream.shutdown(Shutdown::Both).ok();
+            true
+        }
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => false,
+        Err(_) => false,
+    }
+}
+
+fn route_rule_smoke_response_label(response: &[u8]) -> String {
+    if response
+        .iter()
+        .all(|byte| byte.is_ascii_graphic() || matches!(byte, b'\r' | b'\n' | b' '))
+    {
+        String::from_utf8_lossy(response)
+            .replace('\r', "\\r")
+            .replace('\n', "\\n")
+    } else {
+        let mut output = String::new();
+        for byte in response {
+            output.push_str(&format!("{byte:02x}"));
+        }
+        output
+    }
+}
+
+#[cfg(test)]
+mod route_rule_smoke_tests {
+    use super::*;
+
+    #[test]
+    fn default_route_rule_smoke_blocks_domain_cidr_and_port_cases() {
+        let report = collect_default_route_rule_smoke_report();
+
+        assert!(report.passed, "{}", report.detail);
+        assert_eq!(report.cases.len(), 3);
+        for case_name in ["domain-suffix-block", "cidr-block", "port-block"] {
+            let case = report
+                .cases
+                .iter()
+                .find(|case| case.name == case_name)
+                .unwrap_or_else(|| panic!("missing route-rule smoke case {case_name}"));
+            assert!(case.passed, "{case:?}");
+            assert_eq!(
+                case.observed_response.as_ref(),
+                Some(&case.expected_response)
+            );
+        }
+
+        let port_case = report
+            .cases
+            .iter()
+            .find(|case| case.name == "port-block")
+            .expect("port route-rule smoke case");
+        assert_eq!(port_case.target_contacted, Some(false));
     }
 }
 
@@ -9139,6 +9566,14 @@ fn write_readiness_check_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "readiness route_rule_smoke status={} cases={} detail={}",
+        route_rule_smoke_status_label(&report.route_rule_smoke),
+        report.route_rule_smoke.cases.len(),
+        report.route_rule_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "readiness system_proxy_smoke status={} included={} detail={}",
         system_proxy_smoke_status_label(
             report.include_system_proxy_smoke,
@@ -9206,6 +9641,7 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         "ready_for_default_core": report.ready_for_default_core,
         "soak_min_duration_ms": duration_millis_for_report(report.soak_min_duration),
         "tun_preflight": tun_preflight_json_value(&report.tun_preflight),
+        "route_rule_smoke": route_rule_smoke_json_value(&report.route_rule_smoke),
         "system_proxy_smoke": system_proxy_smoke_json_value(
             report.include_system_proxy_smoke,
             report.system_proxy_smoke.as_ref()
@@ -9306,6 +9742,14 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification route_rule_smoke status={} cases={} detail={}",
+        route_rule_smoke_status_label(&report.route_rule_smoke),
+        report.route_rule_smoke.cases.len(),
+        report.route_rule_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification system_proxy_smoke status={} included={} detail={}",
         system_proxy_smoke_status_label(
             report.include_system_proxy_smoke,
@@ -9395,6 +9839,7 @@ fn default_core_certification_json_value(
             "blocking_gate_count": summary.blocking,
             "tun_backend_ready": report.tun_backend.is_ready(),
             "tun_preflight_ready": report.tun_preflight.ready,
+            "route_rule_smoke_passed": report.route_rule_smoke.passed,
             "system_proxy_smoke_included": report.include_system_proxy_smoke,
             "system_proxy_smoke_passed": if report.include_system_proxy_smoke {
                 report.system_proxy_smoke.as_ref().map(|smoke| smoke.passed)
@@ -9416,6 +9861,7 @@ fn default_core_certification_json_value(
         "tun_backend_status": if report.tun_backend.is_ready() { "ready" } else { "not-ready" },
         "tun_backend": tun_backend_json_value(&report.tun_backend),
         "tun_preflight": tun_preflight_json_value(&report.tun_preflight),
+        "route_rule_smoke": route_rule_smoke_json_value(&report.route_rule_smoke),
         "system_proxy_smoke": system_proxy_smoke_json_value(
             report.include_system_proxy_smoke,
             report.system_proxy_smoke.as_ref()
@@ -9425,6 +9871,45 @@ fn default_core_certification_json_value(
             report.tun_runtime_smoke_min_duration,
             report.tun_runtime_smoke.as_ref()
         ),
+    })
+}
+
+fn route_rule_smoke_status_label(report: &RouteRuleSmokeReport) -> &'static str {
+    if report.passed {
+        "passed"
+    } else {
+        "failed"
+    }
+}
+
+fn route_rule_smoke_json_value(report: &RouteRuleSmokeReport) -> serde_json::Value {
+    let cases: Vec<_> = report
+        .cases
+        .iter()
+        .map(route_rule_smoke_case_json_value)
+        .collect();
+    serde_json::json!({
+        "status": route_rule_smoke_status_label(report),
+        "passed": report.passed,
+        "detail": &report.detail,
+        "case_count": report.cases.len(),
+        "passed_case_count": report.cases.iter().filter(|case| case.passed).count(),
+        "failed_case_count": report.cases.iter().filter(|case| !case.passed).count(),
+        "cases": cases,
+    })
+}
+
+fn route_rule_smoke_case_json_value(case: &RouteRuleSmokeCaseReport) -> serde_json::Value {
+    serde_json::json!({
+        "name": case.name,
+        "inbound": case.inbound,
+        "matcher": case.matcher,
+        "target": &case.target,
+        "expected_response": &case.expected_response,
+        "observed_response": &case.observed_response,
+        "target_contacted": case.target_contacted,
+        "passed": case.passed,
+        "error": &case.error,
     })
 }
 

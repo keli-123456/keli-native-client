@@ -50,13 +50,13 @@ fn doctor_report_lists_supported_outbounds() {
         "interop_matrix_capabilities=protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export"
     ));
     assert!(output.contains(
-        "readiness_check_capabilities=doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence"
+        "readiness_check_capabilities=doctor-schema,interop-matrix,local-mixed-soak,resource-limits,route-rule-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence"
     ));
     assert!(output.contains(
         "tun_backend_check_capabilities=backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan"
     ));
     assert!(output.contains(
-        "default_core_certification_capabilities=schema-version,readiness-embed,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export"
+        "default_core_certification_capabilities=schema-version,readiness-embed,route-rule-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export"
     ));
     assert!(output.contains(
         "supported_outbounds=direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic"
@@ -613,86 +613,90 @@ fn doctor_json_report_is_machine_readable() {
         "support-bundle-export"
     );
     assert_eq!(report["readiness_check_capabilities"][0], "doctor-schema");
-    assert_eq!(report["readiness_check_capabilities"][4], "tun-preflight");
     assert_eq!(
-        report["readiness_check_capabilities"][6],
+        report["readiness_check_capabilities"][4],
+        "route-rule-smoke"
+    );
+    assert_eq!(report["readiness_check_capabilities"][5], "tun-preflight");
+    assert_eq!(
+        report["readiness_check_capabilities"][7],
         "system-proxy-smoke"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][7],
+        report["readiness_check_capabilities"][8],
         "system-proxy-smoke-restore-evidence"
     );
-    assert_eq!(report["readiness_check_capabilities"][10], "json-gates");
+    assert_eq!(report["readiness_check_capabilities"][11], "json-gates");
     assert_eq!(
-        report["readiness_check_capabilities"][11],
+        report["readiness_check_capabilities"][12],
         "blocker-summary"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][12],
+        report["readiness_check_capabilities"][13],
         "soak-min-duration"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][13],
+        report["readiness_check_capabilities"][14],
         "tun-preflight-evidence"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][14],
+        report["readiness_check_capabilities"][15],
         "tun-runtime-smoke"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][15],
+        report["readiness_check_capabilities"][16],
         "tun-runtime-smoke-min-duration"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][16],
+        report["readiness_check_capabilities"][17],
         "tun-runtime-smoke-clean-stop"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][17],
+        report["readiness_check_capabilities"][18],
         "tun-runtime-smoke-residual-state"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][18],
+        report["readiness_check_capabilities"][19],
         "tun-runtime-smoke-route-cleanup-evidence"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][19],
+        report["readiness_check_capabilities"][20],
         "tun-runtime-smoke-dns-hijack-evidence"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][20],
+        report["readiness_check_capabilities"][21],
         "tun-runtime-smoke-dns-hijack-route-evidence"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][21],
+        report["readiness_check_capabilities"][22],
         "tun-runtime-smoke-interface-address-evidence"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][22],
+        report["readiness_check_capabilities"][23],
         "tun-runtime-smoke-traffic-stimulus"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][23],
+        report["readiness_check_capabilities"][24],
         "tun-runtime-smoke-required-traffic"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][24],
+        report["readiness_check_capabilities"][25],
         "tun-runtime-smoke-icmp-stimulus"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][25],
+        report["readiness_check_capabilities"][26],
         "tun-runtime-smoke-dropped-route-evidence"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][26],
+        report["readiness_check_capabilities"][27],
         "tun-runtime-smoke-dropped-route-history"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][27],
+        report["readiness_check_capabilities"][28],
         "tun-runtime-smoke-route-takeover-snapshot"
     );
     assert_eq!(
-        report["readiness_check_capabilities"][28],
+        report["readiness_check_capabilities"][29],
         "tun-runtime-smoke-route-selection-evidence"
     );
     assert_eq!(report["tun_backend_check_capabilities"][0], "backend-kind");
@@ -723,98 +727,102 @@ fn doctor_json_report_is_machine_readable() {
     );
     assert_eq!(
         report["default_core_certification_capabilities"][2],
-        "system-proxy-smoke"
+        "route-rule-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][3],
-        "system-proxy-smoke-restore-evidence"
+        "system-proxy-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][4],
-        "tun-backend-evidence"
+        "system-proxy-smoke-restore-evidence"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][5],
-        "tun-preflight-evidence"
+        "tun-backend-evidence"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][6],
-        "tun-runtime-smoke"
+        "tun-preflight-evidence"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][7],
-        "tun-runtime-smoke-min-duration"
+        "tun-runtime-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][8],
-        "tun-runtime-smoke-clean-stop"
+        "tun-runtime-smoke-min-duration"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][9],
-        "tun-runtime-smoke-residual-state"
+        "tun-runtime-smoke-clean-stop"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][10],
-        "tun-runtime-smoke-route-cleanup-evidence"
+        "tun-runtime-smoke-residual-state"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][11],
-        "tun-runtime-smoke-dns-hijack-evidence"
+        "tun-runtime-smoke-route-cleanup-evidence"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][12],
-        "tun-runtime-smoke-dns-hijack-route-evidence"
+        "tun-runtime-smoke-dns-hijack-evidence"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][13],
-        "tun-runtime-smoke-interface-address-evidence"
+        "tun-runtime-smoke-dns-hijack-route-evidence"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][14],
-        "tun-runtime-smoke-traffic-stimulus"
+        "tun-runtime-smoke-interface-address-evidence"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][15],
-        "tun-runtime-smoke-required-traffic"
+        "tun-runtime-smoke-traffic-stimulus"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][16],
-        "tun-runtime-smoke-icmp-stimulus"
+        "tun-runtime-smoke-required-traffic"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][17],
-        "tun-runtime-smoke-dropped-route-evidence"
+        "tun-runtime-smoke-icmp-stimulus"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][18],
-        "tun-runtime-smoke-dropped-route-history"
+        "tun-runtime-smoke-dropped-route-evidence"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][19],
-        "tun-runtime-smoke-route-takeover-snapshot"
+        "tun-runtime-smoke-dropped-route-history"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][20],
-        "tun-runtime-smoke-route-selection-evidence"
+        "tun-runtime-smoke-route-takeover-snapshot"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][21],
+        "tun-runtime-smoke-route-selection-evidence"
+    );
+    assert_eq!(
+        report["default_core_certification_capabilities"][22],
         "non-skipped-soak"
     );
     assert_eq!(
-        report["default_core_certification_capabilities"][23],
+        report["default_core_certification_capabilities"][24],
         "soak-min-duration"
     );
     assert_eq!(
-        report["default_core_certification_capabilities"][25],
+        report["default_core_certification_capabilities"][26],
         "promotion-blockers"
     );
     assert_eq!(
-        report["default_core_certification_capabilities"][27],
+        report["default_core_certification_capabilities"][28],
         "text-summary"
     );
     assert_eq!(
-        report["default_core_certification_capabilities"][28],
+        report["default_core_certification_capabilities"][29],
         "support-bundle-export"
     );
     assert_eq!(
