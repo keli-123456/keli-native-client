@@ -133,7 +133,10 @@ The first implementation target is deliberately small:
    active address family, removes them on stop, and feeds packet I/O into the
    existing net-core TUN loop. Doctor, support bundles, and readiness gates
    include this backend status so packagers and UI flows can distinguish missing
-   driver assets from runtime API availability. `tun-backend-install` adds a
+   driver assets from runtime API availability. Backend checks also expose an
+   install plan with the runtime target path, package-directory candidates, and
+   command templates so UI/setup flows can turn the blocker into a concrete
+   install action. `tun-backend-install` adds a
    validated install path for an extracted official `wintun.dll`, copying it to
    the runtime directory and reporting whether the backend is ready after the
    install. It can also accept an extracted Wintun package directory and resolve

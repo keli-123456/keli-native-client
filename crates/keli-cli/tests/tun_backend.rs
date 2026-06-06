@@ -38,6 +38,31 @@ fn tun_backend_check_json_reports_native_backend_wiring_state() {
         .as_str()
         .expect("reason")
         .contains("Wintun"));
+    assert_eq!(
+        report["install_plan"]["required"],
+        report["backend"]["install_required"]
+    );
+    assert_eq!(
+        report["install_plan"]["source_dir_argument"],
+        "--source-dir"
+    );
+    assert_eq!(report["install_plan"]["source_file_argument"], "--source");
+    assert!(report["install_plan"]["target_path"]
+        .as_str()
+        .expect("target path")
+        .contains("wintun.dll"));
+    assert!(report["install_plan"]["source_dir_candidates"]
+        .as_array()
+        .expect("source dir candidates")
+        .iter()
+        .any(|path| {
+            let path = path.as_str().expect("candidate");
+            path.contains("<wintun-package>") && path.contains("bin") && path.contains("wintun.dll")
+        }));
+    assert!(report["install_plan"]["commands"]["source_dir"]
+        .as_str()
+        .expect("source-dir command")
+        .contains("--source-dir"));
 }
 
 #[test]
@@ -56,6 +81,9 @@ fn tun_backend_check_text_reports_install_or_wiring_detail() {
     assert!(output.contains("packet_io_wired=true"));
     assert!(output.contains("route_takeover_wired=true"));
     assert!(output.contains("searched_path="));
+    assert!(output.contains("install_plan required="));
+    assert!(output.contains("install_source_dir_candidate="));
+    assert!(output.contains("install_command_source_dir="));
 }
 
 #[test]

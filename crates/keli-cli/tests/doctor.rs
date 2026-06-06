@@ -53,7 +53,7 @@ fn doctor_report_lists_supported_outbounds() {
         "readiness_check_capabilities=doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration"
     ));
     assert!(output.contains(
-        "tun_backend_check_capabilities=backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source"
+        "tun_backend_check_capabilities=backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan"
     ));
     assert!(output.contains(
         "default_core_certification_capabilities=schema-version,readiness-embed,tun-backend-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export"
@@ -616,6 +616,7 @@ fn doctor_json_report_is_machine_readable() {
         report["tun_backend_check_capabilities"][10],
         "package-dir-source"
     );
+    assert_eq!(report["tun_backend_check_capabilities"][11], "install-plan");
     assert_eq!(
         report["default_core_certification_capabilities"][0],
         "schema-version"

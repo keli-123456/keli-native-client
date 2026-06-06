@@ -5,7 +5,7 @@ use std::net::{
     IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs,
     UdpSocket,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc, Mutex, RwLock,
@@ -38,11 +38,12 @@ use keli_net_core::{
     TunTcpSessionTable, TunUdpRelay, DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
 };
 use keli_platform::{
-    install_wintun_library, install_wintun_library_from_source_dir, NativeSystemProxyController,
-    NativeTunDeviceController, PlatformCapabilities, SystemProxyConfig, SystemProxyController,
-    SystemProxySnapshot, SystemProxyStatus, TunBackendStatus, TunDeviceConfig, TunDeviceController,
-    TunDevicePreflight, TunDeviceReadiness, TunDeviceSnapshot, TunDeviceStatus, TunPacketIo,
-    TunPacketIoController, WintunInstallReport,
+    install_wintun_library, install_wintun_library_from_source_dir,
+    wintun_library_source_candidates, NativeSystemProxyController, NativeTunDeviceController,
+    PlatformCapabilities, SystemProxyConfig, SystemProxyController, SystemProxySnapshot,
+    SystemProxyStatus, TunBackendStatus, TunDeviceConfig, TunDeviceController, TunDevicePreflight,
+    TunDeviceReadiness, TunDeviceSnapshot, TunDeviceStatus, TunPacketIo, TunPacketIoController,
+    WintunInstallReport,
 };
 use keli_protocol::{
     detect_subscription_input_format, parse_mihomo_outbound_profiles,
@@ -74,7 +75,7 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 12;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 13;
 pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 3;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 3;
@@ -105,10 +106,12 @@ const INTEROP_MATRIX_CAPABILITIES: &str =
 const READINESS_CHECK_CAPABILITIES: &str =
     "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
-    "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source";
+    "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
     "schema-version,readiness-embed,tun-backend-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
+const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
+const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
@@ -5721,6 +5724,30 @@ fn write_tun_backend_check_text_report(
     for path in &status.searched_paths {
         writeln!(writer, "tun_backend searched_path={path}").map_err(|error| error.to_string())?;
     }
+    let plan = tun_backend_install_plan(status);
+    writeln!(
+        writer,
+        "tun_backend install_plan required={} target_dir={} target_path={} source_dir_option=--source-dir source_file_option=--source",
+        plan.required,
+        plan.target_dir.as_deref().unwrap_or("-"),
+        plan.target_path.as_deref().unwrap_or("-")
+    )
+    .map_err(|error| error.to_string())?;
+    for candidate in &plan.source_dir_candidates {
+        writeln!(
+            writer,
+            "tun_backend install_source_dir_candidate={candidate}"
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    if let Some(command) = &plan.source_dir_command {
+        writeln!(writer, "tun_backend install_command_source_dir={command}")
+            .map_err(|error| error.to_string())?;
+    }
+    if let Some(command) = &plan.source_file_command {
+        writeln!(writer, "tun_backend install_command_source_file={command}")
+            .map_err(|error| error.to_string())?;
+    }
     Ok(())
 }
 
@@ -5732,6 +5759,7 @@ fn write_tun_backend_check_json_report(
         "status": if status.is_ready() { "ready" } else { "not-ready" },
         "kind": "keli_tun_backend_check",
         "backend": tun_backend_json_value(status),
+        "install_plan": tun_backend_install_plan_json_value(status),
     });
     serde_json::to_writer_pretty(&mut *writer, &value).map_err(|error| error.to_string())?;
     writeln!(writer).map_err(|error| error.to_string())
@@ -5752,6 +5780,73 @@ fn tun_backend_json_value(status: &TunBackendStatus) -> serde_json::Value {
         "install_required": status.install_required,
         "searched_paths": &status.searched_paths,
         "reason": status.reason.as_deref(),
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TunBackendInstallPlan {
+    required: bool,
+    target_dir: Option<String>,
+    target_path: Option<String>,
+    source_dir_candidates: Vec<String>,
+    source_dir_command: Option<String>,
+    source_file_command: Option<String>,
+}
+
+fn tun_backend_install_plan(status: &TunBackendStatus) -> TunBackendInstallPlan {
+    let target_dir = default_wintun_install_target_dir_for_report();
+    let target_path = target_dir.as_ref().map(|dir| dir.join("wintun.dll"));
+    let source_dir_candidates: Vec<String> =
+        wintun_library_source_candidates(PathBuf::from(WINTUN_PACKAGE_PLACEHOLDER))
+            .into_iter()
+            .map(|path| path.display().to_string())
+            .collect();
+    let source_dir_command = target_dir.as_ref().map(|target_dir| {
+        format!(
+            "keli-cli tun-backend-install --source-dir {} --target-dir {} --format json",
+            WINTUN_PACKAGE_PLACEHOLDER,
+            target_dir.display()
+        )
+    });
+    let source_file_command = target_dir.as_ref().map(|target_dir| {
+        format!(
+            "keli-cli tun-backend-install --source {} --target-dir {} --format json",
+            WINTUN_DLL_PLACEHOLDER,
+            target_dir.display()
+        )
+    });
+
+    TunBackendInstallPlan {
+        required: status.install_required,
+        target_dir: target_dir.map(|path| path.display().to_string()),
+        target_path: target_path.map(|path| path.display().to_string()),
+        source_dir_candidates,
+        source_dir_command,
+        source_file_command,
+    }
+}
+
+fn default_wintun_install_target_dir_for_report() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf))
+}
+
+fn tun_backend_install_plan_json_value(status: &TunBackendStatus) -> serde_json::Value {
+    let plan = tun_backend_install_plan(status);
+    serde_json::json!({
+        "required": plan.required,
+        "target_dir": plan.target_dir.as_deref(),
+        "target_path": plan.target_path.as_deref(),
+        "source_dir_argument": "--source-dir",
+        "source_file_argument": "--source",
+        "source_dir_placeholder": WINTUN_PACKAGE_PLACEHOLDER,
+        "source_file_placeholder": WINTUN_DLL_PLACEHOLDER,
+        "source_dir_candidates": &plan.source_dir_candidates,
+        "commands": {
+            "source_dir": plan.source_dir_command.as_deref(),
+            "source_file": plan.source_file_command.as_deref(),
+        },
     })
 }
 

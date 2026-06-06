@@ -137,7 +137,9 @@ route takeover entries (`0.0.0.0/1` plus `128.0.0.0/1`, or IPv6 equivalents for
 IPv6 TUN addresses) and removes them on stop so traffic capture is paired with
 cleanup. Doctor, support bundles, and readiness checks include this backend
 detail so the default-core blocker is actionable instead of a generic
-unavailable state.
+unavailable state. Backend checks also include an install plan with the runtime
+target path, package-directory candidate paths, and ready-to-run
+`tun-backend-install` command templates for UI and setup scripts.
 `tun-backend-install` can copy an extracted official `wintun.dll` into the CLI
 runtime directory after validating that the DLL exports the Wintun API, then
 returns a text or JSON install report for packagers and local setup scripts. It

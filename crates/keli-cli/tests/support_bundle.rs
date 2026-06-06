@@ -282,6 +282,10 @@ proxies:
         "package-dir-source"
     );
     assert_eq!(
+        report["doctor"]["tun_backend_check_capabilities"][11],
+        "install-plan"
+    );
+    assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][0],
         "schema-version"
     );
