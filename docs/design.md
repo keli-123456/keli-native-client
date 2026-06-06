@@ -387,8 +387,11 @@ The first implementation target is deliberately small:
    completed/failed connections, aggregate managed connection metrics,
    worker/client peaks, and stop-drain state as text or JSON. `--min-duration-ms`
    can hold the managed runtime alive after traffic completes, then verify
-   clean stop-drain behavior for bounded long-running stability checks. Doctor
-   and support bundles advertise this stability diagnostic surface.
+   clean stop-drain behavior for bounded long-running stability checks.
+   Readiness and certification gates can pass the same requirement through
+   `--soak-min-duration-ms`, and support bundle certification can embed it with
+   `--certification-soak-min-duration-ms`. Doctor and support bundles advertise
+   this stability diagnostic surface.
    `interop-matrix` now exposes the current protocol readiness matrix as text
    or JSON, including covered transports, TCP/UDP relay support, profile source
    coverage, validation sample counts, and outbound registry registration
@@ -404,12 +407,16 @@ The first implementation target is deliberately small:
    on a given machine. The report now also carries a blocker summary
    (`blocking_gates` in JSON and `readiness blocker=...` lines in text) so
    promotion tooling can consume the actionable default-core blockers directly.
+   Local soak gate details include `min_duration_ms` and `duration_target_met`
+   when a bounded runtime duration is required.
    `default-core-certify` builds on that gate by running the non-skipped soak
    checks and exporting one promotion artifact with the embedded readiness
    report, TUN backend packaging evidence, certification parameters, and final
    `ready_for_default_core` decision for release automation and UI handoff. The
    certification artifact mirrors the blocker summary as `promotion_blockers`
    and reports `blocking_gate_count` alongside the soak and backend evidence.
+   Certification parameters include `soak_min_duration_ms`, so a promotion
+   record can prove both traffic success and a minimum managed-runtime window.
    Doctor and support bundles now expose the certification schema version and
    capability list, and the readiness doctor-schema gate requires that schema
    to keep promotion evidence discoverable through the existing diagnostics

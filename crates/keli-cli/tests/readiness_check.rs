@@ -1,7 +1,9 @@
 use std::time::Duration;
 
 use keli_cli::{
-    write_default_core_certification_report, write_readiness_check_report, ProbeOutputFormat,
+    write_default_core_certification_report,
+    write_default_core_certification_report_with_soak_min_duration, write_readiness_check_report,
+    write_readiness_check_report_with_soak_min_duration, ProbeOutputFormat,
     DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION, READINESS_CHECK_SCHEMA_VERSION,
 };
 use serde_json::Value;
@@ -27,6 +29,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(report["status"], "not-ready");
     assert_eq!(report["summary"]["total_gate_count"], 11);
     assert_eq!(report["summary"]["skipped_gate_count"], 2);
+    assert_eq!(report["soak_min_duration_ms"], 0);
     let blocking_gates = report["blocking_gates"].as_array().expect("blocking gates");
     assert_eq!(
         report["summary"]["blocking_gate_count"].as_u64(),
@@ -52,6 +55,10 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
         .as_str()
         .expect("soak detail")
         .contains("planned_connections=2"));
+    assert!(socks5_soak["detail"]
+        .as_str()
+        .expect("soak detail")
+        .contains("planned_min_duration_ms=0"));
 
     let tun = gate(gates, "tun-preflight");
     assert_eq!(tun["category"], "platform");
@@ -90,9 +97,45 @@ fn readiness_check_json_runs_local_soak_gates() {
 
     let report: Value = serde_json::from_slice(&output).expect("readiness JSON");
     assert_eq!(report["summary"]["skipped_gate_count"], 0);
+    assert_eq!(report["soak_min_duration_ms"], 0);
     let gates = report["gates"].as_array().expect("gates");
     assert_eq!(gate(gates, "mixed-soak-socks5")["status"], "passed");
     assert_eq!(gate(gates, "mixed-soak-http-connect")["status"], "passed");
+    assert!(gate(gates, "mixed-soak-socks5")["detail"]
+        .as_str()
+        .expect("socks5 detail")
+        .contains("min_duration_ms=0"));
+    assert!(gate(gates, "mixed-soak-socks5")["detail"]
+        .as_str()
+        .expect("socks5 detail")
+        .contains("duration_target_met=true"));
+}
+
+#[test]
+fn readiness_check_json_can_hold_soak_gates_for_min_duration() {
+    let mut output = Vec::new();
+
+    write_readiness_check_report_with_soak_min_duration(
+        ProbeOutputFormat::Json,
+        1,
+        Duration::from_secs(2),
+        1,
+        Duration::from_millis(50),
+        false,
+        &mut output,
+    )
+    .expect("write readiness check with min duration");
+
+    let report: Value = serde_json::from_slice(&output).expect("readiness JSON");
+    assert_eq!(report["soak_min_duration_ms"], 50);
+    let gates = report["gates"].as_array().expect("gates");
+    for gate_name in ["mixed-soak-socks5", "mixed-soak-http-connect"] {
+        let soak = gate(gates, gate_name);
+        assert_eq!(soak["status"], "passed");
+        let detail = soak["detail"].as_str().expect("soak detail");
+        assert!(detail.contains("min_duration_ms=50"));
+        assert!(detail.contains("duration_target_met=true"));
+    }
 }
 
 #[test]
@@ -110,7 +153,7 @@ fn readiness_check_text_reports_gate_summary() {
     .expect("write text readiness check");
 
     let output = String::from_utf8(output).expect("readiness text");
-    assert!(output.contains("readiness status=not-ready schema_version=2 gates=11"));
+    assert!(output.contains("readiness status=not-ready schema_version=3 gates=11"));
     assert!(output.contains("blockers="));
     assert!(output.contains("readiness gate=interop-matrix category=protocols status=passed"));
     assert!(output.contains("readiness gate=tun-backend category=platform status=failed"));
@@ -145,6 +188,7 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert_eq!(report["certification"]["soak_connections"], 2);
     assert_eq!(report["certification"]["first_byte_timeout_ms"], 2000);
     assert_eq!(report["certification"]["max_connection_workers"], 2);
+    assert_eq!(report["certification"]["soak_min_duration_ms"], 0);
     let promotion_blockers = report["promotion_blockers"]
         .as_array()
         .expect("promotion blockers");
@@ -199,14 +243,40 @@ fn default_core_certification_text_reports_summary_and_gates() {
 
     let output = String::from_utf8(output).expect("certification text");
     assert!(output.contains("default_core_certification status="));
-    assert!(output.contains("schema_version=2"));
+    assert!(output.contains("schema_version=3"));
     assert!(output.contains("blockers="));
     assert!(output.contains("tun_backend_status="));
-    assert!(output.contains("parameters soak_connections=2 first_byte_timeout_ms=2000"));
+    assert!(output.contains(
+        "parameters soak_connections=2 first_byte_timeout_ms=2000 max_connection_workers=2 soak_min_duration_ms=0"
+    ));
     assert!(output.contains("default_core_certification promotion_blocker="));
     assert!(output.contains(
         "default_core_certification readiness_gate=mixed-soak-socks5 category=stability status=passed"
     ));
+}
+
+#[test]
+fn default_core_certification_json_records_soak_min_duration() {
+    let mut output = Vec::new();
+
+    write_default_core_certification_report_with_soak_min_duration(
+        ProbeOutputFormat::Json,
+        1,
+        Duration::from_secs(2),
+        1,
+        Duration::from_millis(50),
+        &mut output,
+    )
+    .expect("write default core certification with min duration");
+
+    let report: Value = serde_json::from_slice(&output).expect("certification JSON");
+    assert_eq!(report["certification"]["soak_min_duration_ms"], 50);
+    assert_eq!(report["readiness"]["soak_min_duration_ms"], 50);
+    let gates = report["readiness"]["gates"].as_array().expect("gates");
+    assert!(gate(gates, "mixed-soak-socks5")["detail"]
+        .as_str()
+        .expect("socks5 detail")
+        .contains("min_duration_ms=50"));
 }
 
 fn gate<'a>(gates: &'a [Value], name: &str) -> &'a Value {

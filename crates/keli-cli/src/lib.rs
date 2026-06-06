@@ -74,11 +74,11 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 10;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 11;
 pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 3;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 2;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 2;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 3;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 3;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 2;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -103,11 +103,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,tun-backend-evidence,non-skipped-soak,soak-parameters,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,tun-backend-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +123,7 @@ pub enum CliCommand {
         soak_connections: usize,
         first_byte_timeout: Duration,
         max_connection_workers: usize,
+        soak_min_duration: Duration,
         skip_soak: bool,
     },
     DefaultCoreCertify {
@@ -130,6 +131,7 @@ pub enum CliCommand {
         soak_connections: usize,
         first_byte_timeout: Duration,
         max_connection_workers: usize,
+        soak_min_duration: Duration,
     },
     TunPreflight {
         config: TunDeviceConfig,
@@ -209,6 +211,7 @@ pub enum CliCommand {
         certification_soak_connections: usize,
         certification_first_byte_timeout: Duration,
         certification_max_connection_workers: usize,
+        certification_soak_min_duration: Duration,
     },
 }
 
@@ -3966,14 +3969,16 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             soak_connections,
             first_byte_timeout,
             max_connection_workers,
+            soak_min_duration,
             skip_soak,
         } => {
             let mut stdout = io::stdout();
-            write_readiness_check_report(
+            write_readiness_check_report_with_soak_min_duration(
                 output,
                 soak_connections,
                 first_byte_timeout,
                 max_connection_workers,
+                soak_min_duration,
                 skip_soak,
                 &mut stdout,
             )
@@ -3983,13 +3988,15 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             soak_connections,
             first_byte_timeout,
             max_connection_workers,
+            soak_min_duration,
         } => {
             let mut stdout = io::stdout();
-            write_default_core_certification_report(
+            write_default_core_certification_report_with_soak_min_duration(
                 output,
                 soak_connections,
                 first_byte_timeout,
                 max_connection_workers,
+                soak_min_duration,
                 &mut stdout,
             )
         }
@@ -4204,6 +4211,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             certification_soak_connections,
             certification_first_byte_timeout,
             certification_max_connection_workers,
+            certification_soak_min_duration,
         } => {
             let config_text = profile_config
                 .as_deref()
@@ -4220,6 +4228,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                     certification_soak_connections,
                     certification_first_byte_timeout,
                     certification_max_connection_workers,
+                    certification_soak_min_duration,
                 },
                 &mut stdout,
             )
@@ -4239,11 +4248,11 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli readiness-check [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--skip-soak]"
+        "       keli-cli readiness-check [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1] [--skip-soak]"
     )?;
     writeln!(
         writer,
-        "       keli-cli default-core-certify [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024]"
+        "       keli-cli default-core-certify [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1]"
     )?;
     writeln!(
         writer,
@@ -4291,7 +4300,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli support-bundle [--profile-config subscription.yaml] [--include-certification] [--certification-soak-connections 3] [--certification-first-byte-timeout-ms 30000] [--certification-max-connection-workers 1024]"
+        "       keli-cli support-bundle [--profile-config subscription.yaml] [--include-certification] [--certification-soak-connections 3] [--certification-first-byte-timeout-ms 30000] [--certification-max-connection-workers 1024] [--certification-soak-min-duration-ms 1]"
     )
 }
 
@@ -4338,6 +4347,7 @@ fn parse_readiness_check(args: impl Iterator<Item = String>) -> Result<CliComman
     let mut soak_connections = DEFAULT_READINESS_SOAK_CONNECTIONS;
     let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut max_connection_workers = DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS;
+    let mut soak_min_duration = DEFAULT_MIXED_SOAK_MIN_DURATION;
     let mut skip_soak = false;
     let mut args = args.peekable();
 
@@ -4370,6 +4380,13 @@ fn parse_readiness_check(args: impl Iterator<Item = String>) -> Result<CliComman
                     "--max-connection-workers",
                 )?;
             }
+            "--soak-min-duration-ms" => {
+                soak_min_duration = parse_duration_ms(
+                    args.next()
+                        .ok_or_else(|| "--soak-min-duration-ms requires a value".to_string())?,
+                    "--soak-min-duration-ms",
+                )?;
+            }
             "--skip-soak" => skip_soak = true,
             other => return Err(format!("unknown readiness-check option: {other}")),
         }
@@ -4380,6 +4397,7 @@ fn parse_readiness_check(args: impl Iterator<Item = String>) -> Result<CliComman
         soak_connections,
         first_byte_timeout,
         max_connection_workers,
+        soak_min_duration,
         skip_soak,
     })
 }
@@ -4389,6 +4407,7 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
     let mut soak_connections = DEFAULT_READINESS_SOAK_CONNECTIONS;
     let mut first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut max_connection_workers = DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS;
+    let mut soak_min_duration = DEFAULT_MIXED_SOAK_MIN_DURATION;
     let mut args = args.peekable();
 
     while let Some(arg) = args.next() {
@@ -4420,6 +4439,13 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
                     "--max-connection-workers",
                 )?;
             }
+            "--soak-min-duration-ms" => {
+                soak_min_duration = parse_duration_ms(
+                    args.next()
+                        .ok_or_else(|| "--soak-min-duration-ms requires a value".to_string())?,
+                    "--soak-min-duration-ms",
+                )?;
+            }
             other => return Err(format!("unknown default-core-certify option: {other}")),
         }
     }
@@ -4429,6 +4455,7 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
         soak_connections,
         first_byte_timeout,
         max_connection_workers,
+        soak_min_duration,
     })
 }
 
@@ -4630,6 +4657,7 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
     let mut certification_soak_connections = DEFAULT_READINESS_SOAK_CONNECTIONS;
     let mut certification_first_byte_timeout = DEFAULT_FIRST_BYTE_TIMEOUT;
     let mut certification_max_connection_workers = DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS;
+    let mut certification_soak_min_duration = DEFAULT_MIXED_SOAK_MIN_DURATION;
     let mut args = args.peekable();
 
     while let Some(arg) = args.next() {
@@ -4670,6 +4698,15 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
                     "--certification-max-connection-workers",
                 )?;
             }
+            "--certification-soak-min-duration-ms" => {
+                include_default_core_certification = true;
+                certification_soak_min_duration = parse_duration_ms(
+                    args.next().ok_or_else(|| {
+                        "--certification-soak-min-duration-ms requires a value".to_string()
+                    })?,
+                    "--certification-soak-min-duration-ms",
+                )?;
+            }
             other => return Err(format!("unknown support-bundle option: {other}")),
         }
     }
@@ -4680,6 +4717,7 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
         certification_soak_connections,
         certification_first_byte_timeout,
         certification_max_connection_workers,
+        certification_soak_min_duration,
     })
 }
 
@@ -6313,6 +6351,7 @@ pub struct DefaultCoreReadinessReport {
     pub schema_version: u32,
     pub version: &'static str,
     pub ready_for_default_core: bool,
+    pub soak_min_duration: Duration,
     pub gates: Vec<ReadinessGateReport>,
 }
 
@@ -6326,6 +6365,7 @@ pub struct DefaultCoreCertificationReport {
     pub soak_connections: usize,
     pub first_byte_timeout: Duration,
     pub max_connection_workers: usize,
+    pub soak_min_duration: Duration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -6363,10 +6403,31 @@ pub fn write_readiness_check_report(
     skip_soak: bool,
     mut writer: impl Write,
 ) -> Result<(), String> {
+    write_readiness_check_report_with_soak_min_duration(
+        output,
+        soak_connections,
+        first_byte_timeout,
+        max_connection_workers,
+        DEFAULT_MIXED_SOAK_MIN_DURATION,
+        skip_soak,
+        &mut writer,
+    )
+}
+
+pub fn write_readiness_check_report_with_soak_min_duration(
+    output: ProbeOutputFormat,
+    soak_connections: usize,
+    first_byte_timeout: Duration,
+    max_connection_workers: usize,
+    soak_min_duration: Duration,
+    skip_soak: bool,
+    mut writer: impl Write,
+) -> Result<(), String> {
     let report = collect_readiness_check_report(
         soak_connections,
         first_byte_timeout,
         max_connection_workers,
+        soak_min_duration,
         skip_soak,
     )?;
     match output {
@@ -6382,10 +6443,29 @@ pub fn write_default_core_certification_report(
     max_connection_workers: usize,
     mut writer: impl Write,
 ) -> Result<(), String> {
+    write_default_core_certification_report_with_soak_min_duration(
+        output,
+        soak_connections,
+        first_byte_timeout,
+        max_connection_workers,
+        DEFAULT_MIXED_SOAK_MIN_DURATION,
+        &mut writer,
+    )
+}
+
+pub fn write_default_core_certification_report_with_soak_min_duration(
+    output: ProbeOutputFormat,
+    soak_connections: usize,
+    first_byte_timeout: Duration,
+    max_connection_workers: usize,
+    soak_min_duration: Duration,
+    mut writer: impl Write,
+) -> Result<(), String> {
     let report = collect_default_core_certification_report(
         soak_connections,
         first_byte_timeout,
         max_connection_workers,
+        soak_min_duration,
     )?;
     match output {
         ProbeOutputFormat::Text => {
@@ -6401,6 +6481,7 @@ fn collect_default_core_certification_report(
     soak_connections: usize,
     first_byte_timeout: Duration,
     max_connection_workers: usize,
+    soak_min_duration: Duration,
 ) -> Result<DefaultCoreCertificationReport, String> {
     if soak_connections == 0 {
         return Err("default-core-certify soak connections must be greater than 0".to_string());
@@ -6415,6 +6496,7 @@ fn collect_default_core_certification_report(
         soak_connections,
         first_byte_timeout,
         max_connection_workers,
+        soak_min_duration,
         false,
     )?;
     let tun_backend = TunBackendStatus::detect();
@@ -6429,6 +6511,7 @@ fn collect_default_core_certification_report(
         soak_connections,
         first_byte_timeout,
         max_connection_workers,
+        soak_min_duration,
     })
 }
 
@@ -6436,6 +6519,7 @@ fn collect_readiness_check_report(
     soak_connections: usize,
     first_byte_timeout: Duration,
     max_connection_workers: usize,
+    soak_min_duration: Duration,
     skip_soak: bool,
 ) -> Result<DefaultCoreReadinessReport, String> {
     if soak_connections == 0 {
@@ -6582,13 +6666,19 @@ fn collect_readiness_check_report(
             name: "mixed-soak-socks5",
             category: "stability",
             status: ReadinessGateStatus::Skipped,
-            detail: format!("skipped by --skip-soak; planned_connections={soak_connections}"),
+            detail: format!(
+                "skipped by --skip-soak; planned_connections={soak_connections} planned_min_duration_ms={}",
+                duration_millis_for_report(soak_min_duration)
+            ),
         });
         gates.push(ReadinessGateReport {
             name: "mixed-soak-http-connect",
             category: "stability",
             status: ReadinessGateStatus::Skipped,
-            detail: format!("skipped by --skip-soak; planned_connections={soak_connections}"),
+            detail: format!(
+                "skipped by --skip-soak; planned_connections={soak_connections} planned_min_duration_ms={}",
+                duration_millis_for_report(soak_min_duration)
+            ),
         });
     } else {
         gates.push(readiness_soak_gate(
@@ -6597,6 +6687,7 @@ fn collect_readiness_check_report(
             soak_connections,
             first_byte_timeout,
             max_connection_workers,
+            soak_min_duration,
         ));
         gates.push(readiness_soak_gate(
             "mixed-soak-http-connect",
@@ -6604,6 +6695,7 @@ fn collect_readiness_check_report(
             soak_connections,
             first_byte_timeout,
             max_connection_workers,
+            soak_min_duration,
         ));
     }
 
@@ -6615,6 +6707,7 @@ fn collect_readiness_check_report(
         schema_version: READINESS_CHECK_SCHEMA_VERSION,
         version: env!("CARGO_PKG_VERSION"),
         ready_for_default_core,
+        soak_min_duration,
         gates,
     })
 }
@@ -6643,12 +6736,14 @@ fn readiness_soak_gate(
     soak_connections: usize,
     first_byte_timeout: Duration,
     max_connection_workers: usize,
+    soak_min_duration: Duration,
 ) -> ReadinessGateReport {
-    match run_soak_mixed(
+    match run_soak_mixed_with_min_duration(
         soak_connections,
         inbound,
         first_byte_timeout,
         max_connection_workers,
+        soak_min_duration,
     ) {
         Ok(report) => readiness_gate(
             name,
@@ -6656,14 +6751,18 @@ fn readiness_soak_gate(
             report.completed_connections == report.requested_connections
                 && report.failed_connections == 0
                 && report.connection_metrics.failure_count == 0
+                && report.duration_target_met
                 && !report.stop_drain.timed_out
                 && report.stop_drain.workers_remaining == 0,
             format!(
-                "inbound={} completed={}/{} failures={} stop_workers_remaining={} stop_timed_out={}",
+                "inbound={} completed={}/{} failures={} elapsed_ms={} min_duration_ms={} duration_target_met={} stop_workers_remaining={} stop_timed_out={}",
                 inbound.cli_value(),
                 report.completed_connections,
                 report.requested_connections,
                 report.failed_connections,
+                duration_millis_for_report(report.elapsed),
+                duration_millis_for_report(report.min_duration),
+                report.duration_target_met,
                 report.stop_drain.workers_remaining,
                 report.stop_drain.timed_out
             ),
@@ -6710,6 +6809,12 @@ fn write_readiness_check_text_report(
         )
         .map_err(|error| error.to_string())?;
     }
+    writeln!(
+        writer,
+        "readiness parameters soak_min_duration_ms={}",
+        duration_millis_for_report(report.soak_min_duration)
+    )
+    .map_err(|error| error.to_string())?;
     for gate in readiness_blocking_gates(&report.gates) {
         writeln!(
             writer,
@@ -6746,6 +6851,7 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         "schema_version": report.schema_version,
         "version": report.version,
         "ready_for_default_core": report.ready_for_default_core,
+        "soak_min_duration_ms": duration_millis_for_report(report.soak_min_duration),
         "summary": {
             "total_gate_count": summary.total,
             "passed_gate_count": summary.passed,
@@ -6814,10 +6920,11 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
-        "default_core_certification parameters soak_connections={} first_byte_timeout_ms={} max_connection_workers={}",
+        "default_core_certification parameters soak_connections={} first_byte_timeout_ms={} max_connection_workers={} soak_min_duration_ms={}",
         report.soak_connections,
         duration_millis_for_report(report.first_byte_timeout),
-        report.max_connection_workers
+        report.max_connection_workers,
+        duration_millis_for_report(report.soak_min_duration)
     )
     .map_err(|error| error.to_string())?;
     for gate in readiness_blocking_gates(&report.readiness.gates) {
@@ -6873,6 +6980,7 @@ fn default_core_certification_json_value(
             "soak_connections": report.soak_connections,
             "first_byte_timeout_ms": duration_millis_for_report(report.first_byte_timeout),
             "max_connection_workers": report.max_connection_workers,
+            "soak_min_duration_ms": duration_millis_for_report(report.soak_min_duration),
             "failed_gate_count": summary.failed,
             "warning_gate_count": summary.warning,
             "skipped_gate_count": summary.skipped,
@@ -7770,6 +7878,7 @@ pub struct SupportBundleOptions {
     pub certification_soak_connections: usize,
     pub certification_first_byte_timeout: Duration,
     pub certification_max_connection_workers: usize,
+    pub certification_soak_min_duration: Duration,
 }
 
 impl Default for SupportBundleOptions {
@@ -7779,6 +7888,7 @@ impl Default for SupportBundleOptions {
             certification_soak_connections: DEFAULT_READINESS_SOAK_CONNECTIONS,
             certification_first_byte_timeout: DEFAULT_FIRST_BYTE_TIMEOUT,
             certification_max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+            certification_soak_min_duration: DEFAULT_MIXED_SOAK_MIN_DURATION,
         }
     }
 }
@@ -7797,6 +7907,7 @@ pub fn write_support_bundle_report_with_options(
             options.certification_soak_connections,
             options.certification_first_byte_timeout,
             options.certification_max_connection_workers,
+            options.certification_soak_min_duration,
         )?)
     } else {
         serde_json::Value::Null

@@ -254,6 +254,10 @@ proxies:
         "blocker-summary"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][10],
+        "soak-min-duration"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -282,15 +286,19 @@ proxies:
         "tun-backend-evidence"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][6],
+        report["doctor"]["default_core_certification_capabilities"][5],
+        "soak-min-duration"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][7],
         "promotion-blockers"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][8],
+        report["doctor"]["default_core_certification_capabilities"][9],
         "text-summary"
     );
     assert_eq!(
-        report["doctor"]["default_core_certification_capabilities"][9],
+        report["doctor"]["default_core_certification_capabilities"][10],
         "support-bundle-export"
     );
     assert_eq!(
@@ -658,6 +666,7 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
             certification_soak_connections: 2,
             certification_first_byte_timeout: Duration::from_secs(2),
             certification_max_connection_workers: 2,
+            certification_soak_min_duration: Duration::from_millis(50),
         },
         &mut output,
     )
@@ -678,6 +687,8 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
         2000
     );
     assert_eq!(certification["certification"]["max_connection_workers"], 2);
+    assert_eq!(certification["certification"]["soak_min_duration_ms"], 50);
+    assert_eq!(certification["readiness"]["soak_min_duration_ms"], 50);
     let promotion_blockers = certification["promotion_blockers"]
         .as_array()
         .expect("promotion blockers");

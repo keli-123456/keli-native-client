@@ -334,7 +334,10 @@ state in text or JSON. Doctor and support bundles advertise this stability
 diagnostic surface so CI, UI, and support tooling can discover it. The soak
 runner also supports `--min-duration-ms` so release checks can keep the managed
 runtime alive after the requested traffic completes, then verify clean
-stop-drain behavior for a bounded long-running window.
+stop-drain behavior for a bounded long-running window. The same bounded runtime
+window can now be promoted into default-core gates with
+`readiness-check --soak-min-duration-ms`, `default-core-certify
+--soak-min-duration-ms`, and support bundle certification options.
 `interop-matrix` exposes a machine-readable production-readiness matrix for the
 native core: each supported protocol reports covered transports, TCP/UDP relay
 support, subscription profile sources, profile validation coverage, and
@@ -349,13 +352,18 @@ local platform still lacks a required handoff such as Wintun packaging,
 lifecycle control, or packet I/O, making remaining default-core blockers
 explicit. JSON output now also includes `blocking_gates`, and text output
 prints matching `readiness blocker=...` lines, so UI and release checks can
-consume the promotion blockers without re-filtering every gate.
+consume the promotion blockers without re-filtering every gate. When
+`--soak-min-duration-ms` is provided, the local soak gates hold the managed
+runtime alive for that minimum duration and report `min_duration_ms` plus
+`duration_target_met` in the gate detail.
 `default-core-certify` runs the non-skipped readiness gates and emits a
 single certification artifact that embeds the readiness report, TUN backend
 packaging evidence, soak parameters, and the final `ready_for_default_core`
 decision for release automation and desktop UI handoff. Its JSON output mirrors
 the readiness blockers as `promotion_blockers` and includes a
-`blocking_gate_count` in the certification summary. Doctor and support
+`blocking_gate_count` in the certification summary. Certification parameters now
+also include `soak_min_duration_ms`, so long-running promotion checks can prove
+more than a single fast loopback exchange. Doctor and support
 bundle output advertise the default-core certification schema and capability
 list, and the readiness doctor-schema gate now includes that certification
 schema so promotion tooling can discover the full evidence chain. Support
@@ -416,9 +424,11 @@ cargo run -p keli-cli -- tun-backend-check --format json
 cargo run -p keli-cli -- tun-backend-install --source C:\path\to\wintun.dll --format json
 cargo run -p keli-cli -- interop-matrix --format json
 cargo run -p keli-cli -- readiness-check --format json
+cargo run -p keli-cli -- readiness-check --format json --soak-min-duration-ms 60000
 cargo run -p keli-cli -- default-core-certify --format json
+cargo run -p keli-cli -- default-core-certify --format json --soak-min-duration-ms 60000
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
-cargo run -p keli-cli -- support-bundle --include-certification
+cargo run -p keli-cli -- support-bundle --include-certification --certification-soak-min-duration-ms 60000
 cargo run -p keli-cli -- subscription-update --current-config active.yaml --new-config subscription.yaml --current-outbound proxy --format json
 cargo run -p keli-cli -- soak-mixed --connections 25 --format json
 cargo run -p keli-cli -- soak-mixed --connections 25 --min-duration-ms 60000 --format json

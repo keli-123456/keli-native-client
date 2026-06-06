@@ -59,6 +59,8 @@ fn parses_readiness_check_json_command() {
         "1500",
         "--max-connection-workers",
         "3",
+        "--soak-min-duration-ms",
+        "250",
         "--skip-soak",
     ])
     .expect("command should parse");
@@ -70,6 +72,7 @@ fn parses_readiness_check_json_command() {
             soak_connections: 2,
             first_byte_timeout: Duration::from_millis(1500),
             max_connection_workers: 3,
+            soak_min_duration: Duration::from_millis(250),
             skip_soak: true,
         }
     );
@@ -87,6 +90,8 @@ fn parses_default_core_certify_json_command() {
         "1500",
         "--max-connection-workers",
         "3",
+        "--soak-min-duration-ms",
+        "250",
     ])
     .expect("command should parse");
 
@@ -97,6 +102,7 @@ fn parses_default_core_certify_json_command() {
             soak_connections: 2,
             first_byte_timeout: Duration::from_millis(1500),
             max_connection_workers: 3,
+            soak_min_duration: Duration::from_millis(250),
         }
     );
 }
@@ -177,6 +183,7 @@ fn parses_support_bundle_command() {
             certification_soak_connections: 3,
             certification_first_byte_timeout: Duration::from_secs(30),
             certification_max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+            certification_soak_min_duration: Duration::from_millis(0),
         }
     );
 }
@@ -192,6 +199,8 @@ fn parses_support_bundle_with_certification_options() {
         "1500",
         "--certification-max-connection-workers",
         "3",
+        "--certification-soak-min-duration-ms",
+        "250",
     ])
     .expect("command should parse");
 
@@ -203,6 +212,7 @@ fn parses_support_bundle_with_certification_options() {
             certification_soak_connections: 2,
             certification_first_byte_timeout: Duration::from_millis(1500),
             certification_max_connection_workers: 3,
+            certification_soak_min_duration: Duration::from_millis(250),
         }
     );
 }
