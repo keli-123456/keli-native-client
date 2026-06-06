@@ -69,6 +69,7 @@ pub struct TunPacketRouteDecision {
 }
 
 pub const TUN_PACKET_LOOP_DROPPED_ROUTE_HISTORY_LIMIT: usize = 256;
+pub const TUN_PACKET_LOOP_DNS_HIJACK_ROUTE_HISTORY_LIMIT: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TunPacketRelayAction {
@@ -412,6 +413,7 @@ pub struct TunPacketLoopSummary {
     pub last_dropped_route_action: Option<RouteAction>,
     pub last_dropped_matched_rule: Option<String>,
     pub recent_dropped_routes: Vec<TunPacketRouteDecision>,
+    pub recent_dns_hijacked_routes: Vec<TunPacketRouteDecision>,
     pub unsupported_packets: usize,
     pub last_unsupported_flow: Option<TunPacketFlow>,
     pub last_unsupported_route_action: Option<RouteAction>,
@@ -973,8 +975,9 @@ impl TunPacketLoopSummary {
             TunPacketLoopEvent::NoPacket => {
                 self.idle_events += 1;
             }
-            TunPacketLoopEvent::WrotePacket { .. } => {
+            TunPacketLoopEvent::WrotePacket { response } => {
                 self.dns_responses_written += 1;
+                self.record_dns_hijacked_route(&response.plan);
             }
             TunPacketLoopEvent::WroteUdpRelayPacket { .. } => {
                 self.udp_relay_responses_written += 1;
@@ -1051,6 +1054,21 @@ impl TunPacketLoopSummary {
             let excess =
                 self.recent_dropped_routes.len() - TUN_PACKET_LOOP_DROPPED_ROUTE_HISTORY_LIMIT;
             self.recent_dropped_routes.drain(0..excess);
+        }
+    }
+
+    fn record_dns_hijacked_route(&mut self, plan: &TunDnsHijackPlan) {
+        self.recent_dns_hijacked_routes
+            .push(TunPacketRouteDecision {
+                flow: plan.flow.clone(),
+                action: RouteAction::HijackDns,
+                matched_rule: None,
+                dns_hijacked: true,
+            });
+        if self.recent_dns_hijacked_routes.len() > TUN_PACKET_LOOP_DNS_HIJACK_ROUTE_HISTORY_LIMIT {
+            let excess = self.recent_dns_hijacked_routes.len()
+                - TUN_PACKET_LOOP_DNS_HIJACK_ROUTE_HISTORY_LIMIT;
+            self.recent_dns_hijacked_routes.drain(0..excess);
         }
     }
 
@@ -3951,6 +3969,60 @@ mod tests {
         })
     }
 
+    fn dns_hijack_route_decision(source_port: u16) -> TunPacketRouteDecision {
+        TunPacketRouteDecision {
+            flow: TunPacketFlow {
+                ip_version: TunIpVersion::Ipv4,
+                protocol: TunTransportProtocol::Udp,
+                source_ip: IpAddr::V4(Ipv4Addr::new(10, 7, 0, 2)),
+                destination_ip: IpAddr::V4(Ipv4Addr::new(198, 18, 0, 1)),
+                source_port: Some(source_port),
+                destination_port: Some(53),
+            },
+            action: RouteAction::HijackDns,
+            matched_rule: None,
+            dns_hijacked: true,
+        }
+    }
+
+    fn dns_hijack_event(source_port: u16) -> TunPacketLoopEvent {
+        TunPacketLoopEvent::WrotePacket {
+            response: TunDnsHijackResponse {
+                plan: TunDnsHijackPlan {
+                    flow: dns_hijack_route_decision(source_port).flow,
+                    question: parse_dns_query(&dns_query(source_port, "localhost", 1))
+                        .expect("parse DNS query"),
+                    response_source: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(198, 18, 0, 1)), 53),
+                    response_destination: SocketAddr::new(
+                        IpAddr::V4(Ipv4Addr::new(10, 7, 0, 2)),
+                        source_port,
+                    ),
+                },
+                dns_payload: Vec::new(),
+                packet: Vec::new(),
+                rcode: 0,
+            },
+        }
+    }
+
+    fn dns_query(id: u16, name: &str, qtype: u16) -> Vec<u8> {
+        let mut query = Vec::new();
+        query.extend_from_slice(&id.to_be_bytes());
+        query.extend_from_slice(&0x0100u16.to_be_bytes());
+        query.extend_from_slice(&1u16.to_be_bytes());
+        query.extend_from_slice(&0u16.to_be_bytes());
+        query.extend_from_slice(&0u16.to_be_bytes());
+        query.extend_from_slice(&0u16.to_be_bytes());
+        for label in name.split('.') {
+            query.push(label.len() as u8);
+            query.extend_from_slice(label.as_bytes());
+        }
+        query.push(0);
+        query.extend_from_slice(&qtype.to_be_bytes());
+        query.extend_from_slice(&1u16.to_be_bytes());
+        query
+    }
+
     #[test]
     fn tun_tcp_relay_read_buffer_size_uses_default_mtu_payload_limit() {
         assert_eq!(
@@ -4018,6 +4090,44 @@ mod tests {
                 .map(|route| route.flow.destination_port),
             Some(Some(
                 10_000 + TUN_PACKET_LOOP_DROPPED_ROUTE_HISTORY_LIMIT as u16 + 1
+            ))
+        );
+    }
+
+    #[test]
+    fn packet_loop_summary_records_recent_dns_hijacked_routes() {
+        let expected = dns_hijack_route_decision(49152);
+        let summary = TunPacketLoopSummary::from_events(&[dns_hijack_event(49152)]);
+
+        assert_eq!(summary.dns_responses_written, 1);
+        assert_eq!(summary.recent_dns_hijacked_routes, vec![expected]);
+    }
+
+    #[test]
+    fn packet_loop_summary_caps_recent_dns_hijacked_routes() {
+        let events = (0..TUN_PACKET_LOOP_DNS_HIJACK_ROUTE_HISTORY_LIMIT + 2)
+            .map(|index| dns_hijack_event(10_000 + index as u16))
+            .collect::<Vec<_>>();
+        let summary = TunPacketLoopSummary::from_events(&events);
+
+        assert_eq!(
+            summary.recent_dns_hijacked_routes.len(),
+            TUN_PACKET_LOOP_DNS_HIJACK_ROUTE_HISTORY_LIMIT
+        );
+        assert_eq!(
+            summary
+                .recent_dns_hijacked_routes
+                .first()
+                .map(|route| route.flow.source_port),
+            Some(Some(10_002))
+        );
+        assert_eq!(
+            summary
+                .recent_dns_hijacked_routes
+                .last()
+                .map(|route| route.flow.source_port),
+            Some(Some(
+                10_000 + TUN_PACKET_LOOP_DNS_HIJACK_ROUTE_HISTORY_LIMIT as u16 + 1
             ))
         );
     }

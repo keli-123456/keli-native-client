@@ -36,8 +36,8 @@ use keli_net_core::{
     OutboundTarget, RegistryTunTcpSessionRelay, RegistryTunUdpRelay, RelayOptions, RouteAction,
     RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, Socks5Address, Socks5Command,
     Socks5ReplyCode, SystemDnsResolver, TunPacketDevice, TunPacketFlow, TunPacketLoopEvent,
-    TunPacketLoopSummary, TunPacketRouteDecision, TunTcpSessionTable, TunUdpRelay,
-    DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+    TunPacketLoopSummary, TunPacketRouteDecision, TunTcpSessionTable, TunTransportProtocol,
+    TunUdpRelay, DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
 };
 use keli_platform::{
     install_wintun_library, install_wintun_library_from_source_dir, snapshot_tun_route_takeover,
@@ -98,12 +98,12 @@ const MIXED_SOAK_PAYLOAD: &[u8] = b"keli-soak-ping";
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 28;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 18;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 29;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 19;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 17;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 17;
-pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 4;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 18;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 18;
+pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
 const SUPPORTED_UDP_OUTBOUNDS: &str =
@@ -115,23 +115,23 @@ const ROUTE_RULE_CAPABILITIES: &str =
 const MANAGED_CONNECTION_METRIC_CAPABILITIES: &str =
     "total-connection-count,success-count,failure-count,connection-limit-rejection-count,error-kind-counts,route-action-counts,inbound-counts,total-upload-bytes,total-download-bytes,total-connect-ms,timed-connect-count,average-connect-ms,total-first-byte-ms,timed-first-byte-count,average-first-byte-ms,last-connection-timestamp,last-success-timestamp,last-failure-timestamp,recent-connection-reports,history-limit";
 const MANAGED_STATUS_SCHEMA_CAPABILITIES: &str =
-    "schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,runtime-tun-drop-history,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,node-health-udp-aware-recommendation,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state,subscription-url-update-status";
+    "schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,runtime-tun-drop-history,runtime-tun-dns-hijack-history,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,node-health-udp-aware-recommendation,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state,subscription-url-update-status";
 const SUBSCRIPTION_FETCH_CAPABILITIES: &str =
     "http,https,timeout,max-bytes,redacted-source,profile-check-summary";
 const SUBSCRIPTION_UPDATE_CAPABILITIES: &str =
     "current-config,new-config,current-outbound,tag-diff,selected-preservation,default-fallback,redacted-profile-summary,managed-reload-plan,managed-url-reload,managed-url-update-status";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
-    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic,packet-loop-drop-detail,packet-loop-drop-history";
+    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic,packet-loop-drop-detail,packet-loop-drop-history,packet-loop-dns-hijack-history";
 const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
     "local-mixed-soak,loopback-echo,managed-metrics,worker-drain,socks5,http-connect,min-duration";
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,tun-preflight,system-proxy,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
+    "schema-version,readiness-embed,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -932,7 +932,7 @@ pub fn managed_tun_runtime_report_note(report: &ManagedTunPacketLoopReport) -> S
     let last_tcp_session_error =
         tun_runtime_note_error_value(report.summary.last_tcp_session_error.as_ref());
     format!(
-        "managed TUN runtime stopped interface={} owns_device={} processed={} idle={} exit_reason={} stop_requested={} packet_limit_reached={} dns_responses={} udp_responses={} tcp_resets={} tcp_session_events={} tcp_session_writes={} tcp_max_active_sessions={} tcp_session_limit_rejections={} tcp_sessions_pruned={} tcp_server_closed_pruned={} tcp_post_closed_pruned={} tcp_server_close_rst_cleared={} tcp_post_close_rst_cleared={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} tcp_sessions_peak={} tcp_server_close_markers_peak={} tcp_post_close_markers_peak={} relay_plans={} tcp_relay_plans={} udp_relay_plans={} drops={} last_dropped_flow={} last_dropped_route_action={} last_dropped_matched_rule={} unsupported={} packet_errors={} udp_relay_errors={} tcp_session_errors={} last_packet_error={} last_udp_relay_error={} last_tcp_session_error={}",
+        "managed TUN runtime stopped interface={} owns_device={} processed={} idle={} exit_reason={} stop_requested={} packet_limit_reached={} dns_responses={} dns_hijacked_routes={} udp_responses={} tcp_resets={} tcp_session_events={} tcp_session_writes={} tcp_max_active_sessions={} tcp_session_limit_rejections={} tcp_sessions_pruned={} tcp_server_closed_pruned={} tcp_post_closed_pruned={} tcp_server_close_rst_cleared={} tcp_post_close_rst_cleared={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} tcp_sessions_peak={} tcp_server_close_markers_peak={} tcp_post_close_markers_peak={} relay_plans={} tcp_relay_plans={} udp_relay_plans={} drops={} last_dropped_flow={} last_dropped_route_action={} last_dropped_matched_rule={} unsupported={} packet_errors={} udp_relay_errors={} tcp_session_errors={} last_packet_error={} last_udp_relay_error={} last_tcp_session_error={}",
         report.config.interface_name,
         report.owns_device,
         report.summary.processed_packets(),
@@ -941,6 +941,7 @@ pub fn managed_tun_runtime_report_note(report: &ManagedTunPacketLoopReport) -> S
         report.summary.stop_requested,
         report.summary.packet_limit_reached,
         report.summary.dns_responses_written,
+        report.summary.recent_dns_hijacked_routes.len(),
         report.summary.udp_relay_responses_written,
         report.summary.tcp_resets_written,
         report.summary.tcp_session_events,
@@ -1011,6 +1012,12 @@ pub fn managed_tun_runtime_report_diagnostic(
         recent_dropped_routes: report
             .summary
             .recent_dropped_routes
+            .iter()
+            .map(tun_packet_route_decision_diagnostic)
+            .collect(),
+        recent_dns_hijacked_routes: report
+            .summary
+            .recent_dns_hijacked_routes
             .iter()
             .map(tun_packet_route_decision_diagnostic)
             .collect(),
@@ -2551,49 +2558,183 @@ fn runtime_event_json_value(event: &RuntimeEvent) -> serde_json::Value {
 
 fn runtime_diagnostic_json_value(diagnostic: &RuntimeDiagnostic) -> serde_json::Value {
     match diagnostic {
-        RuntimeDiagnostic::TunPacketLoop(diagnostic) => serde_json::json!({
-            "kind": "tun-packet-loop",
-            "interface_name": &diagnostic.interface_name,
-            "owns_device": diagnostic.owns_device,
-            "processed_packets": diagnostic.processed_packets,
-            "idle_events": diagnostic.idle_events,
-            "exit_reason": &diagnostic.exit_reason,
-            "stop_requested": diagnostic.stop_requested,
-            "packet_limit_reached": diagnostic.packet_limit_reached,
-            "dns_responses_written": diagnostic.dns_responses_written,
-            "udp_relay_responses_written": diagnostic.udp_relay_responses_written,
-            "tcp_resets_written": diagnostic.tcp_resets_written,
-            "tcp_session_events": diagnostic.tcp_session_events,
-            "tcp_session_packets_written": diagnostic.tcp_session_packets_written,
-            "tcp_max_active_sessions": diagnostic.tcp_max_active_sessions,
-            "tcp_session_limit_rejections": diagnostic.tcp_session_limit_rejections,
-            "tcp_sessions_pruned": diagnostic.tcp_sessions_pruned,
-            "tcp_server_closed_sessions_pruned": diagnostic.tcp_server_closed_sessions_pruned,
-            "tcp_post_closed_sessions_pruned": diagnostic.tcp_post_closed_sessions_pruned,
-            "tcp_server_close_marker_resets": diagnostic.tcp_server_close_marker_resets,
-            "tcp_post_close_marker_resets": diagnostic.tcp_post_close_marker_resets,
-            "tcp_sessions_open": diagnostic.tcp_sessions_open,
-            "tcp_server_close_markers_open": diagnostic.tcp_server_close_markers_open,
-            "tcp_post_close_markers_open": diagnostic.tcp_post_close_markers_open,
-            "tcp_sessions_peak": diagnostic.tcp_sessions_peak,
-            "tcp_server_close_markers_peak": diagnostic.tcp_server_close_markers_peak,
-            "tcp_post_close_markers_peak": diagnostic.tcp_post_close_markers_peak,
-            "relay_packets": diagnostic.relay_packets,
-            "tcp_relay_plans": diagnostic.tcp_relay_plans,
-            "udp_relay_plans": diagnostic.udp_relay_plans,
-            "dropped_packets": diagnostic.dropped_packets,
-            "recent_dropped_routes": diagnostic.recent_dropped_routes.iter().map(runtime_tun_dropped_route_diagnostic_json_value).collect::<Vec<_>>(),
-            "last_dropped_flow": diagnostic.last_dropped_flow.as_deref(),
-            "last_dropped_route_action": diagnostic.last_dropped_route_action.as_deref(),
-            "last_dropped_matched_rule": diagnostic.last_dropped_matched_rule.as_deref(),
-            "unsupported_packets": diagnostic.unsupported_packets,
-            "packet_errors": diagnostic.packet_errors,
-            "udp_relay_errors": diagnostic.udp_relay_errors,
-            "tcp_session_errors": diagnostic.tcp_session_errors,
-            "last_packet_error": diagnostic.last_packet_error.as_deref(),
-            "last_udp_relay_error": diagnostic.last_udp_relay_error.as_deref(),
-            "last_tcp_session_error": diagnostic.last_tcp_session_error.as_deref(),
-        }),
+        RuntimeDiagnostic::TunPacketLoop(diagnostic) => {
+            let mut value = serde_json::Map::new();
+            value.insert("kind".to_string(), serde_json::json!("tun-packet-loop"));
+            value.insert(
+                "interface_name".to_string(),
+                serde_json::json!(&diagnostic.interface_name),
+            );
+            value.insert(
+                "owns_device".to_string(),
+                serde_json::json!(diagnostic.owns_device),
+            );
+            value.insert(
+                "processed_packets".to_string(),
+                serde_json::json!(diagnostic.processed_packets),
+            );
+            value.insert(
+                "idle_events".to_string(),
+                serde_json::json!(diagnostic.idle_events),
+            );
+            value.insert(
+                "exit_reason".to_string(),
+                serde_json::json!(&diagnostic.exit_reason),
+            );
+            value.insert(
+                "stop_requested".to_string(),
+                serde_json::json!(diagnostic.stop_requested),
+            );
+            value.insert(
+                "packet_limit_reached".to_string(),
+                serde_json::json!(diagnostic.packet_limit_reached),
+            );
+            value.insert(
+                "dns_responses_written".to_string(),
+                serde_json::json!(diagnostic.dns_responses_written),
+            );
+            value.insert(
+                "udp_relay_responses_written".to_string(),
+                serde_json::json!(diagnostic.udp_relay_responses_written),
+            );
+            value.insert(
+                "tcp_resets_written".to_string(),
+                serde_json::json!(diagnostic.tcp_resets_written),
+            );
+            value.insert(
+                "tcp_session_events".to_string(),
+                serde_json::json!(diagnostic.tcp_session_events),
+            );
+            value.insert(
+                "tcp_session_packets_written".to_string(),
+                serde_json::json!(diagnostic.tcp_session_packets_written),
+            );
+            value.insert(
+                "tcp_max_active_sessions".to_string(),
+                serde_json::json!(diagnostic.tcp_max_active_sessions),
+            );
+            value.insert(
+                "tcp_session_limit_rejections".to_string(),
+                serde_json::json!(diagnostic.tcp_session_limit_rejections),
+            );
+            value.insert(
+                "tcp_sessions_pruned".to_string(),
+                serde_json::json!(diagnostic.tcp_sessions_pruned),
+            );
+            value.insert(
+                "tcp_server_closed_sessions_pruned".to_string(),
+                serde_json::json!(diagnostic.tcp_server_closed_sessions_pruned),
+            );
+            value.insert(
+                "tcp_post_closed_sessions_pruned".to_string(),
+                serde_json::json!(diagnostic.tcp_post_closed_sessions_pruned),
+            );
+            value.insert(
+                "tcp_server_close_marker_resets".to_string(),
+                serde_json::json!(diagnostic.tcp_server_close_marker_resets),
+            );
+            value.insert(
+                "tcp_post_close_marker_resets".to_string(),
+                serde_json::json!(diagnostic.tcp_post_close_marker_resets),
+            );
+            value.insert(
+                "tcp_sessions_open".to_string(),
+                serde_json::json!(diagnostic.tcp_sessions_open),
+            );
+            value.insert(
+                "tcp_server_close_markers_open".to_string(),
+                serde_json::json!(diagnostic.tcp_server_close_markers_open),
+            );
+            value.insert(
+                "tcp_post_close_markers_open".to_string(),
+                serde_json::json!(diagnostic.tcp_post_close_markers_open),
+            );
+            value.insert(
+                "tcp_sessions_peak".to_string(),
+                serde_json::json!(diagnostic.tcp_sessions_peak),
+            );
+            value.insert(
+                "tcp_server_close_markers_peak".to_string(),
+                serde_json::json!(diagnostic.tcp_server_close_markers_peak),
+            );
+            value.insert(
+                "tcp_post_close_markers_peak".to_string(),
+                serde_json::json!(diagnostic.tcp_post_close_markers_peak),
+            );
+            value.insert(
+                "relay_packets".to_string(),
+                serde_json::json!(diagnostic.relay_packets),
+            );
+            value.insert(
+                "tcp_relay_plans".to_string(),
+                serde_json::json!(diagnostic.tcp_relay_plans),
+            );
+            value.insert(
+                "udp_relay_plans".to_string(),
+                serde_json::json!(diagnostic.udp_relay_plans),
+            );
+            value.insert(
+                "dropped_packets".to_string(),
+                serde_json::json!(diagnostic.dropped_packets),
+            );
+            value.insert(
+                "recent_dropped_routes".to_string(),
+                serde_json::json!(diagnostic
+                    .recent_dropped_routes
+                    .iter()
+                    .map(runtime_tun_dropped_route_diagnostic_json_value)
+                    .collect::<Vec<_>>()),
+            );
+            value.insert(
+                "recent_dns_hijacked_routes".to_string(),
+                serde_json::json!(diagnostic
+                    .recent_dns_hijacked_routes
+                    .iter()
+                    .map(runtime_tun_dropped_route_diagnostic_json_value)
+                    .collect::<Vec<_>>()),
+            );
+            value.insert(
+                "last_dropped_flow".to_string(),
+                serde_json::json!(diagnostic.last_dropped_flow.as_deref()),
+            );
+            value.insert(
+                "last_dropped_route_action".to_string(),
+                serde_json::json!(diagnostic.last_dropped_route_action.as_deref()),
+            );
+            value.insert(
+                "last_dropped_matched_rule".to_string(),
+                serde_json::json!(diagnostic.last_dropped_matched_rule.as_deref()),
+            );
+            value.insert(
+                "unsupported_packets".to_string(),
+                serde_json::json!(diagnostic.unsupported_packets),
+            );
+            value.insert(
+                "packet_errors".to_string(),
+                serde_json::json!(diagnostic.packet_errors),
+            );
+            value.insert(
+                "udp_relay_errors".to_string(),
+                serde_json::json!(diagnostic.udp_relay_errors),
+            );
+            value.insert(
+                "tcp_session_errors".to_string(),
+                serde_json::json!(diagnostic.tcp_session_errors),
+            );
+            value.insert(
+                "last_packet_error".to_string(),
+                serde_json::json!(diagnostic.last_packet_error.as_deref()),
+            );
+            value.insert(
+                "last_udp_relay_error".to_string(),
+                serde_json::json!(diagnostic.last_udp_relay_error.as_deref()),
+            );
+            value.insert(
+                "last_tcp_session_error".to_string(),
+                serde_json::json!(diagnostic.last_tcp_session_error.as_deref()),
+            );
+            serde_json::Value::Object(value)
+        }
         RuntimeDiagnostic::ManagedMixedStopDrain(diagnostic) => serde_json::json!({
             "kind": "managed-mixed-stop-drain",
             "active_connections_shutdown": diagnostic.active_connections_shutdown,
@@ -6729,6 +6870,7 @@ pub struct TunRuntimeSmokeReport {
     pub traffic_stimulus_drop_observed: bool,
     pub dns_stimulus_required: bool,
     pub dns_stimulus_observed: bool,
+    pub dns_hijack_route_observed: bool,
     pub interface_snapshot: TunRuntimeSmokeInterfaceSnapshot,
     pub traffic_stimulus: TunRuntimeSmokeTrafficStimulusReport,
     pub dns_stimulus: TunRuntimeSmokeDnsStimulusReport,
@@ -7344,6 +7486,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 && traffic_stimulus_drop_observed;
             let traffic_drop_observed = report.summary.dropped_packets > 0;
             let dns_stimulus_required = TUN_RUNTIME_SMOKE_DNS_REQUIRED;
+            let dns_hijack_route_observed = tun_runtime_smoke_dns_hijack_route_observed(&report);
             let dns_stimulus_observed =
                 tun_runtime_smoke_dns_stimulus_observed(&report, &dns_stimulus);
             let clean_stop_observed = tun_runtime_smoke_clean_stop_observed(&report);
@@ -7359,6 +7502,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 traffic_packets_observed,
                 dns_stimulus_required,
                 dns_stimulus_observed,
+                dns_hijack_route_observed,
                 &route_takeover,
                 route_cleanup_expected_prefixes_absent,
                 clean_stop_observed,
@@ -7378,6 +7522,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 traffic_drop_observed,
                 dns_stimulus_required,
                 dns_stimulus_observed,
+                dns_hijack_route_observed,
                 &interface_snapshot,
                 &dns_stimulus,
                 &route_takeover,
@@ -7401,6 +7546,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 traffic_stimulus_drop_observed,
                 dns_stimulus_required,
                 dns_stimulus_observed,
+                dns_hijack_route_observed,
                 interface_snapshot,
                 traffic_stimulus,
                 dns_stimulus,
@@ -7427,6 +7573,7 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
             traffic_stimulus_drop_observed: false,
             dns_stimulus_required: TUN_RUNTIME_SMOKE_DNS_REQUIRED,
             dns_stimulus_observed: false,
+            dns_hijack_route_observed: false,
             interface_snapshot: tun_runtime_smoke_interface_snapshot_not_attempted(),
             traffic_stimulus: tun_runtime_smoke_traffic_stimulus_not_attempted(),
             dns_stimulus: tun_runtime_smoke_dns_stimulus_not_attempted(),
@@ -8004,6 +8151,22 @@ mod tun_runtime_smoke_tests {
         }
     }
 
+    fn successful_dns_hijack_route() -> TunPacketRouteDecision {
+        TunPacketRouteDecision {
+            flow: TunPacketFlow {
+                ip_version: TunIpVersion::Ipv4,
+                protocol: TunTransportProtocol::Udp,
+                source_ip: IpAddr::V4(Ipv4Addr::new(10, 7, 0, 1)),
+                destination_ip: TUN_RUNTIME_SMOKE_DNS_TARGET.ip(),
+                source_port: Some(49152),
+                destination_port: Some(TUN_RUNTIME_SMOKE_DNS_TARGET.port()),
+            },
+            action: RouteAction::HijackDns,
+            matched_rule: None,
+            dns_hijacked: true,
+        }
+    }
+
     #[test]
     fn traffic_stimulus_drop_observed_accepts_icmp_flow_without_port() {
         let mut summary = TunPacketLoopSummary {
@@ -8134,6 +8297,45 @@ mod tun_runtime_smoke_tests {
     }
 
     #[test]
+    fn managed_tun_runtime_diagnostic_includes_recent_dns_hijacked_routes() {
+        let hijacked_route = successful_dns_hijack_route();
+        let mut summary = TunPacketLoopSummary {
+            dns_responses_written: 1,
+            recent_dns_hijacked_routes: vec![hijacked_route],
+            ..TunPacketLoopSummary::default()
+        };
+        summary.stop_requested = true;
+
+        let report = ManagedTunPacketLoopReport {
+            config: default_tun_device_config(),
+            start_snapshot: snapshot(true),
+            stop_snapshot: snapshot(false),
+            owns_device: true,
+            summary,
+        };
+        let RuntimeDiagnostic::TunPacketLoop(diagnostic) =
+            managed_tun_runtime_report_diagnostic(&report)
+        else {
+            panic!("expected TUN packet loop diagnostic");
+        };
+
+        assert_eq!(diagnostic.recent_dns_hijacked_routes.len(), 1);
+        assert_eq!(
+            diagnostic.recent_dns_hijacked_routes[0].flow,
+            "10.7.0.1:49152-_198.18.0.1:53/17"
+        );
+        assert_eq!(
+            diagnostic.recent_dns_hijacked_routes[0].route_action,
+            "hijack-dns"
+        );
+        assert!(diagnostic.recent_dns_hijacked_routes[0]
+            .matched_rule
+            .is_none());
+        assert!(diagnostic.recent_dns_hijacked_routes[0].dns_hijacked);
+        assert!(tun_runtime_smoke_dns_hijack_route_observed(&report));
+    }
+
+    #[test]
     fn default_tun_runtime_smoke_runtime_blocks_stimulus_ip_and_port() {
         let runtime = default_tun_runtime_smoke_runtime();
         let target_decision = runtime.routes.decide_destination(&RouteDestination::new(
@@ -8215,6 +8417,7 @@ mod tun_runtime_smoke_tests {
     fn tun_runtime_smoke_pass_requires_route_cleanup_and_dns_stimulus() {
         let mut summary = TunPacketLoopSummary {
             dns_responses_written: 1,
+            recent_dns_hijacked_routes: vec![successful_dns_hijack_route()],
             ..TunPacketLoopSummary::default()
         };
         summary.stop_requested = true;
@@ -8240,6 +8443,7 @@ mod tun_runtime_smoke_tests {
             false,
             true,
             true,
+            true,
             &route_takeover,
             true,
             true,
@@ -8256,6 +8460,7 @@ mod tun_runtime_smoke_tests {
             false,
             true,
             true,
+            true,
             &route_takeover,
             false,
             true,
@@ -8270,6 +8475,30 @@ mod tun_runtime_smoke_tests {
             false,
             false,
             false,
+            true,
+            false,
+            true,
+            &route_takeover,
+            true,
+            true,
+            true,
+        ));
+        assert!(!tun_runtime_smoke_report_passed(
+            &ManagedTunPacketLoopReport {
+                summary: TunPacketLoopSummary {
+                    dns_responses_written: 1,
+                    ..report.summary.clone()
+                },
+                ..report.clone()
+            },
+            &traffic_stimulus,
+            &dns_stimulus,
+            true,
+            true,
+            false,
+            false,
+            false,
+            true,
             true,
             false,
             &route_takeover,
@@ -8291,6 +8520,7 @@ fn tun_runtime_smoke_report_passed(
     traffic_packets_observed: bool,
     dns_stimulus_required: bool,
     dns_stimulus_observed: bool,
+    dns_hijack_route_observed: bool,
     route_takeover: &TunRouteTakeoverSnapshot,
     route_cleanup_expected_prefixes_absent: bool,
     clean_stop_observed: bool,
@@ -8309,7 +8539,8 @@ fn tun_runtime_smoke_report_passed(
             || (traffic_stimulus.attempted
                 && traffic_stimulus_observed
                 && traffic_packets_observed))
-        && (!dns_stimulus_required || (dns_stimulus.attempted && dns_stimulus_observed))
+        && (!dns_stimulus_required
+            || (dns_stimulus.attempted && dns_stimulus_observed && dns_hijack_route_observed))
         && route_takeover.expected_prefixes_present
         && route_cleanup_expected_prefixes_absent
         && clean_stop_observed
@@ -8318,6 +8549,20 @@ fn tun_runtime_smoke_report_passed(
         && report.summary.packet_errors == 0
         && report.summary.udp_relay_errors == 0
         && report.summary.tcp_session_errors == 0
+}
+
+fn tun_runtime_smoke_dns_hijack_route_observed(report: &ManagedTunPacketLoopReport) -> bool {
+    report
+        .summary
+        .recent_dns_hijacked_routes
+        .iter()
+        .any(|route| {
+            route.dns_hijacked
+                && route.action == RouteAction::HijackDns
+                && route.flow.protocol == TunTransportProtocol::Udp
+                && route.flow.destination_ip == TUN_RUNTIME_SMOKE_DNS_TARGET.ip()
+                && route.flow.destination_port == Some(TUN_RUNTIME_SMOKE_DNS_TARGET.port())
+        })
 }
 
 fn tun_runtime_smoke_dns_stimulus_observed(
@@ -8356,6 +8601,7 @@ fn tun_runtime_smoke_detail(
     traffic_drop_observed: bool,
     dns_stimulus_required: bool,
     dns_stimulus_observed: bool,
+    dns_hijack_route_observed: bool,
     interface_snapshot: &TunRuntimeSmokeInterfaceSnapshot,
     dns_stimulus: &TunRuntimeSmokeDnsStimulusReport,
     route_takeover: &TunRouteTakeoverSnapshot,
@@ -8439,7 +8685,7 @@ fn tun_runtime_smoke_detail(
         .map(sanitize_runtime_note_value)
         .unwrap_or_else(|| "-".to_string());
     format!(
-        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} dropped={} unsupported={} dns_responses_written={} route_takeover_expected_prefixes_present={} route_takeover_missing_prefixes={} route_takeover_cleanup_observed={} route_takeover_cleanup_expected_prefixes_absent={} route_takeover_cleanup_observed_prefixes={} route_takeover_cleanup_missing_prefixes={} route_takeover_cleanup_error={} interface_snapshot_attempted={} interface_addresses_exit_success={} interface_addresses_exit_code={} interface_addresses_error={} interface_list_exit_success={} interface_list_exit_code={} interface_list_error={} dns_stimulus_required={} dns_stimulus_attempted={} dns_stimulus_observed={} dns_stimulus_source={} dns_stimulus_target={} dns_stimulus_query_name={} dns_stimulus_query_type={} dns_stimulus_query_id={} dns_stimulus_query_bytes={} dns_stimulus_response_received={} dns_stimulus_response_source={} dns_stimulus_response_bytes={} dns_stimulus_response_id={} dns_stimulus_response_id_matches={} dns_stimulus_response_rcode={} dns_stimulus_error_count={} traffic_stimulus_required={} traffic_stimulus_attempted={} traffic_stimulus_observed={} traffic_stimulus_source={} traffic_stimulus_target={} traffic_stimulus_attempts={} traffic_stimulus_sent_packets={} traffic_stimulus_error_count={} traffic_stimulus_route_lookup_attempted={} traffic_stimulus_route_lookup_exit_success={} traffic_stimulus_route_lookup_exit_code={} traffic_stimulus_route_lookup_error={} traffic_stimulus_ping_attempted={} traffic_stimulus_ping_command={} traffic_stimulus_ping_timeout_ms={} traffic_stimulus_ping_exit_success={} traffic_stimulus_ping_exit_code={} traffic_stimulus_ping_error={} traffic_packets_observed={} traffic_drop_observed={} traffic_stimulus_drop_observed={} last_dropped_matched_rule={} exit_reason={} stop_requested={} clean_stop_observed={} residual_state_clean={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
+        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} dropped={} unsupported={} dns_responses_written={} dns_hijacked_route_count={} route_takeover_expected_prefixes_present={} route_takeover_missing_prefixes={} route_takeover_cleanup_observed={} route_takeover_cleanup_expected_prefixes_absent={} route_takeover_cleanup_observed_prefixes={} route_takeover_cleanup_missing_prefixes={} route_takeover_cleanup_error={} interface_snapshot_attempted={} interface_addresses_exit_success={} interface_addresses_exit_code={} interface_addresses_error={} interface_list_exit_success={} interface_list_exit_code={} interface_list_error={} dns_stimulus_required={} dns_stimulus_attempted={} dns_stimulus_observed={} dns_hijack_route_observed={} dns_stimulus_source={} dns_stimulus_target={} dns_stimulus_query_name={} dns_stimulus_query_type={} dns_stimulus_query_id={} dns_stimulus_query_bytes={} dns_stimulus_response_received={} dns_stimulus_response_source={} dns_stimulus_response_bytes={} dns_stimulus_response_id={} dns_stimulus_response_id_matches={} dns_stimulus_response_rcode={} dns_stimulus_error_count={} traffic_stimulus_required={} traffic_stimulus_attempted={} traffic_stimulus_observed={} traffic_stimulus_source={} traffic_stimulus_target={} traffic_stimulus_attempts={} traffic_stimulus_sent_packets={} traffic_stimulus_error_count={} traffic_stimulus_route_lookup_attempted={} traffic_stimulus_route_lookup_exit_success={} traffic_stimulus_route_lookup_exit_code={} traffic_stimulus_route_lookup_error={} traffic_stimulus_ping_attempted={} traffic_stimulus_ping_command={} traffic_stimulus_ping_timeout_ms={} traffic_stimulus_ping_exit_success={} traffic_stimulus_ping_exit_code={} traffic_stimulus_ping_error={} traffic_packets_observed={} traffic_drop_observed={} traffic_stimulus_drop_observed={} last_dropped_matched_rule={} exit_reason={} stop_requested={} clean_stop_observed={} residual_state_clean={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
         report.config.interface_name,
         report.owns_device,
         report.start_snapshot.running,
@@ -8449,6 +8695,7 @@ fn tun_runtime_smoke_detail(
         report.summary.dropped_packets,
         report.summary.unsupported_packets,
         report.summary.dns_responses_written,
+        report.summary.recent_dns_hijacked_routes.len(),
         route_takeover.expected_prefixes_present,
         route_takeover.missing_prefixes.join(","),
         route_cleanup_observed,
@@ -8466,6 +8713,7 @@ fn tun_runtime_smoke_detail(
         dns_stimulus_required,
         dns_stimulus.attempted,
         dns_stimulus_observed,
+        dns_hijack_route_observed,
         dns_stimulus.source,
         dns_stimulus.target,
         dns_stimulus.query_name,
@@ -9004,6 +9252,10 @@ fn tun_runtime_smoke_json_value(
         report.map(|report| report.dns_stimulus_observed)
     );
     field!(
+        "dns_hijack_route_observed",
+        report.map(|report| report.dns_hijack_route_observed)
+    );
+    field!(
         "dns_stimulus_attempted",
         report.map(|report| report.dns_stimulus.attempted)
     );
@@ -9195,12 +9447,34 @@ fn tun_runtime_smoke_json_value(
         })
     );
     field!(
+        "dns_hijacked_route_count",
+        report.and_then(|report| {
+            report
+                .report
+                .as_ref()
+                .map(|runtime_report| runtime_report.summary.recent_dns_hijacked_routes.len())
+        })
+    );
+    field!(
         "recent_dropped_routes",
         report.and_then(|report| {
             report.report.as_ref().map(|runtime_report| {
                 runtime_report
                     .summary
                     .recent_dropped_routes
+                    .iter()
+                    .map(tun_packet_route_decision_json_value)
+                    .collect::<Vec<_>>()
+            })
+        })
+    );
+    field!(
+        "recent_dns_hijacked_routes",
+        report.and_then(|report| {
+            report.report.as_ref().map(|runtime_report| {
+                runtime_report
+                    .summary
+                    .recent_dns_hijacked_routes
                     .iter()
                     .map(tun_packet_route_decision_json_value)
                     .collect::<Vec<_>>()

@@ -2062,6 +2062,12 @@ fn managed_mixed_status_json_includes_tun_runtime_diagnostic() {
             matched_rule: Some("tun-runtime-smoke-traffic-stimulus".to_string()),
             dns_hijacked: false,
         }],
+        recent_dns_hijacked_routes: vec![RuntimeTunPacketDroppedRouteDiagnostic {
+            flow: "10.7.0.2:54322->198.18.0.1:53/17".to_string(),
+            route_action: "hijack-dns".to_string(),
+            matched_rule: None,
+            dns_hijacked: true,
+        }],
         last_dropped_flow: Some("10.7.0.2:54321->198.18.0.1:9/17".to_string()),
         last_dropped_route_action: Some("block".to_string()),
         last_dropped_matched_rule: Some("tun-runtime-smoke-traffic-stimulus".to_string()),
@@ -2138,6 +2144,22 @@ fn managed_mixed_status_json_includes_tun_runtime_diagnostic() {
     assert_eq!(
         diagnostic["recent_dropped_routes"][0]["dns_hijacked"],
         false
+    );
+    assert_eq!(
+        diagnostic["recent_dns_hijacked_routes"][0]["flow"],
+        "10.7.0.2:54322->198.18.0.1:53/17"
+    );
+    assert_eq!(
+        diagnostic["recent_dns_hijacked_routes"][0]["route_action"],
+        "hijack-dns"
+    );
+    assert_eq!(
+        diagnostic["recent_dns_hijacked_routes"][0]["matched_rule"],
+        Value::Null
+    );
+    assert_eq!(
+        diagnostic["recent_dns_hijacked_routes"][0]["dns_hijacked"],
+        true
     );
     assert_eq!(
         diagnostic["last_dropped_flow"],

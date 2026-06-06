@@ -442,9 +442,11 @@ The first implementation target is deliberately small:
    ICMP stimulus reached the TUN packet loop and matched the dedicated
    `tun-runtime-smoke-traffic-stimulus` block rule, and that the DNS stimulus
    received a matching response while the packet loop recorded
-   `dns_responses_written > 0`. It records `elapsed_ms`, `duration_target_met`,
+   `dns_responses_written > 0` plus a matching `recent_dns_hijacked_routes`
+   entry for the controlled DNS target. It records `elapsed_ms`, `duration_target_met`,
    `loop_activity_observed`, `route_takeover_*`, `route_takeover_cleanup_*`,
-   `dns_stimulus_*`, `dns_responses_written`,
+   `dns_stimulus_*`, `dns_responses_written`, `dns_hijack_route_observed`,
+   `dns_hijacked_route_count`, `recent_dns_hijacked_routes`,
    `traffic_stimulus_required`, `traffic_stimulus_observed`,
    `traffic_packets_observed`, `traffic_drop_observed`,
    `traffic_stimulus_drop_observed`, `traffic_stimulus_source`,
