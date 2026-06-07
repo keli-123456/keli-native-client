@@ -315,6 +315,14 @@ const VMESS_GRPC_TCP_RELAY_SMOKE_TARGET_HOST: &str = "example.com";
 const VMESS_GRPC_TCP_RELAY_SMOKE_TARGET_PORT: u16 = 443;
 const VMESS_GRPC_TCP_RELAY_SMOKE_PAYLOAD: &[u8] = b"keli-vmess-grpc-smoke";
 const VMESS_GRPC_TCP_RELAY_SMOKE_RESPONSE: &[u8] = b"keli-vmess-grpc-pong";
+const VMESS_H2_TCP_RELAY_SMOKE_OUTBOUND: &str = "VMESS-H2-TCP-SMOKE";
+const VMESS_H2_TCP_RELAY_SMOKE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
+const VMESS_H2_TCP_RELAY_SMOKE_HOST: &str = "edge.example";
+const VMESS_H2_TCP_RELAY_SMOKE_PATH: &str = "/keli-vmess-h2";
+const VMESS_H2_TCP_RELAY_SMOKE_TARGET_HOST: &str = "example.com";
+const VMESS_H2_TCP_RELAY_SMOKE_TARGET_PORT: u16 = 443;
+const VMESS_H2_TCP_RELAY_SMOKE_PAYLOAD: &[u8] = b"keli-vmess-h2-smoke";
+const VMESS_H2_TCP_RELAY_SMOKE_RESPONSE: &[u8] = b"keli-vmess-h2-pong";
 const VMESS_TCP_UDP_RELAY_SMOKE_OUTBOUND: &str = "VMESS-TCP-UDP-SMOKE";
 const VMESS_TCP_UDP_RELAY_SMOKE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const VMESS_TCP_UDP_RELAY_SMOKE_TARGET_HOST: &str = "127.0.0.1";
@@ -383,11 +391,11 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(4);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 68;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 58;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 69;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 59;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 57;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 57;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 58;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 58;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -412,11 +420,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-h2-tcp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-h2-tcp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-h2-tcp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-h2-tcp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -7172,6 +7180,7 @@ pub struct DefaultCoreReadinessReport {
     pub vmess_ws_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vmess_httpupgrade_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vmess_grpc_tcp_relay_smoke: TcpRelaySmokeReport,
+    pub vmess_h2_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vmess_tcp_udp_relay_smoke: UdpRelaySmokeReport,
     pub mieru_tcp_relay_smoke: TcpRelaySmokeReport,
     pub mieru_tcp_udp_relay_smoke: UdpRelaySmokeReport,
@@ -7226,6 +7235,7 @@ pub struct DefaultCoreCertificationReport {
     pub vmess_ws_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vmess_httpupgrade_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vmess_grpc_tcp_relay_smoke: TcpRelaySmokeReport,
+    pub vmess_h2_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vmess_tcp_udp_relay_smoke: UdpRelaySmokeReport,
     pub mieru_tcp_relay_smoke: TcpRelaySmokeReport,
     pub mieru_tcp_udp_relay_smoke: UdpRelaySmokeReport,
@@ -7888,6 +7898,7 @@ fn collect_default_core_certification_report(
     let vmess_ws_tcp_relay_smoke = readiness.vmess_ws_tcp_relay_smoke.clone();
     let vmess_httpupgrade_tcp_relay_smoke = readiness.vmess_httpupgrade_tcp_relay_smoke.clone();
     let vmess_grpc_tcp_relay_smoke = readiness.vmess_grpc_tcp_relay_smoke.clone();
+    let vmess_h2_tcp_relay_smoke = readiness.vmess_h2_tcp_relay_smoke.clone();
     let vmess_tcp_udp_relay_smoke = readiness.vmess_tcp_udp_relay_smoke.clone();
     let mieru_tcp_relay_smoke = readiness.mieru_tcp_relay_smoke.clone();
     let mieru_tcp_udp_relay_smoke = readiness.mieru_tcp_udp_relay_smoke.clone();
@@ -7941,6 +7952,7 @@ fn collect_default_core_certification_report(
         && vmess_ws_tcp_relay_smoke.passed
         && vmess_httpupgrade_tcp_relay_smoke.passed
         && vmess_grpc_tcp_relay_smoke.passed
+        && vmess_h2_tcp_relay_smoke.passed
         && vmess_tcp_udp_relay_smoke.passed
         && mieru_tcp_relay_smoke.passed
         && mieru_tcp_udp_relay_smoke.passed
@@ -7989,6 +8001,7 @@ fn collect_default_core_certification_report(
         vmess_ws_tcp_relay_smoke,
         vmess_httpupgrade_tcp_relay_smoke,
         vmess_grpc_tcp_relay_smoke,
+        vmess_h2_tcp_relay_smoke,
         vmess_tcp_udp_relay_smoke,
         mieru_tcp_relay_smoke,
         mieru_tcp_udp_relay_smoke,
@@ -8063,6 +8076,7 @@ fn collect_readiness_check_report(
     let vmess_httpupgrade_tcp_relay_smoke =
         collect_default_vmess_httpupgrade_tcp_relay_smoke_report();
     let vmess_grpc_tcp_relay_smoke = collect_default_vmess_grpc_tcp_relay_smoke_report();
+    let vmess_h2_tcp_relay_smoke = collect_default_vmess_h2_tcp_relay_smoke_report();
     let vmess_tcp_udp_relay_smoke = collect_default_vmess_tcp_udp_relay_smoke_report();
     let mieru_tcp_relay_smoke = collect_default_mieru_tcp_relay_smoke_report();
     let mieru_tcp_udp_relay_smoke = collect_default_mieru_tcp_udp_relay_smoke_report();
@@ -8309,6 +8323,12 @@ fn collect_readiness_check_report(
             vmess_grpc_tcp_relay_smoke.detail.clone(),
         ),
         readiness_gate(
+            "vmess-h2-tcp-relay-smoke",
+            "protocols",
+            vmess_h2_tcp_relay_smoke.passed,
+            vmess_h2_tcp_relay_smoke.detail.clone(),
+        ),
+        readiness_gate(
             "vmess-tcp-udp-relay-smoke",
             "protocols",
             vmess_tcp_udp_relay_smoke.passed,
@@ -8513,6 +8533,7 @@ fn collect_readiness_check_report(
         vmess_ws_tcp_relay_smoke,
         vmess_httpupgrade_tcp_relay_smoke,
         vmess_grpc_tcp_relay_smoke,
+        vmess_h2_tcp_relay_smoke,
         vmess_tcp_udp_relay_smoke,
         mieru_tcp_relay_smoke,
         mieru_tcp_udp_relay_smoke,
@@ -30092,6 +30113,890 @@ mod vmess_grpc_tcp_relay_smoke_tests {
     }
 }
 
+fn collect_default_vmess_h2_tcp_relay_smoke_report() -> TcpRelaySmokeReport {
+    let mut cases = Vec::new();
+    let mut selected_outbound = None;
+    let request_payload_bytes = VMESS_H2_TCP_RELAY_SMOKE_PAYLOAD.len();
+    let mut response_payload_bytes = None;
+    let mut round_trip_observed = false;
+    let mut server_received_payload = false;
+    let mut metrics_recorded = false;
+    let mut metrics_total_connections = 0;
+    let mut metrics_success_count = 0;
+    let mut metrics_inbound_count = 0;
+    let mut metrics_outbound_route_count = 0;
+    let mut clean_stop_observed = false;
+    let mut stop_workers_remaining = None;
+    let mut stop_timed_out = None;
+
+    let (vmess_port, vmess_thread) = match spawn_vmess_h2_tcp_relay_smoke_server() {
+        Ok(server) => server,
+        Err(error) => {
+            cases.push(vmess_h2_tcp_relay_smoke_error_case(
+                "start-vmess-h2-tcp-server",
+                "start-protocol-server",
+                error,
+            ));
+            return finalize_vmess_h2_tcp_relay_smoke_report(
+                cases,
+                selected_outbound,
+                request_payload_bytes,
+                response_payload_bytes,
+                round_trip_observed,
+                server_received_payload,
+                metrics_recorded,
+                metrics_total_connections,
+                metrics_success_count,
+                metrics_inbound_count,
+                metrics_outbound_route_count,
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+            );
+        }
+    };
+
+    let controller = SubscriptionReloadSmokeSystemProxyController;
+    let mut core = ManagedMixedController::new(&controller);
+    let config = vmess_h2_tcp_relay_smoke_config(vmess_port);
+    let relay_options = RelayOptions {
+        first_byte_timeout: Some(TCP_RELAY_SMOKE_TIMEOUT),
+        idle_timeout: Some(TCP_RELAY_SMOKE_TIMEOUT),
+    };
+
+    let started = match core.start_from_subscription_config_text(
+        &config,
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some(VMESS_H2_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+            relay_options,
+            system_proxy: false,
+            max_connection_workers: 2,
+            ..ManagedMixedOptions::default()
+        },
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            cases.push(vmess_h2_tcp_relay_smoke_error_case(
+                "start-vmess-h2-tcp-relay-runtime",
+                "start",
+                error,
+            ));
+            let _ = join_tcp_relay_smoke_server(vmess_thread);
+            return finalize_vmess_h2_tcp_relay_smoke_report(
+                cases,
+                selected_outbound,
+                request_payload_bytes,
+                response_payload_bytes,
+                round_trip_observed,
+                server_received_payload,
+                metrics_recorded,
+                metrics_total_connections,
+                metrics_success_count,
+                metrics_inbound_count,
+                metrics_outbound_route_count,
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+            );
+        }
+    };
+    selected_outbound = started.selected_outbound.clone();
+    cases.push(vmess_h2_tcp_relay_smoke_start_case(&started));
+
+    if let Some(listen_addr) = started.listen_addr {
+        let exchange_result = run_vmess_h2_tcp_relay_smoke_exchange(listen_addr);
+        let server_result = join_tcp_relay_smoke_server(vmess_thread);
+        if let Ok(exchange) = exchange_result.as_ref() {
+            response_payload_bytes = Some(exchange.response_payload.len());
+            round_trip_observed = exchange.response_payload == VMESS_H2_TCP_RELAY_SMOKE_RESPONSE;
+        }
+        if let Ok(server) = server_result.as_ref() {
+            server_received_payload = server.received_expected_payload;
+        }
+        cases.push(vmess_h2_tcp_relay_smoke_exchange_case(
+            exchange_result,
+            server_result,
+            round_trip_observed,
+            server_received_payload,
+        ));
+
+        let status = wait_for_udp_relay_smoke_status(&core, |status| {
+            vmess_h2_tcp_relay_smoke_metrics_recorded(&status.connection_metrics)
+        });
+        metrics_total_connections = status.connection_metrics.total_connection_count;
+        metrics_success_count = status.connection_metrics.success_count;
+        metrics_inbound_count = udp_relay_smoke_inbound_count(&status.connection_metrics, "socks5");
+        metrics_outbound_route_count =
+            vmess_h2_tcp_relay_smoke_outbound_route_count(&status.connection_metrics);
+        metrics_recorded = vmess_h2_tcp_relay_smoke_metrics_recorded(&status.connection_metrics);
+        cases.push(vmess_h2_tcp_relay_smoke_metrics_case(
+            &status,
+            metrics_recorded,
+        ));
+    } else {
+        cases.push(vmess_h2_tcp_relay_smoke_error_case(
+            "vmess-h2-tcp-relay-round-trip",
+            "socks5-connect",
+            "managed mixed runtime did not expose a listen address".to_string(),
+        ));
+        let _ = join_tcp_relay_smoke_server(vmess_thread);
+    }
+
+    match core.stop() {
+        Ok(stopped) => {
+            let stop_drain = stopped.events().iter().rev().find_map(|event| {
+                if let Some(RuntimeDiagnostic::ManagedMixedStopDrain(diagnostic)) =
+                    event.diagnostic.as_ref()
+                {
+                    Some(diagnostic)
+                } else {
+                    None
+                }
+            });
+            stop_workers_remaining = stop_drain.map(|diagnostic| diagnostic.workers_remaining);
+            stop_timed_out = stop_drain.map(|diagnostic| diagnostic.timed_out);
+            clean_stop_observed = matches!(stopped.status(), RuntimeStatus::Stopped)
+                && stop_workers_remaining == Some(0)
+                && stop_timed_out == Some(false);
+            cases.push(vmess_h2_tcp_relay_smoke_stop_case(
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+                None,
+            ));
+        }
+        Err(error) => cases.push(vmess_h2_tcp_relay_smoke_stop_case(
+            clean_stop_observed,
+            stop_workers_remaining,
+            stop_timed_out,
+            Some(error),
+        )),
+    }
+
+    finalize_vmess_h2_tcp_relay_smoke_report(
+        cases,
+        selected_outbound,
+        request_payload_bytes,
+        response_payload_bytes,
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+    )
+}
+
+fn vmess_h2_tcp_relay_smoke_config(vmess_port: u16) -> String {
+    format!(
+        r#"
+proxies:
+  - name: {VMESS_H2_TCP_RELAY_SMOKE_OUTBOUND}
+    type: vmess
+    server: 127.0.0.1
+    port: {vmess_port}
+    uuid: {VMESS_H2_TCP_RELAY_SMOKE_UUID}
+    cipher: aes-128-gcm
+    network: h2
+    h2-opts:
+      path: {VMESS_H2_TCP_RELAY_SMOKE_PATH}
+      host:
+        - {VMESS_H2_TCP_RELAY_SMOKE_HOST}
+"#
+    )
+}
+
+fn finalize_vmess_h2_tcp_relay_smoke_report(
+    cases: Vec<TcpRelaySmokeCaseReport>,
+    selected_outbound: Option<String>,
+    request_payload_bytes: usize,
+    response_payload_bytes: Option<usize>,
+    round_trip_observed: bool,
+    server_received_payload: bool,
+    metrics_recorded: bool,
+    metrics_total_connections: u64,
+    metrics_success_count: u64,
+    metrics_inbound_count: u64,
+    metrics_outbound_route_count: u64,
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+) -> TcpRelaySmokeReport {
+    let failed = cases
+        .iter()
+        .filter(|case| !case.passed)
+        .map(|case| case.name)
+        .collect::<Vec<_>>();
+    let passed = failed.is_empty()
+        && selected_outbound.as_deref() == Some(VMESS_H2_TCP_RELAY_SMOKE_OUTBOUND)
+        && round_trip_observed
+        && server_received_payload
+        && metrics_recorded
+        && clean_stop_observed;
+    let target = vmess_h2_tcp_relay_smoke_target();
+    let detail = format!(
+        "cases={} passed={} failed={} failed_cases={} selected={} transport=h2 path={} host={} cipher=aes-128-gcm target={} request_bytes={} response_bytes={} round_trip_observed={} server_received_payload={} metrics_recorded={} metrics_total={} metrics_success={} metrics_inbound_socks5={} metrics_outbound_route={} clean_stop_observed={} stop_workers_remaining={} stop_timed_out={}",
+        cases.len(),
+        passed,
+        failed.len(),
+        if failed.is_empty() {
+            "-".to_string()
+        } else {
+            failed.join(",")
+        },
+        selected_outbound.as_deref().unwrap_or("-"),
+        VMESS_H2_TCP_RELAY_SMOKE_PATH,
+        VMESS_H2_TCP_RELAY_SMOKE_HOST,
+        target,
+        request_payload_bytes,
+        response_payload_bytes
+            .map(|bytes| bytes.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining
+            .map(|workers| workers.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        stop_timed_out
+            .map(|timed_out| timed_out.to_string())
+            .unwrap_or_else(|| "-".to_string())
+    );
+    TcpRelaySmokeReport {
+        passed,
+        detail,
+        selected_outbound,
+        target,
+        request_payload_bytes,
+        response_payload_bytes,
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+        cases,
+    }
+}
+
+fn vmess_h2_tcp_relay_smoke_start_case(
+    status: &ManagedMixedStatusSnapshot,
+) -> TcpRelaySmokeCaseReport {
+    let selected = status.selected_outbound.clone();
+    let passed = selected.as_deref() == Some(VMESS_H2_TCP_RELAY_SMOKE_OUTBOUND)
+        && status.generation == 1
+        && matches!(&status.status, RuntimeStatus::Running { .. });
+    TcpRelaySmokeCaseReport {
+        name: "start-vmess-h2-tcp-relay-runtime",
+        action: "start",
+        expected_selected_outbound: Some(VMESS_H2_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: selected,
+        expected_generation: Some(1),
+        observed_generation: Some(status.generation),
+        target: vmess_h2_tcp_relay_smoke_target(),
+        expected_response: None,
+        observed_response: None,
+        request_payload_bytes: None,
+        response_payload_bytes: None,
+        runtime_running: Some(matches!(&status.status, RuntimeStatus::Running { .. })),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+        error: None,
+    }
+}
+
+fn vmess_h2_tcp_relay_smoke_exchange_case(
+    exchange_result: Result<TcpRelaySmokeExchangeObservation, String>,
+    server_result: Result<TcpRelaySmokeServerObservation, String>,
+    round_trip_observed: bool,
+    server_received_payload: bool,
+) -> TcpRelaySmokeCaseReport {
+    let error = match (&exchange_result, &server_result) {
+        (Ok(_), Ok(_)) => None,
+        (Err(exchange), Ok(_)) => Some(exchange.clone()),
+        (Ok(_), Err(server)) => Some(server.clone()),
+        (Err(exchange), Err(server)) => Some(format!("{exchange}; {server}")),
+    };
+    let exchange = exchange_result.ok();
+    let passed = error.is_none() && round_trip_observed && server_received_payload;
+    TcpRelaySmokeCaseReport {
+        name: "vmess-h2-tcp-protocol-round-trip",
+        action: "socks5-connect",
+        expected_selected_outbound: Some(VMESS_H2_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: vmess_h2_tcp_relay_smoke_target(),
+        expected_response: Some(
+            String::from_utf8_lossy(VMESS_H2_TCP_RELAY_SMOKE_RESPONSE).to_string(),
+        ),
+        observed_response: exchange
+            .as_ref()
+            .map(|exchange| String::from_utf8_lossy(&exchange.response_payload).to_string()),
+        request_payload_bytes: Some(VMESS_H2_TCP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: exchange
+            .as_ref()
+            .map(|exchange| exchange.response_payload.len()),
+        runtime_running: None,
+        round_trip_observed: Some(round_trip_observed),
+        server_received_payload: Some(server_received_payload),
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+        error,
+    }
+}
+
+fn vmess_h2_tcp_relay_smoke_metrics_case(
+    status: &ManagedMixedStatusSnapshot,
+    metrics_recorded: bool,
+) -> TcpRelaySmokeCaseReport {
+    let metrics = &status.connection_metrics;
+    let inbound_count = udp_relay_smoke_inbound_count(metrics, "socks5");
+    let outbound_route_count = vmess_h2_tcp_relay_smoke_outbound_route_count(metrics);
+    TcpRelaySmokeCaseReport {
+        name: "record-vmess-h2-tcp-relay-metrics",
+        action: "status",
+        expected_selected_outbound: Some(VMESS_H2_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: status.selected_outbound.clone(),
+        expected_generation: Some(1),
+        observed_generation: Some(status.generation),
+        target: vmess_h2_tcp_relay_smoke_target(),
+        expected_response: None,
+        observed_response: None,
+        request_payload_bytes: Some(VMESS_H2_TCP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: Some(VMESS_H2_TCP_RELAY_SMOKE_RESPONSE.len()),
+        runtime_running: Some(matches!(&status.status, RuntimeStatus::Running { .. })),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: Some(metrics_recorded),
+        metrics_total_connections: Some(metrics.total_connection_count),
+        metrics_success_count: Some(metrics.success_count),
+        metrics_inbound_count: Some(inbound_count),
+        metrics_outbound_route_count: Some(outbound_route_count),
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed: metrics_recorded,
+        error: None,
+    }
+}
+
+fn vmess_h2_tcp_relay_smoke_stop_case(
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+    error: Option<String>,
+) -> TcpRelaySmokeCaseReport {
+    TcpRelaySmokeCaseReport {
+        name: "stop-vmess-h2-tcp-relay-runtime",
+        action: "stop",
+        expected_selected_outbound: None,
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: vmess_h2_tcp_relay_smoke_target(),
+        expected_response: None,
+        observed_response: None,
+        request_payload_bytes: None,
+        response_payload_bytes: None,
+        runtime_running: Some(false),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: Some(clean_stop_observed),
+        stop_workers_remaining,
+        stop_timed_out,
+        passed: clean_stop_observed && error.is_none(),
+        error,
+    }
+}
+
+fn vmess_h2_tcp_relay_smoke_error_case(
+    name: &'static str,
+    action: &'static str,
+    error: String,
+) -> TcpRelaySmokeCaseReport {
+    TcpRelaySmokeCaseReport {
+        name,
+        action,
+        expected_selected_outbound: Some(VMESS_H2_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: vmess_h2_tcp_relay_smoke_target(),
+        expected_response: Some(
+            String::from_utf8_lossy(VMESS_H2_TCP_RELAY_SMOKE_RESPONSE).to_string(),
+        ),
+        observed_response: None,
+        request_payload_bytes: Some(VMESS_H2_TCP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: None,
+        runtime_running: None,
+        round_trip_observed: Some(false),
+        server_received_payload: Some(false),
+        metrics_recorded: Some(false),
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed: false,
+        error: Some(error),
+    }
+}
+
+fn run_vmess_h2_tcp_relay_smoke_exchange(
+    listen_addr: SocketAddr,
+) -> Result<TcpRelaySmokeExchangeObservation, String> {
+    let mut client = TcpStream::connect(listen_addr)
+        .map_err(|error| format!("connect VMess H2 TCP smoke listener {listen_addr}: {error}"))?;
+    client
+        .set_read_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+        .map_err(|error| format!("set VMess H2 TCP smoke client read timeout: {error}"))?;
+    client
+        .set_write_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+        .map_err(|error| format!("set VMess H2 TCP smoke client write timeout: {error}"))?;
+    let target = OutboundTarget::new(
+        VMESS_H2_TCP_RELAY_SMOKE_TARGET_HOST,
+        VMESS_H2_TCP_RELAY_SMOKE_TARGET_PORT,
+    );
+    write_smoke_connect(&mut client, &target, SmokeInboundKind::Socks5)?;
+    client
+        .write_all(VMESS_H2_TCP_RELAY_SMOKE_PAYLOAD)
+        .map_err(|error| format!("write VMess H2 TCP smoke payload: {error}"))?;
+    let mut response = vec![0; VMESS_H2_TCP_RELAY_SMOKE_RESPONSE.len()];
+    client
+        .read_exact(&mut response)
+        .map_err(|error| format!("read VMess H2 TCP smoke response: {error}"))?;
+    client.shutdown(Shutdown::Both).ok();
+    Ok(TcpRelaySmokeExchangeObservation {
+        response_payload: response,
+    })
+}
+
+fn spawn_vmess_h2_tcp_relay_smoke_server() -> Result<
+    (
+        u16,
+        thread::JoinHandle<Result<TcpRelaySmokeServerObservation, String>>,
+    ),
+    String,
+> {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|error| format!("bind VMess H2 TCP smoke server: {error}"))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| format!("set VMess H2 TCP smoke accept mode: {error}"))?;
+    let listen_port = listener
+        .local_addr()
+        .map_err(|error| format!("read VMess H2 TCP smoke address: {error}"))?
+        .port();
+    let handle = thread::spawn(move || -> Result<TcpRelaySmokeServerObservation, String> {
+        let deadline = Instant::now() + TCP_RELAY_SMOKE_TIMEOUT;
+        let (stream, _) = loop {
+            match listener.accept() {
+                Ok(accepted) => break accepted,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= deadline {
+                        return Err("VMess H2 TCP smoke accept timed out".to_string());
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => return Err(format!("accept VMess H2 TCP smoke server: {error}")),
+            }
+        };
+        stream
+            .set_nonblocking(true)
+            .map_err(|error| format!("set VMess H2 TCP smoke stream nonblocking: {error}"))?;
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .thread_name("keli-vmess-h2-smoke-server")
+            .build()
+            .map_err(|error| format!("build VMess H2 TCP smoke runtime: {error}"))?;
+        runtime.block_on(async move {
+            tokio::time::timeout(
+                TCP_RELAY_SMOKE_TIMEOUT,
+                handle_vmess_h2_tcp_relay_smoke_stream(stream),
+            )
+            .await
+            .map_err(|_| "VMess H2 TCP smoke server timed out".to_string())?
+        })
+    });
+    Ok((listen_port, handle))
+}
+
+async fn handle_vmess_h2_tcp_relay_smoke_stream(
+    stream: TcpStream,
+) -> Result<TcpRelaySmokeServerObservation, String> {
+    let stream = tokio::net::TcpStream::from_std(stream)
+        .map_err(|error| format!("convert VMess H2 TCP smoke stream: {error}"))?;
+    let mut h2 = h2::server::handshake(stream)
+        .await
+        .map_err(|error| format!("VMess H2 TCP smoke h2 handshake: {error}"))?;
+    let (result_tx, mut result_rx) =
+        tokio::sync::mpsc::unbounded_channel::<Result<TcpRelaySmokeServerObservation, String>>();
+    let mut accepted = false;
+    let mut accepting = true;
+
+    loop {
+        tokio::select! {
+            result = result_rx.recv() => {
+                return result.unwrap_or_else(|| {
+                    Err("VMess H2 TCP smoke request handler ended without a result".to_string())
+                });
+            }
+            request = h2.accept(), if accepting => {
+                let Some(request) = request else {
+                    accepting = false;
+                    if !accepted {
+                        return Err("VMess H2 TCP smoke h2 stream was not opened".to_string());
+                    }
+                    continue;
+                };
+                let (request, respond) = request
+                    .map_err(|error| format!("accept VMess H2 TCP smoke h2 request: {error}"))?;
+                if accepted {
+                    return Err("VMess H2 TCP smoke received an unexpected second h2 request".to_string());
+                }
+                accepted = true;
+                let result_tx = result_tx.clone();
+                tokio::spawn(async move {
+                    let result = serve_vmess_h2_tcp_relay_smoke_request(request, respond).await;
+                    let _ = result_tx.send(result);
+                });
+            }
+        }
+
+        if !accepting && accepted {
+            return result_rx.recv().await.unwrap_or_else(|| {
+                Err("VMess H2 TCP smoke request handler ended after connection close".to_string())
+            });
+        }
+    }
+}
+
+async fn serve_vmess_h2_tcp_relay_smoke_request(
+    request: http::Request<h2::RecvStream>,
+    mut respond: h2::server::SendResponse<Bytes>,
+) -> Result<TcpRelaySmokeServerObservation, String> {
+    validate_vmess_h2_tcp_relay_smoke_request(&request)?;
+    let mut body = request.into_body();
+    let response = http::Response::builder()
+        .status(http::StatusCode::OK)
+        .body(())
+        .map_err(|error| format!("build VMess H2 TCP smoke h2 response: {error}"))?;
+    let send = respond
+        .send_response(response, false)
+        .map_err(|error| format!("send VMess H2 TCP smoke h2 response: {error}"))?;
+
+    let (input_tx, input_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let (output_tx, mut output_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+    let read_task = tokio::spawn(async move {
+        read_h2_smoke_data_to_channel(&mut body, input_tx, "VMess H2 TCP smoke").await
+    });
+    let write_task = tokio::spawn(async move {
+        let mut send = send;
+        while let Some(payload) = output_rx.recv().await {
+            send.send_data(Bytes::copy_from_slice(&payload), false)
+                .map_err(|error| format!("send VMess H2 TCP smoke response data: {error}"))?;
+        }
+        send.send_data(Bytes::new(), true)
+            .map_err(|error| format!("finish VMess H2 TCP smoke response data: {error}"))?;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        Ok::<(), String>(())
+    });
+
+    let handler_result = tokio::task::spawn_blocking(move || {
+        let mut stream = H2SmokeIoStream::new(input_rx, output_tx);
+        handle_vmess_h2_tcp_relay_smoke_io(&mut stream)
+    })
+    .await
+    .map_err(|error| format!("join VMess H2 TCP smoke handler: {error}"))?;
+    read_task.abort();
+    write_task
+        .await
+        .map_err(|error| format!("join VMess H2 TCP smoke writer: {error}"))??;
+    handler_result
+}
+
+fn handle_vmess_h2_tcp_relay_smoke_io(
+    stream: &mut H2SmokeIoStream,
+) -> Result<TcpRelaySmokeServerObservation, String> {
+    let request = read_vmess_tcp_relay_smoke_request(stream, VMESS_H2_TCP_RELAY_SMOKE_UUID)?;
+    if request.target_host != VMESS_H2_TCP_RELAY_SMOKE_TARGET_HOST
+        || request.target_port != VMESS_H2_TCP_RELAY_SMOKE_TARGET_PORT
+    {
+        return Err(format!(
+            "unexpected VMess H2 TCP smoke target: expected {}:{}, got {}:{}",
+            VMESS_H2_TCP_RELAY_SMOKE_TARGET_HOST,
+            VMESS_H2_TCP_RELAY_SMOKE_TARGET_PORT,
+            request.target_host,
+            request.target_port
+        ));
+    }
+    if request.command != VMESS_COMMAND_TCP {
+        return Err(format!(
+            "unexpected VMess H2 TCP smoke command: expected {VMESS_COMMAND_TCP}, got {}",
+            request.command
+        ));
+    }
+    if request.security != VMESS_SECURITY_AES_128_GCM {
+        return Err(format!(
+            "unexpected VMess H2 TCP smoke security: expected {VMESS_SECURITY_AES_128_GCM}, got {}",
+            request.security
+        ));
+    }
+    write_vmess_tcp_relay_smoke_response_header(stream, &request)?;
+    stream
+        .flush()
+        .map_err(|error| format!("flush VMess H2 TCP smoke response header: {error}"))?;
+
+    let payload = read_vmess_tcp_relay_smoke_aes128_gcm_chunk(stream, &request)?;
+    if payload != VMESS_H2_TCP_RELAY_SMOKE_PAYLOAD {
+        return Err(format!(
+            "unexpected VMess H2 TCP smoke payload: expected {:?}, got {:?}",
+            VMESS_H2_TCP_RELAY_SMOKE_PAYLOAD, payload
+        ));
+    }
+    write_vmess_tcp_relay_smoke_aes128_gcm_response_chunk(
+        stream,
+        &request,
+        VMESS_H2_TCP_RELAY_SMOKE_RESPONSE,
+    )?;
+    stream
+        .flush()
+        .map_err(|error| format!("flush VMess H2 TCP smoke response: {error}"))?;
+    Ok(TcpRelaySmokeServerObservation {
+        received_expected_payload: true,
+    })
+}
+
+fn validate_vmess_h2_tcp_relay_smoke_request(
+    request: &http::Request<h2::RecvStream>,
+) -> Result<(), String> {
+    if request.method() != http::Method::PUT {
+        return Err(format!(
+            "unexpected VMess H2 TCP smoke method: expected PUT, got {}",
+            request.method()
+        ));
+    }
+    if request.uri().path() != VMESS_H2_TCP_RELAY_SMOKE_PATH {
+        return Err(format!(
+            "unexpected VMess H2 TCP smoke path: expected {}, got {}",
+            VMESS_H2_TCP_RELAY_SMOKE_PATH,
+            request.uri().path()
+        ));
+    }
+    let authority = request
+        .uri()
+        .authority()
+        .map(|authority| authority.as_str())
+        .unwrap_or_default();
+    if authority != VMESS_H2_TCP_RELAY_SMOKE_HOST {
+        return Err(format!(
+            "unexpected VMess H2 TCP smoke authority: expected {}, got {authority}",
+            VMESS_H2_TCP_RELAY_SMOKE_HOST
+        ));
+    }
+    let scheme = request.uri().scheme_str().unwrap_or_default();
+    if scheme != "http" {
+        return Err(format!(
+            "unexpected VMess H2 TCP smoke scheme: expected http, got {scheme}"
+        ));
+    }
+    Ok(())
+}
+
+async fn read_h2_smoke_data_to_channel(
+    body: &mut h2::RecvStream,
+    input_tx: std::sync::mpsc::Sender<Vec<u8>>,
+    label: &str,
+) -> Result<(), String> {
+    while let Some(chunk) = body.data().await {
+        let chunk = chunk.map_err(|error| format!("read {label} h2 data: {error}"))?;
+        let len = chunk.len();
+        if input_tx.send(chunk.to_vec()).is_err() {
+            return Ok(());
+        }
+        body.flow_control()
+            .release_capacity(len)
+            .map_err(|error| format!("release {label} h2 capacity: {error}"))?;
+    }
+    Ok(())
+}
+
+struct H2SmokeIoStream {
+    input_rx: std::sync::mpsc::Receiver<Vec<u8>>,
+    output_tx: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+    buffer: Vec<u8>,
+}
+
+impl H2SmokeIoStream {
+    fn new(
+        input_rx: std::sync::mpsc::Receiver<Vec<u8>>,
+        output_tx: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+    ) -> Self {
+        Self {
+            input_rx,
+            output_tx,
+            buffer: Vec::new(),
+        }
+    }
+}
+
+impl Read for H2SmokeIoStream {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        while self.buffer.is_empty() {
+            self.buffer = self
+                .input_rx
+                .recv()
+                .map_err(|_| io::Error::new(io::ErrorKind::UnexpectedEof, "h2 input closed"))?;
+        }
+        let len = output.len().min(self.buffer.len());
+        output[..len].copy_from_slice(&self.buffer[..len]);
+        self.buffer.drain(..len);
+        Ok(len)
+    }
+}
+
+impl Write for H2SmokeIoStream {
+    fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+        self.output_tx
+            .send(input.to_vec())
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "h2 output closed"))?;
+        Ok(input.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn vmess_h2_tcp_relay_smoke_metrics_recorded(metrics: &ConnectionMetricsSnapshot) -> bool {
+    metrics.total_connection_count >= 1
+        && metrics.success_count >= 1
+        && udp_relay_smoke_inbound_count(metrics, "socks5") >= 1
+        && vmess_h2_tcp_relay_smoke_outbound_route_count(metrics) >= 1
+        && metrics.total_upload_bytes >= VMESS_H2_TCP_RELAY_SMOKE_PAYLOAD.len() as u64
+        && metrics.total_download_bytes >= VMESS_H2_TCP_RELAY_SMOKE_RESPONSE.len() as u64
+}
+
+fn vmess_h2_tcp_relay_smoke_outbound_route_count(metrics: &ConnectionMetricsSnapshot) -> u64 {
+    metrics
+        .route_action_counts
+        .iter()
+        .find(|entry| {
+            entry.route_action
+                == RouteAction::Outbound(VMESS_H2_TCP_RELAY_SMOKE_OUTBOUND.to_string())
+        })
+        .map(|entry| entry.count)
+        .unwrap_or(0)
+}
+
+fn vmess_h2_tcp_relay_smoke_target() -> String {
+    format!(
+        "{}:{}",
+        VMESS_H2_TCP_RELAY_SMOKE_TARGET_HOST, VMESS_H2_TCP_RELAY_SMOKE_TARGET_PORT
+    )
+}
+
+#[cfg(test)]
+mod vmess_h2_tcp_relay_smoke_tests {
+    use super::*;
+
+    #[test]
+    fn default_vmess_h2_tcp_relay_smoke_proves_h2_vmess_round_trip() {
+        let report = collect_default_vmess_h2_tcp_relay_smoke_report();
+
+        assert!(report.passed, "{report:#?}");
+        assert_eq!(
+            report.selected_outbound.as_deref(),
+            Some(VMESS_H2_TCP_RELAY_SMOKE_OUTBOUND)
+        );
+        assert_eq!(report.target, vmess_h2_tcp_relay_smoke_target());
+        assert_eq!(
+            report.request_payload_bytes,
+            VMESS_H2_TCP_RELAY_SMOKE_PAYLOAD.len()
+        );
+        assert_eq!(
+            report.response_payload_bytes,
+            Some(VMESS_H2_TCP_RELAY_SMOKE_RESPONSE.len())
+        );
+        assert!(report.round_trip_observed);
+        assert!(report.server_received_payload);
+        assert!(report.metrics_recorded);
+        assert!(report.metrics_total_connections >= 1);
+        assert!(report.metrics_success_count >= 1);
+        assert!(report.metrics_inbound_count >= 1);
+        assert!(report.metrics_outbound_route_count >= 1);
+        assert!(report.clean_stop_observed);
+        assert_eq!(report.stop_workers_remaining, Some(0));
+        assert_eq!(report.stop_timed_out, Some(false));
+
+        let case_names = report
+            .cases
+            .iter()
+            .map(|case| case.name)
+            .collect::<Vec<_>>();
+        for expected in [
+            "start-vmess-h2-tcp-relay-runtime",
+            "vmess-h2-tcp-protocol-round-trip",
+            "record-vmess-h2-tcp-relay-metrics",
+            "stop-vmess-h2-tcp-relay-runtime",
+        ] {
+            assert!(
+                case_names.contains(&expected),
+                "missing VMess H2 TCP relay smoke case {expected}: {case_names:?}"
+            );
+        }
+        let round_trip = report
+            .cases
+            .iter()
+            .find(|case| case.name == "vmess-h2-tcp-protocol-round-trip")
+            .expect("round trip case");
+        assert_eq!(
+            round_trip.observed_response.as_deref(),
+            Some("keli-vmess-h2-pong")
+        );
+        assert_eq!(round_trip.round_trip_observed, Some(true));
+        assert_eq!(round_trip.server_received_payload, Some(true));
+    }
+}
+
 fn collect_default_vmess_tcp_udp_relay_smoke_report() -> UdpRelaySmokeReport {
     let mut cases = Vec::new();
     let mut selected_outbound = None;
@@ -38404,6 +39309,14 @@ fn write_readiness_check_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "readiness vmess_h2_tcp_relay_smoke status={} cases={} detail={}",
+        tcp_relay_smoke_status_label(&report.vmess_h2_tcp_relay_smoke),
+        report.vmess_h2_tcp_relay_smoke.cases.len(),
+        report.vmess_h2_tcp_relay_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "readiness vmess_tcp_udp_relay_smoke status={} cases={} detail={}",
         udp_relay_smoke_status_label(&report.vmess_tcp_udp_relay_smoke),
         report.vmess_tcp_udp_relay_smoke.cases.len(),
@@ -38623,6 +39536,9 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         ),
         "vmess_grpc_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.vmess_grpc_tcp_relay_smoke
+        ),
+        "vmess_h2_tcp_relay_smoke": tcp_relay_smoke_json_value(
+            &report.vmess_h2_tcp_relay_smoke
         ),
         "vmess_tcp_udp_relay_smoke": udp_relay_smoke_json_value(
             &report.vmess_tcp_udp_relay_smoke
@@ -38979,6 +39895,14 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification vmess_h2_tcp_relay_smoke status={} cases={} detail={}",
+        tcp_relay_smoke_status_label(&report.vmess_h2_tcp_relay_smoke),
+        report.vmess_h2_tcp_relay_smoke.cases.len(),
+        report.vmess_h2_tcp_relay_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification vmess_tcp_udp_relay_smoke status={} cases={} detail={}",
         udp_relay_smoke_status_label(&report.vmess_tcp_udp_relay_smoke),
         report.vmess_tcp_udp_relay_smoke.cases.len(),
@@ -39179,6 +40103,7 @@ fn default_core_certification_json_value(
                 .vmess_httpupgrade_tcp_relay_smoke
                 .passed,
             "vmess_grpc_tcp_relay_smoke_passed": report.vmess_grpc_tcp_relay_smoke.passed,
+            "vmess_h2_tcp_relay_smoke_passed": report.vmess_h2_tcp_relay_smoke.passed,
             "vmess_tcp_udp_relay_smoke_passed": report.vmess_tcp_udp_relay_smoke.passed,
             "mieru_tcp_relay_smoke_passed": report.mieru_tcp_relay_smoke.passed,
             "mieru_tcp_udp_relay_smoke_passed": report.mieru_tcp_udp_relay_smoke.passed,
@@ -39291,6 +40216,9 @@ fn default_core_certification_json_value(
         ),
         "vmess_grpc_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.vmess_grpc_tcp_relay_smoke
+        ),
+        "vmess_h2_tcp_relay_smoke": tcp_relay_smoke_json_value(
+            &report.vmess_h2_tcp_relay_smoke
         ),
         "vmess_tcp_udp_relay_smoke": udp_relay_smoke_json_value(
             &report.vmess_tcp_udp_relay_smoke
