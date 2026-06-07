@@ -360,7 +360,7 @@ and support flows can inspect protocol readiness without scraping this document.
 combines doctor schema coverage, interop matrix coverage, resource limits,
 resource-limit smoke coverage, route-rule runtime smoke coverage,
 DNS policy smoke coverage,
-TCP relay smoke coverage, HTTP CONNECT relay smoke coverage, HTTP CONNECT outbound relay smoke coverage, HTTP proxy relay smoke coverage, Trojan TLS TCP relay smoke coverage, Trojan WebSocket TCP relay smoke coverage, Trojan HTTPUpgrade TCP relay smoke coverage, Trojan TLS UDP relay smoke coverage, AnyTLS TLS TCP relay smoke coverage, AnyTLS TLS UDP relay smoke coverage, Naive H2 TCP relay smoke coverage, Naive H3 QUIC TCP relay smoke coverage, HY2 QUIC TCP relay smoke coverage, TUIC QUIC TCP relay smoke coverage, VLESS TCP relay smoke coverage, VLESS WebSocket TCP relay smoke coverage, VLESS HTTPUpgrade TCP relay smoke coverage, VLESS TCP UDP relay smoke coverage, VMess TCP relay smoke coverage, VMess WebSocket TCP relay smoke coverage, VMess HTTPUpgrade TCP relay smoke coverage, VMess TCP UDP relay smoke coverage, Mieru TCP relay smoke coverage, Mieru TCP UDP relay smoke coverage, UDP relay smoke coverage,
+TCP relay smoke coverage, HTTP CONNECT relay smoke coverage, HTTP CONNECT outbound relay smoke coverage, HTTP proxy relay smoke coverage, Trojan TLS TCP relay smoke coverage, Trojan WebSocket TCP relay smoke coverage, Trojan HTTPUpgrade TCP relay smoke coverage, Trojan TLS UDP relay smoke coverage, AnyTLS TLS TCP relay smoke coverage, AnyTLS TLS UDP relay smoke coverage, Naive H2 TCP relay smoke coverage, Naive H3 QUIC TCP relay smoke coverage, HY2 QUIC TCP relay smoke coverage, TUIC QUIC TCP relay smoke coverage, VLESS TCP relay smoke coverage, VLESS WebSocket TCP relay smoke coverage, VLESS HTTPUpgrade TCP relay smoke coverage, VLESS gRPC TCP relay smoke coverage, VLESS TCP UDP relay smoke coverage, VMess TCP relay smoke coverage, VMess WebSocket TCP relay smoke coverage, VMess HTTPUpgrade TCP relay smoke coverage, VMess TCP UDP relay smoke coverage, Mieru TCP relay smoke coverage, Mieru TCP UDP relay smoke coverage, UDP relay smoke coverage,
 subscription reload smoke coverage, runtime recovery smoke coverage,
 panel/subscription smoke coverage, system proxy support, TUN preflight state,
 TUN backend wiring, route takeover wiring, and optional local mixed soak gates
@@ -474,6 +474,11 @@ from a local VLESS HTTPUpgrade subscription node, verifies the HTTP 101
 upgrade path and Host header without WebSocket key/version headers, validates
 the VLESS request and response headers over the upgraded stream, completes the
 payload round trip, records `socks5`/outbound metrics, and stops cleanly.
+The default VLESS gRPC TCP relay smoke starts a managed mixed runtime from a
+local VLESS gRPC subscription node, verifies the HTTP/2 gRPC POST path and
+`application/grpc` headers at the local protocol server, validates the VLESS
+request and response headers inside gRPC hunk messages, completes the payload
+round trip, records `socks5`/outbound metrics, and stops cleanly.
 The default VLESS TCP UDP relay smoke starts a managed mixed runtime from a
 local VLESS subscription node, sends a SOCKS5 UDP associate datagram through
 the selected VLESS outbound, verifies the VLESS UDP request header and
@@ -599,7 +604,7 @@ runtime alive for that minimum duration and report `min_duration_ms` plus
 `default-core-certify` runs the non-skipped readiness gates and emits a
 single certification artifact that embeds the readiness report, TUN backend
 packaging evidence, structured TUN preflight evidence, route-rule smoke
-evidence, DNS policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, Trojan WebSocket TCP relay smoke evidence, Trojan HTTPUpgrade TCP relay smoke evidence, Trojan TLS UDP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, AnyTLS TLS UDP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VLESS WebSocket TCP relay smoke evidence, VLESS HTTPUpgrade TCP relay smoke evidence, VLESS TCP UDP relay smoke evidence, VMess TCP relay smoke evidence, VMess WebSocket TCP relay smoke evidence, VMess HTTPUpgrade TCP relay smoke evidence, VMess TCP UDP relay smoke evidence, Mieru TCP relay smoke evidence, Mieru TCP UDP relay smoke evidence, UDP relay smoke evidence, SOCKS5 UDP outbound relay smoke evidence,
+evidence, DNS policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, Trojan WebSocket TCP relay smoke evidence, Trojan HTTPUpgrade TCP relay smoke evidence, Trojan TLS UDP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, AnyTLS TLS UDP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VLESS WebSocket TCP relay smoke evidence, VLESS HTTPUpgrade TCP relay smoke evidence, VLESS gRPC TCP relay smoke evidence, VLESS TCP UDP relay smoke evidence, VMess TCP relay smoke evidence, VMess WebSocket TCP relay smoke evidence, VMess HTTPUpgrade TCP relay smoke evidence, VMess TCP UDP relay smoke evidence, Mieru TCP relay smoke evidence, Mieru TCP UDP relay smoke evidence, UDP relay smoke evidence, SOCKS5 UDP outbound relay smoke evidence,
 resource-limit smoke evidence,
 subscription reload smoke evidence, soak parameters, runtime recovery smoke
 evidence, and the final
@@ -667,7 +672,8 @@ SOCKS5 CONNECT through a selected local Hysteria2 QUIC outbound, plus TUIC QUIC 
 SOCKS5 CONNECT through a selected local TUIC QUIC outbound, plus VLESS TCP relay smoke evidence for
 SOCKS5 CONNECT through a selected local VLESS outbound, plus VLESS WebSocket TCP relay smoke evidence for
 SOCKS5 CONNECT through a selected local VLESS WebSocket outbound, plus VLESS HTTPUpgrade TCP relay smoke evidence for
-SOCKS5 CONNECT through a selected local VLESS HTTPUpgrade outbound, plus VLESS TCP UDP relay smoke evidence for
+SOCKS5 CONNECT through a selected local VLESS HTTPUpgrade outbound, plus VLESS gRPC TCP relay smoke evidence for
+SOCKS5 CONNECT through a selected local VLESS gRPC outbound, plus VLESS TCP UDP relay smoke evidence for
 SOCKS5 UDP associate through a selected local VLESS outbound, plus VMess TCP relay smoke evidence for
 SOCKS5 CONNECT through a selected local VMess outbound, plus VMess WebSocket TCP relay smoke evidence for
 SOCKS5 CONNECT through a selected local VMess WebSocket outbound, plus VMess HTTPUpgrade TCP relay smoke evidence for
@@ -687,7 +693,7 @@ and release automation can track what is still blocking default-core use.
 `keli-cli default-core-certify --format json` exports the corresponding
 machine-level certification evidence with real soak gates and TUN backend
 packaging state, structured TUN preflight state, route-rule smoke evidence, DNS
-policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, Trojan WebSocket TCP relay smoke evidence, Trojan HTTPUpgrade TCP relay smoke evidence, Trojan TLS UDP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, AnyTLS TLS UDP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VLESS WebSocket TCP relay smoke evidence, VLESS HTTPUpgrade TCP relay smoke evidence, VLESS TCP UDP relay smoke evidence, VMess TCP relay smoke evidence, VMess WebSocket TCP relay smoke evidence, VMess HTTPUpgrade TCP relay smoke evidence, VMess TCP UDP relay smoke evidence, Mieru TCP relay smoke evidence, Mieru TCP UDP relay smoke evidence, UDP relay smoke evidence, SOCKS5 UDP outbound relay smoke evidence, resource-limit smoke evidence, panel/subscription smoke
+policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, Trojan WebSocket TCP relay smoke evidence, Trojan HTTPUpgrade TCP relay smoke evidence, Trojan TLS UDP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, AnyTLS TLS UDP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VLESS WebSocket TCP relay smoke evidence, VLESS HTTPUpgrade TCP relay smoke evidence, VLESS gRPC TCP relay smoke evidence, VLESS TCP UDP relay smoke evidence, VMess TCP relay smoke evidence, VMess WebSocket TCP relay smoke evidence, VMess HTTPUpgrade TCP relay smoke evidence, VMess TCP UDP relay smoke evidence, Mieru TCP relay smoke evidence, Mieru TCP UDP relay smoke evidence, UDP relay smoke evidence, SOCKS5 UDP outbound relay smoke evidence, resource-limit smoke evidence, panel/subscription smoke
 evidence, and promotion blockers for default-core promotion checks. Add
 `--include-tun-runtime-smoke` when the
 certification run should also prove the native TUN runtime can start, open
