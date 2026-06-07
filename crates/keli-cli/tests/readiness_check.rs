@@ -27,7 +27,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(report["schema_version"], READINESS_CHECK_SCHEMA_VERSION);
     assert_eq!(report["ready_for_default_core"], false);
     assert_eq!(report["status"], "not-ready");
-    assert_eq!(report["summary"]["total_gate_count"], 46);
+    assert_eq!(report["summary"]["total_gate_count"], 47);
     assert_eq!(report["summary"]["skipped_gate_count"], 2);
     assert_eq!(report["soak_min_duration_ms"], 0);
     assert_eq!(
@@ -1730,6 +1730,80 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     );
     assert_eq!(vless_grpc_tcp_round_trip["round_trip_observed"], true);
     assert_eq!(vless_grpc_tcp_round_trip["server_received_payload"], true);
+    assert_eq!(report["vless_h2_tcp_relay_smoke"]["status"], "passed");
+    assert_eq!(report["vless_h2_tcp_relay_smoke"]["passed"], true);
+    assert_eq!(report["vless_h2_tcp_relay_smoke"]["case_count"], 4);
+    assert_eq!(report["vless_h2_tcp_relay_smoke"]["failed_case_count"], 0);
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["selected_outbound"],
+        "VLESS-H2-TCP-SMOKE"
+    );
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["target"],
+        "example.com:443"
+    );
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["request_payload_bytes"],
+        19
+    );
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["response_payload_bytes"],
+        18
+    );
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["server_received_payload"],
+        true
+    );
+    assert_eq!(report["vless_h2_tcp_relay_smoke"]["metrics_recorded"], true);
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["metrics_inbound_count"],
+        1
+    );
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["metrics_outbound_route_count"],
+        1
+    );
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["stop_workers_remaining"],
+        0
+    );
+    assert_eq!(report["vless_h2_tcp_relay_smoke"]["stop_timed_out"], false);
+    let vless_h2_tcp_cases = report["vless_h2_tcp_relay_smoke"]["cases"]
+        .as_array()
+        .expect("VLESS H2 TCP relay smoke cases");
+    let vless_h2_tcp_case_names: Vec<_> = vless_h2_tcp_cases
+        .iter()
+        .filter_map(|case| case["name"].as_str())
+        .collect();
+    for expected in [
+        "start-vless-h2-tcp-relay-runtime",
+        "vless-h2-tcp-protocol-round-trip",
+        "record-vless-h2-tcp-relay-metrics",
+        "stop-vless-h2-tcp-relay-runtime",
+    ] {
+        assert!(
+            vless_h2_tcp_case_names.contains(&expected),
+            "missing VLESS H2 TCP relay smoke case {expected}: {vless_h2_tcp_case_names:?}"
+        );
+    }
+    let vless_h2_tcp_round_trip = vless_h2_tcp_cases
+        .iter()
+        .find(|case| case["name"] == "vless-h2-tcp-protocol-round-trip")
+        .expect("VLESS H2 TCP relay round trip case");
+    assert_eq!(
+        vless_h2_tcp_round_trip["observed_response"],
+        "keli-vless-h2-pong"
+    );
+    assert_eq!(vless_h2_tcp_round_trip["round_trip_observed"], true);
+    assert_eq!(vless_h2_tcp_round_trip["server_received_payload"], true);
     assert_eq!(report["vless_tcp_udp_relay_smoke"]["status"], "passed");
     assert_eq!(report["vless_tcp_udp_relay_smoke"]["passed"], true);
     assert_eq!(report["vless_tcp_udp_relay_smoke"]["case_count"], 4);
@@ -2996,7 +3070,7 @@ fn readiness_check_text_reports_gate_summary() {
 
     let output = String::from_utf8(output).expect("readiness text");
     assert!(output.contains(&format!(
-        "readiness status=not-ready schema_version={} gates=46",
+        "readiness status=not-ready schema_version={} gates=47",
         READINESS_CHECK_SCHEMA_VERSION
     )));
     assert!(output.contains("blockers="));
@@ -3054,6 +3128,9 @@ fn readiness_check_text_reports_gate_summary() {
     ));
     assert!(output
         .contains("readiness gate=vless-grpc-tcp-relay-smoke category=protocols status=passed"));
+    assert!(
+        output.contains("readiness gate=vless-h2-tcp-relay-smoke category=protocols status=passed")
+    );
     assert!(output
         .contains("readiness gate=vless-tcp-udp-relay-smoke category=protocols status=passed"));
     assert!(
@@ -3109,6 +3186,7 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(output.contains("readiness vless_ws_tcp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness vless_httpupgrade_tcp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness vless_grpc_tcp_relay_smoke status=passed cases=4"));
+    assert!(output.contains("readiness vless_h2_tcp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness vless_tcp_udp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness vmess_tcp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness vmess_ws_tcp_relay_smoke status=passed cases=4"));
@@ -4072,6 +4150,62 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
         4
     );
     assert_eq!(
+        report["certification"]["vless_h2_tcp_relay_smoke_passed"],
+        true
+    );
+    assert_eq!(report["vless_h2_tcp_relay_smoke"]["status"], "passed");
+    assert_eq!(report["vless_h2_tcp_relay_smoke"]["case_count"], 4);
+    assert_eq!(report["vless_h2_tcp_relay_smoke"]["failed_case_count"], 0);
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["selected_outbound"],
+        "VLESS-H2-TCP-SMOKE"
+    );
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["target"],
+        "example.com:443"
+    );
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["request_payload_bytes"],
+        19
+    );
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["response_payload_bytes"],
+        18
+    );
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["server_received_payload"],
+        true
+    );
+    assert_eq!(report["vless_h2_tcp_relay_smoke"]["metrics_recorded"], true);
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["metrics_inbound_count"],
+        1
+    );
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["metrics_outbound_route_count"],
+        1
+    );
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        report["vless_h2_tcp_relay_smoke"]["stop_workers_remaining"],
+        0
+    );
+    assert_eq!(
+        report["readiness"]["vless_h2_tcp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(
+        report["readiness"]["vless_h2_tcp_relay_smoke"]["case_count"],
+        4
+    );
+    assert_eq!(
         report["certification"]["vless_tcp_udp_relay_smoke_passed"],
         true
     );
@@ -4769,6 +4903,7 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
         gate(gates, "vless-grpc-tcp-relay-smoke")["status"],
         "passed"
     );
+    assert_eq!(gate(gates, "vless-h2-tcp-relay-smoke")["status"], "passed");
     assert_eq!(gate(gates, "vless-tcp-udp-relay-smoke")["status"], "passed");
     assert_eq!(gate(gates, "vmess-tcp-relay-smoke")["status"], "passed");
     assert_eq!(gate(gates, "vmess-ws-tcp-relay-smoke")["status"], "passed");
@@ -4868,6 +5003,8 @@ fn default_core_certification_text_reports_summary_and_gates() {
     ));
     assert!(output
         .contains("default_core_certification vless_grpc_tcp_relay_smoke status=passed cases=4"));
+    assert!(output
+        .contains("default_core_certification vless_h2_tcp_relay_smoke status=passed cases=4"));
     assert!(output
         .contains("default_core_certification vless_tcp_udp_relay_smoke status=passed cases=4"));
     assert!(
