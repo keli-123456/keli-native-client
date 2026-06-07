@@ -27,7 +27,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(report["schema_version"], READINESS_CHECK_SCHEMA_VERSION);
     assert_eq!(report["ready_for_default_core"], false);
     assert_eq!(report["status"], "not-ready");
-    assert_eq!(report["summary"]["total_gate_count"], 48);
+    assert_eq!(report["summary"]["total_gate_count"], 49);
     assert_eq!(report["summary"]["skipped_gate_count"], 2);
     assert_eq!(report["soak_min_duration_ms"], 0);
     assert_eq!(
@@ -870,6 +870,89 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     );
     assert_eq!(trojan_h2_tcp_round_trip["round_trip_observed"], true);
     assert_eq!(trojan_h2_tcp_round_trip["server_received_payload"], true);
+    assert_eq!(report["trojan_quic_tcp_relay_smoke"]["status"], "passed");
+    assert_eq!(report["trojan_quic_tcp_relay_smoke"]["passed"], true);
+    assert_eq!(report["trojan_quic_tcp_relay_smoke"]["case_count"], 4);
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["failed_case_count"],
+        0
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["selected_outbound"],
+        "TROJAN-QUIC-TCP-SMOKE"
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["target"],
+        "example.com:443"
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["request_payload_bytes"],
+        22
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["response_payload_bytes"],
+        21
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["server_received_payload"],
+        true
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["metrics_recorded"],
+        true
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["metrics_inbound_count"],
+        1
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["metrics_outbound_route_count"],
+        1
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["stop_workers_remaining"],
+        0
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["stop_timed_out"],
+        false
+    );
+    let trojan_quic_tcp_cases = report["trojan_quic_tcp_relay_smoke"]["cases"]
+        .as_array()
+        .expect("Trojan QUIC TCP relay smoke cases");
+    let trojan_quic_tcp_case_names: Vec<_> = trojan_quic_tcp_cases
+        .iter()
+        .filter_map(|case| case["name"].as_str())
+        .collect();
+    for expected in [
+        "start-trojan-quic-tcp-relay-runtime",
+        "trojan-quic-tcp-protocol-round-trip",
+        "record-trojan-quic-tcp-relay-metrics",
+        "stop-trojan-quic-tcp-relay-runtime",
+    ] {
+        assert!(
+            trojan_quic_tcp_case_names.contains(&expected),
+            "missing Trojan QUIC TCP relay smoke case {expected}: {trojan_quic_tcp_case_names:?}"
+        );
+    }
+    let trojan_quic_tcp_round_trip = trojan_quic_tcp_cases
+        .iter()
+        .find(|case| case["name"] == "trojan-quic-tcp-protocol-round-trip")
+        .expect("Trojan QUIC TCP relay round trip case");
+    assert_eq!(
+        trojan_quic_tcp_round_trip["observed_response"],
+        "keli-trojan-quic-pong"
+    );
+    assert_eq!(trojan_quic_tcp_round_trip["round_trip_observed"], true);
+    assert_eq!(trojan_quic_tcp_round_trip["server_received_payload"], true);
     assert_eq!(report["trojan_tls_udp_relay_smoke"]["status"], "passed");
     assert_eq!(report["trojan_tls_udp_relay_smoke"]["passed"], true);
     assert_eq!(report["trojan_tls_udp_relay_smoke"]["case_count"], 4);
@@ -3144,7 +3227,7 @@ fn readiness_check_text_reports_gate_summary() {
 
     let output = String::from_utf8(output).expect("readiness text");
     assert!(output.contains(&format!(
-        "readiness status=not-ready schema_version={} gates=48",
+        "readiness status=not-ready schema_version={} gates=49",
         READINESS_CHECK_SCHEMA_VERSION
     )));
     assert!(output.contains("blockers="));
@@ -3175,6 +3258,8 @@ fn readiness_check_text_reports_gate_summary() {
         .contains("readiness gate=trojan-grpc-tcp-relay-smoke category=protocols status=passed"));
     assert!(output
         .contains("readiness gate=trojan-h2-tcp-relay-smoke category=protocols status=passed"));
+    assert!(output
+        .contains("readiness gate=trojan-quic-tcp-relay-smoke category=protocols status=passed"));
     assert!(output
         .contains("readiness gate=trojan-tls-udp-relay-smoke category=protocols status=passed"));
     assert!(output
@@ -3252,6 +3337,7 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(output.contains("readiness trojan_httpupgrade_tcp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness trojan_grpc_tcp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness trojan_h2_tcp_relay_smoke status=passed cases=4"));
+    assert!(output.contains("readiness trojan_quic_tcp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness trojan_tls_udp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness anytls_tls_tcp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness anytls_tls_udp_relay_smoke status=passed cases=4"));
@@ -3765,6 +3851,64 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     );
     assert_eq!(
         report["readiness"]["trojan_h2_tcp_relay_smoke"]["case_count"],
+        4
+    );
+    assert_eq!(
+        report["certification"]["trojan_quic_tcp_relay_smoke_passed"],
+        true
+    );
+    assert_eq!(report["trojan_quic_tcp_relay_smoke"]["status"], "passed");
+    assert_eq!(report["trojan_quic_tcp_relay_smoke"]["case_count"], 4);
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["failed_case_count"],
+        0
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["selected_outbound"],
+        "TROJAN-QUIC-TCP-SMOKE"
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["target"],
+        "example.com:443"
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["request_payload_bytes"],
+        22
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["response_payload_bytes"],
+        21
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["server_received_payload"],
+        true
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["metrics_recorded"],
+        true
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["metrics_inbound_count"],
+        1
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["metrics_outbound_route_count"],
+        1
+    );
+    assert_eq!(
+        report["trojan_quic_tcp_relay_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        report["readiness"]["trojan_quic_tcp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(
+        report["readiness"]["trojan_quic_tcp_relay_smoke"]["case_count"],
         4
     );
     assert_eq!(
@@ -5009,6 +5153,10 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     );
     assert_eq!(gate(gates, "trojan-h2-tcp-relay-smoke")["status"], "passed");
     assert_eq!(
+        gate(gates, "trojan-quic-tcp-relay-smoke")["status"],
+        "passed"
+    );
+    assert_eq!(
         gate(gates, "trojan-tls-udp-relay-smoke")["status"],
         "passed"
     );
@@ -5113,6 +5261,8 @@ fn default_core_certification_text_reports_summary_and_gates() {
         .contains("default_core_certification trojan_grpc_tcp_relay_smoke status=passed cases=4"));
     assert!(output
         .contains("default_core_certification trojan_h2_tcp_relay_smoke status=passed cases=4"));
+    assert!(output
+        .contains("default_core_certification trojan_quic_tcp_relay_smoke status=passed cases=4"));
     assert!(output
         .contains("default_core_certification trojan_tls_udp_relay_smoke status=passed cases=4"));
     assert!(output
