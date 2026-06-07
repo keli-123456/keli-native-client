@@ -452,6 +452,12 @@ VLESS subscription node, drives SOCKS5 CONNECT through the selected VLESS
 outbound, verifies the VLESS request header at the local protocol server,
 completes the payload round trip, records `socks5`/outbound metrics, and stops
 cleanly.
+The default VLESS WebSocket TCP relay smoke starts a managed mixed runtime
+from a local VLESS WS subscription node, verifies the WebSocket upgrade path,
+Host header, and accept proof at the local protocol server, validates the
+VLESS request header inside masked binary WebSocket frames, completes the
+payload round trip over the selected outbound, records `socks5`/outbound
+metrics, and stops cleanly.
 The default VLESS TCP UDP relay smoke starts a managed mixed runtime from a
 local VLESS subscription node, sends a SOCKS5 UDP associate datagram through
 the selected VLESS outbound, verifies the VLESS UDP request header and
@@ -565,7 +571,7 @@ runtime alive for that minimum duration and report `min_duration_ms` plus
 `default-core-certify` runs the non-skipped readiness gates and emits a
 single certification artifact that embeds the readiness report, TUN backend
 packaging evidence, structured TUN preflight evidence, route-rule smoke
-evidence, DNS policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, Trojan TLS UDP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, AnyTLS TLS UDP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VLESS TCP UDP relay smoke evidence, VMess TCP relay smoke evidence, VMess TCP UDP relay smoke evidence, Mieru TCP relay smoke evidence, Mieru TCP UDP relay smoke evidence, UDP relay smoke evidence, SOCKS5 UDP outbound relay smoke evidence,
+evidence, DNS policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, Trojan TLS UDP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, AnyTLS TLS UDP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VLESS WebSocket TCP relay smoke evidence, VLESS TCP UDP relay smoke evidence, VMess TCP relay smoke evidence, VMess TCP UDP relay smoke evidence, Mieru TCP relay smoke evidence, Mieru TCP UDP relay smoke evidence, UDP relay smoke evidence, SOCKS5 UDP outbound relay smoke evidence,
 resource-limit smoke evidence,
 subscription reload smoke evidence, soak parameters, runtime recovery smoke
 evidence, and the final
@@ -629,7 +635,8 @@ SOCKS5 CONNECT through a selected local Naive H2 outbound, plus Naive H3 QUIC TC
 SOCKS5 CONNECT through a selected local Naive H3 QUIC outbound, plus HY2 QUIC TCP relay smoke evidence for
 SOCKS5 CONNECT through a selected local Hysteria2 QUIC outbound, plus TUIC QUIC TCP relay smoke evidence for
 SOCKS5 CONNECT through a selected local TUIC QUIC outbound, plus VLESS TCP relay smoke evidence for
-SOCKS5 CONNECT through a selected local VLESS outbound, plus VLESS TCP UDP relay smoke evidence for
+SOCKS5 CONNECT through a selected local VLESS outbound, plus VLESS WebSocket TCP relay smoke evidence for
+SOCKS5 CONNECT through a selected local VLESS WebSocket outbound, plus VLESS TCP UDP relay smoke evidence for
 SOCKS5 UDP associate through a selected local VLESS outbound, plus VMess TCP relay smoke evidence for
 SOCKS5 CONNECT through a selected local VMess outbound, plus VMess TCP UDP relay smoke evidence for
 SOCKS5 UDP associate through a selected local VMess outbound, plus Mieru TCP relay smoke evidence for
@@ -647,7 +654,7 @@ and release automation can track what is still blocking default-core use.
 `keli-cli default-core-certify --format json` exports the corresponding
 machine-level certification evidence with real soak gates and TUN backend
 packaging state, structured TUN preflight state, route-rule smoke evidence, DNS
-policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, Trojan TLS UDP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, AnyTLS TLS UDP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VLESS TCP UDP relay smoke evidence, VMess TCP relay smoke evidence, VMess TCP UDP relay smoke evidence, Mieru TCP relay smoke evidence, Mieru TCP UDP relay smoke evidence, UDP relay smoke evidence, SOCKS5 UDP outbound relay smoke evidence, resource-limit smoke evidence, panel/subscription smoke
+policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, Trojan TLS UDP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, AnyTLS TLS UDP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VLESS WebSocket TCP relay smoke evidence, VLESS TCP UDP relay smoke evidence, VMess TCP relay smoke evidence, VMess TCP UDP relay smoke evidence, Mieru TCP relay smoke evidence, Mieru TCP UDP relay smoke evidence, UDP relay smoke evidence, SOCKS5 UDP outbound relay smoke evidence, resource-limit smoke evidence, panel/subscription smoke
 evidence, and promotion blockers for default-core promotion checks. Add
 `--include-tun-runtime-smoke` when the
 certification run should also prove the native TUN runtime can start, open

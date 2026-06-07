@@ -427,22 +427,26 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][51],
-        "vless-tcp-udp-relay-smoke"
+        "vless-ws-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][52],
-        "vmess-tcp-relay-smoke"
+        "vless-tcp-udp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][53],
-        "vmess-tcp-udp-relay-smoke"
+        "vmess-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][54],
-        "mieru-tcp-relay-smoke"
+        "vmess-tcp-udp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][55],
+        "mieru-tcp-relay-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][56],
         "mieru-tcp-udp-relay-smoke"
     );
     assert_eq!(
@@ -667,22 +671,26 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][51],
-        "vless-tcp-udp-relay-smoke"
+        "vless-ws-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][52],
-        "vmess-tcp-relay-smoke"
+        "vless-tcp-udp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][53],
-        "vmess-tcp-udp-relay-smoke"
+        "vmess-tcp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][54],
-        "mieru-tcp-relay-smoke"
+        "vmess-tcp-udp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][55],
+        "mieru-tcp-relay-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][56],
         "mieru-tcp-udp-relay-smoke"
     );
     assert_eq!(
@@ -1767,6 +1775,59 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     );
     assert_eq!(
         certification["readiness"]["vless_tcp_relay_smoke"]["case_count"],
+        4
+    );
+    assert_eq!(
+        certification["certification"]["vless_ws_tcp_relay_smoke_passed"],
+        true
+    );
+    assert_eq!(
+        certification["vless_ws_tcp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(certification["vless_ws_tcp_relay_smoke"]["case_count"], 4);
+    assert_eq!(
+        certification["vless_ws_tcp_relay_smoke"]["failed_case_count"],
+        0
+    );
+    assert_eq!(
+        certification["vless_ws_tcp_relay_smoke"]["selected_outbound"],
+        "VLESS-WS-TCP-SMOKE"
+    );
+    assert_eq!(
+        certification["vless_ws_tcp_relay_smoke"]["target"],
+        "example.com:443"
+    );
+    assert_eq!(
+        certification["vless_ws_tcp_relay_smoke"]["request_payload_bytes"],
+        19
+    );
+    assert_eq!(
+        certification["vless_ws_tcp_relay_smoke"]["response_payload_bytes"],
+        18
+    );
+    assert_eq!(
+        certification["vless_ws_tcp_relay_smoke"]["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        certification["vless_ws_tcp_relay_smoke"]["server_received_payload"],
+        true
+    );
+    assert_eq!(
+        certification["vless_ws_tcp_relay_smoke"]["metrics_recorded"],
+        true
+    );
+    assert_eq!(
+        certification["vless_ws_tcp_relay_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        certification["readiness"]["vless_ws_tcp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(
+        certification["readiness"]["vless_ws_tcp_relay_smoke"]["case_count"],
         4
     );
     assert_eq!(
