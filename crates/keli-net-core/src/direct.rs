@@ -5625,6 +5625,7 @@ impl VmessHttpUpgradeOutbound {
         let target = Endpoint::new(target.host.clone(), target.port);
         let request =
             write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
+        stream.flush()?;
         read_vmess_response_header_from_stream(&mut stream, &request)?;
         match self.security {
             VmessBodySecurity::None => Ok(OutboundConnection::Tcp(stream)),
@@ -5733,6 +5734,7 @@ impl VmessTlsHttpUpgradeOutbound {
         let target = Endpoint::new(target.host.clone(), target.port);
         let request =
             write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
+        stream.flush()?;
         read_vmess_response_header_from_stream(&mut stream, &request)?;
         vmess_connection_from_stream(stream, request, self.security)
     }

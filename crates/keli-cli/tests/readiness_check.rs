@@ -27,7 +27,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(report["schema_version"], READINESS_CHECK_SCHEMA_VERSION);
     assert_eq!(report["ready_for_default_core"], false);
     assert_eq!(report["status"], "not-ready");
-    assert_eq!(report["summary"]["total_gate_count"], 41);
+    assert_eq!(report["summary"]["total_gate_count"], 42);
     assert_eq!(report["summary"]["skipped_gate_count"], 2);
     assert_eq!(report["soak_min_duration_ms"], 0);
     assert_eq!(
@@ -1699,6 +1699,98 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     );
     assert_eq!(vmess_ws_tcp_round_trip["round_trip_observed"], true);
     assert_eq!(vmess_ws_tcp_round_trip["server_received_payload"], true);
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(report["vmess_httpupgrade_tcp_relay_smoke"]["passed"], true);
+    assert_eq!(report["vmess_httpupgrade_tcp_relay_smoke"]["case_count"], 4);
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["failed_case_count"],
+        0
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["selected_outbound"],
+        "VMESS-HU-TCP-SMOKE"
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["target"],
+        "example.com:443"
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["request_payload_bytes"],
+        19
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["response_payload_bytes"],
+        18
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["server_received_payload"],
+        true
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["metrics_recorded"],
+        true
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["metrics_inbound_count"],
+        1
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["metrics_outbound_route_count"],
+        1
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["stop_workers_remaining"],
+        0
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["stop_timed_out"],
+        false
+    );
+    let vmess_httpupgrade_tcp_cases = report["vmess_httpupgrade_tcp_relay_smoke"]["cases"]
+        .as_array()
+        .expect("VMess HTTPUpgrade TCP relay smoke cases");
+    let vmess_httpupgrade_tcp_case_names: Vec<_> = vmess_httpupgrade_tcp_cases
+        .iter()
+        .filter_map(|case| case["name"].as_str())
+        .collect();
+    for expected in [
+        "start-vmess-httpupgrade-tcp-relay-runtime",
+        "vmess-httpupgrade-tcp-protocol-round-trip",
+        "record-vmess-httpupgrade-tcp-relay-metrics",
+        "stop-vmess-httpupgrade-tcp-relay-runtime",
+    ] {
+        assert!(
+            vmess_httpupgrade_tcp_case_names.contains(&expected),
+            "missing VMess HTTPUpgrade TCP relay smoke case {expected}: {vmess_httpupgrade_tcp_case_names:?}"
+        );
+    }
+    let vmess_httpupgrade_tcp_round_trip = vmess_httpupgrade_tcp_cases
+        .iter()
+        .find(|case| case["name"] == "vmess-httpupgrade-tcp-protocol-round-trip")
+        .expect("VMess HTTPUpgrade TCP relay round trip case");
+    assert_eq!(
+        vmess_httpupgrade_tcp_round_trip["observed_response"],
+        "keli-vmess-hu-pong"
+    );
+    assert_eq!(
+        vmess_httpupgrade_tcp_round_trip["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        vmess_httpupgrade_tcp_round_trip["server_received_payload"],
+        true
+    );
     assert_eq!(report["vmess_tcp_udp_relay_smoke"]["status"], "passed");
     assert_eq!(report["vmess_tcp_udp_relay_smoke"]["passed"], true);
     assert_eq!(report["vmess_tcp_udp_relay_smoke"]["case_count"], 4);
@@ -2584,7 +2676,7 @@ fn readiness_check_text_reports_gate_summary() {
 
     let output = String::from_utf8(output).expect("readiness text");
     assert!(output.contains(&format!(
-        "readiness status=not-ready schema_version={} gates=41",
+        "readiness status=not-ready schema_version={} gates=42",
         READINESS_CHECK_SCHEMA_VERSION
     )));
     assert!(output.contains("blockers="));
@@ -2644,6 +2736,9 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(
         output.contains("readiness gate=vmess-ws-tcp-relay-smoke category=protocols status=passed")
     );
+    assert!(output.contains(
+        "readiness gate=vmess-httpupgrade-tcp-relay-smoke category=protocols status=passed"
+    ));
     assert!(output
         .contains("readiness gate=vmess-tcp-udp-relay-smoke category=protocols status=passed"));
     assert!(
@@ -2686,6 +2781,7 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(output.contains("readiness vless_tcp_udp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness vmess_tcp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness vmess_ws_tcp_relay_smoke status=passed cases=4"));
+    assert!(output.contains("readiness vmess_httpupgrade_tcp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness vmess_tcp_udp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness mieru_tcp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness mieru_tcp_udp_relay_smoke status=passed cases=4"));
@@ -3593,6 +3689,67 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
         4
     );
     assert_eq!(
+        report["certification"]["vmess_httpupgrade_tcp_relay_smoke_passed"],
+        true
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(report["vmess_httpupgrade_tcp_relay_smoke"]["case_count"], 4);
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["failed_case_count"],
+        0
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["selected_outbound"],
+        "VMESS-HU-TCP-SMOKE"
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["target"],
+        "example.com:443"
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["request_payload_bytes"],
+        19
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["response_payload_bytes"],
+        18
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["server_received_payload"],
+        true
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["metrics_recorded"],
+        true
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["metrics_inbound_count"],
+        1
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["metrics_outbound_route_count"],
+        1
+    );
+    assert_eq!(
+        report["vmess_httpupgrade_tcp_relay_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        report["readiness"]["vmess_httpupgrade_tcp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(
+        report["readiness"]["vmess_httpupgrade_tcp_relay_smoke"]["case_count"],
+        4
+    );
+    assert_eq!(
         report["certification"]["vmess_tcp_udp_relay_smoke_passed"],
         true
     );
@@ -4051,6 +4208,10 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert_eq!(gate(gates, "vless-tcp-udp-relay-smoke")["status"], "passed");
     assert_eq!(gate(gates, "vmess-tcp-relay-smoke")["status"], "passed");
     assert_eq!(gate(gates, "vmess-ws-tcp-relay-smoke")["status"], "passed");
+    assert_eq!(
+        gate(gates, "vmess-httpupgrade-tcp-relay-smoke")["status"],
+        "passed"
+    );
     assert_eq!(gate(gates, "vmess-tcp-udp-relay-smoke")["status"], "passed");
     assert_eq!(gate(gates, "mieru-tcp-relay-smoke")["status"], "passed");
     assert_eq!(gate(gates, "mieru-tcp-udp-relay-smoke")["status"], "passed");
@@ -4140,6 +4301,9 @@ fn default_core_certification_text_reports_summary_and_gates() {
     );
     assert!(output
         .contains("default_core_certification vmess_ws_tcp_relay_smoke status=passed cases=4"));
+    assert!(output.contains(
+        "default_core_certification vmess_httpupgrade_tcp_relay_smoke status=passed cases=4"
+    ));
     assert!(output
         .contains("default_core_certification vmess_tcp_udp_relay_smoke status=passed cases=4"));
     assert!(
