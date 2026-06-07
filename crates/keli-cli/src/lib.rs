@@ -242,6 +242,14 @@ const VLESS_WS_TCP_RELAY_SMOKE_TARGET_HOST: &str = "example.com";
 const VLESS_WS_TCP_RELAY_SMOKE_TARGET_PORT: u16 = 443;
 const VLESS_WS_TCP_RELAY_SMOKE_PAYLOAD: &[u8] = b"keli-vless-ws-smoke";
 const VLESS_WS_TCP_RELAY_SMOKE_RESPONSE: &[u8] = b"keli-vless-ws-pong";
+const VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_OUTBOUND: &str = "VLESS-HU-TCP-SMOKE";
+const VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
+const VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_HOST: &str = "edge.example";
+const VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_PATH: &str = "/keli-vless-upgrade";
+const VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_TARGET_HOST: &str = "example.com";
+const VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_TARGET_PORT: u16 = 443;
+const VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_PAYLOAD: &[u8] = b"keli-vless-hu-smoke";
+const VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_RESPONSE: &[u8] = b"keli-vless-hu-pong";
 const VLESS_TCP_UDP_RELAY_SMOKE_OUTBOUND: &str = "VLESS-TCP-UDP-SMOKE";
 const VLESS_TCP_UDP_RELAY_SMOKE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const VLESS_TCP_UDP_RELAY_SMOKE_TARGET_HOST: &str = "127.0.0.1";
@@ -330,11 +338,11 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(4);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 61;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 51;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 62;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 52;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 50;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 50;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 51;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 51;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -359,11 +367,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -7109,6 +7117,7 @@ pub struct DefaultCoreReadinessReport {
     pub tuic_quic_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vless_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vless_ws_tcp_relay_smoke: TcpRelaySmokeReport,
+    pub vless_httpupgrade_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vless_tcp_udp_relay_smoke: UdpRelaySmokeReport,
     pub vmess_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vmess_ws_tcp_relay_smoke: TcpRelaySmokeReport,
@@ -7156,6 +7165,7 @@ pub struct DefaultCoreCertificationReport {
     pub tuic_quic_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vless_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vless_ws_tcp_relay_smoke: TcpRelaySmokeReport,
+    pub vless_httpupgrade_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vless_tcp_udp_relay_smoke: UdpRelaySmokeReport,
     pub vmess_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vmess_ws_tcp_relay_smoke: TcpRelaySmokeReport,
@@ -7811,6 +7821,7 @@ fn collect_default_core_certification_report(
     let tuic_quic_tcp_relay_smoke = readiness.tuic_quic_tcp_relay_smoke.clone();
     let vless_tcp_relay_smoke = readiness.vless_tcp_relay_smoke.clone();
     let vless_ws_tcp_relay_smoke = readiness.vless_ws_tcp_relay_smoke.clone();
+    let vless_httpupgrade_tcp_relay_smoke = readiness.vless_httpupgrade_tcp_relay_smoke.clone();
     let vless_tcp_udp_relay_smoke = readiness.vless_tcp_udp_relay_smoke.clone();
     let vmess_tcp_relay_smoke = readiness.vmess_tcp_relay_smoke.clone();
     let vmess_ws_tcp_relay_smoke = readiness.vmess_ws_tcp_relay_smoke.clone();
@@ -7857,6 +7868,7 @@ fn collect_default_core_certification_report(
         && tuic_quic_tcp_relay_smoke.passed
         && vless_tcp_relay_smoke.passed
         && vless_ws_tcp_relay_smoke.passed
+        && vless_httpupgrade_tcp_relay_smoke.passed
         && vless_tcp_udp_relay_smoke.passed
         && vmess_tcp_relay_smoke.passed
         && vmess_ws_tcp_relay_smoke.passed
@@ -7898,6 +7910,7 @@ fn collect_default_core_certification_report(
         tuic_quic_tcp_relay_smoke,
         vless_tcp_relay_smoke,
         vless_ws_tcp_relay_smoke,
+        vless_httpupgrade_tcp_relay_smoke,
         vless_tcp_udp_relay_smoke,
         vmess_tcp_relay_smoke,
         vmess_ws_tcp_relay_smoke,
@@ -7963,6 +7976,8 @@ fn collect_readiness_check_report(
     let tuic_quic_tcp_relay_smoke = collect_default_tuic_quic_tcp_relay_smoke_report();
     let vless_tcp_relay_smoke = collect_default_vless_tcp_relay_smoke_report();
     let vless_ws_tcp_relay_smoke = collect_default_vless_ws_tcp_relay_smoke_report();
+    let vless_httpupgrade_tcp_relay_smoke =
+        collect_default_vless_httpupgrade_tcp_relay_smoke_report();
     let vless_tcp_udp_relay_smoke = collect_default_vless_tcp_udp_relay_smoke_report();
     let vmess_tcp_relay_smoke = collect_default_vmess_tcp_relay_smoke_report();
     let vmess_ws_tcp_relay_smoke = collect_default_vmess_ws_tcp_relay_smoke_report();
@@ -8150,6 +8165,12 @@ fn collect_readiness_check_report(
             "protocols",
             vless_ws_tcp_relay_smoke.passed,
             vless_ws_tcp_relay_smoke.detail.clone(),
+        ),
+        readiness_gate(
+            "vless-httpupgrade-tcp-relay-smoke",
+            "protocols",
+            vless_httpupgrade_tcp_relay_smoke.passed,
+            vless_httpupgrade_tcp_relay_smoke.detail.clone(),
         ),
         readiness_gate(
             "vless-tcp-udp-relay-smoke",
@@ -8364,6 +8385,7 @@ fn collect_readiness_check_report(
         tuic_quic_tcp_relay_smoke,
         vless_tcp_relay_smoke,
         vless_ws_tcp_relay_smoke,
+        vless_httpupgrade_tcp_relay_smoke,
         vless_tcp_udp_relay_smoke,
         vmess_tcp_relay_smoke,
         vmess_ws_tcp_relay_smoke,
@@ -21542,13 +21564,20 @@ fn write_websocket_smoke_binary_frame(
     payload: &[u8],
     label: &str,
 ) -> Result<(), String> {
-    stream
+    let mut frame = Vec::with_capacity(2 + 8 + payload.len());
+    frame
         .write_all(&[0x82])
         .map_err(|error| format!("write {label} frame header: {error}"))?;
-    write_websocket_smoke_payload_len(stream, payload.len(), label)?;
-    stream
+    write_websocket_smoke_payload_len(&mut frame, payload.len(), label)?;
+    frame
         .write_all(payload)
-        .map_err(|error| format!("write {label} frame payload: {error}"))
+        .map_err(|error| format!("write {label} frame payload: {error}"))?;
+    stream
+        .write_all(&frame)
+        .map_err(|error| format!("write {label} frame: {error}"))?;
+    stream
+        .flush()
+        .map_err(|error| format!("flush {label} frame: {error}"))
 }
 
 fn read_websocket_smoke_payload_len(
@@ -21578,7 +21607,7 @@ fn read_websocket_smoke_payload_len(
 }
 
 fn write_websocket_smoke_payload_len(
-    stream: &mut TcpStream,
+    stream: &mut impl Write,
     len: usize,
     label: &str,
 ) -> Result<(), String> {
@@ -21688,6 +21717,750 @@ mod vless_ws_tcp_relay_smoke_tests {
         assert_eq!(
             round_trip.observed_response.as_deref(),
             Some("keli-vless-ws-pong")
+        );
+        assert_eq!(round_trip.round_trip_observed, Some(true));
+        assert_eq!(round_trip.server_received_payload, Some(true));
+    }
+}
+
+fn collect_default_vless_httpupgrade_tcp_relay_smoke_report() -> TcpRelaySmokeReport {
+    let mut cases = Vec::new();
+    let mut selected_outbound = None;
+    let request_payload_bytes = VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_PAYLOAD.len();
+    let mut response_payload_bytes = None;
+    let mut round_trip_observed = false;
+    let mut server_received_payload = false;
+    let mut metrics_recorded = false;
+    let mut metrics_total_connections = 0;
+    let mut metrics_success_count = 0;
+    let mut metrics_inbound_count = 0;
+    let mut metrics_outbound_route_count = 0;
+    let mut clean_stop_observed = false;
+    let mut stop_workers_remaining = None;
+    let mut stop_timed_out = None;
+
+    let (vless_port, vless_thread) = match spawn_vless_httpupgrade_tcp_relay_smoke_server() {
+        Ok(server) => server,
+        Err(error) => {
+            cases.push(vless_httpupgrade_tcp_relay_smoke_error_case(
+                "start-vless-httpupgrade-tcp-server",
+                "start-protocol-server",
+                error,
+            ));
+            return finalize_vless_httpupgrade_tcp_relay_smoke_report(
+                cases,
+                selected_outbound,
+                request_payload_bytes,
+                response_payload_bytes,
+                round_trip_observed,
+                server_received_payload,
+                metrics_recorded,
+                metrics_total_connections,
+                metrics_success_count,
+                metrics_inbound_count,
+                metrics_outbound_route_count,
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+            );
+        }
+    };
+
+    let controller = SubscriptionReloadSmokeSystemProxyController;
+    let mut core = ManagedMixedController::new(&controller);
+    let config = vless_httpupgrade_tcp_relay_smoke_config(vless_port);
+    let relay_options = RelayOptions {
+        first_byte_timeout: Some(TCP_RELAY_SMOKE_TIMEOUT),
+        idle_timeout: Some(TCP_RELAY_SMOKE_TIMEOUT),
+    };
+
+    let started = match core.start_from_subscription_config_text(
+        &config,
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+            relay_options,
+            system_proxy: false,
+            max_connection_workers: 2,
+            ..ManagedMixedOptions::default()
+        },
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            cases.push(vless_httpupgrade_tcp_relay_smoke_error_case(
+                "start-vless-httpupgrade-tcp-relay-runtime",
+                "start",
+                error,
+            ));
+            let _ = join_tcp_relay_smoke_server(vless_thread);
+            return finalize_vless_httpupgrade_tcp_relay_smoke_report(
+                cases,
+                selected_outbound,
+                request_payload_bytes,
+                response_payload_bytes,
+                round_trip_observed,
+                server_received_payload,
+                metrics_recorded,
+                metrics_total_connections,
+                metrics_success_count,
+                metrics_inbound_count,
+                metrics_outbound_route_count,
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+            );
+        }
+    };
+    selected_outbound = started.selected_outbound.clone();
+    cases.push(vless_httpupgrade_tcp_relay_smoke_start_case(&started));
+
+    if let Some(listen_addr) = started.listen_addr {
+        let exchange_result = run_vless_httpupgrade_tcp_relay_smoke_exchange(listen_addr);
+        let server_result = join_tcp_relay_smoke_server(vless_thread);
+        if let Ok(exchange) = exchange_result.as_ref() {
+            response_payload_bytes = Some(exchange.response_payload.len());
+            round_trip_observed =
+                exchange.response_payload == VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_RESPONSE;
+        }
+        if let Ok(server) = server_result.as_ref() {
+            server_received_payload = server.received_expected_payload;
+        }
+        cases.push(vless_httpupgrade_tcp_relay_smoke_exchange_case(
+            exchange_result,
+            server_result,
+            round_trip_observed,
+            server_received_payload,
+        ));
+
+        let status = wait_for_udp_relay_smoke_status(&core, |status| {
+            vless_httpupgrade_tcp_relay_smoke_metrics_recorded(&status.connection_metrics)
+        });
+        metrics_total_connections = status.connection_metrics.total_connection_count;
+        metrics_success_count = status.connection_metrics.success_count;
+        metrics_inbound_count = udp_relay_smoke_inbound_count(&status.connection_metrics, "socks5");
+        metrics_outbound_route_count =
+            vless_httpupgrade_tcp_relay_smoke_outbound_route_count(&status.connection_metrics);
+        metrics_recorded =
+            vless_httpupgrade_tcp_relay_smoke_metrics_recorded(&status.connection_metrics);
+        cases.push(vless_httpupgrade_tcp_relay_smoke_metrics_case(
+            &status,
+            metrics_recorded,
+        ));
+    } else {
+        cases.push(vless_httpupgrade_tcp_relay_smoke_error_case(
+            "vless-httpupgrade-tcp-relay-round-trip",
+            "socks5-connect",
+            "managed mixed runtime did not expose a listen address".to_string(),
+        ));
+        let _ = join_tcp_relay_smoke_server(vless_thread);
+    }
+
+    match core.stop() {
+        Ok(stopped) => {
+            let stop_drain = stopped.events().iter().rev().find_map(|event| {
+                if let Some(RuntimeDiagnostic::ManagedMixedStopDrain(diagnostic)) =
+                    event.diagnostic.as_ref()
+                {
+                    Some(diagnostic)
+                } else {
+                    None
+                }
+            });
+            stop_workers_remaining = stop_drain.map(|diagnostic| diagnostic.workers_remaining);
+            stop_timed_out = stop_drain.map(|diagnostic| diagnostic.timed_out);
+            clean_stop_observed = matches!(stopped.status(), RuntimeStatus::Stopped)
+                && stop_workers_remaining == Some(0)
+                && stop_timed_out == Some(false);
+            cases.push(vless_httpupgrade_tcp_relay_smoke_stop_case(
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+                None,
+            ));
+        }
+        Err(error) => cases.push(vless_httpupgrade_tcp_relay_smoke_stop_case(
+            clean_stop_observed,
+            stop_workers_remaining,
+            stop_timed_out,
+            Some(error),
+        )),
+    }
+
+    finalize_vless_httpupgrade_tcp_relay_smoke_report(
+        cases,
+        selected_outbound,
+        request_payload_bytes,
+        response_payload_bytes,
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+    )
+}
+
+fn vless_httpupgrade_tcp_relay_smoke_config(vless_port: u16) -> String {
+    format!(
+        r#"
+proxies:
+  - name: {VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_OUTBOUND}
+    type: vless
+    server: 127.0.0.1
+    port: {vless_port}
+    uuid: {VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_UUID}
+    network: httpupgrade
+    httpupgrade-opts:
+      path: {VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_PATH}
+      host: {VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_HOST}
+"#
+    )
+}
+
+fn finalize_vless_httpupgrade_tcp_relay_smoke_report(
+    cases: Vec<TcpRelaySmokeCaseReport>,
+    selected_outbound: Option<String>,
+    request_payload_bytes: usize,
+    response_payload_bytes: Option<usize>,
+    round_trip_observed: bool,
+    server_received_payload: bool,
+    metrics_recorded: bool,
+    metrics_total_connections: u64,
+    metrics_success_count: u64,
+    metrics_inbound_count: u64,
+    metrics_outbound_route_count: u64,
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+) -> TcpRelaySmokeReport {
+    let failed = cases
+        .iter()
+        .filter(|case| !case.passed)
+        .map(|case| case.name)
+        .collect::<Vec<_>>();
+    let passed = failed.is_empty()
+        && selected_outbound.as_deref() == Some(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_OUTBOUND)
+        && round_trip_observed
+        && server_received_payload
+        && metrics_recorded
+        && clean_stop_observed;
+    let target = vless_httpupgrade_tcp_relay_smoke_target();
+    let detail = format!(
+        "cases={} passed={} failed={} failed_cases={} selected={} transport=httpupgrade host={} path={} target={} request_bytes={} response_bytes={} round_trip_observed={} server_received_payload={} metrics_recorded={} metrics_total={} metrics_success={} metrics_inbound_socks5={} metrics_outbound_route={} clean_stop_observed={} stop_workers_remaining={} stop_timed_out={}",
+        cases.len(),
+        passed,
+        failed.len(),
+        if failed.is_empty() {
+            "-".to_string()
+        } else {
+            failed.join(",")
+        },
+        selected_outbound.as_deref().unwrap_or("-"),
+        VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_HOST,
+        VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_PATH,
+        target,
+        request_payload_bytes,
+        response_payload_bytes
+            .map(|bytes| bytes.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining
+            .map(|workers| workers.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        stop_timed_out
+            .map(|timed_out| timed_out.to_string())
+            .unwrap_or_else(|| "-".to_string())
+    );
+    TcpRelaySmokeReport {
+        passed,
+        detail,
+        selected_outbound,
+        target,
+        request_payload_bytes,
+        response_payload_bytes,
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+        cases,
+    }
+}
+
+fn vless_httpupgrade_tcp_relay_smoke_start_case(
+    status: &ManagedMixedStatusSnapshot,
+) -> TcpRelaySmokeCaseReport {
+    let selected = status.selected_outbound.clone();
+    let passed = selected.as_deref() == Some(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_OUTBOUND)
+        && status.generation == 1
+        && matches!(&status.status, RuntimeStatus::Running { .. });
+    TcpRelaySmokeCaseReport {
+        name: "start-vless-httpupgrade-tcp-relay-runtime",
+        action: "start",
+        expected_selected_outbound: Some(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: selected,
+        expected_generation: Some(1),
+        observed_generation: Some(status.generation),
+        target: vless_httpupgrade_tcp_relay_smoke_target(),
+        expected_response: None,
+        observed_response: None,
+        request_payload_bytes: None,
+        response_payload_bytes: None,
+        runtime_running: Some(matches!(&status.status, RuntimeStatus::Running { .. })),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+        error: None,
+    }
+}
+
+fn vless_httpupgrade_tcp_relay_smoke_exchange_case(
+    exchange_result: Result<TcpRelaySmokeExchangeObservation, String>,
+    server_result: Result<TcpRelaySmokeServerObservation, String>,
+    round_trip_observed: bool,
+    server_received_payload: bool,
+) -> TcpRelaySmokeCaseReport {
+    let error = match (&exchange_result, &server_result) {
+        (Ok(_), Ok(_)) => None,
+        (Err(exchange), Ok(_)) => Some(exchange.clone()),
+        (Ok(_), Err(server)) => Some(server.clone()),
+        (Err(exchange), Err(server)) => Some(format!("{exchange}; {server}")),
+    };
+    let exchange = exchange_result.ok();
+    let passed = error.is_none() && round_trip_observed && server_received_payload;
+    TcpRelaySmokeCaseReport {
+        name: "vless-httpupgrade-tcp-protocol-round-trip",
+        action: "socks5-connect",
+        expected_selected_outbound: Some(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: vless_httpupgrade_tcp_relay_smoke_target(),
+        expected_response: Some(
+            String::from_utf8_lossy(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_RESPONSE).to_string(),
+        ),
+        observed_response: exchange
+            .as_ref()
+            .map(|exchange| String::from_utf8_lossy(&exchange.response_payload).to_string()),
+        request_payload_bytes: Some(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: exchange
+            .as_ref()
+            .map(|exchange| exchange.response_payload.len()),
+        runtime_running: None,
+        round_trip_observed: Some(round_trip_observed),
+        server_received_payload: Some(server_received_payload),
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+        error,
+    }
+}
+
+fn vless_httpupgrade_tcp_relay_smoke_metrics_case(
+    status: &ManagedMixedStatusSnapshot,
+    metrics_recorded: bool,
+) -> TcpRelaySmokeCaseReport {
+    let metrics = &status.connection_metrics;
+    let inbound_count = udp_relay_smoke_inbound_count(metrics, "socks5");
+    let outbound_route_count = vless_httpupgrade_tcp_relay_smoke_outbound_route_count(metrics);
+    TcpRelaySmokeCaseReport {
+        name: "record-vless-httpupgrade-tcp-relay-metrics",
+        action: "status",
+        expected_selected_outbound: Some(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: status.selected_outbound.clone(),
+        expected_generation: Some(1),
+        observed_generation: Some(status.generation),
+        target: vless_httpupgrade_tcp_relay_smoke_target(),
+        expected_response: None,
+        observed_response: None,
+        request_payload_bytes: Some(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: Some(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_RESPONSE.len()),
+        runtime_running: Some(matches!(&status.status, RuntimeStatus::Running { .. })),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: Some(metrics_recorded),
+        metrics_total_connections: Some(metrics.total_connection_count),
+        metrics_success_count: Some(metrics.success_count),
+        metrics_inbound_count: Some(inbound_count),
+        metrics_outbound_route_count: Some(outbound_route_count),
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed: metrics_recorded,
+        error: None,
+    }
+}
+
+fn vless_httpupgrade_tcp_relay_smoke_stop_case(
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+    error: Option<String>,
+) -> TcpRelaySmokeCaseReport {
+    TcpRelaySmokeCaseReport {
+        name: "stop-vless-httpupgrade-tcp-relay-runtime",
+        action: "stop",
+        expected_selected_outbound: None,
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: vless_httpupgrade_tcp_relay_smoke_target(),
+        expected_response: None,
+        observed_response: None,
+        request_payload_bytes: None,
+        response_payload_bytes: None,
+        runtime_running: Some(false),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: Some(clean_stop_observed),
+        stop_workers_remaining,
+        stop_timed_out,
+        passed: clean_stop_observed && error.is_none(),
+        error,
+    }
+}
+
+fn vless_httpupgrade_tcp_relay_smoke_error_case(
+    name: &'static str,
+    action: &'static str,
+    error: String,
+) -> TcpRelaySmokeCaseReport {
+    TcpRelaySmokeCaseReport {
+        name,
+        action,
+        expected_selected_outbound: Some(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: vless_httpupgrade_tcp_relay_smoke_target(),
+        expected_response: Some(
+            String::from_utf8_lossy(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_RESPONSE).to_string(),
+        ),
+        observed_response: None,
+        request_payload_bytes: Some(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: None,
+        runtime_running: None,
+        round_trip_observed: Some(false),
+        server_received_payload: Some(false),
+        metrics_recorded: Some(false),
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed: false,
+        error: Some(error),
+    }
+}
+
+fn run_vless_httpupgrade_tcp_relay_smoke_exchange(
+    listen_addr: SocketAddr,
+) -> Result<TcpRelaySmokeExchangeObservation, String> {
+    let mut client = TcpStream::connect(listen_addr).map_err(|error| {
+        format!("connect VLESS HTTPUpgrade TCP smoke listener {listen_addr}: {error}")
+    })?;
+    client
+        .set_read_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+        .map_err(|error| format!("set VLESS HTTPUpgrade TCP smoke client read timeout: {error}"))?;
+    client
+        .set_write_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+        .map_err(|error| {
+            format!("set VLESS HTTPUpgrade TCP smoke client write timeout: {error}")
+        })?;
+    let target = OutboundTarget::new(
+        VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_TARGET_HOST,
+        VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_TARGET_PORT,
+    );
+    write_smoke_connect(&mut client, &target, SmokeInboundKind::Socks5)?;
+    client
+        .write_all(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_PAYLOAD)
+        .map_err(|error| format!("write VLESS HTTPUpgrade TCP smoke payload: {error}"))?;
+    let mut response = vec![0; VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_RESPONSE.len()];
+    client
+        .read_exact(&mut response)
+        .map_err(|error| format!("read VLESS HTTPUpgrade TCP smoke response: {error}"))?;
+    client.shutdown(Shutdown::Both).ok();
+    Ok(TcpRelaySmokeExchangeObservation {
+        response_payload: response,
+    })
+}
+
+fn spawn_vless_httpupgrade_tcp_relay_smoke_server() -> Result<
+    (
+        u16,
+        thread::JoinHandle<Result<TcpRelaySmokeServerObservation, String>>,
+    ),
+    String,
+> {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|error| format!("bind VLESS HTTPUpgrade TCP smoke server: {error}"))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| format!("set VLESS HTTPUpgrade TCP smoke accept mode: {error}"))?;
+    let listen_port = listener
+        .local_addr()
+        .map_err(|error| format!("read VLESS HTTPUpgrade TCP smoke address: {error}"))?
+        .port();
+    let handle = thread::spawn(move || -> Result<TcpRelaySmokeServerObservation, String> {
+        let deadline = Instant::now() + TCP_RELAY_SMOKE_TIMEOUT;
+        let (mut stream, _) = loop {
+            match listener.accept() {
+                Ok(accepted) => break accepted,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= deadline {
+                        return Err("VLESS HTTPUpgrade TCP smoke accept timed out".to_string());
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "accept VLESS HTTPUpgrade TCP smoke server: {error}"
+                    ))
+                }
+            }
+        };
+        stream.set_nonblocking(false).map_err(|error| {
+            format!("set VLESS HTTPUpgrade TCP smoke stream blocking mode: {error}")
+        })?;
+        stream
+            .set_read_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+            .map_err(|error| format!("set VLESS HTTPUpgrade TCP smoke read timeout: {error}"))?;
+        stream
+            .set_write_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+            .map_err(|error| format!("set VLESS HTTPUpgrade TCP smoke write timeout: {error}"))?;
+
+        let request =
+            read_websocket_smoke_http_request(&mut stream, "VLESS HTTPUpgrade TCP smoke")?;
+        validate_vless_httpupgrade_tcp_relay_smoke_handshake(&request, &mut stream)?;
+
+        let expected_header = encode_vless_tcp_request_header(
+            VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_UUID,
+            &Endpoint::new(
+                VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_TARGET_HOST,
+                VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_TARGET_PORT,
+            ),
+            None,
+        )
+        .map_err(|error| format!("encode expected VLESS HTTPUpgrade TCP smoke header: {error}"))?;
+        let mut observed_header = vec![0; expected_header.len()];
+        stream
+            .read_exact(&mut observed_header)
+            .map_err(|error| format!("read VLESS HTTPUpgrade TCP smoke request header: {error}"))?;
+        if observed_header != expected_header {
+            return Err(format!(
+                "unexpected VLESS HTTPUpgrade TCP smoke header: expected {:?}, got {:?}",
+                expected_header, observed_header
+            ));
+        }
+
+        stream.write_all(&[0x00, 0x00]).map_err(|error| {
+            format!("write VLESS HTTPUpgrade TCP smoke response header: {error}")
+        })?;
+
+        let mut payload = vec![0; VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_PAYLOAD.len()];
+        stream
+            .read_exact(&mut payload)
+            .map_err(|error| format!("read VLESS HTTPUpgrade TCP smoke payload: {error}"))?;
+        if payload != VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_PAYLOAD {
+            return Err(format!(
+                "unexpected VLESS HTTPUpgrade TCP smoke payload: expected {:?}, got {:?}",
+                VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_PAYLOAD, payload
+            ));
+        }
+
+        stream
+            .write_all(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_RESPONSE)
+            .map_err(|error| {
+                format!("write VLESS HTTPUpgrade TCP smoke response payload: {error}")
+            })?;
+        stream
+            .flush()
+            .map_err(|error| format!("flush VLESS HTTPUpgrade TCP smoke response: {error}"))?;
+        tcp_relay_smoke_wait_for_client_close(&mut stream);
+        Ok(TcpRelaySmokeServerObservation {
+            received_expected_payload: true,
+        })
+    });
+    Ok((listen_port, handle))
+}
+
+fn validate_vless_httpupgrade_tcp_relay_smoke_handshake(
+    request: &str,
+    stream: &mut TcpStream,
+) -> Result<(), String> {
+    let request_line = request.lines().next().unwrap_or_default();
+    let expected_request_line = format!("GET {} HTTP/1.1", VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_PATH);
+    if request_line != expected_request_line {
+        return Err(format!(
+            "unexpected VLESS HTTPUpgrade TCP smoke request line: expected {expected_request_line}, got {request_line}"
+        ));
+    }
+    let host = http_header_value(request, "Host")
+        .ok_or_else(|| "VLESS HTTPUpgrade TCP smoke request missing Host header".to_string())?;
+    if host != VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_HOST {
+        return Err(format!(
+            "unexpected VLESS HTTPUpgrade TCP smoke Host: expected {}, got {host}",
+            VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_HOST
+        ));
+    }
+    let upgrade = http_header_value(request, "Upgrade")
+        .ok_or_else(|| "VLESS HTTPUpgrade TCP smoke request missing Upgrade header".to_string())?;
+    if !upgrade.eq_ignore_ascii_case("websocket") {
+        return Err(format!(
+            "unexpected VLESS HTTPUpgrade TCP smoke Upgrade: expected websocket, got {upgrade}"
+        ));
+    }
+    let connection = http_header_value(request, "Connection").ok_or_else(|| {
+        "VLESS HTTPUpgrade TCP smoke request missing Connection header".to_string()
+    })?;
+    if !connection
+        .split(',')
+        .any(|item| item.trim().eq_ignore_ascii_case("upgrade"))
+    {
+        return Err(format!(
+            "unexpected VLESS HTTPUpgrade TCP smoke Connection: expected Upgrade, got {connection}"
+        ));
+    }
+    if http_header_value(request, "Sec-WebSocket-Key").is_some() {
+        return Err("VLESS HTTPUpgrade TCP smoke unexpectedly sent Sec-WebSocket-Key".to_string());
+    }
+    if http_header_value(request, "Sec-WebSocket-Version").is_some() {
+        return Err(
+            "VLESS HTTPUpgrade TCP smoke unexpectedly sent Sec-WebSocket-Version".to_string(),
+        );
+    }
+    stream
+        .write_all(
+            b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n",
+        )
+        .map_err(|error| format!("write VLESS HTTPUpgrade TCP smoke handshake response: {error}"))
+}
+
+fn vless_httpupgrade_tcp_relay_smoke_metrics_recorded(metrics: &ConnectionMetricsSnapshot) -> bool {
+    metrics.total_connection_count >= 1
+        && metrics.success_count >= 1
+        && udp_relay_smoke_inbound_count(metrics, "socks5") >= 1
+        && vless_httpupgrade_tcp_relay_smoke_outbound_route_count(metrics) >= 1
+        && metrics.total_upload_bytes >= VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_PAYLOAD.len() as u64
+        && metrics.total_download_bytes >= VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_RESPONSE.len() as u64
+}
+
+fn vless_httpupgrade_tcp_relay_smoke_outbound_route_count(
+    metrics: &ConnectionMetricsSnapshot,
+) -> u64 {
+    metrics
+        .route_action_counts
+        .iter()
+        .find(|entry| {
+            entry.route_action
+                == RouteAction::Outbound(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_OUTBOUND.to_string())
+        })
+        .map(|entry| entry.count)
+        .unwrap_or(0)
+}
+
+fn vless_httpupgrade_tcp_relay_smoke_target() -> String {
+    format!(
+        "{}:{}",
+        VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_TARGET_HOST,
+        VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_TARGET_PORT
+    )
+}
+
+#[cfg(test)]
+mod vless_httpupgrade_tcp_relay_smoke_tests {
+    use super::*;
+
+    #[test]
+    fn default_vless_httpupgrade_tcp_relay_smoke_proves_upgraded_vless_round_trip() {
+        let report = collect_default_vless_httpupgrade_tcp_relay_smoke_report();
+
+        assert!(report.passed, "{report:#?}");
+        assert_eq!(
+            report.selected_outbound.as_deref(),
+            Some(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_OUTBOUND)
+        );
+        assert_eq!(report.target, vless_httpupgrade_tcp_relay_smoke_target());
+        assert_eq!(
+            report.request_payload_bytes,
+            VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_PAYLOAD.len()
+        );
+        assert_eq!(
+            report.response_payload_bytes,
+            Some(VLESS_HTTPUPGRADE_TCP_RELAY_SMOKE_RESPONSE.len())
+        );
+        assert!(report.round_trip_observed);
+        assert!(report.server_received_payload);
+        assert!(report.metrics_recorded);
+        assert!(report.metrics_total_connections >= 1);
+        assert!(report.metrics_success_count >= 1);
+        assert!(report.metrics_inbound_count >= 1);
+        assert!(report.metrics_outbound_route_count >= 1);
+        assert!(report.clean_stop_observed);
+        assert_eq!(report.stop_workers_remaining, Some(0));
+        assert_eq!(report.stop_timed_out, Some(false));
+
+        let case_names = report
+            .cases
+            .iter()
+            .map(|case| case.name)
+            .collect::<Vec<_>>();
+        for expected in [
+            "start-vless-httpupgrade-tcp-relay-runtime",
+            "vless-httpupgrade-tcp-protocol-round-trip",
+            "record-vless-httpupgrade-tcp-relay-metrics",
+            "stop-vless-httpupgrade-tcp-relay-runtime",
+        ] {
+            assert!(
+                case_names.contains(&expected),
+                "missing VLESS HTTPUpgrade TCP relay smoke case {expected}: {case_names:?}"
+            );
+        }
+        let round_trip = report
+            .cases
+            .iter()
+            .find(|case| case.name == "vless-httpupgrade-tcp-protocol-round-trip")
+            .expect("round trip case");
+        assert_eq!(
+            round_trip.observed_response.as_deref(),
+            Some("keli-vless-hu-pong")
         );
         assert_eq!(round_trip.round_trip_observed, Some(true));
         assert_eq!(round_trip.server_received_payload, Some(true));
@@ -32440,6 +33213,14 @@ fn write_readiness_check_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "readiness vless_httpupgrade_tcp_relay_smoke status={} cases={} detail={}",
+        tcp_relay_smoke_status_label(&report.vless_httpupgrade_tcp_relay_smoke),
+        report.vless_httpupgrade_tcp_relay_smoke.cases.len(),
+        report.vless_httpupgrade_tcp_relay_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "readiness vless_tcp_udp_relay_smoke status={} cases={} detail={}",
         udp_relay_smoke_status_label(&report.vless_tcp_udp_relay_smoke),
         report.vless_tcp_udp_relay_smoke.cases.len(),
@@ -32653,6 +33434,9 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         ),
         "vless_ws_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.vless_ws_tcp_relay_smoke
+        ),
+        "vless_httpupgrade_tcp_relay_smoke": tcp_relay_smoke_json_value(
+            &report.vless_httpupgrade_tcp_relay_smoke
         ),
         "vless_tcp_udp_relay_smoke": udp_relay_smoke_json_value(
             &report.vless_tcp_udp_relay_smoke
@@ -32938,6 +33722,14 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification vless_httpupgrade_tcp_relay_smoke status={} cases={} detail={}",
+        tcp_relay_smoke_status_label(&report.vless_httpupgrade_tcp_relay_smoke),
+        report.vless_httpupgrade_tcp_relay_smoke.cases.len(),
+        report.vless_httpupgrade_tcp_relay_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification vless_tcp_udp_relay_smoke status={} cases={} detail={}",
         udp_relay_smoke_status_label(&report.vless_tcp_udp_relay_smoke),
         report.vless_tcp_udp_relay_smoke.cases.len(),
@@ -33148,6 +33940,9 @@ fn default_core_certification_json_value(
             "tuic_quic_tcp_relay_smoke_passed": report.tuic_quic_tcp_relay_smoke.passed,
             "vless_tcp_relay_smoke_passed": report.vless_tcp_relay_smoke.passed,
             "vless_ws_tcp_relay_smoke_passed": report.vless_ws_tcp_relay_smoke.passed,
+            "vless_httpupgrade_tcp_relay_smoke_passed": report
+                .vless_httpupgrade_tcp_relay_smoke
+                .passed,
             "vless_tcp_udp_relay_smoke_passed": report.vless_tcp_udp_relay_smoke.passed,
             "vmess_tcp_relay_smoke_passed": report.vmess_tcp_relay_smoke.passed,
             "vmess_ws_tcp_relay_smoke_passed": report.vmess_ws_tcp_relay_smoke.passed,
@@ -33233,6 +34028,9 @@ fn default_core_certification_json_value(
         ),
         "vless_ws_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.vless_ws_tcp_relay_smoke
+        ),
+        "vless_httpupgrade_tcp_relay_smoke": tcp_relay_smoke_json_value(
+            &report.vless_httpupgrade_tcp_relay_smoke
         ),
         "vless_tcp_udp_relay_smoke": udp_relay_smoke_json_value(
             &report.vless_tcp_udp_relay_smoke

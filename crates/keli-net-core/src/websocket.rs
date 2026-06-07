@@ -37,6 +37,7 @@ impl<S: Read + Write> OwnedWebSocketClientStream<S> {
 
     pub fn connect_with_key(mut stream: S, host: &str, path: &str, key: &str) -> io::Result<Self> {
         write_handshake_request(&mut stream, host, path, key)?;
+        stream.flush()?;
         let response = read_http_response(&mut stream)?;
         validate_handshake_response(&response, key)?;
         Ok(Self {
@@ -102,6 +103,7 @@ impl WebSocketClientStream {
         key: &str,
     ) -> io::Result<Self> {
         write_handshake_request(&mut stream, host, path, key)?;
+        stream.flush()?;
         let response = read_http_response(&mut stream)?;
         validate_handshake_response(&response, key)?;
         let reader = stream.try_clone()?;
@@ -248,15 +250,17 @@ fn validate_handshake_response(response: &str, key: &str) -> io::Result<()> {
 }
 
 fn write_masked_binary_frame(stream: &mut impl Write, payload: &[u8]) -> io::Result<()> {
-    stream.write_all(&[0x80 | OPCODE_BINARY])?;
-    write_payload_len(stream, payload.len(), true)?;
+    let mut frame = Vec::with_capacity(2 + 8 + 4 + payload.len());
+    frame.write_all(&[0x80 | OPCODE_BINARY])?;
+    write_payload_len(&mut frame, payload.len(), true)?;
     let mut mask = [0; 4];
     OsRng.fill_bytes(&mut mask);
-    stream.write_all(&mask)?;
+    frame.write_all(&mask)?;
     for (index, byte) in payload.iter().enumerate() {
-        stream.write_all(&[*byte ^ mask[index % 4]])?;
+        frame.write_all(&[*byte ^ mask[index % 4]])?;
     }
-    Ok(())
+    stream.write_all(&frame)?;
+    stream.flush()
 }
 
 fn write_payload_len(stream: &mut impl Write, len: usize, masked: bool) -> io::Result<()> {

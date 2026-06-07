@@ -1873,6 +1873,7 @@ impl VlessWsOutbound {
         let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
             .map_err(protocol_encoding_to_io)?;
         stream.write_all(&header)?;
+        stream.flush()?;
         read_vless_response_header_from_stream(&mut stream)?;
         Ok(OutboundConnection::WebSocket(stream))
     }
@@ -1964,6 +1965,7 @@ impl VlessTlsWsOutbound {
         let header = encode_vless_tcp_request_header(&self.uuid, &target, self.flow.as_deref())
             .map_err(protocol_encoding_to_io)?;
         stream.write_all(&header)?;
+        stream.flush()?;
         read_vless_response_header_from_stream(&mut stream)?;
         Ok(OutboundConnection::Owned(Box::new(stream)))
     }
@@ -4293,6 +4295,7 @@ impl TrojanWsOutbound {
         let header = encode_trojan_tcp_request_header(&self.password, &target)
             .map_err(protocol_encoding_to_io)?;
         stream.write_all(&header)?;
+        stream.flush()?;
         Ok(OutboundConnection::WebSocket(stream))
     }
 
@@ -4373,6 +4376,7 @@ impl TrojanTlsWsOutbound {
         let header = encode_trojan_tcp_request_header(&self.password, &target)
             .map_err(protocol_encoding_to_io)?;
         stream.write_all(&header)?;
+        stream.flush()?;
         Ok(OutboundConnection::Owned(Box::new(stream)))
     }
 
@@ -5249,6 +5253,7 @@ impl VmessTcpOutbound {
         let target = Endpoint::new(target.host.clone(), target.port);
         let request =
             write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
+        stream.flush()?;
         read_vmess_response_header_from_stream(&mut stream, &request)?;
         match self.security {
             VmessBodySecurity::None => Ok(OutboundConnection::Tcp(stream)),
@@ -5339,6 +5344,7 @@ impl VmessTlsTcpOutbound {
         let target = Endpoint::new(target.host.clone(), target.port);
         let request =
             write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
+        stream.flush()?;
         read_vmess_response_header_from_stream(&mut stream, &request)?;
         vmess_connection_from_stream(stream, request, self.security)
     }
@@ -5423,6 +5429,7 @@ impl VmessWsOutbound {
         let target = Endpoint::new(target.host.clone(), target.port);
         let request =
             write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
+        stream.flush()?;
         read_vmess_response_header_from_stream(&mut stream, &request)?;
         match self.security {
             VmessBodySecurity::None => Ok(OutboundConnection::WebSocket(stream)),
@@ -5532,6 +5539,7 @@ impl VmessTlsWsOutbound {
         let target = Endpoint::new(target.host.clone(), target.port);
         let request =
             write_vmess_tcp_request_header(&mut stream, &self.uuid, &target, self.security)?;
+        stream.flush()?;
         read_vmess_response_header_from_stream(&mut stream, &request)?;
         vmess_connection_from_stream(stream, request, self.security)
     }
