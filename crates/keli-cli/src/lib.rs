@@ -37,8 +37,9 @@ use keli_net_core::{
     http_proxy_bad_request_response, parse_dns_query, parse_http_connect_request,
     parse_http_proxy_request, parse_socks5_handshake, parse_socks5_request,
     parse_socks5_udp_datagram, parse_tun_tcp_segment, process_tun_device_packet_with_relays,
-    prune_idle_tun_tcp_sessions, relay_owned_bidirectional_with_options,
-    run_tun_packet_loop_summary, run_tun_packet_loop_with_relays_summary_with_idle_timeout,
+    process_tun_tcp_session_segment, prune_idle_tun_tcp_sessions,
+    relay_owned_bidirectional_with_options, run_tun_packet_loop_summary,
+    run_tun_packet_loop_with_relays_summary_with_idle_timeout,
     run_tun_packet_loop_with_udp_relay_summary, socks5_no_auth_response, socks5_reply,
     websocket_accept_for_key, ConnectionErrorKind, ConnectionReport, DirectTcpConnector,
     DirectUdpConnector, DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsError,
@@ -46,8 +47,9 @@ use keli_net_core::{
     OutboundRegistry, OutboundTarget, RegistryTunTcpSessionRelay, RegistryTunUdpRelay,
     RelayOptions, RouteAction, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, Socks5Address,
     Socks5Command, Socks5ReplyCode, SystemDnsResolver, TunPacketDevice, TunPacketFlow,
-    TunPacketLoopEvent, TunPacketLoopSummary, TunPacketRouteDecision, TunTcpSessionTable,
-    TunTransportProtocol, TunUdpRelay, DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+    TunPacketLoopEvent, TunPacketLoopSummary, TunPacketRouteDecision, TunTcpClientPayloadFrame,
+    TunTcpSegment, TunTcpServerRead, TunTcpSessionRecord, TunTcpSessionRelay, TunTcpSessionStep,
+    TunTcpSessionTable, TunTransportProtocol, TunUdpRelay, DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
 };
 use keli_platform::{
     install_wintun_library, install_wintun_library_from_source_dir, snapshot_tun_route_takeover,
@@ -116,6 +118,17 @@ const TUN_TCP_SESSION_IDLE_PRUNE_SMOKE_CLIENT_IP: Ipv4Addr = Ipv4Addr::new(10, 7
 const TUN_TCP_SESSION_IDLE_PRUNE_SMOKE_CLIENT_PORT: u16 = 49152;
 const TUN_TCP_SESSION_IDLE_PRUNE_SMOKE_IDLE_TIMEOUT: Duration = Duration::ZERO;
 const TUN_TCP_SESSION_IDLE_PRUNE_SMOKE_MAX_PACKETS: usize = 2;
+const TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_OUTBOUND: &str =
+    "TUN-TCP-SESSION-CLOSE-MARKER-PRUNE-SMOKE";
+const TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_TARGET: Ipv4Addr = Ipv4Addr::new(93, 184, 216, 34);
+const TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_DESTINATION_PORT: u16 = 443;
+const TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_CLIENT_IP: Ipv4Addr = Ipv4Addr::new(10, 7, 0, 2);
+const TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_CLIENT_PORT: u16 = 49152;
+const TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_SERVER_INITIAL_SEQUENCE: u32 = 1000;
+const TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_WINDOW_SIZE: u16 = 0x2000;
+const TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_IDLE_TIMEOUT: Duration = Duration::from_secs(5);
+const TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_PRUNE_AFTER: Duration = Duration::from_secs(10);
+const TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_REQUEST: &[u8] = b"GET /";
 const DEFAULT_MIXED_SOAK_CONNECTIONS: usize = 25;
 const DEFAULT_MIXED_SOAK_MIN_DURATION: Duration = Duration::from_millis(0);
 const DEFAULT_READINESS_SOAK_CONNECTIONS: usize = 3;
@@ -517,11 +530,11 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(4);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 86;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 76;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 87;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 77;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 75;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 75;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 76;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 76;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -546,11 +559,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -7338,6 +7351,7 @@ pub struct DefaultCoreReadinessReport {
     pub tun_tcp_session_smoke: TunTcpSessionSmokeReport,
     pub tun_tcp_session_limit_smoke: TunTcpSessionLimitSmokeReport,
     pub tun_tcp_session_idle_prune_smoke: TunTcpSessionIdlePruneSmokeReport,
+    pub tun_tcp_session_close_marker_prune_smoke: TunTcpSessionCloseMarkerPruneSmokeReport,
     pub gates: Vec<ReadinessGateReport>,
 }
 
@@ -7410,6 +7424,7 @@ pub struct DefaultCoreCertificationReport {
     pub tun_tcp_session_smoke: TunTcpSessionSmokeReport,
     pub tun_tcp_session_limit_smoke: TunTcpSessionLimitSmokeReport,
     pub tun_tcp_session_idle_prune_smoke: TunTcpSessionIdlePruneSmokeReport,
+    pub tun_tcp_session_close_marker_prune_smoke: TunTcpSessionCloseMarkerPruneSmokeReport,
     pub soak_connections: usize,
     pub first_byte_timeout: Duration,
     pub max_connection_workers: usize,
@@ -7924,6 +7939,71 @@ pub struct TunTcpSessionIdlePruneSmokeCaseReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunTcpSessionCloseMarkerPruneSmokeReport {
+    pub passed: bool,
+    pub detail: String,
+    pub selected_outbound: String,
+    pub target: String,
+    pub client: String,
+    pub request_payload_bytes: usize,
+    pub idle_timeout_ms: u64,
+    pub prune_after_ms: u64,
+    pub server_close_marker_observed: bool,
+    pub server_close_marker_pruned: bool,
+    pub server_close_reclose_avoided: bool,
+    pub server_close_active_sessions_after_marker: usize,
+    pub server_close_markers_before_prune: usize,
+    pub server_close_markers_after_prune: usize,
+    pub server_close_closed_sessions_before_prune: usize,
+    pub server_close_closed_sessions_after_prune: usize,
+    pub server_close_pruned_sessions: usize,
+    pub server_close_pruned_server_closed_sessions: usize,
+    pub server_close_pruned_post_closed_sessions: usize,
+    pub server_close_close_errors: usize,
+    pub server_close_last_error_kind: Option<String>,
+    pub post_close_marker_observed: bool,
+    pub post_close_marker_pruned: bool,
+    pub post_close_reclose_avoided: bool,
+    pub post_close_active_sessions_after_marker: usize,
+    pub post_close_markers_before_prune: usize,
+    pub post_close_markers_after_prune: usize,
+    pub post_close_closed_sessions_before_prune: usize,
+    pub post_close_closed_sessions_after_prune: usize,
+    pub post_close_pruned_sessions: usize,
+    pub post_close_pruned_server_closed_sessions: usize,
+    pub post_close_pruned_post_closed_sessions: usize,
+    pub post_close_close_errors: usize,
+    pub post_close_last_error_kind: Option<String>,
+    pub residual_state_clean: bool,
+    pub cases: Vec<TunTcpSessionCloseMarkerPruneSmokeCaseReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunTcpSessionCloseMarkerPruneSmokeCaseReport {
+    pub name: &'static str,
+    pub action: &'static str,
+    pub marker_kind: &'static str,
+    pub target: String,
+    pub client: String,
+    pub idle_timeout_ms: u64,
+    pub prune_after_ms: u64,
+    pub expected_pruned_server_closed_sessions: usize,
+    pub expected_pruned_post_closed_sessions: usize,
+    pub observed_pruned_sessions: usize,
+    pub observed_pruned_server_closed_sessions: usize,
+    pub observed_pruned_post_closed_sessions: usize,
+    pub active_sessions_after_marker: usize,
+    pub marker_count_before_prune: usize,
+    pub marker_count_after_prune: usize,
+    pub closed_sessions_before_prune: usize,
+    pub closed_sessions_after_prune: usize,
+    pub close_errors: usize,
+    pub observed_error_kind: Option<String>,
+    pub passed: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct TunRuntimeSmokeRunEvidence {
     interface_snapshot: TunRuntimeSmokeInterfaceSnapshot,
     traffic_stimulus: TunRuntimeSmokeTrafficStimulusReport,
@@ -8243,6 +8323,8 @@ fn collect_default_core_certification_report(
     let tun_tcp_session_smoke = readiness.tun_tcp_session_smoke.clone();
     let tun_tcp_session_limit_smoke = readiness.tun_tcp_session_limit_smoke.clone();
     let tun_tcp_session_idle_prune_smoke = readiness.tun_tcp_session_idle_prune_smoke.clone();
+    let tun_tcp_session_close_marker_prune_smoke =
+        readiness.tun_tcp_session_close_marker_prune_smoke.clone();
     let system_proxy_smoke = readiness.system_proxy_smoke.clone();
     let system_proxy_smoke_ready = !include_system_proxy_smoke
         || system_proxy_smoke
@@ -8314,6 +8396,7 @@ fn collect_default_core_certification_report(
         && tun_tcp_session_smoke.passed
         && tun_tcp_session_limit_smoke.passed
         && tun_tcp_session_idle_prune_smoke.passed
+        && tun_tcp_session_close_marker_prune_smoke.passed
         && system_proxy_smoke_ready
         && tun_runtime_smoke_ready;
 
@@ -8380,6 +8463,7 @@ fn collect_default_core_certification_report(
         tun_tcp_session_smoke,
         tun_tcp_session_limit_smoke,
         tun_tcp_session_idle_prune_smoke,
+        tun_tcp_session_close_marker_prune_smoke,
         include_system_proxy_smoke,
         system_proxy_smoke,
         include_tun_runtime_smoke,
@@ -8475,6 +8559,8 @@ fn collect_readiness_check_report(
     let tun_tcp_session_limit_smoke = collect_default_tun_tcp_session_limit_smoke_report();
     let tun_tcp_session_idle_prune_smoke =
         collect_default_tun_tcp_session_idle_prune_smoke_report();
+    let tun_tcp_session_close_marker_prune_smoke =
+        collect_default_tun_tcp_session_close_marker_prune_smoke_report();
     let mut system_proxy_smoke = None;
     let mut tun_runtime_smoke = None;
     let mut gates = vec![
@@ -8846,6 +8932,9 @@ fn collect_readiness_check_report(
         readiness_tun_tcp_session_smoke_gate(&tun_tcp_session_smoke),
         readiness_tun_tcp_session_limit_smoke_gate(&tun_tcp_session_limit_smoke),
         readiness_tun_tcp_session_idle_prune_smoke_gate(&tun_tcp_session_idle_prune_smoke),
+        readiness_tun_tcp_session_close_marker_prune_smoke_gate(
+            &tun_tcp_session_close_marker_prune_smoke,
+        ),
         readiness_gate(
             "panel-subscription-state",
             "managed-runtime",
@@ -9036,6 +9125,7 @@ fn collect_readiness_check_report(
         tun_tcp_session_smoke,
         tun_tcp_session_limit_smoke,
         tun_tcp_session_idle_prune_smoke,
+        tun_tcp_session_close_marker_prune_smoke,
         include_system_proxy_smoke,
         system_proxy_smoke,
         include_tun_runtime_smoke,
@@ -49993,6 +50083,17 @@ fn readiness_tun_tcp_session_idle_prune_smoke_gate(
     )
 }
 
+fn readiness_tun_tcp_session_close_marker_prune_smoke_gate(
+    smoke_report: &TunTcpSessionCloseMarkerPruneSmokeReport,
+) -> ReadinessGateReport {
+    readiness_gate(
+        "tun-tcp-session-close-marker-prune-smoke",
+        "platform",
+        smoke_report.passed,
+        smoke_report.detail.clone(),
+    )
+}
+
 fn collect_default_tun_tcp_session_smoke_report() -> TunTcpSessionSmokeReport {
     match run_default_tun_tcp_session_smoke() {
         Ok(evidence) => tun_tcp_session_smoke_report_from_evidence(evidence),
@@ -50939,6 +51040,617 @@ fn tun_tcp_session_idle_prune_smoke_client() -> SocketAddr {
     )
 }
 
+fn collect_default_tun_tcp_session_close_marker_prune_smoke_report(
+) -> TunTcpSessionCloseMarkerPruneSmokeReport {
+    match run_default_tun_tcp_session_close_marker_prune_smoke() {
+        Ok(evidence) => tun_tcp_session_close_marker_prune_smoke_report_from_evidence(evidence),
+        Err(error) => tun_tcp_session_close_marker_prune_smoke_failed_report(error),
+    }
+}
+
+#[derive(Debug)]
+struct TunTcpSessionCloseMarkerPruneSmokeEvidence {
+    target: SocketAddr,
+    client: SocketAddr,
+    server_close: TunTcpSessionCloseMarkerPruneCaseEvidence,
+    post_close: TunTcpSessionCloseMarkerPruneCaseEvidence,
+}
+
+#[derive(Debug)]
+struct TunTcpSessionCloseMarkerPruneCaseEvidence {
+    marker_observed: bool,
+    marker_pruned: bool,
+    reclose_avoided: bool,
+    active_sessions_after_marker: usize,
+    marker_count_before_prune: usize,
+    marker_count_after_prune: usize,
+    closed_sessions_before_prune: usize,
+    closed_sessions_after_prune: usize,
+    pruned_sessions: usize,
+    pruned_server_closed_sessions: usize,
+    pruned_post_closed_sessions: usize,
+    close_errors: usize,
+    last_error_kind: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct TunTcpSessionCloseMarkerPruneSmokeRelay {
+    server_reads: VecDeque<TunTcpServerRead>,
+    closed_sessions: Vec<TunTcpSessionRecord>,
+}
+
+impl TunTcpSessionCloseMarkerPruneSmokeRelay {
+    fn with_server_reads(reads: Vec<TunTcpServerRead>) -> Self {
+        Self {
+            server_reads: reads.into(),
+            ..Self::default()
+        }
+    }
+
+    fn pop_server_read(&mut self) -> TunTcpServerRead {
+        self.server_reads
+            .pop_front()
+            .unwrap_or(TunTcpServerRead::NoPayload)
+    }
+}
+
+impl TunTcpSessionRelay for TunTcpSessionCloseMarkerPruneSmokeRelay {
+    fn write_client_payload(&mut self, _frame: &TunTcpClientPayloadFrame) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn read_server_event(
+        &mut self,
+        _session: &TunTcpSessionRecord,
+    ) -> Result<TunTcpServerRead, String> {
+        Ok(self.pop_server_read())
+    }
+
+    fn poll_server_event(
+        &mut self,
+        _session: &TunTcpSessionRecord,
+    ) -> Result<TunTcpServerRead, String> {
+        Ok(self.pop_server_read())
+    }
+
+    fn close_session(&mut self, session: &TunTcpSessionRecord) -> Result<(), String> {
+        self.closed_sessions.push(session.clone());
+        Ok(())
+    }
+}
+
+fn run_default_tun_tcp_session_close_marker_prune_smoke(
+) -> Result<TunTcpSessionCloseMarkerPruneSmokeEvidence, String> {
+    let target = tun_tcp_session_close_marker_prune_smoke_target();
+    let client = tun_tcp_session_close_marker_prune_smoke_client();
+    let syn_packet = tun_tcp_session_close_marker_prune_smoke_ipv4_packet(10, 0, 0x0002, b"");
+    let ack_packet = tun_tcp_session_close_marker_prune_smoke_ipv4_packet(
+        11,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_SERVER_INITIAL_SEQUENCE + 1,
+        0x0010,
+        b"",
+    );
+    let data_packet = tun_tcp_session_close_marker_prune_smoke_ipv4_packet(
+        11,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_SERVER_INITIAL_SEQUENCE + 1,
+        0x0018,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_REQUEST,
+    );
+    let final_ack_packet = tun_tcp_session_close_marker_prune_smoke_ipv4_packet(
+        11 + TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_REQUEST.len() as u32,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_SERVER_INITIAL_SEQUENCE + 2,
+        0x0010,
+        b"",
+    );
+    let syn = parse_tun_tcp_segment(&syn_packet)
+        .map_err(|error| format!("parse close-marker SYN segment failed: {error:?}"))?;
+    let ack = parse_tun_tcp_segment(&ack_packet)
+        .map_err(|error| format!("parse close-marker ACK segment failed: {error:?}"))?;
+    let data = parse_tun_tcp_segment(&data_packet)
+        .map_err(|error| format!("parse close-marker data segment failed: {error:?}"))?;
+    let final_ack = parse_tun_tcp_segment(&final_ack_packet)
+        .map_err(|error| format!("parse close-marker final ACK segment failed: {error:?}"))?;
+
+    Ok(TunTcpSessionCloseMarkerPruneSmokeEvidence {
+        target,
+        client,
+        server_close: run_tun_tcp_session_close_marker_prune_server_close_case(&syn, &ack, &data)?,
+        post_close: run_tun_tcp_session_close_marker_prune_post_close_case(
+            &syn, &ack, &data, &final_ack,
+        )?,
+    })
+}
+
+fn run_tun_tcp_session_close_marker_prune_server_close_case(
+    syn: &TunTcpSegment<'_>,
+    ack: &TunTcpSegment<'_>,
+    data: &TunTcpSegment<'_>,
+) -> Result<TunTcpSessionCloseMarkerPruneCaseEvidence, String> {
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay =
+        TunTcpSessionCloseMarkerPruneSmokeRelay::with_server_reads(vec![TunTcpServerRead::Closed]);
+    process_tun_tcp_session_segment(
+        &mut sessions,
+        syn,
+        &mut relay,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_SERVER_INITIAL_SEQUENCE,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_WINDOW_SIZE,
+    )
+    .map_err(|error| format!("process close-marker server-close SYN failed: {error:?}"))?;
+    process_tun_tcp_session_segment(
+        &mut sessions,
+        ack,
+        &mut relay,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_SERVER_INITIAL_SEQUENCE,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_WINDOW_SIZE,
+    )
+    .map_err(|error| format!("process close-marker server-close ACK failed: {error:?}"))?;
+    let server_close_step = process_tun_tcp_session_segment(
+        &mut sessions,
+        data,
+        &mut relay,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_SERVER_INITIAL_SEQUENCE,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_WINDOW_SIZE,
+    )
+    .map_err(|error| format!("process close-marker server-close data failed: {error:?}"))?;
+    let state_before_prune = sessions.state_counts();
+    let marker_observed = matches!(
+        server_close_step,
+        TunTcpSessionStep::ClientPayload {
+            server_close: Some(_),
+            ..
+        }
+    ) && state_before_prune.active_sessions == 0
+        && state_before_prune.server_close_markers == 1
+        && state_before_prune.post_close_markers == 0;
+    let closed_sessions_before_prune = relay.closed_sessions.len();
+    let prune_report = prune_idle_tun_tcp_sessions(
+        &mut sessions,
+        &mut relay,
+        Instant::now() + TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_PRUNE_AFTER,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_IDLE_TIMEOUT,
+    );
+    let state_after_prune = sessions.state_counts();
+    let closed_sessions_after_prune = relay.closed_sessions.len();
+    let marker_pruned = prune_report.pruned_sessions == 0
+        && prune_report.pruned_server_closed_sessions == 1
+        && prune_report.pruned_post_closed_sessions == 0
+        && state_after_prune.server_close_markers == 0
+        && state_after_prune.post_close_markers == 0;
+
+    Ok(TunTcpSessionCloseMarkerPruneCaseEvidence {
+        marker_observed,
+        marker_pruned,
+        reclose_avoided: closed_sessions_before_prune == 1
+            && closed_sessions_after_prune == closed_sessions_before_prune,
+        active_sessions_after_marker: state_before_prune.active_sessions,
+        marker_count_before_prune: state_before_prune.server_close_markers,
+        marker_count_after_prune: state_after_prune.server_close_markers,
+        closed_sessions_before_prune,
+        closed_sessions_after_prune,
+        pruned_sessions: prune_report.pruned_sessions,
+        pruned_server_closed_sessions: prune_report.pruned_server_closed_sessions,
+        pruned_post_closed_sessions: prune_report.pruned_post_closed_sessions,
+        close_errors: prune_report.close_errors,
+        last_error_kind: prune_report
+            .last_close_error
+            .as_ref()
+            .map(|error| format!("{error:?}")),
+    })
+}
+
+fn run_tun_tcp_session_close_marker_prune_post_close_case(
+    syn: &TunTcpSegment<'_>,
+    ack: &TunTcpSegment<'_>,
+    data: &TunTcpSegment<'_>,
+    final_ack: &TunTcpSegment<'_>,
+) -> Result<TunTcpSessionCloseMarkerPruneCaseEvidence, String> {
+    let mut sessions = TunTcpSessionTable::new();
+    let mut relay =
+        TunTcpSessionCloseMarkerPruneSmokeRelay::with_server_reads(vec![TunTcpServerRead::Closed]);
+    process_tun_tcp_session_segment(
+        &mut sessions,
+        syn,
+        &mut relay,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_SERVER_INITIAL_SEQUENCE,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_WINDOW_SIZE,
+    )
+    .map_err(|error| format!("process close-marker post-close SYN failed: {error:?}"))?;
+    process_tun_tcp_session_segment(
+        &mut sessions,
+        ack,
+        &mut relay,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_SERVER_INITIAL_SEQUENCE,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_WINDOW_SIZE,
+    )
+    .map_err(|error| format!("process close-marker post-close ACK failed: {error:?}"))?;
+    process_tun_tcp_session_segment(
+        &mut sessions,
+        data,
+        &mut relay,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_SERVER_INITIAL_SEQUENCE,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_WINDOW_SIZE,
+    )
+    .map_err(|error| format!("process close-marker post-close data failed: {error:?}"))?;
+    let acknowledged_step = process_tun_tcp_session_segment(
+        &mut sessions,
+        final_ack,
+        &mut relay,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_SERVER_INITIAL_SEQUENCE,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_WINDOW_SIZE,
+    )
+    .map_err(|error| format!("process close-marker final ACK failed: {error:?}"))?;
+    let state_before_prune = sessions.state_counts();
+    let marker_observed = matches!(
+        acknowledged_step,
+        TunTcpSessionStep::ServerCloseAcknowledged { .. }
+    ) && state_before_prune.active_sessions == 0
+        && state_before_prune.server_close_markers == 0
+        && state_before_prune.post_close_markers == 1;
+    let closed_sessions_before_prune = relay.closed_sessions.len();
+    let prune_report = prune_idle_tun_tcp_sessions(
+        &mut sessions,
+        &mut relay,
+        Instant::now() + TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_PRUNE_AFTER,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_IDLE_TIMEOUT,
+    );
+    let state_after_prune = sessions.state_counts();
+    let closed_sessions_after_prune = relay.closed_sessions.len();
+    let marker_pruned = prune_report.pruned_sessions == 0
+        && prune_report.pruned_server_closed_sessions == 0
+        && prune_report.pruned_post_closed_sessions == 1
+        && state_after_prune.server_close_markers == 0
+        && state_after_prune.post_close_markers == 0;
+
+    Ok(TunTcpSessionCloseMarkerPruneCaseEvidence {
+        marker_observed,
+        marker_pruned,
+        reclose_avoided: closed_sessions_before_prune == 1
+            && closed_sessions_after_prune == closed_sessions_before_prune,
+        active_sessions_after_marker: state_before_prune.active_sessions,
+        marker_count_before_prune: state_before_prune.post_close_markers,
+        marker_count_after_prune: state_after_prune.post_close_markers,
+        closed_sessions_before_prune,
+        closed_sessions_after_prune,
+        pruned_sessions: prune_report.pruned_sessions,
+        pruned_server_closed_sessions: prune_report.pruned_server_closed_sessions,
+        pruned_post_closed_sessions: prune_report.pruned_post_closed_sessions,
+        close_errors: prune_report.close_errors,
+        last_error_kind: prune_report
+            .last_close_error
+            .as_ref()
+            .map(|error| format!("{error:?}")),
+    })
+}
+
+fn tun_tcp_session_close_marker_prune_smoke_report_from_evidence(
+    evidence: TunTcpSessionCloseMarkerPruneSmokeEvidence,
+) -> TunTcpSessionCloseMarkerPruneSmokeReport {
+    let residual_state_clean = evidence.server_close.marker_count_after_prune == 0
+        && evidence.post_close.marker_count_after_prune == 0
+        && evidence.server_close.close_errors == 0
+        && evidence.post_close.close_errors == 0;
+    let mut report = TunTcpSessionCloseMarkerPruneSmokeReport {
+        passed: false,
+        detail: String::new(),
+        selected_outbound: TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_OUTBOUND.to_string(),
+        target: evidence.target.to_string(),
+        client: evidence.client.to_string(),
+        request_payload_bytes: TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_REQUEST.len(),
+        idle_timeout_ms: duration_millis_for_report(
+            TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_IDLE_TIMEOUT,
+        ),
+        prune_after_ms: duration_millis_for_report(
+            TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_PRUNE_AFTER,
+        ),
+        server_close_marker_observed: evidence.server_close.marker_observed,
+        server_close_marker_pruned: evidence.server_close.marker_pruned,
+        server_close_reclose_avoided: evidence.server_close.reclose_avoided,
+        server_close_active_sessions_after_marker: evidence
+            .server_close
+            .active_sessions_after_marker,
+        server_close_markers_before_prune: evidence.server_close.marker_count_before_prune,
+        server_close_markers_after_prune: evidence.server_close.marker_count_after_prune,
+        server_close_closed_sessions_before_prune: evidence
+            .server_close
+            .closed_sessions_before_prune,
+        server_close_closed_sessions_after_prune: evidence.server_close.closed_sessions_after_prune,
+        server_close_pruned_sessions: evidence.server_close.pruned_sessions,
+        server_close_pruned_server_closed_sessions: evidence
+            .server_close
+            .pruned_server_closed_sessions,
+        server_close_pruned_post_closed_sessions: evidence.server_close.pruned_post_closed_sessions,
+        server_close_close_errors: evidence.server_close.close_errors,
+        server_close_last_error_kind: evidence.server_close.last_error_kind,
+        post_close_marker_observed: evidence.post_close.marker_observed,
+        post_close_marker_pruned: evidence.post_close.marker_pruned,
+        post_close_reclose_avoided: evidence.post_close.reclose_avoided,
+        post_close_active_sessions_after_marker: evidence.post_close.active_sessions_after_marker,
+        post_close_markers_before_prune: evidence.post_close.marker_count_before_prune,
+        post_close_markers_after_prune: evidence.post_close.marker_count_after_prune,
+        post_close_closed_sessions_before_prune: evidence.post_close.closed_sessions_before_prune,
+        post_close_closed_sessions_after_prune: evidence.post_close.closed_sessions_after_prune,
+        post_close_pruned_sessions: evidence.post_close.pruned_sessions,
+        post_close_pruned_server_closed_sessions: evidence.post_close.pruned_server_closed_sessions,
+        post_close_pruned_post_closed_sessions: evidence.post_close.pruned_post_closed_sessions,
+        post_close_close_errors: evidence.post_close.close_errors,
+        post_close_last_error_kind: evidence.post_close.last_error_kind,
+        residual_state_clean,
+        cases: Vec::new(),
+    };
+    report.passed = tun_tcp_session_close_marker_prune_smoke_passed(&report);
+    report.detail = tun_tcp_session_close_marker_prune_smoke_detail(&report);
+    report.cases = tun_tcp_session_close_marker_prune_smoke_cases(&report, None);
+    report
+}
+
+fn tun_tcp_session_close_marker_prune_smoke_failed_report(
+    error: String,
+) -> TunTcpSessionCloseMarkerPruneSmokeReport {
+    let mut report = TunTcpSessionCloseMarkerPruneSmokeReport {
+        passed: false,
+        detail: format!("TUN TCP close-marker prune smoke failed: {error}"),
+        selected_outbound: TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_OUTBOUND.to_string(),
+        target: tun_tcp_session_close_marker_prune_smoke_target().to_string(),
+        client: tun_tcp_session_close_marker_prune_smoke_client().to_string(),
+        request_payload_bytes: TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_REQUEST.len(),
+        idle_timeout_ms: duration_millis_for_report(
+            TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_IDLE_TIMEOUT,
+        ),
+        prune_after_ms: duration_millis_for_report(
+            TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_PRUNE_AFTER,
+        ),
+        server_close_marker_observed: false,
+        server_close_marker_pruned: false,
+        server_close_reclose_avoided: false,
+        server_close_active_sessions_after_marker: 0,
+        server_close_markers_before_prune: 0,
+        server_close_markers_after_prune: 0,
+        server_close_closed_sessions_before_prune: 0,
+        server_close_closed_sessions_after_prune: 0,
+        server_close_pruned_sessions: 0,
+        server_close_pruned_server_closed_sessions: 0,
+        server_close_pruned_post_closed_sessions: 0,
+        server_close_close_errors: 0,
+        server_close_last_error_kind: Some(error.clone()),
+        post_close_marker_observed: false,
+        post_close_marker_pruned: false,
+        post_close_reclose_avoided: false,
+        post_close_active_sessions_after_marker: 0,
+        post_close_markers_before_prune: 0,
+        post_close_markers_after_prune: 0,
+        post_close_closed_sessions_before_prune: 0,
+        post_close_closed_sessions_after_prune: 0,
+        post_close_pruned_sessions: 0,
+        post_close_pruned_server_closed_sessions: 0,
+        post_close_pruned_post_closed_sessions: 0,
+        post_close_close_errors: 0,
+        post_close_last_error_kind: Some(error.clone()),
+        residual_state_clean: false,
+        cases: Vec::new(),
+    };
+    report.cases = tun_tcp_session_close_marker_prune_smoke_cases(&report, Some(error));
+    report
+}
+
+fn tun_tcp_session_close_marker_prune_smoke_passed(
+    report: &TunTcpSessionCloseMarkerPruneSmokeReport,
+) -> bool {
+    report.server_close_marker_observed
+        && report.server_close_marker_pruned
+        && report.server_close_reclose_avoided
+        && report.server_close_active_sessions_after_marker == 0
+        && report.server_close_markers_before_prune == 1
+        && report.server_close_markers_after_prune == 0
+        && report.server_close_closed_sessions_before_prune == 1
+        && report.server_close_closed_sessions_after_prune == 1
+        && report.server_close_pruned_sessions == 0
+        && report.server_close_pruned_server_closed_sessions == 1
+        && report.server_close_pruned_post_closed_sessions == 0
+        && report.server_close_close_errors == 0
+        && report.server_close_last_error_kind.is_none()
+        && report.post_close_marker_observed
+        && report.post_close_marker_pruned
+        && report.post_close_reclose_avoided
+        && report.post_close_active_sessions_after_marker == 0
+        && report.post_close_markers_before_prune == 1
+        && report.post_close_markers_after_prune == 0
+        && report.post_close_closed_sessions_before_prune == 1
+        && report.post_close_closed_sessions_after_prune == 1
+        && report.post_close_pruned_sessions == 0
+        && report.post_close_pruned_server_closed_sessions == 0
+        && report.post_close_pruned_post_closed_sessions == 1
+        && report.post_close_close_errors == 0
+        && report.post_close_last_error_kind.is_none()
+        && report.residual_state_clean
+}
+
+fn tun_tcp_session_close_marker_prune_smoke_detail(
+    report: &TunTcpSessionCloseMarkerPruneSmokeReport,
+) -> String {
+    format!(
+        "outbound={} target={} client={} request_bytes={} idle_timeout_ms={} prune_after_ms={} server_marker_observed={} server_marker_pruned={} server_reclose_avoided={} server_pruned_closed={} post_marker_observed={} post_marker_pruned={} post_reclose_avoided={} post_pruned_closed={} residual_state_clean={} server_error={} post_error={}",
+        report.selected_outbound,
+        report.target,
+        report.client,
+        report.request_payload_bytes,
+        report.idle_timeout_ms,
+        report.prune_after_ms,
+        report.server_close_marker_observed,
+        report.server_close_marker_pruned,
+        report.server_close_reclose_avoided,
+        report.server_close_pruned_server_closed_sessions,
+        report.post_close_marker_observed,
+        report.post_close_marker_pruned,
+        report.post_close_reclose_avoided,
+        report.post_close_pruned_post_closed_sessions,
+        report.residual_state_clean,
+        report.server_close_last_error_kind.as_deref().unwrap_or("-"),
+        report.post_close_last_error_kind.as_deref().unwrap_or("-")
+    )
+}
+
+fn tun_tcp_session_close_marker_prune_smoke_cases(
+    report: &TunTcpSessionCloseMarkerPruneSmokeReport,
+    error: Option<String>,
+) -> Vec<TunTcpSessionCloseMarkerPruneSmokeCaseReport> {
+    let case_error = |passed: bool| {
+        if passed {
+            None
+        } else {
+            error.clone().or_else(|| Some(report.detail.clone()))
+        }
+    };
+    let server_create_passed = report.server_close_marker_observed
+        && report.server_close_active_sessions_after_marker == 0
+        && report.server_close_markers_before_prune == 1
+        && report.server_close_closed_sessions_before_prune == 1;
+    let server_prune_passed = report.server_close_marker_pruned
+        && report.server_close_reclose_avoided
+        && report.server_close_close_errors == 0
+        && report.server_close_last_error_kind.is_none();
+    let post_create_passed = report.post_close_marker_observed
+        && report.post_close_active_sessions_after_marker == 0
+        && report.post_close_markers_before_prune == 1
+        && report.post_close_closed_sessions_before_prune == 1;
+    let post_prune_passed = report.post_close_marker_pruned
+        && report.post_close_reclose_avoided
+        && report.post_close_close_errors == 0
+        && report.post_close_last_error_kind.is_none();
+
+    vec![
+        TunTcpSessionCloseMarkerPruneSmokeCaseReport {
+            name: "create-server-close-marker",
+            action: "observe a server-close marker after relay EOF closes the TUN TCP session",
+            marker_kind: "server-close",
+            target: report.target.clone(),
+            client: report.client.clone(),
+            idle_timeout_ms: report.idle_timeout_ms,
+            prune_after_ms: report.prune_after_ms,
+            expected_pruned_server_closed_sessions: 0,
+            expected_pruned_post_closed_sessions: 0,
+            observed_pruned_sessions: 0,
+            observed_pruned_server_closed_sessions: 0,
+            observed_pruned_post_closed_sessions: 0,
+            active_sessions_after_marker: report.server_close_active_sessions_after_marker,
+            marker_count_before_prune: report.server_close_markers_before_prune,
+            marker_count_after_prune: report.server_close_markers_before_prune,
+            closed_sessions_before_prune: report.server_close_closed_sessions_before_prune,
+            closed_sessions_after_prune: report.server_close_closed_sessions_before_prune,
+            close_errors: 0,
+            observed_error_kind: None,
+            passed: server_create_passed,
+            error: case_error(server_create_passed),
+        },
+        TunTcpSessionCloseMarkerPruneSmokeCaseReport {
+            name: "prune-server-close-marker-without-reclosing-relay",
+            action: "prune the server-close marker after timeout without closing the relay again",
+            marker_kind: "server-close",
+            target: report.target.clone(),
+            client: report.client.clone(),
+            idle_timeout_ms: report.idle_timeout_ms,
+            prune_after_ms: report.prune_after_ms,
+            expected_pruned_server_closed_sessions: 1,
+            expected_pruned_post_closed_sessions: 0,
+            observed_pruned_sessions: report.server_close_pruned_sessions,
+            observed_pruned_server_closed_sessions: report
+                .server_close_pruned_server_closed_sessions,
+            observed_pruned_post_closed_sessions: report.server_close_pruned_post_closed_sessions,
+            active_sessions_after_marker: report.server_close_active_sessions_after_marker,
+            marker_count_before_prune: report.server_close_markers_before_prune,
+            marker_count_after_prune: report.server_close_markers_after_prune,
+            closed_sessions_before_prune: report.server_close_closed_sessions_before_prune,
+            closed_sessions_after_prune: report.server_close_closed_sessions_after_prune,
+            close_errors: report.server_close_close_errors,
+            observed_error_kind: report.server_close_last_error_kind.clone(),
+            passed: server_prune_passed,
+            error: case_error(server_prune_passed),
+        },
+        TunTcpSessionCloseMarkerPruneSmokeCaseReport {
+            name: "create-post-close-marker",
+            action: "observe a post-close marker after the client acknowledges the server FIN",
+            marker_kind: "post-close",
+            target: report.target.clone(),
+            client: report.client.clone(),
+            idle_timeout_ms: report.idle_timeout_ms,
+            prune_after_ms: report.prune_after_ms,
+            expected_pruned_server_closed_sessions: 0,
+            expected_pruned_post_closed_sessions: 0,
+            observed_pruned_sessions: 0,
+            observed_pruned_server_closed_sessions: 0,
+            observed_pruned_post_closed_sessions: 0,
+            active_sessions_after_marker: report.post_close_active_sessions_after_marker,
+            marker_count_before_prune: report.post_close_markers_before_prune,
+            marker_count_after_prune: report.post_close_markers_before_prune,
+            closed_sessions_before_prune: report.post_close_closed_sessions_before_prune,
+            closed_sessions_after_prune: report.post_close_closed_sessions_before_prune,
+            close_errors: 0,
+            observed_error_kind: None,
+            passed: post_create_passed,
+            error: case_error(post_create_passed),
+        },
+        TunTcpSessionCloseMarkerPruneSmokeCaseReport {
+            name: "prune-post-close-marker-without-reclosing-relay",
+            action: "prune the post-close marker after timeout without closing the relay again",
+            marker_kind: "post-close",
+            target: report.target.clone(),
+            client: report.client.clone(),
+            idle_timeout_ms: report.idle_timeout_ms,
+            prune_after_ms: report.prune_after_ms,
+            expected_pruned_server_closed_sessions: 0,
+            expected_pruned_post_closed_sessions: 1,
+            observed_pruned_sessions: report.post_close_pruned_sessions,
+            observed_pruned_server_closed_sessions: report.post_close_pruned_server_closed_sessions,
+            observed_pruned_post_closed_sessions: report.post_close_pruned_post_closed_sessions,
+            active_sessions_after_marker: report.post_close_active_sessions_after_marker,
+            marker_count_before_prune: report.post_close_markers_before_prune,
+            marker_count_after_prune: report.post_close_markers_after_prune,
+            closed_sessions_before_prune: report.post_close_closed_sessions_before_prune,
+            closed_sessions_after_prune: report.post_close_closed_sessions_after_prune,
+            close_errors: report.post_close_close_errors,
+            observed_error_kind: report.post_close_last_error_kind.clone(),
+            passed: post_prune_passed,
+            error: case_error(post_prune_passed),
+        },
+    ]
+}
+
+fn tun_tcp_session_close_marker_prune_smoke_ipv4_packet(
+    sequence_number: u32,
+    acknowledgment_number: u32,
+    flags: u16,
+    payload: &[u8],
+) -> Vec<u8> {
+    tun_tcp_session_smoke_ipv4_packet(
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_CLIENT_IP,
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_TARGET,
+        6,
+        &tun_tcp_session_smoke_tcp_segment(
+            TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_CLIENT_PORT,
+            TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_DESTINATION_PORT,
+            sequence_number,
+            acknowledgment_number,
+            flags,
+            TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_WINDOW_SIZE,
+            payload,
+        ),
+    )
+}
+
+fn tun_tcp_session_close_marker_prune_smoke_target() -> SocketAddr {
+    SocketAddr::new(
+        IpAddr::V4(TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_TARGET),
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_DESTINATION_PORT,
+    )
+}
+
+fn tun_tcp_session_close_marker_prune_smoke_client() -> SocketAddr {
+    SocketAddr::new(
+        IpAddr::V4(TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_CLIENT_IP),
+        TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_CLIENT_PORT,
+    )
+}
+
 fn tun_tcp_session_smoke_observed_response(writes: &[Vec<u8>]) -> Option<Vec<u8>> {
     writes.iter().find_map(|packet| {
         parse_tun_tcp_segment(packet).ok().and_then(|segment| {
@@ -51410,6 +52122,54 @@ mod tun_tcp_session_smoke_tests {
         assert_eq!(report.tcp_session_errors, 0);
         assert_eq!(report.tcp_session_limit_rejections, 0);
         assert!(report.clean_stop_observed);
+        assert!(report.residual_state_clean);
+        assert_eq!(report.cases.len(), 4);
+        assert!(report.cases.iter().all(|case| case.passed));
+    }
+
+    #[test]
+    fn default_tun_tcp_session_close_marker_prune_smoke_prunes_markers_without_reclosing_relay() {
+        let report = collect_default_tun_tcp_session_close_marker_prune_smoke_report();
+
+        assert!(report.passed, "{}", report.detail);
+        assert_eq!(
+            report.selected_outbound,
+            TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_OUTBOUND
+        );
+        assert_eq!(report.target, "93.184.216.34:443");
+        assert_eq!(report.client, "10.7.0.2:49152");
+        assert_eq!(
+            report.request_payload_bytes,
+            TUN_TCP_SESSION_CLOSE_MARKER_PRUNE_SMOKE_REQUEST.len()
+        );
+        assert_eq!(report.idle_timeout_ms, 5000);
+        assert_eq!(report.prune_after_ms, 10000);
+        assert!(report.server_close_marker_observed);
+        assert!(report.server_close_marker_pruned);
+        assert!(report.server_close_reclose_avoided);
+        assert_eq!(report.server_close_active_sessions_after_marker, 0);
+        assert_eq!(report.server_close_markers_before_prune, 1);
+        assert_eq!(report.server_close_markers_after_prune, 0);
+        assert_eq!(report.server_close_closed_sessions_before_prune, 1);
+        assert_eq!(report.server_close_closed_sessions_after_prune, 1);
+        assert_eq!(report.server_close_pruned_sessions, 0);
+        assert_eq!(report.server_close_pruned_server_closed_sessions, 1);
+        assert_eq!(report.server_close_pruned_post_closed_sessions, 0);
+        assert_eq!(report.server_close_close_errors, 0);
+        assert!(report.server_close_last_error_kind.is_none());
+        assert!(report.post_close_marker_observed);
+        assert!(report.post_close_marker_pruned);
+        assert!(report.post_close_reclose_avoided);
+        assert_eq!(report.post_close_active_sessions_after_marker, 0);
+        assert_eq!(report.post_close_markers_before_prune, 1);
+        assert_eq!(report.post_close_markers_after_prune, 0);
+        assert_eq!(report.post_close_closed_sessions_before_prune, 1);
+        assert_eq!(report.post_close_closed_sessions_after_prune, 1);
+        assert_eq!(report.post_close_pruned_sessions, 0);
+        assert_eq!(report.post_close_pruned_server_closed_sessions, 0);
+        assert_eq!(report.post_close_pruned_post_closed_sessions, 1);
+        assert_eq!(report.post_close_close_errors, 0);
+        assert!(report.post_close_last_error_kind.is_none());
         assert!(report.residual_state_clean);
         assert_eq!(report.cases.len(), 4);
         assert!(report.cases.iter().all(|case| case.passed));
@@ -53248,6 +54008,16 @@ fn write_readiness_check_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "readiness tun_tcp_session_close_marker_prune_smoke status={} cases={} detail={}",
+        tun_tcp_session_close_marker_prune_smoke_status_label(
+            &report.tun_tcp_session_close_marker_prune_smoke
+        ),
+        report.tun_tcp_session_close_marker_prune_smoke.cases.len(),
+        report.tun_tcp_session_close_marker_prune_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "readiness system_proxy_smoke status={} included={} detail={}",
         system_proxy_smoke_status_label(
             report.include_system_proxy_smoke,
@@ -53472,6 +54242,9 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         ),
         "tun_tcp_session_idle_prune_smoke": tun_tcp_session_idle_prune_smoke_json_value(
             &report.tun_tcp_session_idle_prune_smoke
+        ),
+        "tun_tcp_session_close_marker_prune_smoke": tun_tcp_session_close_marker_prune_smoke_json_value(
+            &report.tun_tcp_session_close_marker_prune_smoke
         ),
         "system_proxy_smoke": system_proxy_smoke_json_value(
             report.include_system_proxy_smoke,
@@ -54021,6 +54794,16 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification tun_tcp_session_close_marker_prune_smoke status={} cases={} detail={}",
+        tun_tcp_session_close_marker_prune_smoke_status_label(
+            &report.tun_tcp_session_close_marker_prune_smoke
+        ),
+        report.tun_tcp_session_close_marker_prune_smoke.cases.len(),
+        report.tun_tcp_session_close_marker_prune_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification system_proxy_smoke status={} included={} detail={}",
         system_proxy_smoke_status_label(
             report.include_system_proxy_smoke,
@@ -54183,6 +54966,9 @@ fn default_core_certification_json_value(
             "tun_tcp_session_limit_smoke_passed": report.tun_tcp_session_limit_smoke.passed,
             "tun_tcp_session_idle_prune_smoke_passed": report
                 .tun_tcp_session_idle_prune_smoke
+                .passed,
+            "tun_tcp_session_close_marker_prune_smoke_passed": report
+                .tun_tcp_session_close_marker_prune_smoke
                 .passed,
             "system_proxy_smoke_included": report.include_system_proxy_smoke,
             "system_proxy_smoke_passed": if report.include_system_proxy_smoke {
@@ -54362,6 +55148,9 @@ fn default_core_certification_json_value(
         ),
         "tun_tcp_session_idle_prune_smoke": tun_tcp_session_idle_prune_smoke_json_value(
             &report.tun_tcp_session_idle_prune_smoke
+        ),
+        "tun_tcp_session_close_marker_prune_smoke": tun_tcp_session_close_marker_prune_smoke_json_value(
+            &report.tun_tcp_session_close_marker_prune_smoke
         ),
         "system_proxy_smoke": system_proxy_smoke_json_value(
             report.include_system_proxy_smoke,
@@ -55057,6 +55846,104 @@ fn tun_tcp_session_idle_prune_smoke_case_json_value(
         "tcp_sessions_open": case.tcp_sessions_open,
         "tcp_session_errors": case.tcp_session_errors,
         "tun_writes_observed": case.tun_writes_observed,
+        "passed": case.passed,
+        "error": &case.error,
+    })
+}
+
+fn tun_tcp_session_close_marker_prune_smoke_status_label(
+    report: &TunTcpSessionCloseMarkerPruneSmokeReport,
+) -> &'static str {
+    if report.passed {
+        "passed"
+    } else {
+        "failed"
+    }
+}
+
+fn tun_tcp_session_close_marker_prune_smoke_json_value(
+    report: &TunTcpSessionCloseMarkerPruneSmokeReport,
+) -> serde_json::Value {
+    let cases: Vec<_> = report
+        .cases
+        .iter()
+        .map(tun_tcp_session_close_marker_prune_smoke_case_json_value)
+        .collect();
+    serde_json::json!({
+        "status": tun_tcp_session_close_marker_prune_smoke_status_label(report),
+        "passed": report.passed,
+        "detail": &report.detail,
+        "selected_outbound": &report.selected_outbound,
+        "target": &report.target,
+        "client": &report.client,
+        "request_payload_bytes": report.request_payload_bytes,
+        "idle_timeout_ms": report.idle_timeout_ms,
+        "prune_after_ms": report.prune_after_ms,
+        "server_close_marker_observed": report.server_close_marker_observed,
+        "server_close_marker_pruned": report.server_close_marker_pruned,
+        "server_close_reclose_avoided": report.server_close_reclose_avoided,
+        "server_close_active_sessions_after_marker": report
+            .server_close_active_sessions_after_marker,
+        "server_close_markers_before_prune": report.server_close_markers_before_prune,
+        "server_close_markers_after_prune": report.server_close_markers_after_prune,
+        "server_close_closed_sessions_before_prune": report
+            .server_close_closed_sessions_before_prune,
+        "server_close_closed_sessions_after_prune": report
+            .server_close_closed_sessions_after_prune,
+        "server_close_pruned_sessions": report.server_close_pruned_sessions,
+        "server_close_pruned_server_closed_sessions": report
+            .server_close_pruned_server_closed_sessions,
+        "server_close_pruned_post_closed_sessions": report
+            .server_close_pruned_post_closed_sessions,
+        "server_close_close_errors": report.server_close_close_errors,
+        "server_close_last_error_kind": &report.server_close_last_error_kind,
+        "post_close_marker_observed": report.post_close_marker_observed,
+        "post_close_marker_pruned": report.post_close_marker_pruned,
+        "post_close_reclose_avoided": report.post_close_reclose_avoided,
+        "post_close_active_sessions_after_marker": report.post_close_active_sessions_after_marker,
+        "post_close_markers_before_prune": report.post_close_markers_before_prune,
+        "post_close_markers_after_prune": report.post_close_markers_after_prune,
+        "post_close_closed_sessions_before_prune": report.post_close_closed_sessions_before_prune,
+        "post_close_closed_sessions_after_prune": report.post_close_closed_sessions_after_prune,
+        "post_close_pruned_sessions": report.post_close_pruned_sessions,
+        "post_close_pruned_server_closed_sessions": report
+            .post_close_pruned_server_closed_sessions,
+        "post_close_pruned_post_closed_sessions": report.post_close_pruned_post_closed_sessions,
+        "post_close_close_errors": report.post_close_close_errors,
+        "post_close_last_error_kind": &report.post_close_last_error_kind,
+        "residual_state_clean": report.residual_state_clean,
+        "case_count": report.cases.len(),
+        "passed_case_count": report.cases.iter().filter(|case| case.passed).count(),
+        "failed_case_count": report.cases.iter().filter(|case| !case.passed).count(),
+        "cases": cases,
+    })
+}
+
+fn tun_tcp_session_close_marker_prune_smoke_case_json_value(
+    case: &TunTcpSessionCloseMarkerPruneSmokeCaseReport,
+) -> serde_json::Value {
+    serde_json::json!({
+        "name": case.name,
+        "action": case.action,
+        "marker_kind": case.marker_kind,
+        "target": &case.target,
+        "client": &case.client,
+        "idle_timeout_ms": case.idle_timeout_ms,
+        "prune_after_ms": case.prune_after_ms,
+        "expected_pruned_server_closed_sessions": case
+            .expected_pruned_server_closed_sessions,
+        "expected_pruned_post_closed_sessions": case
+            .expected_pruned_post_closed_sessions,
+        "observed_pruned_sessions": case.observed_pruned_sessions,
+        "observed_pruned_server_closed_sessions": case.observed_pruned_server_closed_sessions,
+        "observed_pruned_post_closed_sessions": case.observed_pruned_post_closed_sessions,
+        "active_sessions_after_marker": case.active_sessions_after_marker,
+        "marker_count_before_prune": case.marker_count_before_prune,
+        "marker_count_after_prune": case.marker_count_after_prune,
+        "closed_sessions_before_prune": case.closed_sessions_before_prune,
+        "closed_sessions_after_prune": case.closed_sessions_after_prune,
+        "close_errors": case.close_errors,
+        "observed_error_kind": &case.observed_error_kind,
         "passed": case.passed,
         "error": &case.error,
     })

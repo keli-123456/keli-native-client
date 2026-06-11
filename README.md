@@ -708,7 +708,8 @@ evidence, DNS policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbou
 resource-limit smoke evidence,
 subscription reload smoke evidence, soak parameters, runtime recovery smoke
 evidence, TUN TCP session smoke evidence, TUN TCP session limit smoke evidence,
-TUN TCP session idle-prune smoke evidence, and the final
+TUN TCP session idle-prune smoke evidence, TUN TCP session close-marker prune
+smoke evidence, and the final
 `ready_for_default_core` decision for release automation and desktop UI
 handoff. Its JSON output mirrors
 the readiness blockers as `promotion_blockers` and includes a
@@ -727,7 +728,10 @@ keeps bounded active-session counters visible, and needs no host TUN adapter.
 The default TUN TCP session idle-prune smoke is likewise always part of
 readiness and certification, proving an idle TUN TCP session is pruned on the
 next packet-loop pass, leaves no residual session/close-marker state, and
-records the prune counters without host TUN access.
+records the prune counters without host TUN access. The default TUN TCP
+session close-marker prune smoke also runs without host TUN access, proving
+both server-close and post-close markers are pruned after timeout without
+closing the relay a second time.
 `--include-tun-runtime-smoke` carries the same real TUN runtime
 start/stop smoke evidence into the certification artifact for release runs that
 are allowed to touch system routes, with the same configurable minimum

@@ -562,6 +562,10 @@ proxies:
         "tun-tcp-session-idle-prune-smoke"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][85],
+        "tun-tcp-session-close-marker-prune-smoke"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -916,6 +920,10 @@ proxies:
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][84],
         "tun-tcp-session-idle-prune-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][85],
+        "tun-tcp-session-close-marker-prune-smoke"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
@@ -3184,6 +3192,10 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
         certification["certification"]["tun_tcp_session_idle_prune_smoke_passed"],
         true
     );
+    assert_eq!(
+        certification["certification"]["tun_tcp_session_close_marker_prune_smoke_passed"],
+        true
+    );
     assert_tun_tcp_session_smoke_json(&certification["tun_tcp_session_smoke"]);
     assert_tun_tcp_session_smoke_json(&certification["readiness"]["tun_tcp_session_smoke"]);
     assert_tun_tcp_session_limit_smoke_json(&certification["tun_tcp_session_limit_smoke"]);
@@ -3195,6 +3207,12 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     );
     assert_tun_tcp_session_idle_prune_smoke_json(
         &certification["readiness"]["tun_tcp_session_idle_prune_smoke"],
+    );
+    assert_tun_tcp_session_close_marker_prune_smoke_json(
+        &certification["tun_tcp_session_close_marker_prune_smoke"],
+    );
+    assert_tun_tcp_session_close_marker_prune_smoke_json(
+        &certification["readiness"]["tun_tcp_session_close_marker_prune_smoke"],
     );
     assert_eq!(certification["readiness"]["soak_min_duration_ms"], 50);
     let promotion_blockers = certification["promotion_blockers"]
@@ -4525,6 +4543,66 @@ fn assert_tun_tcp_session_idle_prune_smoke_json(smoke: &Value) {
     assert_eq!(prune["observed_pruned_sessions"], 1);
     assert!(prune["observed_error_kind"].is_null());
     assert_eq!(prune["passed"], true);
+}
+
+fn assert_tun_tcp_session_close_marker_prune_smoke_json(smoke: &Value) {
+    assert_eq!(smoke["status"], "passed");
+    assert_eq!(smoke["passed"], true);
+    assert_eq!(
+        smoke["selected_outbound"],
+        "TUN-TCP-SESSION-CLOSE-MARKER-PRUNE-SMOKE"
+    );
+    assert_eq!(smoke["target"], "93.184.216.34:443");
+    assert_eq!(smoke["client"], "10.7.0.2:49152");
+    assert_eq!(smoke["request_payload_bytes"], 5);
+    assert_eq!(smoke["idle_timeout_ms"], 5000);
+    assert_eq!(smoke["prune_after_ms"], 10000);
+    assert_eq!(smoke["server_close_marker_observed"], true);
+    assert_eq!(smoke["server_close_marker_pruned"], true);
+    assert_eq!(smoke["server_close_reclose_avoided"], true);
+    assert_eq!(smoke["server_close_markers_before_prune"], 1);
+    assert_eq!(smoke["server_close_markers_after_prune"], 0);
+    assert_eq!(smoke["server_close_closed_sessions_before_prune"], 1);
+    assert_eq!(smoke["server_close_closed_sessions_after_prune"], 1);
+    assert_eq!(smoke["server_close_pruned_server_closed_sessions"], 1);
+    assert_eq!(smoke["server_close_pruned_post_closed_sessions"], 0);
+    assert_eq!(smoke["server_close_close_errors"], 0);
+    assert!(smoke["server_close_last_error_kind"].is_null());
+    assert_eq!(smoke["post_close_marker_observed"], true);
+    assert_eq!(smoke["post_close_marker_pruned"], true);
+    assert_eq!(smoke["post_close_reclose_avoided"], true);
+    assert_eq!(smoke["post_close_markers_before_prune"], 1);
+    assert_eq!(smoke["post_close_markers_after_prune"], 0);
+    assert_eq!(smoke["post_close_closed_sessions_before_prune"], 1);
+    assert_eq!(smoke["post_close_closed_sessions_after_prune"], 1);
+    assert_eq!(smoke["post_close_pruned_server_closed_sessions"], 0);
+    assert_eq!(smoke["post_close_pruned_post_closed_sessions"], 1);
+    assert_eq!(smoke["post_close_close_errors"], 0);
+    assert!(smoke["post_close_last_error_kind"].is_null());
+    assert_eq!(smoke["residual_state_clean"], true);
+    assert_eq!(smoke["case_count"], 4);
+    assert_eq!(smoke["failed_case_count"], 0);
+    let cases = smoke["cases"]
+        .as_array()
+        .expect("TUN TCP close-marker prune smoke cases");
+    let server_prune = cases
+        .iter()
+        .find(|case| case["name"] == "prune-server-close-marker-without-reclosing-relay")
+        .expect("server-close prune case");
+    assert_eq!(server_prune["marker_kind"], "server-close");
+    assert_eq!(server_prune["observed_pruned_server_closed_sessions"], 1);
+    assert_eq!(server_prune["closed_sessions_before_prune"], 1);
+    assert_eq!(server_prune["closed_sessions_after_prune"], 1);
+    assert_eq!(server_prune["passed"], true);
+    let post_prune = cases
+        .iter()
+        .find(|case| case["name"] == "prune-post-close-marker-without-reclosing-relay")
+        .expect("post-close prune case");
+    assert_eq!(post_prune["marker_kind"], "post-close");
+    assert_eq!(post_prune["observed_pruned_post_closed_sessions"], 1);
+    assert_eq!(post_prune["closed_sessions_before_prune"], 1);
+    assert_eq!(post_prune["closed_sessions_after_prune"], 1);
+    assert_eq!(post_prune["passed"], true);
 }
 
 #[test]
