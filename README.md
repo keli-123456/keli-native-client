@@ -709,7 +709,7 @@ resource-limit smoke evidence,
 subscription reload smoke evidence, soak parameters, runtime recovery smoke
 evidence, TUN TCP session smoke evidence, TUN TCP session limit smoke evidence,
 TUN TCP session idle-prune smoke evidence, TUN TCP session close-marker prune
-smoke evidence, and the final
+smoke evidence, TUN TCP session close-marker RST-clear smoke evidence, and the final
 `ready_for_default_core` decision for release automation and desktop UI
 handoff. Its JSON output mirrors
 the readiness blockers as `promotion_blockers` and includes a
@@ -731,7 +731,9 @@ next packet-loop pass, leaves no residual session/close-marker state, and
 records the prune counters without host TUN access. The default TUN TCP
 session close-marker prune smoke also runs without host TUN access, proving
 both server-close and post-close markers are pruned after timeout without
-closing the relay a second time.
+closing the relay a second time. The default TUN TCP session close-marker
+RST-clear smoke proves matching client RST packets clear both marker kinds
+without emitting an extra reset packet or closing the relay again.
 `--include-tun-runtime-smoke` carries the same real TUN runtime
 start/stop smoke evidence into the certification artifact for release runs that
 are allowed to touch system routes, with the same configurable minimum

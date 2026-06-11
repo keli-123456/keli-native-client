@@ -725,7 +725,7 @@ The first implementation target is deliberately small:
    checks and exporting one promotion artifact with the embedded readiness
    report, TUN backend packaging evidence, structured TUN preflight evidence,
    route-rule smoke evidence, DNS policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, Trojan WebSocket TCP relay smoke evidence, Trojan HTTPUpgrade TCP relay smoke evidence, Trojan gRPC TCP relay smoke evidence, Trojan H2 TCP relay smoke evidence, Trojan QUIC TCP relay smoke evidence, Trojan QUIC UDP relay smoke evidence, Trojan TLS UDP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, AnyTLS TLS UDP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VLESS WebSocket TCP relay smoke evidence, VLESS WebSocket UDP relay smoke evidence, VLESS HTTPUpgrade TCP relay smoke evidence, VLESS HTTPUpgrade UDP relay smoke evidence, VLESS gRPC TCP relay smoke evidence, VLESS gRPC UDP relay smoke evidence, VLESS H2 TCP relay smoke evidence, VLESS H2 UDP relay smoke evidence, VLESS QUIC TCP relay smoke evidence, VLESS QUIC UDP relay smoke evidence, VLESS TCP UDP relay smoke evidence, VMess TCP relay smoke evidence, VMess WebSocket TCP relay smoke evidence, VMess WebSocket UDP relay smoke evidence, VMess HTTPUpgrade TCP relay smoke evidence, VMess HTTPUpgrade UDP relay smoke evidence, VMess gRPC TCP relay smoke evidence, VMess gRPC UDP relay smoke evidence, VMess H2 TCP relay smoke evidence, VMess H2 UDP relay smoke evidence, VMess QUIC TCP relay smoke evidence, VMess QUIC UDP relay smoke evidence, VMess TCP UDP relay smoke evidence, Mieru TCP relay smoke evidence, Mieru TCP UDP relay smoke evidence, UDP relay smoke evidence, SOCKS5 UDP outbound relay smoke evidence, subscription reload
-   smoke evidence, resource-limit smoke evidence, panel/subscription smoke evidence, runtime recovery smoke evidence, TUN TCP session smoke evidence, TUN TCP session limit smoke evidence, TUN TCP session idle-prune smoke evidence, TUN TCP session close-marker prune smoke evidence, certification
+   smoke evidence, resource-limit smoke evidence, panel/subscription smoke evidence, runtime recovery smoke evidence, TUN TCP session smoke evidence, TUN TCP session limit smoke evidence, TUN TCP session idle-prune smoke evidence, TUN TCP session close-marker prune smoke evidence, TUN TCP session close-marker RST-clear smoke evidence, certification
    parameters, and final
    `ready_for_default_core` decision for release automation and UI handoff. The
    certification artifact mirrors the blocker summary as `promotion_blockers`
@@ -748,7 +748,9 @@ The first implementation target is deliberately small:
    counters without host TUN access. The default TUN TCP session close-marker
    prune smoke also runs without host TUN access, proving both server-close and
    post-close markers are pruned after timeout without closing the relay a
-   second time. The optional TUN runtime smoke gate is also carried into certification JSON,
+   second time. The default TUN TCP session close-marker RST-clear smoke proves
+   matching client RST packets clear both marker kinds without emitting an
+   extra reset packet or closing the relay again. The optional TUN runtime smoke gate is also carried into certification JSON,
    letting release automation distinguish "preflight says ready" from "the
    runtime actually started, opened packet I/O, stayed alive for the requested
    smoke duration, observed real routed traffic, and stopped cleanly" on the
