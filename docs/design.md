@@ -769,7 +769,9 @@ The first implementation target is deliberately small:
    counts so release automation can explain machine-takeover failures from the
    gate payload alone. `release_gate.next_actions` maps those blockers to
    concrete command or remediation hints, with `next_action_count` for release
-   scripts that only need to know whether follow-up work remains. The nested
+   scripts that only need to know whether follow-up work remains. Release-gate
+   command errors include the same next-action list so CI logs remain actionable
+   even when the JSON artifact is not parsed inline. The nested
    `release_gate.stability` object lifts the
    existing local SOCKS5/HTTP CONNECT soak gate statuses, requested soak window,
    requested soak connection count, and optional TUN runtime duration result

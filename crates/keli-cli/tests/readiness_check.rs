@@ -5962,6 +5962,9 @@ fn default_core_certification_machine_takeover_release_gate_fails_without_takeov
 
     assert!(error.contains("machine-takeover release gate failed"));
     assert!(error.contains("machine-takeover-smokes-not-requested"));
+    assert!(error.contains("next_actions="));
+    assert!(error.contains("run-with-include-system-proxy-smoke"));
+    assert!(error.contains("run-with-include-tun-runtime-smoke"));
 
     let report: Value = serde_json::from_slice(&output).expect("certification JSON");
     assert_eq!(report["release_gate"]["status"], "failed");
