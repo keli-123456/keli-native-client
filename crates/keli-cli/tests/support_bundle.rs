@@ -1066,6 +1066,10 @@ proxies:
         "default-core-release-gate-canonical-rerun-args"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][109],
+        "default-core-release-gate-rerun-command"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
@@ -5524,6 +5528,10 @@ fn support_bundle_certification_records_release_gate_preset_evidence() {
     assert_eq!(
         certification["release_gate"]["rerun_arg_count"].as_u64(),
         Some(1)
+    );
+    assert_eq!(
+        certification["release_gate"]["rerun_command"],
+        "keli-cli default-core-certify --default-core-release-gate"
     );
     assert_eq!(
         certification["certification"]["release_gate_preset"],

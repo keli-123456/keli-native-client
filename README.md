@@ -913,7 +913,9 @@ the same `next_actions` list so CI logs are actionable without parsing the JSON
 artifact first. `release_gate.rerun_args` maps runnable next actions to concrete
 `default-core-certify` flags, with `rerun_arg_count` for automation that wants to
 surface a copy/paste retry; failed preset checks collapse that retry to the
-canonical `--default-core-release-gate` flag.
+canonical `--default-core-release-gate` flag. `release_gate.rerun_command`
+renders those args as a ready-to-display `keli-cli default-core-certify ...`
+retry, or `null` when no retry args are needed.
 When a release preset is requested, the preset itself is part of
 `release_gate.required_scope`; unmet preset minimums make the release gate
 `failed` with preset blockers instead of reporting `not-required`.

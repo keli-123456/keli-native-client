@@ -775,7 +775,10 @@ The first implementation target is deliberately small:
    maps runnable next actions to concrete `default-core-certify` flags so
    release tooling can present a copy/paste retry without hard-coding blocker
    names; failed preset checks use the canonical
-   `--default-core-release-gate` retry instead of expanded flags. The nested
+   `--default-core-release-gate` retry instead of expanded flags.
+   `release_gate.rerun_command` renders those args as a ready-to-display
+   `keli-cli default-core-certify ...` retry, or `null` when no retry is
+   needed. The nested
    `release_gate.stability` object lifts the
    existing local SOCKS5/HTTP CONNECT soak gate statuses, requested soak window,
    requested soak connection count, and optional TUN runtime duration result

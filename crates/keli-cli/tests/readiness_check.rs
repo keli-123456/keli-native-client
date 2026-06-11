@@ -5969,6 +5969,9 @@ fn default_core_certification_machine_takeover_release_gate_fails_without_takeov
     assert!(error.contains("rerun_args="));
     assert!(error.contains("--include-system-proxy-smoke"));
     assert!(error.contains("--include-tun-runtime-smoke"));
+    assert!(error.contains(
+        "rerun_command=keli-cli default-core-certify --include-system-proxy-smoke --include-tun-runtime-smoke"
+    ));
 
     let report: Value = serde_json::from_slice(&output).expect("certification JSON");
     assert_eq!(report["release_gate"]["status"], "failed");
@@ -6085,6 +6088,10 @@ fn default_core_certification_machine_takeover_release_gate_fails_without_takeov
     assert_eq!(
         report["release_gate"]["rerun_arg_count"].as_u64(),
         Some(rerun_args.len() as u64)
+    );
+    assert_eq!(
+        report["release_gate"]["rerun_command"],
+        "keli-cli default-core-certify --include-system-proxy-smoke --include-tun-runtime-smoke"
     );
 }
 
@@ -6323,6 +6330,10 @@ fn default_core_certification_records_release_gate_preset_evidence() {
     assert_eq!(rerun_args.len(), 1);
     assert_eq!(rerun_args[0], "--default-core-release-gate");
     assert_eq!(report["release_gate"]["rerun_arg_count"].as_u64(), Some(1));
+    assert_eq!(
+        report["release_gate"]["rerun_command"],
+        "keli-cli default-core-certify --default-core-release-gate"
+    );
     assert_eq!(
         report["certification"]["release_gate_preset"],
         "default-core-release-gate"
