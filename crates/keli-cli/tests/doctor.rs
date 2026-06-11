@@ -61,6 +61,9 @@ fn doctor_report_lists_supported_outbounds() {
         output.contains("default_core_certification_capabilities=schema-version,readiness-embed")
     );
     assert!(output.contains(
+        "default_core_release_gate_preset require_machine_takeover_ready=true include_system_proxy_smoke=true include_tun_runtime_smoke=true stability_window_ms=60000 stability_connections=25"
+    ));
+    assert!(output.contains(
         "supported_outbounds=direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic"
     ));
     assert!(output.contains(
@@ -123,6 +126,30 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(
         report["schema_versions"]["managed_mixed_status"],
         MANAGED_MIXED_STATUS_SCHEMA_VERSION
+    );
+    assert_eq!(
+        report["default_core_release_gate_preset"]["name"],
+        "default-core-release-gate"
+    );
+    assert_eq!(
+        report["default_core_release_gate_preset"]["require_machine_takeover_ready"],
+        true
+    );
+    assert_eq!(
+        report["default_core_release_gate_preset"]["include_system_proxy_smoke"],
+        true
+    );
+    assert_eq!(
+        report["default_core_release_gate_preset"]["include_tun_runtime_smoke"],
+        true
+    );
+    assert_eq!(
+        report["default_core_release_gate_preset"]["stability_window_ms"],
+        60000
+    );
+    assert_eq!(
+        report["default_core_release_gate_preset"]["stability_connections"],
+        25
     );
     assert_eq!(report["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(report["platform"], "Windows");

@@ -72,6 +72,30 @@ proxies:
         report["doctor"]["schema_versions"]["managed_mixed_status"],
         MANAGED_MIXED_STATUS_SCHEMA_VERSION
     );
+    assert_eq!(
+        report["doctor"]["default_core_release_gate_preset"]["name"],
+        "default-core-release-gate"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_release_gate_preset"]["require_machine_takeover_ready"],
+        true
+    );
+    assert_eq!(
+        report["doctor"]["default_core_release_gate_preset"]["include_system_proxy_smoke"],
+        true
+    );
+    assert_eq!(
+        report["doctor"]["default_core_release_gate_preset"]["include_tun_runtime_smoke"],
+        true
+    );
+    assert_eq!(
+        report["doctor"]["default_core_release_gate_preset"]["stability_window_ms"],
+        60000
+    );
+    assert_eq!(
+        report["doctor"]["default_core_release_gate_preset"]["stability_connections"],
+        25
+    );
     assert_eq!(report["interop_matrix"]["status"], "ok");
     assert_eq!(report["interop_matrix"]["kind"], "keli_interop_matrix");
     assert_eq!(

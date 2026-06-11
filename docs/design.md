@@ -414,7 +414,8 @@ The first implementation target is deliberately small:
    `--certification-machine-takeover-gate` similarly records the hard machine
    takeover release-gate scope and blockers inside the embedded certification
    artifact while still allowing support bundle collection to complete.
-   Doctor and support bundles advertise this stability diagnostic surface.
+   Doctor and support bundles advertise this stability diagnostic surface and
+   the default release preset's machine-readable 60s/25-connection criteria.
    `interop-matrix` now exposes the current protocol readiness matrix as text
    or JSON, including covered transports, TCP/UDP relay support, profile source
    coverage, validation sample counts, and outbound registry registration

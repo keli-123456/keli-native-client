@@ -547,7 +547,7 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(4);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 96;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 97;
 pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 86;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 82;
@@ -555,6 +555,7 @@ pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 90;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW: Duration = Duration::from_secs(60);
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS: usize = 25;
+const DEFAULT_CORE_RELEASE_GATE_PRESET_NAME: &str = "default-core-release-gate";
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
 const SUPPORTED_UDP_OUTBOUNDS: &str =
@@ -6569,6 +6570,12 @@ fn write_doctor_text_report(mut writer: impl Write, report: &DoctorReport) -> io
     )?;
     writeln!(
         writer,
+        "default_core_release_gate_preset require_machine_takeover_ready=true include_system_proxy_smoke=true include_tun_runtime_smoke=true stability_window_ms={} stability_connections={}",
+        duration_millis_for_report(DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW),
+        DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS
+    )?;
+    writeln!(
+        writer,
         "resource_limits runtime_event_history={} managed_status_recent_events={} managed_connection_report_history={} managed_connection_workers={} tun_tcp_max_active_sessions={}",
         report.runtime_event_history_limit,
         report.managed_status_recent_event_limit,
@@ -6654,6 +6661,7 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         "readiness_check_capabilities": &report.readiness_check_capabilities,
         "tun_backend_check_capabilities": &report.tun_backend_check_capabilities,
         "default_core_certification_capabilities": &report.default_core_certification_capabilities,
+        "default_core_release_gate_preset": default_core_release_gate_preset_json_value(),
         "resource_limits": {
             "runtime_event_history": report.runtime_event_history_limit,
             "managed_status_recent_events": report.managed_status_recent_event_limit,
@@ -6663,6 +6671,19 @@ fn doctor_report_json_value(report: &DoctorReport) -> serde_json::Value {
         },
         "sample_profile_valid": report.sample_profile_valid,
         "initial_phase": &report.initial_phase,
+    })
+}
+
+fn default_core_release_gate_preset_json_value() -> serde_json::Value {
+    serde_json::json!({
+        "name": DEFAULT_CORE_RELEASE_GATE_PRESET_NAME,
+        "require_machine_takeover_ready": true,
+        "include_system_proxy_smoke": true,
+        "include_tun_runtime_smoke": true,
+        "stability_window_ms": duration_millis_for_report(
+            DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW
+        ),
+        "stability_connections": DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS,
     })
 }
 

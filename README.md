@@ -774,9 +774,10 @@ start/stop smoke evidence into the certification artifact for release runs that
 are allowed to touch system routes, with the same configurable minimum
 duration. Doctor and support
 bundle output advertise the default-core certification schema and capability
-list, and the readiness doctor-schema gate now includes that certification
-schema so promotion tooling can discover the full evidence chain. Support
-bundles can also embed the same certification artifact with
+list plus the default release preset's 60s/25-connection stability criteria,
+and the readiness doctor-schema gate now includes that certification schema so
+promotion tooling can discover the full evidence chain. Support bundles can
+also embed the same certification artifact with
 `--include-certification`, keeping the default bundle lightweight while giving
 release/support flows a one-file promotion record when they need it.
 `--certification-stability-gate-ms` records the same hard stability-window
