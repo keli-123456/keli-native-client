@@ -558,6 +558,10 @@ proxies:
         "tun-tcp-session-limit-smoke"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][84],
+        "tun-tcp-session-idle-prune-smoke"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -908,6 +912,10 @@ proxies:
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][83],
         "tun-tcp-session-limit-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][84],
+        "tun-tcp-session-idle-prune-smoke"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
@@ -3172,11 +3180,21 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
         certification["certification"]["tun_tcp_session_limit_smoke_passed"],
         true
     );
+    assert_eq!(
+        certification["certification"]["tun_tcp_session_idle_prune_smoke_passed"],
+        true
+    );
     assert_tun_tcp_session_smoke_json(&certification["tun_tcp_session_smoke"]);
     assert_tun_tcp_session_smoke_json(&certification["readiness"]["tun_tcp_session_smoke"]);
     assert_tun_tcp_session_limit_smoke_json(&certification["tun_tcp_session_limit_smoke"]);
     assert_tun_tcp_session_limit_smoke_json(
         &certification["readiness"]["tun_tcp_session_limit_smoke"],
+    );
+    assert_tun_tcp_session_idle_prune_smoke_json(
+        &certification["tun_tcp_session_idle_prune_smoke"],
+    );
+    assert_tun_tcp_session_idle_prune_smoke_json(
+        &certification["readiness"]["tun_tcp_session_idle_prune_smoke"],
     );
     assert_eq!(certification["readiness"]["soak_min_duration_ms"], 50);
     let promotion_blockers = certification["promotion_blockers"]
@@ -4463,6 +4481,50 @@ fn assert_tun_tcp_session_limit_smoke_json(smoke: &Value) {
         .expect("observed TUN TCP session limit error")
         .contains("TcpSessionLimitExceeded"));
     assert_eq!(rejection["passed"], true);
+}
+
+fn assert_tun_tcp_session_idle_prune_smoke_json(smoke: &Value) {
+    assert_eq!(smoke["status"], "passed");
+    assert_eq!(smoke["passed"], true);
+    assert_eq!(
+        smoke["selected_outbound"],
+        "TUN-TCP-SESSION-IDLE-PRUNE-SMOKE"
+    );
+    assert_eq!(smoke["target"], "93.184.216.34:443");
+    assert_eq!(smoke["client"], "10.7.0.2:49152");
+    assert_eq!(smoke["idle_timeout_ms"], 0);
+    assert_eq!(smoke["prune_observed"], true);
+    assert_eq!(smoke["prune_error_free"], true);
+    assert!(smoke["last_error_kind"].is_null());
+    assert_eq!(smoke["starts_observed"], 1);
+    assert_eq!(smoke["opens_observed"], 1);
+    assert_eq!(smoke["stops_observed"], 1);
+    assert_eq!(smoke["tun_writes_observed"], 1);
+    assert_eq!(smoke["processed_packets"], 1);
+    assert_eq!(smoke["idle_events"], 1);
+    assert_eq!(smoke["packet_limit_reached"], false);
+    assert_eq!(smoke["tcp_session_events"], 1);
+    assert_eq!(smoke["tcp_session_packets_written"], 1);
+    assert_eq!(smoke["tcp_sessions_pruned"], 1);
+    assert_eq!(smoke["tcp_sessions_peak"], 1);
+    assert_eq!(smoke["tcp_sessions_open"], 0);
+    assert_eq!(smoke["tcp_session_errors"], 0);
+    assert_eq!(smoke["tcp_session_limit_rejections"], 0);
+    assert_eq!(smoke["clean_stop_observed"], true);
+    assert_eq!(smoke["residual_state_clean"], true);
+    assert_eq!(smoke["case_count"], 4);
+    assert_eq!(smoke["failed_case_count"], 0);
+    let cases = smoke["cases"]
+        .as_array()
+        .expect("TUN TCP session idle prune smoke cases");
+    let prune = cases
+        .iter()
+        .find(|case| case["name"] == "prune-idle-tun-tcp-session-before-next-read")
+        .expect("TUN TCP session idle prune case");
+    assert_eq!(prune["expected_pruned_sessions"], 1);
+    assert_eq!(prune["observed_pruned_sessions"], 1);
+    assert!(prune["observed_error_kind"].is_null());
+    assert_eq!(prune["passed"], true);
 }
 
 #[test]
