@@ -839,66 +839,70 @@ fn doctor_json_report_is_machine_readable() {
     );
     assert_eq!(
         report["readiness_check_capabilities"][64],
-        "vless-quic-tcp-relay-smoke"
+        "vless-h2-udp-relay-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][65],
-        "vless-quic-udp-relay-smoke"
+        "vless-quic-tcp-relay-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][66],
-        "vless-tcp-udp-relay-smoke"
+        "vless-quic-udp-relay-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][67],
-        "vmess-tcp-relay-smoke"
+        "vless-tcp-udp-relay-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][68],
-        "vmess-ws-tcp-relay-smoke"
+        "vmess-tcp-relay-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][69],
-        "vmess-ws-udp-relay-smoke"
+        "vmess-ws-tcp-relay-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][70],
-        "vmess-httpupgrade-tcp-relay-smoke"
+        "vmess-ws-udp-relay-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][71],
-        "vmess-httpupgrade-udp-relay-smoke"
+        "vmess-httpupgrade-tcp-relay-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][72],
-        "vmess-grpc-tcp-relay-smoke"
+        "vmess-httpupgrade-udp-relay-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][73],
-        "vmess-grpc-udp-relay-smoke"
+        "vmess-grpc-tcp-relay-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][74],
-        "vmess-h2-tcp-relay-smoke"
+        "vmess-grpc-udp-relay-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][75],
-        "vmess-quic-tcp-relay-smoke"
+        "vmess-h2-tcp-relay-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][76],
-        "vmess-quic-udp-relay-smoke"
+        "vmess-quic-tcp-relay-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][77],
-        "vmess-tcp-udp-relay-smoke"
+        "vmess-quic-udp-relay-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][78],
-        "mieru-tcp-relay-smoke"
+        "vmess-tcp-udp-relay-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][79],
+        "mieru-tcp-relay-smoke"
+    );
+    assert_eq!(
+        report["readiness_check_capabilities"][80],
         "mieru-tcp-udp-relay-smoke"
     );
     assert_eq!(report["tun_backend_check_capabilities"][0], "backend-kind");
@@ -1165,66 +1169,70 @@ fn doctor_json_report_is_machine_readable() {
     );
     assert_eq!(
         report["default_core_certification_capabilities"][64],
-        "vless-quic-tcp-relay-smoke"
+        "vless-h2-udp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][65],
-        "vless-quic-udp-relay-smoke"
+        "vless-quic-tcp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][66],
-        "vless-tcp-udp-relay-smoke"
+        "vless-quic-udp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][67],
-        "vmess-tcp-relay-smoke"
+        "vless-tcp-udp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][68],
-        "vmess-ws-tcp-relay-smoke"
+        "vmess-tcp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][69],
-        "vmess-ws-udp-relay-smoke"
+        "vmess-ws-tcp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][70],
-        "vmess-httpupgrade-tcp-relay-smoke"
+        "vmess-ws-udp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][71],
-        "vmess-httpupgrade-udp-relay-smoke"
+        "vmess-httpupgrade-tcp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][72],
-        "vmess-grpc-tcp-relay-smoke"
+        "vmess-httpupgrade-udp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][73],
-        "vmess-grpc-udp-relay-smoke"
+        "vmess-grpc-tcp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][74],
-        "vmess-h2-tcp-relay-smoke"
+        "vmess-grpc-udp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][75],
-        "vmess-quic-tcp-relay-smoke"
+        "vmess-h2-tcp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][76],
-        "vmess-quic-udp-relay-smoke"
+        "vmess-quic-tcp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][77],
-        "vmess-tcp-udp-relay-smoke"
+        "vmess-quic-udp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][78],
-        "mieru-tcp-relay-smoke"
+        "vmess-tcp-udp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][79],
+        "mieru-tcp-relay-smoke"
+    );
+    assert_eq!(
+        report["default_core_certification_capabilities"][80],
         "mieru-tcp-udp-relay-smoke"
     );
     assert_eq!(
