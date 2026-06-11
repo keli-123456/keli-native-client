@@ -707,7 +707,8 @@ packaging evidence, structured TUN preflight evidence, route-rule smoke
 evidence, DNS policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, Trojan WebSocket TCP relay smoke evidence, Trojan HTTPUpgrade TCP relay smoke evidence, Trojan gRPC TCP relay smoke evidence, Trojan H2 TCP relay smoke evidence, Trojan QUIC TCP relay smoke evidence, Trojan QUIC UDP relay smoke evidence, Trojan TLS UDP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, AnyTLS TLS UDP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VLESS WebSocket TCP relay smoke evidence, VLESS WebSocket UDP relay smoke evidence, VLESS HTTPUpgrade TCP relay smoke evidence, VLESS HTTPUpgrade UDP relay smoke evidence, VLESS gRPC TCP relay smoke evidence, VLESS gRPC UDP relay smoke evidence, VLESS H2 TCP relay smoke evidence, VLESS H2 UDP relay smoke evidence, VLESS QUIC TCP relay smoke evidence, VLESS QUIC UDP relay smoke evidence, VLESS TCP UDP relay smoke evidence, VMess TCP relay smoke evidence, VMess WebSocket TCP relay smoke evidence, VMess WebSocket UDP relay smoke evidence, VMess HTTPUpgrade TCP relay smoke evidence, VMess HTTPUpgrade UDP relay smoke evidence, VMess gRPC TCP relay smoke evidence, VMess gRPC UDP relay smoke evidence, VMess H2 TCP relay smoke evidence, VMess H2 UDP relay smoke evidence, VMess QUIC TCP relay smoke evidence, VMess QUIC UDP relay smoke evidence, VMess TCP UDP relay smoke evidence, Mieru TCP relay smoke evidence, Mieru TCP UDP relay smoke evidence, UDP relay smoke evidence, SOCKS5 UDP outbound relay smoke evidence,
 resource-limit smoke evidence,
 subscription reload smoke evidence, soak parameters, runtime recovery smoke
-evidence, TUN TCP session smoke evidence, and the final
+evidence, TUN TCP session smoke evidence, TUN TCP session limit smoke evidence,
+and the final
 `ready_for_default_core` decision for release automation and desktop UI
 handoff. Its JSON output mirrors
 the readiness blockers as `promotion_blockers` and includes a
@@ -719,7 +720,11 @@ certification artifact for release runs that are allowed to touch Windows proxy
 settings. The default TUN TCP session smoke is always part of readiness and
 certification, proving the managed packet loop can relay a TCP session through
 the outbound registry and clean up session state without touching the host TUN
-adapter. `--include-tun-runtime-smoke` carries the same real TUN runtime
+adapter. The default TUN TCP session limit smoke is also always part of
+readiness and certification, proving the managed packet loop enforces the
+max-active-session guard, records one `TcpSessionLimitExceeded` rejection,
+keeps bounded active-session counters visible, and needs no host TUN adapter.
+`--include-tun-runtime-smoke` carries the same real TUN runtime
 start/stop smoke evidence into the certification artifact for release runs that
 are allowed to touch system routes, with the same configurable minimum
 duration. Doctor and support

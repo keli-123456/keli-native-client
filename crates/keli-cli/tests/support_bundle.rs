@@ -554,6 +554,10 @@ proxies:
         "tun-tcp-session-smoke"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][83],
+        "tun-tcp-session-limit-smoke"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -900,6 +904,10 @@ proxies:
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][82],
         "tun-tcp-session-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][83],
+        "tun-tcp-session-limit-smoke"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
@@ -3160,8 +3168,16 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
         certification["certification"]["tun_tcp_session_smoke_passed"],
         true
     );
+    assert_eq!(
+        certification["certification"]["tun_tcp_session_limit_smoke_passed"],
+        true
+    );
     assert_tun_tcp_session_smoke_json(&certification["tun_tcp_session_smoke"]);
     assert_tun_tcp_session_smoke_json(&certification["readiness"]["tun_tcp_session_smoke"]);
+    assert_tun_tcp_session_limit_smoke_json(&certification["tun_tcp_session_limit_smoke"]);
+    assert_tun_tcp_session_limit_smoke_json(
+        &certification["readiness"]["tun_tcp_session_limit_smoke"],
+    );
     assert_eq!(certification["readiness"]["soak_min_duration_ms"], 50);
     let promotion_blockers = certification["promotion_blockers"]
         .as_array()
@@ -4401,6 +4417,52 @@ fn assert_tun_tcp_session_smoke_json(smoke: &Value) {
         .expect("TUN TCP session response case");
     assert_eq!(response["observed_response"], "HTTP/1.1");
     assert_eq!(response["passed"], true);
+}
+
+fn assert_tun_tcp_session_limit_smoke_json(smoke: &Value) {
+    assert_eq!(smoke["status"], "passed");
+    assert_eq!(smoke["passed"], true);
+    assert_eq!(smoke["selected_outbound"], "TUN-TCP-SESSION-LIMIT-SMOKE");
+    assert_eq!(smoke["target"], "93.184.216.34:443");
+    assert_eq!(smoke["first_client"], "10.7.0.2:49152");
+    assert_eq!(smoke["second_client"], "10.7.0.3:49153");
+    assert_eq!(smoke["max_active_sessions"], 1);
+    assert_eq!(smoke["limit_rejection_observed"], true);
+    assert_eq!(smoke["session_error_observed"], true);
+    assert!(smoke["last_error_kind"]
+        .as_str()
+        .expect("TUN TCP session limit error")
+        .contains("TcpSessionLimitExceeded"));
+    assert_eq!(smoke["starts_observed"], 1);
+    assert_eq!(smoke["opens_observed"], 1);
+    assert_eq!(smoke["stops_observed"], 1);
+    assert_eq!(smoke["tun_writes_observed"], 1);
+    assert_eq!(smoke["processed_packets"], 2);
+    assert_eq!(smoke["tcp_session_events"], 1);
+    assert_eq!(smoke["tcp_session_packets_written"], 1);
+    assert_eq!(smoke["tcp_sessions_peak"], 1);
+    assert_eq!(smoke["tcp_sessions_open"], 1);
+    assert_eq!(smoke["tcp_session_errors"], 1);
+    assert_eq!(smoke["tcp_session_limit_rejections"], 1);
+    assert_eq!(smoke["tcp_max_active_sessions"], 1);
+    assert_eq!(smoke["clean_stop_observed"], true);
+    assert_eq!(smoke["active_session_retained"], true);
+    assert_eq!(smoke["bounded_state_observed"], true);
+    assert_eq!(smoke["case_count"], 4);
+    assert_eq!(smoke["failed_case_count"], 0);
+    let cases = smoke["cases"]
+        .as_array()
+        .expect("TUN TCP session limit smoke cases");
+    let rejection = cases
+        .iter()
+        .find(|case| case["name"] == "reject-second-tun-tcp-session-over-limit")
+        .expect("TUN TCP session limit rejection case");
+    assert_eq!(rejection["expected_error_kind"], "TcpSessionLimitExceeded");
+    assert!(rejection["observed_error_kind"]
+        .as_str()
+        .expect("observed TUN TCP session limit error")
+        .contains("TcpSessionLimitExceeded"));
+    assert_eq!(rejection["passed"], true);
 }
 
 #[test]

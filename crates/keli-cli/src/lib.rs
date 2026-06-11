@@ -100,6 +100,15 @@ const TUN_TCP_SESSION_SMOKE_CLIENT_PORT: u16 = 49152;
 const TUN_TCP_SESSION_SMOKE_MAX_PACKETS: usize = 4;
 const TUN_TCP_SESSION_SMOKE_REQUEST: &[u8] = b"GET /";
 const TUN_TCP_SESSION_SMOKE_RESPONSE: &[u8] = b"HTTP/1.1";
+const TUN_TCP_SESSION_LIMIT_SMOKE_OUTBOUND: &str = "TUN-TCP-SESSION-LIMIT-SMOKE";
+const TUN_TCP_SESSION_LIMIT_SMOKE_TARGET: Ipv4Addr = Ipv4Addr::new(93, 184, 216, 34);
+const TUN_TCP_SESSION_LIMIT_SMOKE_DESTINATION_PORT: u16 = 443;
+const TUN_TCP_SESSION_LIMIT_SMOKE_FIRST_CLIENT_IP: Ipv4Addr = Ipv4Addr::new(10, 7, 0, 2);
+const TUN_TCP_SESSION_LIMIT_SMOKE_SECOND_CLIENT_IP: Ipv4Addr = Ipv4Addr::new(10, 7, 0, 3);
+const TUN_TCP_SESSION_LIMIT_SMOKE_FIRST_CLIENT_PORT: u16 = 49152;
+const TUN_TCP_SESSION_LIMIT_SMOKE_SECOND_CLIENT_PORT: u16 = 49153;
+const TUN_TCP_SESSION_LIMIT_SMOKE_MAX_ACTIVE_SESSIONS: usize = 1;
+const TUN_TCP_SESSION_LIMIT_SMOKE_MAX_PACKETS: usize = 2;
 const DEFAULT_MIXED_SOAK_CONNECTIONS: usize = 25;
 const DEFAULT_MIXED_SOAK_MIN_DURATION: Duration = Duration::from_millis(0);
 const DEFAULT_READINESS_SOAK_CONNECTIONS: usize = 3;
@@ -501,11 +510,11 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(4);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 84;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 74;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 85;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 75;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 73;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 73;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 74;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 74;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -530,11 +539,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-limit-smoke";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-limit-smoke";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -7320,6 +7329,7 @@ pub struct DefaultCoreReadinessReport {
     pub tun_runtime_smoke_min_duration: Duration,
     pub tun_runtime_smoke: Option<TunRuntimeSmokeReport>,
     pub tun_tcp_session_smoke: TunTcpSessionSmokeReport,
+    pub tun_tcp_session_limit_smoke: TunTcpSessionLimitSmokeReport,
     pub gates: Vec<ReadinessGateReport>,
 }
 
@@ -7390,6 +7400,7 @@ pub struct DefaultCoreCertificationReport {
     pub tun_runtime_smoke_min_duration: Duration,
     pub tun_runtime_smoke: Option<TunRuntimeSmokeReport>,
     pub tun_tcp_session_smoke: TunTcpSessionSmokeReport,
+    pub tun_tcp_session_limit_smoke: TunTcpSessionLimitSmokeReport,
     pub soak_connections: usize,
     pub first_byte_timeout: Duration,
     pub max_connection_workers: usize,
@@ -7795,6 +7806,58 @@ pub struct TunTcpSessionSmokeCaseReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunTcpSessionLimitSmokeReport {
+    pub passed: bool,
+    pub detail: String,
+    pub selected_outbound: String,
+    pub target: String,
+    pub first_client: String,
+    pub second_client: String,
+    pub max_active_sessions: usize,
+    pub limit_rejection_observed: bool,
+    pub session_error_observed: bool,
+    pub last_error_kind: Option<String>,
+    pub starts_observed: usize,
+    pub opens_observed: usize,
+    pub stops_observed: usize,
+    pub tun_writes_observed: usize,
+    pub processed_packets: usize,
+    pub tcp_session_events: usize,
+    pub tcp_session_packets_written: usize,
+    pub tcp_sessions_peak: usize,
+    pub tcp_sessions_open: usize,
+    pub tcp_session_errors: usize,
+    pub tcp_session_limit_rejections: usize,
+    pub tcp_max_active_sessions: usize,
+    pub clean_stop_observed: bool,
+    pub active_session_retained: bool,
+    pub bounded_state_observed: bool,
+    pub cases: Vec<TunTcpSessionLimitSmokeCaseReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunTcpSessionLimitSmokeCaseReport {
+    pub name: &'static str,
+    pub action: &'static str,
+    pub target: String,
+    pub first_client: String,
+    pub second_client: String,
+    pub max_active_sessions: usize,
+    pub expected_error_kind: Option<&'static str>,
+    pub observed_error_kind: Option<String>,
+    pub processed_packets: usize,
+    pub tcp_session_events: usize,
+    pub tcp_session_packets_written: usize,
+    pub tcp_sessions_peak: usize,
+    pub tcp_sessions_open: usize,
+    pub tcp_session_errors: usize,
+    pub tcp_session_limit_rejections: usize,
+    pub tun_writes_observed: usize,
+    pub passed: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct TunRuntimeSmokeRunEvidence {
     interface_snapshot: TunRuntimeSmokeInterfaceSnapshot,
     traffic_stimulus: TunRuntimeSmokeTrafficStimulusReport,
@@ -8112,6 +8175,7 @@ fn collect_default_core_certification_report(
     let subscription_reload_smoke = readiness.subscription_reload_smoke.clone();
     let runtime_recovery_smoke = readiness.runtime_recovery_smoke.clone();
     let tun_tcp_session_smoke = readiness.tun_tcp_session_smoke.clone();
+    let tun_tcp_session_limit_smoke = readiness.tun_tcp_session_limit_smoke.clone();
     let system_proxy_smoke = readiness.system_proxy_smoke.clone();
     let system_proxy_smoke_ready = !include_system_proxy_smoke
         || system_proxy_smoke
@@ -8181,6 +8245,7 @@ fn collect_default_core_certification_report(
         && subscription_reload_smoke.passed
         && runtime_recovery_smoke.passed
         && tun_tcp_session_smoke.passed
+        && tun_tcp_session_limit_smoke.passed
         && system_proxy_smoke_ready
         && tun_runtime_smoke_ready;
 
@@ -8245,6 +8310,7 @@ fn collect_default_core_certification_report(
         subscription_reload_smoke,
         runtime_recovery_smoke,
         tun_tcp_session_smoke,
+        tun_tcp_session_limit_smoke,
         include_system_proxy_smoke,
         system_proxy_smoke,
         include_tun_runtime_smoke,
@@ -8337,6 +8403,7 @@ fn collect_readiness_check_report(
     let subscription_reload_smoke = collect_default_subscription_reload_smoke_report();
     let runtime_recovery_smoke = collect_default_runtime_recovery_smoke_report();
     let tun_tcp_session_smoke = collect_default_tun_tcp_session_smoke_report();
+    let tun_tcp_session_limit_smoke = collect_default_tun_tcp_session_limit_smoke_report();
     let mut system_proxy_smoke = None;
     let mut tun_runtime_smoke = None;
     let mut gates = vec![
@@ -8706,6 +8773,7 @@ fn collect_readiness_check_report(
             runtime_recovery_smoke.detail.clone(),
         ),
         readiness_tun_tcp_session_smoke_gate(&tun_tcp_session_smoke),
+        readiness_tun_tcp_session_limit_smoke_gate(&tun_tcp_session_limit_smoke),
         readiness_gate(
             "panel-subscription-state",
             "managed-runtime",
@@ -8894,6 +8962,7 @@ fn collect_readiness_check_report(
         subscription_reload_smoke,
         runtime_recovery_smoke,
         tun_tcp_session_smoke,
+        tun_tcp_session_limit_smoke,
         include_system_proxy_smoke,
         system_proxy_smoke,
         include_tun_runtime_smoke,
@@ -49829,6 +49898,17 @@ fn readiness_tun_tcp_session_smoke_gate(
     )
 }
 
+fn readiness_tun_tcp_session_limit_smoke_gate(
+    smoke_report: &TunTcpSessionLimitSmokeReport,
+) -> ReadinessGateReport {
+    readiness_gate(
+        "tun-tcp-session-limit-smoke",
+        "platform",
+        smoke_report.passed,
+        smoke_report.detail.clone(),
+    )
+}
+
 fn collect_default_tun_tcp_session_smoke_report() -> TunTcpSessionSmokeReport {
     match run_default_tun_tcp_session_smoke() {
         Ok(evidence) => tun_tcp_session_smoke_report_from_evidence(evidence),
@@ -50109,6 +50189,346 @@ fn tun_tcp_session_smoke_cases(
                 && report.tcp_session_limit_rejections == 0,
         ),
     ]
+}
+
+fn collect_default_tun_tcp_session_limit_smoke_report() -> TunTcpSessionLimitSmokeReport {
+    match run_default_tun_tcp_session_limit_smoke() {
+        Ok(evidence) => tun_tcp_session_limit_smoke_report_from_evidence(evidence),
+        Err(error) => tun_tcp_session_limit_smoke_failed_report(error),
+    }
+}
+
+#[derive(Debug)]
+struct TunTcpSessionLimitSmokeRunEvidence {
+    report: ManagedTunPacketLoopReport,
+    target: SocketAddr,
+    first_client: SocketAddr,
+    second_client: SocketAddr,
+    starts_observed: usize,
+    opens_observed: usize,
+    stops_observed: usize,
+    tun_writes: Vec<Vec<u8>>,
+}
+
+fn run_default_tun_tcp_session_limit_smoke() -> Result<TunTcpSessionLimitSmokeRunEvidence, String> {
+    let config = default_tun_device_config();
+    let stopped_snapshot = tun_tcp_session_smoke_stopped_snapshot();
+    let target = tun_tcp_session_limit_smoke_target();
+    let first_client = tun_tcp_session_limit_smoke_first_client();
+    let second_client = tun_tcp_session_limit_smoke_second_client();
+    let tun_writes = Arc::new(Mutex::new(Vec::new()));
+    let packet_io = TunTcpSessionSmokeFakePacketIo {
+        reads: VecDeque::from(tun_tcp_session_limit_smoke_packets()),
+        writes: Vec::new(),
+        shared_writes: Arc::clone(&tun_writes),
+    };
+    let controller = TunTcpSessionSmokeFakeController::new(
+        stopped_snapshot.clone(),
+        TunDeviceSnapshot::running(&config),
+        stopped_snapshot,
+        packet_io,
+    );
+    let runtime = default_tun_tcp_session_limit_smoke_runtime();
+
+    let report = run_managed_tun_packet_loop_with_runtime(
+        &controller,
+        config,
+        &runtime,
+        DEFAULT_TUN_DNS_TTL_SECONDS,
+        TUN_TCP_SESSION_LIMIT_SMOKE_MAX_PACKETS,
+    )?;
+    let tun_writes = tun_writes
+        .lock()
+        .map_err(|_| "TUN TCP session limit smoke writes lock poisoned".to_string())?
+        .clone();
+
+    Ok(TunTcpSessionLimitSmokeRunEvidence {
+        report,
+        target,
+        first_client,
+        second_client,
+        starts_observed: controller.starts_observed()?,
+        opens_observed: controller.opens_observed()?,
+        stops_observed: controller.stops_observed(),
+        tun_writes,
+    })
+}
+
+fn default_tun_tcp_session_limit_smoke_runtime() -> MixedProxyRuntime {
+    let mut outbounds = OutboundRegistry::new();
+    outbounds.add_direct(TUN_TCP_SESSION_LIMIT_SMOKE_OUTBOUND);
+    MixedProxyRuntime {
+        routes: RouteEngine::new(RouteAction::Outbound(
+            TUN_TCP_SESSION_LIMIT_SMOKE_OUTBOUND.to_string(),
+        )),
+        relay_options: RelayOptions {
+            first_byte_timeout: Some(Duration::from_secs(1)),
+            idle_timeout: Some(Duration::from_secs(1)),
+        },
+        outbounds,
+        dns_options: MixedDnsOptions::default(),
+        tun_tcp_max_active_sessions: TUN_TCP_SESSION_LIMIT_SMOKE_MAX_ACTIVE_SESSIONS,
+        connection_metrics: ConnectionMetrics::default(),
+        max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+        connection_worker_gauge: ConnectionWorkerGauge::default(),
+        active_connection_registry: ActiveConnectionRegistry::default(),
+    }
+}
+
+fn tun_tcp_session_limit_smoke_report_from_evidence(
+    evidence: TunTcpSessionLimitSmokeRunEvidence,
+) -> TunTcpSessionLimitSmokeReport {
+    let summary = &evidence.report.summary;
+    let last_error_kind = summary
+        .last_tcp_session_error
+        .as_ref()
+        .map(|error| format!("{error:?}"));
+    let limit_rejection_observed = summary.tcp_session_limit_rejections == 1
+        && last_error_kind
+            .as_deref()
+            .map(|error| error.contains("TcpSessionLimitExceeded"))
+            .unwrap_or(false);
+    let session_error_observed =
+        summary.tcp_session_errors == 1 && summary.last_tcp_session_error.is_some();
+    let clean_stop_observed =
+        evidence.stops_observed == 1 && !evidence.report.stop_snapshot.running;
+    let active_session_retained = summary.tcp_sessions_open == 1;
+    let bounded_state_observed = summary.tcp_max_active_sessions
+        == TUN_TCP_SESSION_LIMIT_SMOKE_MAX_ACTIVE_SESSIONS
+        && summary.tcp_sessions_peak == TUN_TCP_SESSION_LIMIT_SMOKE_MAX_ACTIVE_SESSIONS
+        && active_session_retained;
+    let mut report = TunTcpSessionLimitSmokeReport {
+        passed: false,
+        detail: String::new(),
+        selected_outbound: TUN_TCP_SESSION_LIMIT_SMOKE_OUTBOUND.to_string(),
+        target: evidence.target.to_string(),
+        first_client: evidence.first_client.to_string(),
+        second_client: evidence.second_client.to_string(),
+        max_active_sessions: TUN_TCP_SESSION_LIMIT_SMOKE_MAX_ACTIVE_SESSIONS,
+        limit_rejection_observed,
+        session_error_observed,
+        last_error_kind,
+        starts_observed: evidence.starts_observed,
+        opens_observed: evidence.opens_observed,
+        stops_observed: evidence.stops_observed,
+        tun_writes_observed: evidence.tun_writes.len(),
+        processed_packets: summary.processed_packets(),
+        tcp_session_events: summary.tcp_session_events,
+        tcp_session_packets_written: summary.tcp_session_packets_written,
+        tcp_sessions_peak: summary.tcp_sessions_peak,
+        tcp_sessions_open: summary.tcp_sessions_open,
+        tcp_session_errors: summary.tcp_session_errors,
+        tcp_session_limit_rejections: summary.tcp_session_limit_rejections,
+        tcp_max_active_sessions: summary.tcp_max_active_sessions,
+        clean_stop_observed,
+        active_session_retained,
+        bounded_state_observed,
+        cases: Vec::new(),
+    };
+    report.passed = tun_tcp_session_limit_smoke_passed(&report);
+    report.detail = tun_tcp_session_limit_smoke_detail(&report);
+    report.cases = tun_tcp_session_limit_smoke_cases(&report, None);
+    report
+}
+
+fn tun_tcp_session_limit_smoke_failed_report(error: String) -> TunTcpSessionLimitSmokeReport {
+    let mut report = TunTcpSessionLimitSmokeReport {
+        passed: false,
+        detail: format!("TUN TCP session limit smoke failed: {error}"),
+        selected_outbound: TUN_TCP_SESSION_LIMIT_SMOKE_OUTBOUND.to_string(),
+        target: tun_tcp_session_limit_smoke_target().to_string(),
+        first_client: tun_tcp_session_limit_smoke_first_client().to_string(),
+        second_client: tun_tcp_session_limit_smoke_second_client().to_string(),
+        max_active_sessions: TUN_TCP_SESSION_LIMIT_SMOKE_MAX_ACTIVE_SESSIONS,
+        limit_rejection_observed: false,
+        session_error_observed: false,
+        last_error_kind: Some(error.clone()),
+        starts_observed: 0,
+        opens_observed: 0,
+        stops_observed: 0,
+        tun_writes_observed: 0,
+        processed_packets: 0,
+        tcp_session_events: 0,
+        tcp_session_packets_written: 0,
+        tcp_sessions_peak: 0,
+        tcp_sessions_open: 0,
+        tcp_session_errors: 0,
+        tcp_session_limit_rejections: 0,
+        tcp_max_active_sessions: TUN_TCP_SESSION_LIMIT_SMOKE_MAX_ACTIVE_SESSIONS,
+        clean_stop_observed: false,
+        active_session_retained: false,
+        bounded_state_observed: false,
+        cases: Vec::new(),
+    };
+    report.cases = tun_tcp_session_limit_smoke_cases(&report, Some(error));
+    report
+}
+
+fn tun_tcp_session_limit_smoke_passed(report: &TunTcpSessionLimitSmokeReport) -> bool {
+    report.starts_observed == 1
+        && report.opens_observed == 1
+        && report.stops_observed == 1
+        && report.tun_writes_observed == 1
+        && report.processed_packets == TUN_TCP_SESSION_LIMIT_SMOKE_MAX_PACKETS
+        && report.tcp_session_events == 1
+        && report.tcp_session_packets_written == 1
+        && report.tcp_sessions_peak == TUN_TCP_SESSION_LIMIT_SMOKE_MAX_ACTIVE_SESSIONS
+        && report.tcp_sessions_open == TUN_TCP_SESSION_LIMIT_SMOKE_MAX_ACTIVE_SESSIONS
+        && report.tcp_session_errors == 1
+        && report.tcp_session_limit_rejections == 1
+        && report.tcp_max_active_sessions == TUN_TCP_SESSION_LIMIT_SMOKE_MAX_ACTIVE_SESSIONS
+        && report.limit_rejection_observed
+        && report.session_error_observed
+        && report.clean_stop_observed
+        && report.active_session_retained
+        && report.bounded_state_observed
+}
+
+fn tun_tcp_session_limit_smoke_detail(report: &TunTcpSessionLimitSmokeReport) -> String {
+    format!(
+        "outbound={} target={} first_client={} second_client={} max_active_sessions={} limit_rejection_observed={} session_error_observed={} starts={} opens={} stops={} tun_writes={} processed={} tcp_events={} tcp_writes={} tcp_sessions_peak={} tcp_sessions_open={} tcp_errors={} tcp_limit_rejections={} clean_stop_observed={} bounded_state_observed={} last_error={}",
+        report.selected_outbound,
+        report.target,
+        report.first_client,
+        report.second_client,
+        report.max_active_sessions,
+        report.limit_rejection_observed,
+        report.session_error_observed,
+        report.starts_observed,
+        report.opens_observed,
+        report.stops_observed,
+        report.tun_writes_observed,
+        report.processed_packets,
+        report.tcp_session_events,
+        report.tcp_session_packets_written,
+        report.tcp_sessions_peak,
+        report.tcp_sessions_open,
+        report.tcp_session_errors,
+        report.tcp_session_limit_rejections,
+        report.clean_stop_observed,
+        report.bounded_state_observed,
+        report.last_error_kind.as_deref().unwrap_or("-")
+    )
+}
+
+fn tun_tcp_session_limit_smoke_cases(
+    report: &TunTcpSessionLimitSmokeReport,
+    error: Option<String>,
+) -> Vec<TunTcpSessionLimitSmokeCaseReport> {
+    let case_error = |passed: bool| {
+        if passed {
+            None
+        } else {
+            error.clone().or_else(|| Some(report.detail.clone()))
+        }
+    };
+    let case = |name, action, expected_error_kind, passed| TunTcpSessionLimitSmokeCaseReport {
+        name,
+        action,
+        target: report.target.clone(),
+        first_client: report.first_client.clone(),
+        second_client: report.second_client.clone(),
+        max_active_sessions: report.max_active_sessions,
+        expected_error_kind,
+        observed_error_kind: report.last_error_kind.clone(),
+        processed_packets: report.processed_packets,
+        tcp_session_events: report.tcp_session_events,
+        tcp_session_packets_written: report.tcp_session_packets_written,
+        tcp_sessions_peak: report.tcp_sessions_peak,
+        tcp_sessions_open: report.tcp_sessions_open,
+        tcp_session_errors: report.tcp_session_errors,
+        tcp_session_limit_rejections: report.tcp_session_limit_rejections,
+        tun_writes_observed: report.tun_writes_observed,
+        passed,
+        error: case_error(passed),
+    };
+    vec![
+        case(
+            "start-tun-tcp-session-limit-smoke",
+            "start managed TUN packet loop and open packet IO for limit evidence",
+            None,
+            report.starts_observed == 1 && report.opens_observed == 1,
+        ),
+        case(
+            "retain-first-tun-tcp-session",
+            "accept the first SYN and retain one active TCP session",
+            None,
+            report.tcp_session_events == 1
+                && report.tcp_session_packets_written == 1
+                && report.tcp_sessions_peak == TUN_TCP_SESSION_LIMIT_SMOKE_MAX_ACTIVE_SESSIONS
+                && report.active_session_retained,
+        ),
+        case(
+            "reject-second-tun-tcp-session-over-limit",
+            "reject the second SYN once the active session limit is reached",
+            Some("TcpSessionLimitExceeded"),
+            report.limit_rejection_observed
+                && report.session_error_observed
+                && report.tcp_session_limit_rejections == 1,
+        ),
+        case(
+            "stop-tun-tcp-session-limit-smoke-cleanly",
+            "stop runtime after recording bounded active-session state",
+            None,
+            report.clean_stop_observed
+                && report.bounded_state_observed
+                && report.processed_packets == TUN_TCP_SESSION_LIMIT_SMOKE_MAX_PACKETS,
+        ),
+    ]
+}
+
+fn tun_tcp_session_limit_smoke_packets() -> Vec<Vec<u8>> {
+    vec![
+        tun_tcp_session_smoke_ipv4_packet(
+            TUN_TCP_SESSION_LIMIT_SMOKE_FIRST_CLIENT_IP,
+            TUN_TCP_SESSION_LIMIT_SMOKE_TARGET,
+            6,
+            &tun_tcp_session_smoke_tcp_segment(
+                TUN_TCP_SESSION_LIMIT_SMOKE_FIRST_CLIENT_PORT,
+                TUN_TCP_SESSION_LIMIT_SMOKE_DESTINATION_PORT,
+                10,
+                0,
+                0x0002,
+                DEFAULT_TUN_TCP_WINDOW_SIZE,
+                b"",
+            ),
+        ),
+        tun_tcp_session_smoke_ipv4_packet(
+            TUN_TCP_SESSION_LIMIT_SMOKE_SECOND_CLIENT_IP,
+            TUN_TCP_SESSION_LIMIT_SMOKE_TARGET,
+            6,
+            &tun_tcp_session_smoke_tcp_segment(
+                TUN_TCP_SESSION_LIMIT_SMOKE_SECOND_CLIENT_PORT,
+                TUN_TCP_SESSION_LIMIT_SMOKE_DESTINATION_PORT,
+                20,
+                0,
+                0x0002,
+                DEFAULT_TUN_TCP_WINDOW_SIZE,
+                b"",
+            ),
+        ),
+    ]
+}
+
+fn tun_tcp_session_limit_smoke_target() -> SocketAddr {
+    SocketAddr::new(
+        IpAddr::V4(TUN_TCP_SESSION_LIMIT_SMOKE_TARGET),
+        TUN_TCP_SESSION_LIMIT_SMOKE_DESTINATION_PORT,
+    )
+}
+
+fn tun_tcp_session_limit_smoke_first_client() -> SocketAddr {
+    SocketAddr::new(
+        IpAddr::V4(TUN_TCP_SESSION_LIMIT_SMOKE_FIRST_CLIENT_IP),
+        TUN_TCP_SESSION_LIMIT_SMOKE_FIRST_CLIENT_PORT,
+    )
+}
+
+fn tun_tcp_session_limit_smoke_second_client() -> SocketAddr {
+    SocketAddr::new(
+        IpAddr::V4(TUN_TCP_SESSION_LIMIT_SMOKE_SECOND_CLIENT_IP),
+        TUN_TCP_SESSION_LIMIT_SMOKE_SECOND_CLIENT_PORT,
+    )
 }
 
 fn tun_tcp_session_smoke_observed_response(writes: &[Vec<u8>]) -> Option<Vec<u8>> {
@@ -50493,6 +50913,57 @@ mod tun_tcp_session_smoke_tests {
         assert_eq!(report.tcp_session_errors, 0);
         assert!(report.clean_stop_observed);
         assert!(report.residual_state_clean);
+        assert_eq!(report.cases.len(), 4);
+        assert!(report.cases.iter().all(|case| case.passed));
+    }
+
+    #[test]
+    fn default_tun_tcp_session_limit_smoke_records_limit_rejection() {
+        let report = collect_default_tun_tcp_session_limit_smoke_report();
+
+        assert!(report.passed, "{}", report.detail);
+        assert_eq!(
+            report.selected_outbound,
+            TUN_TCP_SESSION_LIMIT_SMOKE_OUTBOUND
+        );
+        assert_eq!(report.target, "93.184.216.34:443");
+        assert_eq!(report.first_client, "10.7.0.2:49152");
+        assert_eq!(report.second_client, "10.7.0.3:49153");
+        assert_eq!(
+            report.max_active_sessions,
+            TUN_TCP_SESSION_LIMIT_SMOKE_MAX_ACTIVE_SESSIONS
+        );
+        assert!(report.limit_rejection_observed);
+        assert!(report.session_error_observed);
+        assert!(
+            report
+                .last_error_kind
+                .as_deref()
+                .is_some_and(|error| error.contains("TcpSessionLimitExceeded")),
+            "{:?}",
+            report.last_error_kind
+        );
+        assert_eq!(report.starts_observed, 1);
+        assert_eq!(report.opens_observed, 1);
+        assert_eq!(report.stops_observed, 1);
+        assert_eq!(report.tun_writes_observed, 1);
+        assert_eq!(
+            report.processed_packets,
+            TUN_TCP_SESSION_LIMIT_SMOKE_MAX_PACKETS
+        );
+        assert_eq!(report.tcp_session_events, 1);
+        assert_eq!(report.tcp_session_packets_written, 1);
+        assert_eq!(report.tcp_sessions_peak, 1);
+        assert_eq!(report.tcp_sessions_open, 1);
+        assert_eq!(report.tcp_session_errors, 1);
+        assert_eq!(report.tcp_session_limit_rejections, 1);
+        assert_eq!(
+            report.tcp_max_active_sessions,
+            TUN_TCP_SESSION_LIMIT_SMOKE_MAX_ACTIVE_SESSIONS
+        );
+        assert!(report.clean_stop_observed);
+        assert!(report.active_session_retained);
+        assert!(report.bounded_state_observed);
         assert_eq!(report.cases.len(), 4);
         assert!(report.cases.iter().all(|case| case.passed));
     }
@@ -52314,6 +52785,14 @@ fn write_readiness_check_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "readiness tun_tcp_session_limit_smoke status={} cases={} detail={}",
+        tun_tcp_session_limit_smoke_status_label(&report.tun_tcp_session_limit_smoke),
+        report.tun_tcp_session_limit_smoke.cases.len(),
+        report.tun_tcp_session_limit_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "readiness system_proxy_smoke status={} included={} detail={}",
         system_proxy_smoke_status_label(
             report.include_system_proxy_smoke,
@@ -52532,6 +53011,9 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         ),
         "tun_tcp_session_smoke": tun_tcp_session_smoke_json_value(
             &report.tun_tcp_session_smoke
+        ),
+        "tun_tcp_session_limit_smoke": tun_tcp_session_limit_smoke_json_value(
+            &report.tun_tcp_session_limit_smoke
         ),
         "system_proxy_smoke": system_proxy_smoke_json_value(
             report.include_system_proxy_smoke,
@@ -53065,6 +53547,14 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification tun_tcp_session_limit_smoke status={} cases={} detail={}",
+        tun_tcp_session_limit_smoke_status_label(&report.tun_tcp_session_limit_smoke),
+        report.tun_tcp_session_limit_smoke.cases.len(),
+        report.tun_tcp_session_limit_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification system_proxy_smoke status={} included={} detail={}",
         system_proxy_smoke_status_label(
             report.include_system_proxy_smoke,
@@ -53224,6 +53714,7 @@ fn default_core_certification_json_value(
             "subscription_reload_smoke_passed": report.subscription_reload_smoke.passed,
             "runtime_recovery_smoke_passed": report.runtime_recovery_smoke.passed,
             "tun_tcp_session_smoke_passed": report.tun_tcp_session_smoke.passed,
+            "tun_tcp_session_limit_smoke_passed": report.tun_tcp_session_limit_smoke.passed,
             "system_proxy_smoke_included": report.include_system_proxy_smoke,
             "system_proxy_smoke_passed": if report.include_system_proxy_smoke {
                 report.system_proxy_smoke.as_ref().map(|smoke| smoke.passed)
@@ -53396,6 +53887,9 @@ fn default_core_certification_json_value(
         ),
         "tun_tcp_session_smoke": tun_tcp_session_smoke_json_value(
             &report.tun_tcp_session_smoke
+        ),
+        "tun_tcp_session_limit_smoke": tun_tcp_session_limit_smoke_json_value(
+            &report.tun_tcp_session_limit_smoke
         ),
         "system_proxy_smoke": system_proxy_smoke_json_value(
             report.include_system_proxy_smoke,
@@ -53931,6 +54425,83 @@ fn tun_tcp_session_smoke_case_json_value(case: &TunTcpSessionSmokeCaseReport) ->
         "tcp_sessions_peak": case.tcp_sessions_peak,
         "tcp_sessions_open": case.tcp_sessions_open,
         "tcp_session_errors": case.tcp_session_errors,
+        "tun_writes_observed": case.tun_writes_observed,
+        "passed": case.passed,
+        "error": &case.error,
+    })
+}
+
+fn tun_tcp_session_limit_smoke_status_label(
+    report: &TunTcpSessionLimitSmokeReport,
+) -> &'static str {
+    if report.passed {
+        "passed"
+    } else {
+        "failed"
+    }
+}
+
+fn tun_tcp_session_limit_smoke_json_value(
+    report: &TunTcpSessionLimitSmokeReport,
+) -> serde_json::Value {
+    let cases: Vec<_> = report
+        .cases
+        .iter()
+        .map(tun_tcp_session_limit_smoke_case_json_value)
+        .collect();
+    serde_json::json!({
+        "status": tun_tcp_session_limit_smoke_status_label(report),
+        "passed": report.passed,
+        "detail": &report.detail,
+        "selected_outbound": &report.selected_outbound,
+        "target": &report.target,
+        "first_client": &report.first_client,
+        "second_client": &report.second_client,
+        "max_active_sessions": report.max_active_sessions,
+        "limit_rejection_observed": report.limit_rejection_observed,
+        "session_error_observed": report.session_error_observed,
+        "last_error_kind": &report.last_error_kind,
+        "starts_observed": report.starts_observed,
+        "opens_observed": report.opens_observed,
+        "stops_observed": report.stops_observed,
+        "tun_writes_observed": report.tun_writes_observed,
+        "processed_packets": report.processed_packets,
+        "tcp_session_events": report.tcp_session_events,
+        "tcp_session_packets_written": report.tcp_session_packets_written,
+        "tcp_sessions_peak": report.tcp_sessions_peak,
+        "tcp_sessions_open": report.tcp_sessions_open,
+        "tcp_session_errors": report.tcp_session_errors,
+        "tcp_session_limit_rejections": report.tcp_session_limit_rejections,
+        "tcp_max_active_sessions": report.tcp_max_active_sessions,
+        "clean_stop_observed": report.clean_stop_observed,
+        "active_session_retained": report.active_session_retained,
+        "bounded_state_observed": report.bounded_state_observed,
+        "case_count": report.cases.len(),
+        "passed_case_count": report.cases.iter().filter(|case| case.passed).count(),
+        "failed_case_count": report.cases.iter().filter(|case| !case.passed).count(),
+        "cases": cases,
+    })
+}
+
+fn tun_tcp_session_limit_smoke_case_json_value(
+    case: &TunTcpSessionLimitSmokeCaseReport,
+) -> serde_json::Value {
+    serde_json::json!({
+        "name": case.name,
+        "action": case.action,
+        "target": &case.target,
+        "first_client": &case.first_client,
+        "second_client": &case.second_client,
+        "max_active_sessions": case.max_active_sessions,
+        "expected_error_kind": case.expected_error_kind,
+        "observed_error_kind": &case.observed_error_kind,
+        "processed_packets": case.processed_packets,
+        "tcp_session_events": case.tcp_session_events,
+        "tcp_session_packets_written": case.tcp_session_packets_written,
+        "tcp_sessions_peak": case.tcp_sessions_peak,
+        "tcp_sessions_open": case.tcp_sessions_open,
+        "tcp_session_errors": case.tcp_session_errors,
+        "tcp_session_limit_rejections": case.tcp_session_limit_rejections,
         "tun_writes_observed": case.tun_writes_observed,
         "passed": case.passed,
         "error": &case.error,
