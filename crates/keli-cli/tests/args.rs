@@ -86,6 +86,27 @@ fn parses_readiness_check_json_command() {
 }
 
 #[test]
+fn parses_readiness_check_machine_takeover_mode() {
+    let command =
+        parse_cli_command(["readiness-check", "--machine-takeover"]).expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::ReadinessCheck {
+            output: ProbeOutputFormat::Text,
+            soak_connections: 3,
+            first_byte_timeout: Duration::from_secs(30),
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+            soak_min_duration: Duration::from_millis(0),
+            skip_soak: false,
+            include_system_proxy_smoke: true,
+            include_tun_runtime_smoke: true,
+            tun_runtime_smoke_min_duration: Duration::from_millis(50),
+        }
+    );
+}
+
+#[test]
 fn parses_default_core_certify_json_command() {
     let command = parse_cli_command([
         "default-core-certify",
@@ -117,6 +138,26 @@ fn parses_default_core_certify_json_command() {
             include_system_proxy_smoke: true,
             include_tun_runtime_smoke: true,
             tun_runtime_smoke_min_duration: Duration::from_millis(75),
+        }
+    );
+}
+
+#[test]
+fn parses_default_core_certify_machine_takeover_mode() {
+    let command = parse_cli_command(["default-core-certify", "--include-machine-takeover-smokes"])
+        .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::DefaultCoreCertify {
+            output: ProbeOutputFormat::Text,
+            soak_connections: 3,
+            first_byte_timeout: Duration::from_secs(30),
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+            soak_min_duration: Duration::from_millis(0),
+            include_system_proxy_smoke: true,
+            include_tun_runtime_smoke: true,
+            tun_runtime_smoke_min_duration: Duration::from_millis(50),
         }
     );
 }
@@ -274,6 +315,27 @@ fn parses_support_bundle_with_certification_options() {
             certification_include_system_proxy_smoke: true,
             certification_include_tun_runtime_smoke: true,
             certification_tun_runtime_smoke_min_duration: Duration::from_millis(75),
+        }
+    );
+}
+
+#[test]
+fn parses_support_bundle_certification_machine_takeover_mode() {
+    let command = parse_cli_command(["support-bundle", "--certification-machine-takeover"])
+        .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::SupportBundle {
+            profile_config: None,
+            include_default_core_certification: true,
+            certification_soak_connections: 3,
+            certification_first_byte_timeout: Duration::from_secs(30),
+            certification_max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+            certification_soak_min_duration: Duration::from_millis(0),
+            certification_include_system_proxy_smoke: true,
+            certification_include_tun_runtime_smoke: true,
+            certification_tun_runtime_smoke_min_duration: Duration::from_millis(50),
         }
     );
 }

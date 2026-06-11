@@ -945,6 +945,10 @@ fn doctor_json_report_is_machine_readable() {
         report["readiness_check_capabilities"][90],
         "tun-tcp-session-close-marker-rst-clear-smoke"
     );
+    assert_eq!(
+        report["readiness_check_capabilities"][91],
+        "machine-takeover-smoke-mode"
+    );
     assert_eq!(report["tun_backend_check_capabilities"][0], "backend-kind");
     assert_eq!(
         report["tun_backend_check_capabilities"][2],
@@ -1322,6 +1326,10 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(
         report["default_core_certification_capabilities"][92],
         "default-core-promotion-verdict"
+    );
+    assert_eq!(
+        report["default_core_certification_capabilities"][93],
+        "machine-takeover-smoke-mode"
     );
     assert_eq!(
         report["resource_limits"]["runtime_event_history"],

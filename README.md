@@ -697,7 +697,10 @@ entry for the controlled DNS target. It records `elapsed_ms`, `duration_target_m
 `exit_reason`, `stop_requested`,
 `residual_state_clean`, and the remaining TUN/TCP session marker counts, and can
 be tuned with
-`--tun-runtime-smoke-min-duration-ms`. When
+`--tun-runtime-smoke-min-duration-ms`. `--machine-takeover` is the shorthand
+release-certification mode for turning on both the system-proxy and TUN runtime
+smokes; the individual smoke flags remain available for isolating one takeover
+path. When
 `--soak-min-duration-ms` is provided, the local soak gates hold the managed
 runtime alive for that minimum duration and report `min_duration_ms` plus
 `duration_target_met` in the gate detail.
@@ -850,8 +853,8 @@ machine-level certification evidence with real soak gates and TUN backend
 packaging state, structured TUN preflight state, route-rule smoke evidence, DNS
 policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, Trojan WebSocket TCP relay smoke evidence, Trojan HTTPUpgrade TCP relay smoke evidence, Trojan gRPC TCP relay smoke evidence, Trojan H2 TCP relay smoke evidence, Trojan QUIC TCP relay smoke evidence, Trojan QUIC UDP relay smoke evidence, Trojan TLS UDP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, AnyTLS TLS UDP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VLESS WebSocket TCP relay smoke evidence, VLESS WebSocket UDP relay smoke evidence, VLESS HTTPUpgrade TCP relay smoke evidence, VLESS HTTPUpgrade UDP relay smoke evidence, VLESS gRPC TCP relay smoke evidence, VLESS gRPC UDP relay smoke evidence, VLESS H2 TCP relay smoke evidence, VLESS H2 UDP relay smoke evidence, VLESS QUIC TCP relay smoke evidence, VLESS QUIC UDP relay smoke evidence, VLESS TCP UDP relay smoke evidence, VMess TCP relay smoke evidence, VMess WebSocket TCP relay smoke evidence, VMess WebSocket UDP relay smoke evidence, VMess HTTPUpgrade TCP relay smoke evidence, VMess HTTPUpgrade UDP relay smoke evidence, VMess gRPC TCP relay smoke evidence, VMess gRPC UDP relay smoke evidence, VMess H2 TCP relay smoke evidence, VMess H2 UDP relay smoke evidence, VMess QUIC TCP relay smoke evidence, VMess QUIC UDP relay smoke evidence, VMess TCP UDP relay smoke evidence, Mieru TCP relay smoke evidence, Mieru TCP UDP relay smoke evidence, UDP relay smoke evidence, SOCKS5 UDP outbound relay smoke evidence, resource-limit smoke evidence, panel/subscription smoke
 evidence, and promotion blockers for default-core promotion checks. Add
-`--include-tun-runtime-smoke` when the
-certification run should also prove the native TUN runtime can start, open
+`--machine-takeover` when the certification run should also prove the desktop
+system-proxy takeover path and that the native TUN runtime can start, open
 packet I/O, stay alive for the requested minimum smoke duration, and stop
 cleanly on the current machine.
 The certification artifact also includes a machine takeover coverage summary,
@@ -859,6 +862,9 @@ so release and UI tooling can distinguish protocol/readiness success from a
 run that actually included the optional system-proxy and TUN runtime takeover
 smokes. When those smokes are omitted, `takeover_coverage` reports the missing
 evidence instead of hiding the gap behind the overall ready decision.
+When `--machine-takeover` or both individual takeover flags are used, the
+artifact sets `machine_takeover_smokes_requested=true` in the coverage,
+promotion, and certification summaries.
 `default_core_promotion` turns that evidence into a release verdict: a run with
 all default gates passing but no takeover smokes is `core-ready` with
 `safe_default_scope=local-core-only`, while only a run that also passes both
@@ -888,10 +894,10 @@ cargo run -p keli-cli -- tun-backend-install --source-dir C:\path\to\wintun --fo
 cargo run -p keli-cli -- interop-matrix --format json
 cargo run -p keli-cli -- readiness-check --format json
 cargo run -p keli-cli -- readiness-check --format json --include-system-proxy-smoke
-cargo run -p keli-cli -- readiness-check --format json --include-system-proxy-smoke --include-tun-runtime-smoke --tun-runtime-smoke-min-duration-ms 250
+cargo run -p keli-cli -- readiness-check --format json --machine-takeover --tun-runtime-smoke-min-duration-ms 250
 cargo run -p keli-cli -- readiness-check --format json --soak-min-duration-ms 60000
 cargo run -p keli-cli -- default-core-certify --format json
-cargo run -p keli-cli -- default-core-certify --format json --include-system-proxy-smoke --include-tun-runtime-smoke --tun-runtime-smoke-min-duration-ms 250
+cargo run -p keli-cli -- default-core-certify --format json --machine-takeover --tun-runtime-smoke-min-duration-ms 250
 cargo run -p keli-cli -- default-core-certify --format json --soak-min-duration-ms 60000
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
 cargo run -p keli-cli -- support-bundle --include-certification --certification-soak-min-duration-ms 60000

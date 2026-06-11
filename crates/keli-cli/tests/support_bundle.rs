@@ -586,6 +586,10 @@ proxies:
         "tun-tcp-session-close-marker-rst-clear-smoke"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][91],
+        "machine-takeover-smoke-mode"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -972,6 +976,10 @@ proxies:
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][92],
         "default-core-promotion-verdict"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][93],
+        "machine-takeover-smoke-mode"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
@@ -1385,10 +1393,18 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
         false
     );
     assert!(certification["certification"]["system_proxy_smoke_passed"].is_null());
+    assert_eq!(
+        certification["certification"]["machine_takeover_smokes_requested"],
+        false
+    );
     assert_eq!(certification["system_proxy_smoke"]["included"], false);
     assert_eq!(certification["system_proxy_smoke"]["status"], "not-run");
     assert_eq!(certification["takeover_coverage"]["status"], "not-run");
     assert_eq!(certification["takeover_coverage"]["complete"], false);
+    assert_eq!(
+        certification["takeover_coverage"]["machine_takeover_smokes_requested"],
+        false
+    );
     assert_eq!(
         certification["takeover_coverage"]["missing_evidence"][0],
         "system-proxy-smoke"
@@ -1410,6 +1426,10 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     );
     assert_eq!(
         certification["default_core_promotion"]["machine_takeover_ready"],
+        false
+    );
+    assert_eq!(
+        certification["default_core_promotion"]["machine_takeover_smokes_requested"],
         false
     );
     assert_eq!(

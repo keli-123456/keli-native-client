@@ -547,11 +547,11 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(4);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 95;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 85;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 96;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 86;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 82;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 84;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 85;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -576,11 +576,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-smoke-mode";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -4994,11 +4994,11 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli readiness-check [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1] [--skip-soak] [--include-system-proxy-smoke] [--include-tun-runtime-smoke] [--tun-runtime-smoke-min-duration-ms 50]"
+        "       keli-cli readiness-check [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1] [--skip-soak] [--machine-takeover] [--include-system-proxy-smoke] [--include-tun-runtime-smoke] [--tun-runtime-smoke-min-duration-ms 50]"
     )?;
     writeln!(
         writer,
-        "       keli-cli default-core-certify [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1] [--include-system-proxy-smoke] [--include-tun-runtime-smoke] [--tun-runtime-smoke-min-duration-ms 50]"
+        "       keli-cli default-core-certify [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1] [--machine-takeover] [--include-system-proxy-smoke] [--include-tun-runtime-smoke] [--tun-runtime-smoke-min-duration-ms 50]"
     )?;
     writeln!(
         writer,
@@ -5046,7 +5046,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli support-bundle [--profile-config subscription.yaml] [--include-certification] [--certification-soak-connections 3] [--certification-first-byte-timeout-ms 30000] [--certification-max-connection-workers 1024] [--certification-soak-min-duration-ms 1] [--certification-include-system-proxy-smoke] [--certification-include-tun-runtime-smoke] [--certification-tun-runtime-smoke-min-duration-ms 50]"
+        "       keli-cli support-bundle [--profile-config subscription.yaml] [--include-certification] [--certification-soak-connections 3] [--certification-first-byte-timeout-ms 30000] [--certification-max-connection-workers 1024] [--certification-soak-min-duration-ms 1] [--certification-machine-takeover] [--certification-include-system-proxy-smoke] [--certification-include-tun-runtime-smoke] [--certification-tun-runtime-smoke-min-duration-ms 50]"
     )
 }
 
@@ -5143,6 +5143,12 @@ fn parse_readiness_check(args: impl Iterator<Item = String>) -> Result<CliComman
             "--include-tun-runtime-smoke" | "--tun-runtime-smoke" => {
                 include_tun_runtime_smoke = true;
             }
+            "--machine-takeover"
+            | "--include-machine-takeover-smokes"
+            | "--machine-takeover-smokes" => {
+                include_system_proxy_smoke = true;
+                include_tun_runtime_smoke = true;
+            }
             "--tun-runtime-smoke-min-duration-ms" => {
                 include_tun_runtime_smoke = true;
                 tun_runtime_smoke_min_duration = parse_duration_ms(
@@ -5220,6 +5226,12 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
                 include_system_proxy_smoke = true;
             }
             "--include-tun-runtime-smoke" | "--tun-runtime-smoke" => {
+                include_tun_runtime_smoke = true;
+            }
+            "--machine-takeover"
+            | "--include-machine-takeover-smokes"
+            | "--machine-takeover-smokes" => {
+                include_system_proxy_smoke = true;
                 include_tun_runtime_smoke = true;
             }
             "--tun-runtime-smoke-min-duration-ms" => {
@@ -5528,6 +5540,13 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
             "--certification-include-tun-runtime-smoke"
             | "--include-certification-tun-runtime-smoke" => {
                 include_default_core_certification = true;
+                certification_include_tun_runtime_smoke = true;
+            }
+            "--certification-machine-takeover"
+            | "--certification-include-machine-takeover-smokes"
+            | "--include-certification-machine-takeover-smokes" => {
+                include_default_core_certification = true;
+                certification_include_system_proxy_smoke = true;
                 certification_include_tun_runtime_smoke = true;
             }
             "--certification-tun-runtime-smoke-min-duration-ms" => {
@@ -30029,8 +30048,12 @@ async fn serve_vless_grpc_udp_relay_smoke_request(
         "0".parse()
             .map_err(|error| format!("build VLESS gRPC UDP smoke trailer: {error}"))?,
     );
-    send.send_trailers(trailers)
-        .map_err(|error| format!("send VLESS gRPC UDP smoke trailers: {error}"))?;
+    if let Err(error) = send.send_trailers(trailers) {
+        let error = error.to_string();
+        if !error.contains("unexpected frame type") {
+            return Err(format!("send VLESS gRPC UDP smoke trailers: {error}"));
+        }
+    }
     tokio::time::sleep(Duration::from_millis(50)).await;
     Ok(UdpRelaySmokeServerObservation {
         received_expected_payload: true,
@@ -39993,8 +40016,12 @@ async fn serve_vmess_grpc_udp_relay_smoke_request(
             "0".parse()
                 .map_err(|error| format!("build VMess gRPC UDP smoke trailer: {error}"))?,
         );
-        send.send_trailers(trailers)
-            .map_err(|error| format!("send VMess gRPC UDP smoke trailers: {error}"))?;
+        if let Err(error) = send.send_trailers(trailers) {
+            let error = error.to_string();
+            if !error.contains("unexpected frame type") {
+                return Err(format!("send VMess gRPC UDP smoke trailers: {error}"));
+            }
+        }
         tokio::time::sleep(Duration::from_millis(50)).await;
         Ok::<(), String>(())
     });
@@ -57805,9 +57832,10 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
-        "default_core_certification takeover_coverage status={} complete={} system_proxy_included={} system_proxy_status={} tun_runtime_included={} tun_runtime_status={} missing={} failed={}",
+        "default_core_certification takeover_coverage status={} complete={} machine_takeover_smokes_requested={} system_proxy_included={} system_proxy_status={} tun_runtime_included={} tun_runtime_status={} missing={} failed={}",
         default_core_takeover_coverage_status(report),
         default_core_takeover_coverage_complete(report),
+        default_core_machine_takeover_smokes_requested(report),
         report.include_system_proxy_smoke,
         system_proxy_smoke_status_label(
             report.include_system_proxy_smoke,
@@ -58475,6 +58503,10 @@ fn default_core_takeover_coverage_complete(report: &DefaultCoreCertificationRepo
         && default_core_takeover_tun_runtime_passed(report)
 }
 
+fn default_core_machine_takeover_smokes_requested(report: &DefaultCoreCertificationReport) -> bool {
+    report.include_system_proxy_smoke && report.include_tun_runtime_smoke
+}
+
 fn default_core_takeover_coverage_status(report: &DefaultCoreCertificationReport) -> &'static str {
     if !default_core_takeover_coverage_failed_evidence(report).is_empty() {
         "failed"
@@ -58573,6 +58605,7 @@ fn default_core_takeover_coverage_json_value(
     serde_json::json!({
         "status": default_core_takeover_coverage_status(report),
         "complete": default_core_takeover_coverage_complete(report),
+        "machine_takeover_smokes_requested": default_core_machine_takeover_smokes_requested(report),
         "system_proxy_smoke_included": report.include_system_proxy_smoke,
         "system_proxy_smoke_status": system_proxy_smoke_status_label(
             report.include_system_proxy_smoke,
@@ -58613,6 +58646,7 @@ fn default_core_promotion_json_value(report: &DefaultCoreCertificationReport) ->
         "safe_default_scope": default_core_promotion_safe_default_scope(report),
         "core_gates_ready": report.ready_for_default_core,
         "machine_takeover_ready": default_core_promotion_machine_takeover_ready(report),
+        "machine_takeover_smokes_requested": default_core_machine_takeover_smokes_requested(report),
         "local_core_default_allowed": default_core_promotion_local_core_default_allowed(report),
         "machine_takeover_default_allowed":
             default_core_promotion_machine_takeover_default_allowed(report),
@@ -58634,7 +58668,7 @@ fn default_core_certification_json_value(
         .into_iter()
         .map(readiness_gate_json_value)
         .collect();
-    serde_json::json!({
+    let mut value = serde_json::json!({
         "status": if report.ready_for_default_core { "ready" } else { "not-ready" },
         "kind": "keli_default_core_certification",
         "schema_version": report.schema_version,
@@ -58952,7 +58986,17 @@ fn default_core_certification_json_value(
             report.tun_runtime_smoke_min_duration,
             report.tun_runtime_smoke.as_ref()
         ),
-    })
+    });
+    if let Some(certification) = value
+        .get_mut("certification")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        certification.insert(
+            "machine_takeover_smokes_requested".to_string(),
+            serde_json::Value::Bool(default_core_machine_takeover_smokes_requested(report)),
+        );
+    }
+    value
 }
 
 fn route_rule_smoke_status_label(report: &RouteRuleSmokeReport) -> &'static str {

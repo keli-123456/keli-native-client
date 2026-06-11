@@ -3542,8 +3542,16 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert_eq!(report["system_proxy_smoke"]["included"], false);
     assert_eq!(report["system_proxy_smoke"]["status"], "not-run");
     assert!(report["system_proxy_smoke"]["passed"].is_null());
+    assert_eq!(
+        report["certification"]["machine_takeover_smokes_requested"],
+        false
+    );
     assert_eq!(report["takeover_coverage"]["status"], "not-run");
     assert_eq!(report["takeover_coverage"]["complete"], false);
+    assert_eq!(
+        report["takeover_coverage"]["machine_takeover_smokes_requested"],
+        false
+    );
     assert_eq!(
         report["takeover_coverage"]["system_proxy_smoke_status"],
         "not-run"
@@ -3570,6 +3578,10 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     );
     assert_eq!(
         report["default_core_promotion"]["machine_takeover_ready"],
+        false
+    );
+    assert_eq!(
+        report["default_core_promotion"]["machine_takeover_smokes_requested"],
         false
     );
     assert_eq!(
@@ -5702,7 +5714,7 @@ fn default_core_certification_text_reports_summary_and_gates() {
     )));
     assert!(output.contains("blockers="));
     assert!(output.contains("tun_backend_status="));
-    assert!(output.contains("default_core_certification takeover_coverage status=not-run complete=false system_proxy_included=false system_proxy_status=not-run tun_runtime_included=false tun_runtime_status=not-run missing=system-proxy-smoke,tun-runtime-smoke failed=-"));
+    assert!(output.contains("default_core_certification takeover_coverage status=not-run complete=false machine_takeover_smokes_requested=false system_proxy_included=false system_proxy_status=not-run tun_runtime_included=false tun_runtime_status=not-run missing=system-proxy-smoke,tun-runtime-smoke failed=-"));
     assert!(output.contains("default_core_certification promotion status="));
     assert!(output.contains("safe_default_scope="));
     assert!(output.contains("machine_takeover_ready=false"));

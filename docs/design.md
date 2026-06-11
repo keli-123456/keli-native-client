@@ -739,6 +739,10 @@ The first implementation target is deliberately small:
    were included, passed, omitted, or failed, giving release automation a
    direct way to tell "all default gates passed" apart from "this machine
    actually proved desktop proxy and native TUN takeover."
+   `--machine-takeover` is the release-certification shorthand for enabling
+   both takeover smokes, and the JSON summary records
+   `machine_takeover_smokes_requested` so automation can distinguish a full
+   takeover run from an accidental partial run.
    Certification JSON also includes `default_core_promotion`, a release verdict
    that maps the same evidence to a safe default scope: `core-ready` for local
    core use when takeover evidence is still missing, and
