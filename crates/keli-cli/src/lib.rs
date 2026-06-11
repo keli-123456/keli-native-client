@@ -5016,7 +5016,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli default-core-certify [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1] [--machine-takeover] [--machine-takeover-gate] [--require-machine-takeover-ready] [--stability-gate-ms 60000] [--include-system-proxy-smoke] [--include-tun-runtime-smoke] [--tun-runtime-smoke-min-duration-ms 50]"
+        "       keli-cli default-core-certify [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1] [--machine-takeover] [--machine-takeover-gate] [--require-machine-takeover-ready] [--stability-gate-ms 60000] [--stability-gate-connections 25] [--include-system-proxy-smoke] [--include-tun-runtime-smoke] [--tun-runtime-smoke-min-duration-ms 50]"
     )?;
     writeln!(
         writer,
@@ -5064,7 +5064,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli support-bundle [--profile-config subscription.yaml] [--include-certification] [--certification-soak-connections 3] [--certification-first-byte-timeout-ms 30000] [--certification-max-connection-workers 1024] [--certification-soak-min-duration-ms 1] [--certification-machine-takeover] [--certification-machine-takeover-gate] [--certification-stability-gate-ms 60000] [--certification-include-system-proxy-smoke] [--certification-include-tun-runtime-smoke] [--certification-tun-runtime-smoke-min-duration-ms 50]"
+        "       keli-cli support-bundle [--profile-config subscription.yaml] [--include-certification] [--certification-soak-connections 3] [--certification-first-byte-timeout-ms 30000] [--certification-max-connection-workers 1024] [--certification-soak-min-duration-ms 1] [--certification-machine-takeover] [--certification-machine-takeover-gate] [--certification-stability-gate-ms 60000] [--certification-stability-gate-connections 25] [--certification-include-system-proxy-smoke] [--certification-include-tun-runtime-smoke] [--certification-tun-runtime-smoke-min-duration-ms 50]"
     )
 }
 

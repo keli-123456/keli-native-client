@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use keli_cli::{
-    parse_cli_command, CliCommand, MixedDnsOptions, ProbeOutputFormat, SmokeInboundKind,
-    TunBackendInstallSource, DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+    parse_cli_command, print_usage, CliCommand, MixedDnsOptions, ProbeOutputFormat,
+    SmokeInboundKind, TunBackendInstallSource, DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
 };
 use keli_net_core::{
     DnsAddressFamilyPolicy, DnsLocalResolutionPolicy, DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
@@ -20,6 +20,17 @@ fn defaults_to_doctor_text_command() {
             output: ProbeOutputFormat::Text
         }
     );
+}
+
+#[test]
+fn usage_lists_stability_connection_gate_flags() {
+    let mut output = Vec::new();
+
+    print_usage(&mut output).expect("usage should render");
+
+    let output = String::from_utf8(output).expect("usage is utf8");
+    assert!(output.contains("--stability-gate-connections 25"));
+    assert!(output.contains("--certification-stability-gate-connections 25"));
 }
 
 #[test]
