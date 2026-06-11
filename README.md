@@ -733,8 +733,8 @@ certification, proving server EOF writes a FIN+ACK, a duplicate ACK retransmits
 that FIN, and the final ACK is absorbed without a reset while retaining one
 bounded post-close marker for the close-marker prune evidence. The default TUN TCP
 session post-close guard smoke is always part of readiness and certification,
-proving duplicate final ACKs are absorbed and a late client FIN+ACK is
-acknowledged without reset noise or reopening the relay while retaining one
+proving duplicate final ACKs are absorbed and a late client FIN+ACK carrying
+final payload is acknowledged without reset noise or reopening the relay while retaining one
 bounded post-close marker. The default TUN TCP
 unknown-session reset smoke is always part of readiness and certification,
 proving unknown data/FIN packets receive RST+ACK responses while stray RST

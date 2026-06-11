@@ -112,6 +112,7 @@ const TUN_TCP_SESSION_SERVER_FIN_RETRANSMIT_SMOKE_MAX_PACKETS: usize = 5;
 const TUN_TCP_SESSION_POST_CLOSE_GUARD_SMOKE_OUTBOUND: &str =
     "TUN-TCP-SESSION-POST-CLOSE-GUARD-SMOKE";
 const TUN_TCP_SESSION_POST_CLOSE_GUARD_SMOKE_MAX_PACKETS: usize = 7;
+const TUN_TCP_SESSION_POST_CLOSE_GUARD_SMOKE_LATE_FIN_PAYLOAD: &[u8] = b"tail";
 const TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_OUTBOUND: &str = "TUN-TCP-UNKNOWN-SESSION-RESET-SMOKE";
 const TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_TARGET: Ipv4Addr = Ipv4Addr::new(93, 184, 216, 34);
 const TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_DESTINATION_PORT: u16 = 443;
@@ -546,11 +547,11 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(4);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 92;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 82;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 93;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 83;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 81;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 81;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 82;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 82;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -7967,10 +7968,12 @@ pub struct TunTcpSessionPostCloseGuardSmokeReport {
     pub selected_outbound: String,
     pub target: String,
     pub request_payload_bytes: usize,
+    pub late_client_fin_payload_bytes: usize,
     pub server_received_payload: bool,
     pub server_fin_observed: bool,
     pub final_ack_absorbed: bool,
     pub duplicate_final_ack_absorbed: bool,
+    pub late_client_fin_payload_acknowledged: bool,
     pub late_client_fin_acknowledged: bool,
     pub no_reset_observed: bool,
     pub late_client_fin_ack_sequence_number: Option<u32>,
@@ -51479,8 +51482,8 @@ fn run_default_tun_tcp_session_server_fin_retransmit_smoke(
             Duration::from_millis(0),
             Duration::from_millis(0),
             Duration::from_millis(0),
-            Duration::from_millis(50),
-            Duration::from_millis(0),
+            Duration::from_millis(250),
+            Duration::from_millis(100),
         ]),
         writes: Vec::new(),
         shared_writes: Arc::clone(&tun_writes),
@@ -52021,10 +52024,10 @@ fn run_default_tun_tcp_session_post_close_guard_smoke(
             Duration::from_millis(0),
             Duration::from_millis(0),
             Duration::from_millis(0),
-            Duration::from_millis(50),
-            Duration::from_millis(0),
-            Duration::from_millis(0),
-            Duration::from_millis(0),
+            Duration::from_millis(250),
+            Duration::from_millis(100),
+            Duration::from_millis(100),
+            Duration::from_millis(100),
         ]),
         writes: Vec::new(),
         shared_writes: Arc::clone(&tun_writes),
@@ -52145,10 +52148,13 @@ fn tun_tcp_session_post_close_guard_smoke_report_from_evidence(
         selected_outbound: TUN_TCP_SESSION_POST_CLOSE_GUARD_SMOKE_OUTBOUND.to_string(),
         target: evidence.target.to_string(),
         request_payload_bytes: TUN_TCP_SESSION_SMOKE_REQUEST.len(),
+        late_client_fin_payload_bytes: TUN_TCP_SESSION_POST_CLOSE_GUARD_SMOKE_LATE_FIN_PAYLOAD
+            .len(),
         server_received_payload: evidence.server_received_payload,
         server_fin_observed,
         final_ack_absorbed,
         duplicate_final_ack_absorbed,
+        late_client_fin_payload_acknowledged: late_client_fin_acknowledged,
         late_client_fin_acknowledged,
         no_reset_observed,
         late_client_fin_ack_sequence_number: late_client_fin_ack
@@ -52188,10 +52194,13 @@ fn tun_tcp_session_post_close_guard_smoke_failed_report(
         selected_outbound: TUN_TCP_SESSION_POST_CLOSE_GUARD_SMOKE_OUTBOUND.to_string(),
         target: "127.0.0.1:0".to_string(),
         request_payload_bytes: TUN_TCP_SESSION_SMOKE_REQUEST.len(),
+        late_client_fin_payload_bytes: TUN_TCP_SESSION_POST_CLOSE_GUARD_SMOKE_LATE_FIN_PAYLOAD
+            .len(),
         server_received_payload: false,
         server_fin_observed: false,
         final_ack_absorbed: false,
         duplicate_final_ack_absorbed: false,
+        late_client_fin_payload_acknowledged: false,
         late_client_fin_acknowledged: false,
         no_reset_observed: false,
         late_client_fin_ack_sequence_number: None,
@@ -52226,6 +52235,9 @@ fn tun_tcp_session_post_close_guard_smoke_passed(
         && report.server_fin_observed
         && report.final_ack_absorbed
         && report.duplicate_final_ack_absorbed
+        && report.late_client_fin_payload_bytes
+            == TUN_TCP_SESSION_POST_CLOSE_GUARD_SMOKE_LATE_FIN_PAYLOAD.len()
+        && report.late_client_fin_payload_acknowledged
         && report.late_client_fin_acknowledged
         && report.no_reset_observed
         && report.processed_packets == TUN_TCP_SESSION_POST_CLOSE_GUARD_SMOKE_MAX_PACKETS
@@ -52245,14 +52257,16 @@ fn tun_tcp_session_post_close_guard_smoke_detail(
     report: &TunTcpSessionPostCloseGuardSmokeReport,
 ) -> String {
     format!(
-        "outbound={} target={} request_bytes={} server_received={} server_fin_observed={} final_ack_absorbed={} duplicate_final_ack_absorbed={} late_client_fin_acknowledged={} late_fin_ack_seq={:?} late_fin_ack_ack={:?} no_reset_observed={} starts={} opens={} stops={} processed={} tcp_events={} tcp_writes={} tun_writes={} tcp_sessions_open={} close_markers={} post_close_markers={} post_close_marker_retained={} tcp_errors={} residual_state_clean={}",
+        "outbound={} target={} request_bytes={} late_fin_payload_bytes={} server_received={} server_fin_observed={} final_ack_absorbed={} duplicate_final_ack_absorbed={} late_client_fin_payload_acknowledged={} late_client_fin_acknowledged={} late_fin_ack_seq={:?} late_fin_ack_ack={:?} no_reset_observed={} starts={} opens={} stops={} processed={} tcp_events={} tcp_writes={} tun_writes={} tcp_sessions_open={} close_markers={} post_close_markers={} post_close_marker_retained={} tcp_errors={} residual_state_clean={}",
         report.selected_outbound,
         report.target,
         report.request_payload_bytes,
+        report.late_client_fin_payload_bytes,
         report.server_received_payload,
         report.server_fin_observed,
         report.final_ack_absorbed,
         report.duplicate_final_ack_absorbed,
+        report.late_client_fin_payload_acknowledged,
         report.late_client_fin_acknowledged,
         report.late_client_fin_ack_sequence_number,
         report.late_client_fin_ack_acknowledgment_number,
@@ -52291,7 +52305,9 @@ fn tun_tcp_session_post_close_guard_smoke_cases(
         && report.final_ack_absorbed
         && report.post_close_marker_retained;
     let duplicate_ack_passed = report.duplicate_final_ack_absorbed && report.no_reset_observed;
-    let late_fin_passed = report.late_client_fin_acknowledged && report.no_reset_observed;
+    let late_fin_passed = report.late_client_fin_payload_acknowledged
+        && report.late_client_fin_acknowledged
+        && report.no_reset_observed;
     let residual_passed =
         report.clean_stop_observed && report.residual_state_clean && report.tcp_session_errors == 0;
     vec![
@@ -52334,8 +52350,8 @@ fn tun_tcp_session_post_close_guard_smoke_cases(
             error: case_error(duplicate_ack_passed),
         },
         TunTcpSessionPostCloseGuardSmokeCaseReport {
-            name: "acknowledge-late-post-close-client-fin-without-reset",
-            action: "post-close-late-client-fin-ack",
+            name: "acknowledge-late-post-close-client-fin-payload-without-reset",
+            action: "post-close-late-client-fin-payload-ack",
             target: report.target.clone(),
             expected_packet_written: true,
             observed_packet_written: late_client_fin_ack.is_some(),
@@ -52415,7 +52431,7 @@ fn tun_tcp_session_post_close_guard_smoke_packets(
             final_server_acknowledgment_number,
             0x0011,
             DEFAULT_TUN_TCP_WINDOW_SIZE,
-            b"",
+            TUN_TCP_SESSION_POST_CLOSE_GUARD_SMOKE_LATE_FIN_PAYLOAD,
         ),
     ));
     packets
@@ -52426,7 +52442,10 @@ fn tun_tcp_session_post_close_guard_expected_sequence_number() -> u32 {
 }
 
 fn tun_tcp_session_post_close_guard_expected_acknowledgment_number() -> u32 {
-    10 + 1 + TUN_TCP_SESSION_SMOKE_REQUEST.len() as u32 + 1
+    10 + 1
+        + TUN_TCP_SESSION_SMOKE_REQUEST.len() as u32
+        + TUN_TCP_SESSION_POST_CLOSE_GUARD_SMOKE_LATE_FIN_PAYLOAD.len() as u32
+        + 1
 }
 
 fn collect_default_tun_tcp_unknown_session_reset_smoke_report(
@@ -55234,7 +55253,7 @@ mod tun_tcp_session_smoke_tests {
     }
 
     #[test]
-    fn default_tun_tcp_session_post_close_guard_smoke_absorbs_duplicates_and_late_fin() {
+    fn default_tun_tcp_session_post_close_guard_smoke_absorbs_duplicate_ack_and_late_fin_payload() {
         let report = collect_default_tun_tcp_session_post_close_guard_smoke_report();
 
         assert!(report.passed, "{}", report.detail);
@@ -55247,10 +55266,15 @@ mod tun_tcp_session_smoke_tests {
             report.request_payload_bytes,
             TUN_TCP_SESSION_SMOKE_REQUEST.len()
         );
+        assert_eq!(
+            report.late_client_fin_payload_bytes,
+            TUN_TCP_SESSION_POST_CLOSE_GUARD_SMOKE_LATE_FIN_PAYLOAD.len()
+        );
         assert!(report.server_received_payload);
         assert!(report.server_fin_observed);
         assert!(report.final_ack_absorbed);
         assert!(report.duplicate_final_ack_absorbed);
+        assert!(report.late_client_fin_payload_acknowledged);
         assert!(report.late_client_fin_acknowledged);
         assert!(report.no_reset_observed);
         assert_eq!(
@@ -59399,10 +59423,12 @@ fn tun_tcp_session_post_close_guard_smoke_json_value(
         "selected_outbound": &report.selected_outbound,
         "target": &report.target,
         "request_payload_bytes": report.request_payload_bytes,
+        "late_client_fin_payload_bytes": report.late_client_fin_payload_bytes,
         "server_received_payload": report.server_received_payload,
         "server_fin_observed": report.server_fin_observed,
         "final_ack_absorbed": report.final_ack_absorbed,
         "duplicate_final_ack_absorbed": report.duplicate_final_ack_absorbed,
+        "late_client_fin_payload_acknowledged": report.late_client_fin_payload_acknowledged,
         "late_client_fin_acknowledged": report.late_client_fin_acknowledged,
         "no_reset_observed": report.no_reset_observed,
         "late_client_fin_ack_sequence_number": report.late_client_fin_ack_sequence_number,

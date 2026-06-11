@@ -4680,14 +4680,16 @@ fn assert_tun_tcp_session_post_close_guard_smoke_json(smoke: &Value) {
         .expect("TUN TCP post-close guard target")
         .starts_with("127.0.0.1:"));
     assert_eq!(smoke["request_payload_bytes"], 5);
+    assert_eq!(smoke["late_client_fin_payload_bytes"], 4);
     assert_eq!(smoke["server_received_payload"], true);
     assert_eq!(smoke["server_fin_observed"], true);
     assert_eq!(smoke["final_ack_absorbed"], true);
     assert_eq!(smoke["duplicate_final_ack_absorbed"], true);
+    assert_eq!(smoke["late_client_fin_payload_acknowledged"], true);
     assert_eq!(smoke["late_client_fin_acknowledged"], true);
     assert_eq!(smoke["no_reset_observed"], true);
     assert_eq!(smoke["late_client_fin_ack_sequence_number"], 3);
-    assert_eq!(smoke["late_client_fin_ack_acknowledgment_number"], 17);
+    assert_eq!(smoke["late_client_fin_ack_acknowledgment_number"], 21);
     assert_eq!(smoke["starts_observed"], 1);
     assert_eq!(smoke["opens_observed"], 1);
     assert_eq!(smoke["stops_observed"], 1);
@@ -4715,7 +4717,7 @@ fn assert_tun_tcp_session_post_close_guard_smoke_json(smoke: &Value) {
     for expected in [
         "create-post-close-marker-after-server-fin-final-ack",
         "absorb-post-close-duplicate-final-ack-without-reset",
-        "acknowledge-late-post-close-client-fin-without-reset",
+        "acknowledge-late-post-close-client-fin-payload-without-reset",
         "retain-bounded-post-close-marker-cleanly",
     ] {
         assert!(
@@ -4733,12 +4735,12 @@ fn assert_tun_tcp_session_post_close_guard_smoke_json(smoke: &Value) {
     assert_eq!(duplicate_ack["passed"], true);
     let late_fin = cases
         .iter()
-        .find(|case| case["name"] == "acknowledge-late-post-close-client-fin-without-reset")
+        .find(|case| case["name"] == "acknowledge-late-post-close-client-fin-payload-without-reset")
         .expect("TUN TCP post-close late client FIN case");
     assert_eq!(late_fin["expected_packet_written"], true);
     assert_eq!(late_fin["observed_packet_written"], true);
     assert_eq!(late_fin["observed_sequence_number"], 3);
-    assert_eq!(late_fin["observed_acknowledgment_number"], 17);
+    assert_eq!(late_fin["observed_acknowledgment_number"], 21);
     assert_eq!(late_fin["observed_reset_written"], false);
     assert_eq!(late_fin["passed"], true);
 }
