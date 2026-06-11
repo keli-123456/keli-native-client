@@ -996,6 +996,10 @@ fn doctor_json_report_is_machine_readable() {
         report["readiness_check_capabilities"][96],
         "route-rule-direct-evidence"
     );
+    assert_eq!(
+        report["readiness_check_capabilities"][97],
+        "route-rule-outbound-evidence"
+    );
     assert_eq!(report["tun_backend_check_capabilities"][0], "backend-kind");
     assert_eq!(
         report["tun_backend_check_capabilities"][2],
@@ -1461,6 +1465,10 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(
         report["default_core_certification_capabilities"][114],
         "route-rule-direct-evidence"
+    );
+    assert_eq!(
+        report["default_core_certification_capabilities"][115],
+        "route-rule-outbound-evidence"
     );
     assert_eq!(
         report["resource_limits"]["runtime_event_history"],

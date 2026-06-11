@@ -45,12 +45,12 @@ use keli_net_core::{
     DirectUdpConnector, DnsAddressFamilyPolicy, DnsCache, DnsEngine, DnsError,
     DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, LocalInbound, OutboundConnection,
     OutboundRegistry, OutboundTarget, RegistryTunTcpSessionRelay, RegistryTunUdpRelay,
-    RelayOptions, RouteAction, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule, Socks5Address,
-    Socks5Command, Socks5ReplyCode, SystemDnsResolver, TunPacketDevice, TunPacketFlow,
-    TunPacketLoopEvent, TunPacketLoopSummary, TunPacketRouteDecision, TunTcpClientPayloadFrame,
-    TunTcpCloseMarkerResetKind, TunTcpSegment, TunTcpServerRead, TunTcpSessionRecord,
-    TunTcpSessionRelay, TunTcpSessionStep, TunTcpSessionTable, TunTransportProtocol, TunUdpRelay,
-    DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+    RelayOptions, RouteAction, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule,
+    ShadowsocksTcpOutbound, Socks5Address, Socks5Command, Socks5ReplyCode, SystemDnsResolver,
+    TunPacketDevice, TunPacketFlow, TunPacketLoopEvent, TunPacketLoopSummary,
+    TunPacketRouteDecision, TunTcpClientPayloadFrame, TunTcpCloseMarkerResetKind, TunTcpSegment,
+    TunTcpServerRead, TunTcpSessionRecord, TunTcpSessionRelay, TunTcpSessionStep,
+    TunTcpSessionTable, TunTransportProtocol, TunUdpRelay, DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
 };
 use keli_platform::{
     install_wintun_library, install_wintun_library_from_source_dir, snapshot_tun_route_takeover,
@@ -553,6 +553,11 @@ const TCP_RELAY_SMOKE_TARGET_PORT: u16 = 443;
 const TCP_RELAY_SMOKE_PAYLOAD: &[u8] = b"keli-tcp-smoke";
 const TCP_RELAY_SMOKE_RESPONSE: &[u8] = b"keli-tcp-pong";
 const TCP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(8);
+const ROUTE_RULE_OUTBOUND_SMOKE_OUTBOUND: &str = "ROUTE-RULE-SS-TCP-SMOKE";
+const ROUTE_RULE_OUTBOUND_SMOKE_TARGET_HOST: &str = "route-rule.example";
+const ROUTE_RULE_OUTBOUND_SMOKE_TARGET_PORT: u16 = 443;
+const ROUTE_RULE_OUTBOUND_SMOKE_PAYLOAD: &[u8] = b"keli-route-rule-smoke";
+const ROUTE_RULE_OUTBOUND_SMOKE_RESPONSE: &[u8] = b"keli-route-rule-pong";
 const UDP_RELAY_SMOKE_OUTBOUND: &str = "SS-UDP-SMOKE";
 const UDP_RELAY_SMOKE_TARGET_HOST: &str = "example.com";
 const UDP_RELAY_SMOKE_TARGET_PORT: u16 = 53;
@@ -562,11 +567,11 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(4);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 103;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 92;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 104;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 93;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 88;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 107;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 89;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 108;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW: Duration = Duration::from_secs(60);
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS: usize = 25;
@@ -594,11 +599,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-smoke-mode,hy2-quic-udp-relay-smoke,tuic-quic-udp-relay-smoke,dns-policy-ipv6-hijack-smoke,route-rule-block-evidence,route-rule-direct-evidence";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-smoke-mode,hy2-quic-udp-relay-smoke,tuic-quic-udp-relay-smoke,dns-policy-ipv6-hijack-smoke,route-rule-block-evidence,route-rule-direct-evidence,route-rule-outbound-evidence";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode,default-core-release-gate,default-core-release-gate-stability-evidence,default-core-release-gate-stability-window,default-core-release-gate-stability-traffic-floor,default-core-release-gate-preset,default-core-release-gate-preset-evidence,default-core-release-gate-preset-minimums,default-core-release-gate-stability-summary,default-core-release-gate-preset-enforced,default-core-release-gate-preset-scope,default-core-release-gate-takeover-evidence,default-core-release-gate-next-actions,default-core-release-gate-actionable-error,default-core-release-gate-rerun-args,default-core-release-gate-canonical-rerun-args,default-core-release-gate-rerun-command,hy2-quic-udp-relay-smoke,tuic-quic-udp-relay-smoke,dns-policy-ipv6-hijack-smoke,route-rule-block-evidence,route-rule-direct-evidence";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode,default-core-release-gate,default-core-release-gate-stability-evidence,default-core-release-gate-stability-window,default-core-release-gate-stability-traffic-floor,default-core-release-gate-preset,default-core-release-gate-preset-evidence,default-core-release-gate-preset-minimums,default-core-release-gate-stability-summary,default-core-release-gate-preset-enforced,default-core-release-gate-preset-scope,default-core-release-gate-takeover-evidence,default-core-release-gate-next-actions,default-core-release-gate-actionable-error,default-core-release-gate-rerun-args,default-core-release-gate-canonical-rerun-args,default-core-release-gate-rerun-command,hy2-quic-udp-relay-smoke,tuic-quic-udp-relay-smoke,dns-policy-ipv6-hijack-smoke,route-rule-block-evidence,route-rule-direct-evidence,route-rule-outbound-evidence";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -7737,10 +7742,17 @@ pub struct RouteRuleSmokeCaseReport {
     pub target: String,
     pub expected_route_action: &'static str,
     pub observed_route_action: Option<String>,
+    pub expected_selected_outbound: Option<String>,
+    pub observed_selected_outbound: Option<String>,
     pub block_confirmed: bool,
     pub direct_confirmed: bool,
+    pub outbound_confirmed: bool,
     pub expected_response: String,
     pub observed_response: Option<String>,
+    pub request_payload_bytes: Option<usize>,
+    pub response_payload_bytes: Option<usize>,
+    pub round_trip_observed: Option<bool>,
+    pub server_received_payload: Option<bool>,
     pub target_contacted: Option<bool>,
     pub passed: bool,
     pub error: Option<String>,
@@ -10062,6 +10074,11 @@ fn collect_default_route_rule_smoke_report() -> RouteRuleSmokeReport {
         "nonmatching-domain-suffix",
         RouteMatcher::DomainSuffix("blocked.example".to_string()),
     ));
+    cases.push(run_http_route_rule_outbound_smoke_case(
+        "domain-suffix-outbound-http-connect",
+        "domain-suffix",
+        RouteMatcher::DomainSuffix(ROUTE_RULE_OUTBOUND_SMOKE_TARGET_HOST.to_string()),
+    ));
 
     finalize_route_rule_smoke_report(cases)
 }
@@ -10307,6 +10324,197 @@ fn run_http_route_rule_direct_smoke_case(
     )
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RouteRuleOutboundSmokeObservation {
+    target: String,
+    observed_route_action: String,
+    observed_selected_outbound: Option<String>,
+    observed_response: String,
+    response_payload_bytes: usize,
+    round_trip_observed: bool,
+    server_received_payload: bool,
+}
+
+fn run_http_route_rule_outbound_smoke_case(
+    name: &'static str,
+    matcher_label: &'static str,
+    matcher: RouteMatcher,
+) -> RouteRuleSmokeCaseReport {
+    let expected_response = String::from_utf8_lossy(ROUTE_RULE_OUTBOUND_SMOKE_RESPONSE).to_string();
+    let target = format!(
+        "{}:{}",
+        ROUTE_RULE_OUTBOUND_SMOKE_TARGET_HOST, ROUTE_RULE_OUTBOUND_SMOKE_TARGET_PORT
+    );
+    let result = (|| -> Result<RouteRuleOutboundSmokeObservation, String> {
+        let (ss_port, ss_thread) = spawn_tcp_relay_smoke_shadowsocks_server_for(
+            "route-rule outbound smoke",
+            ROUTE_RULE_OUTBOUND_SMOKE_TARGET_HOST,
+            ROUTE_RULE_OUTBOUND_SMOKE_TARGET_PORT,
+            ROUTE_RULE_OUTBOUND_SMOKE_PAYLOAD.to_vec(),
+            ROUTE_RULE_OUTBOUND_SMOKE_RESPONSE,
+        )?;
+
+        let mut routes = RouteEngine::new(RouteAction::Direct);
+        routes.add_rule(RouteRule {
+            name: format!("route-smoke:{name}:outbound"),
+            matcher,
+            action: RouteAction::Outbound(ROUTE_RULE_OUTBOUND_SMOKE_OUTBOUND.to_string()),
+        });
+        let target_for_route = OutboundTarget::new(
+            ROUTE_RULE_OUTBOUND_SMOKE_TARGET_HOST,
+            ROUTE_RULE_OUTBOUND_SMOKE_TARGET_PORT,
+        );
+        let decision = routes.decide_destination(&target_for_route.route_destination());
+        let observed_route_action = route_rule_smoke_route_action_label(&decision.action);
+        let observed_selected_outbound = match &decision.action {
+            RouteAction::Outbound(tag) => Some(tag.clone()),
+            _ => None,
+        };
+
+        let mut outbounds = OutboundRegistry::new();
+        outbounds.add_shadowsocks_tcp(
+            ROUTE_RULE_OUTBOUND_SMOKE_OUTBOUND,
+            ShadowsocksTcpOutbound::new(
+                Endpoint::new("127.0.0.1", ss_port),
+                "aes-256-gcm",
+                "secret",
+            ),
+        );
+        let runtime = MixedProxyRuntime::with_routes_and_outbounds(routes, outbounds);
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .map_err(|error| format!("bind route-rule outbound smoke listener: {error}"))?;
+        listener
+            .set_nonblocking(true)
+            .map_err(|error| format!("set route-rule outbound smoke accept mode: {error}"))?;
+        let listen_addr = listener
+            .local_addr()
+            .map_err(|error| format!("read route-rule outbound smoke listener addr: {error}"))?;
+        let server = thread::spawn(move || -> io::Result<()> {
+            let deadline = Instant::now() + TCP_RELAY_SMOKE_TIMEOUT;
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok(accepted) => break accepted,
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        if Instant::now() >= deadline {
+                            return Err(io::Error::new(
+                                io::ErrorKind::TimedOut,
+                                "route-rule outbound smoke accept timed out",
+                            ));
+                        }
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => return Err(error),
+                }
+            };
+            stream.set_nonblocking(false)?;
+            handle_mixed_connection_with_routes(&mut stream, &runtime)
+        });
+
+        let client_result = (|| -> Result<(Vec<u8>, Vec<u8>), String> {
+            let mut client = TcpStream::connect(listen_addr)
+                .map_err(|error| format!("connect route-rule outbound smoke listener: {error}"))?;
+            client
+                .set_read_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+                .map_err(|error| format!("set route-rule outbound smoke read timeout: {error}"))?;
+            client
+                .set_write_timeout(Some(TCP_RELAY_SMOKE_TIMEOUT))
+                .map_err(|error| format!("set route-rule outbound smoke write timeout: {error}"))?;
+            write!(
+                client,
+                "CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n"
+            )
+            .map_err(|error| format!("write route-rule outbound smoke HTTP CONNECT: {error}"))?;
+            let connect_response = read_route_rule_smoke_http_response(&mut client)?;
+            let mut tunneled_response = Vec::new();
+            if connect_response == http_connect_success_response() {
+                client
+                    .write_all(ROUTE_RULE_OUTBOUND_SMOKE_PAYLOAD)
+                    .map_err(|error| format!("write route-rule outbound smoke payload: {error}"))?;
+                tunneled_response = vec![0; ROUTE_RULE_OUTBOUND_SMOKE_RESPONSE.len()];
+                client
+                    .read_exact(&mut tunneled_response)
+                    .map_err(|error| format!("read route-rule outbound smoke response: {error}"))?;
+            }
+            client.shutdown(Shutdown::Both).ok();
+            Ok((connect_response, tunneled_response))
+        })();
+
+        server
+            .join()
+            .map_err(|_| "route-rule outbound smoke HTTP worker panicked".to_string())?
+            .map_err(|error| format!("route-rule outbound smoke HTTP worker failed: {error}"))?;
+        let server_observation = join_tcp_relay_smoke_server(ss_thread)?;
+        let (connect_response, tunneled_response) = client_result?;
+        if connect_response != http_connect_success_response() {
+            return Err(format!(
+                "unexpected route-rule outbound smoke CONNECT response: {}",
+                route_rule_smoke_response_label(&connect_response)
+            ));
+        }
+        let observed_response = route_rule_smoke_response_label(&tunneled_response);
+        Ok(RouteRuleOutboundSmokeObservation {
+            target: target.clone(),
+            observed_route_action: observed_route_action.to_string(),
+            observed_selected_outbound,
+            response_payload_bytes: tunneled_response.len(),
+            round_trip_observed: tunneled_response == ROUTE_RULE_OUTBOUND_SMOKE_RESPONSE,
+            server_received_payload: server_observation.received_expected_payload,
+            observed_response,
+        })
+    })();
+
+    match result {
+        Ok(observation) => {
+            let outbound_confirmed = observation.observed_route_action == "outbound"
+                && observation.observed_selected_outbound.as_deref()
+                    == Some(ROUTE_RULE_OUTBOUND_SMOKE_OUTBOUND)
+                && observation.round_trip_observed
+                && observation.server_received_payload;
+            let passed = outbound_confirmed && observation.observed_response == expected_response;
+            RouteRuleSmokeCaseReport {
+                name,
+                inbound: "http-connect",
+                matcher: matcher_label,
+                target: observation.target,
+                expected_route_action: "outbound",
+                observed_route_action: Some(observation.observed_route_action),
+                expected_selected_outbound: Some(ROUTE_RULE_OUTBOUND_SMOKE_OUTBOUND.to_string()),
+                observed_selected_outbound: observation.observed_selected_outbound,
+                block_confirmed: false,
+                direct_confirmed: false,
+                outbound_confirmed,
+                expected_response,
+                observed_response: Some(observation.observed_response.clone()),
+                request_payload_bytes: Some(ROUTE_RULE_OUTBOUND_SMOKE_PAYLOAD.len()),
+                response_payload_bytes: Some(observation.response_payload_bytes),
+                round_trip_observed: Some(observation.round_trip_observed),
+                server_received_payload: Some(observation.server_received_payload),
+                target_contacted: None,
+                passed,
+                error: None,
+            }
+        }
+        Err(error) => route_rule_smoke_error_case_with_action(
+            name,
+            "http-connect",
+            matcher_label,
+            target,
+            "outbound",
+            expected_response,
+            error,
+        ),
+    }
+}
+
+fn route_rule_smoke_route_action_label(action: &RouteAction) -> &'static str {
+    match action {
+        RouteAction::Direct => "direct",
+        RouteAction::Block => "block",
+        RouteAction::Outbound(_) => "outbound",
+        RouteAction::HijackDns => "hijack-dns",
+    }
+}
+
 fn route_rule_smoke_case_from_result(
     name: &'static str,
     inbound: &'static str,
@@ -10341,10 +10549,17 @@ fn route_rule_smoke_case_from_result(
                 target,
                 expected_route_action,
                 observed_route_action: Some(observed_route_action),
+                expected_selected_outbound: None,
+                observed_selected_outbound: None,
                 block_confirmed,
                 direct_confirmed,
+                outbound_confirmed: false,
                 expected_response,
                 observed_response: Some(observed_response),
+                request_payload_bytes: None,
+                response_payload_bytes: None,
+                round_trip_observed: None,
+                server_received_payload: None,
                 target_contacted,
                 passed,
                 error: None,
@@ -10397,10 +10612,17 @@ fn route_rule_smoke_error_case_with_action(
         target,
         expected_route_action,
         observed_route_action: None,
+        expected_selected_outbound: None,
+        observed_selected_outbound: None,
         block_confirmed: false,
         direct_confirmed: false,
+        outbound_confirmed: false,
         expected_response,
         observed_response: None,
+        request_payload_bytes: None,
+        response_payload_bytes: None,
+        round_trip_observed: None,
+        server_received_payload: None,
         target_contacted: None,
         passed: false,
         error: Some(error),
@@ -10553,11 +10775,11 @@ mod route_rule_smoke_tests {
     use super::*;
 
     #[test]
-    fn default_route_rule_smoke_blocks_domain_cidr_port_and_allows_direct_case() {
+    fn default_route_rule_smoke_blocks_domain_cidr_port_allows_direct_and_routes_outbound_case() {
         let report = collect_default_route_rule_smoke_report();
 
         assert!(report.passed, "{report:#?}");
-        assert_eq!(report.cases.len(), 4);
+        assert_eq!(report.cases.len(), 5);
         for case_name in ["domain-suffix-block", "cidr-block", "port-block"] {
             let case = report
                 .cases
@@ -10587,6 +10809,18 @@ mod route_rule_smoke_tests {
         assert_eq!(direct_case.expected_route_action, "direct");
         assert_eq!(direct_case.observed_route_action.as_deref(), Some("direct"));
         assert_eq!(direct_case.target_contacted, Some(true));
+
+        let outbound_case = report
+            .cases
+            .iter()
+            .find(|case| case.name == "domain-suffix-outbound-http-connect")
+            .expect("outbound route-rule smoke case");
+        assert!(outbound_case.passed, "{outbound_case:?}");
+        assert_eq!(outbound_case.expected_route_action, "outbound");
+        assert_eq!(
+            outbound_case.observed_route_action.as_deref(),
+            Some("outbound")
+        );
     }
 }
 
@@ -62117,10 +62351,17 @@ fn route_rule_smoke_case_json_value(case: &RouteRuleSmokeCaseReport) -> serde_js
         "target": &case.target,
         "expected_route_action": case.expected_route_action,
         "observed_route_action": &case.observed_route_action,
+        "expected_selected_outbound": &case.expected_selected_outbound,
+        "observed_selected_outbound": &case.observed_selected_outbound,
         "block_confirmed": case.block_confirmed,
         "direct_confirmed": case.direct_confirmed,
+        "outbound_confirmed": case.outbound_confirmed,
         "expected_response": &case.expected_response,
         "observed_response": &case.observed_response,
+        "request_payload_bytes": case.request_payload_bytes,
+        "response_payload_bytes": case.response_payload_bytes,
+        "round_trip_observed": case.round_trip_observed,
+        "server_received_payload": case.server_received_payload,
         "target_contacted": case.target_contacted,
         "passed": case.passed,
         "error": &case.error,

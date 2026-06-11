@@ -48,7 +48,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert!(report["system_proxy_smoke"]["passed"].is_null());
     assert_eq!(report["route_rule_smoke"]["status"], "passed");
     assert_eq!(report["route_rule_smoke"]["passed"], true);
-    assert_eq!(report["route_rule_smoke"]["case_count"], 4);
+    assert_eq!(report["route_rule_smoke"]["case_count"], 5);
     assert_eq!(report["route_rule_smoke"]["failed_case_count"], 0);
     let route_cases = report["route_rule_smoke"]["cases"]
         .as_array()
@@ -62,6 +62,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
         "cidr-block",
         "port-block",
         "default-direct-http-connect",
+        "domain-suffix-outbound-http-connect",
     ] {
         assert!(
             route_case_names.contains(&expected),
@@ -84,6 +85,27 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(direct_route_case["observed_route_action"], "direct");
     assert_eq!(direct_route_case["direct_confirmed"], true);
     assert_eq!(direct_route_case["target_contacted"], true);
+    let outbound_route_case = route_cases
+        .iter()
+        .find(|case| case["name"] == "domain-suffix-outbound-http-connect")
+        .expect("outbound route smoke case");
+    assert_eq!(outbound_route_case["expected_route_action"], "outbound");
+    assert_eq!(outbound_route_case["observed_route_action"], "outbound");
+    assert_eq!(
+        outbound_route_case["expected_selected_outbound"],
+        "ROUTE-RULE-SS-TCP-SMOKE"
+    );
+    assert_eq!(
+        outbound_route_case["observed_selected_outbound"],
+        "ROUTE-RULE-SS-TCP-SMOKE"
+    );
+    assert_eq!(outbound_route_case["outbound_confirmed"], true);
+    assert_eq!(outbound_route_case["round_trip_observed"], true);
+    assert_eq!(outbound_route_case["server_received_payload"], true);
+    assert_eq!(
+        outbound_route_case["observed_response"],
+        "keli-route-rule-pong"
+    );
     let port_case = route_cases
         .iter()
         .find(|case| case["name"] == "port-block")
@@ -3164,7 +3186,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert!(route_rule["detail"]
         .as_str()
         .expect("route rule detail")
-        .contains("cases=4"));
+        .contains("cases=5"));
 
     let dns_policy = gate(gates, "dns-policy-smoke");
     assert_eq!(dns_policy["category"], "dns");
@@ -3465,7 +3487,7 @@ fn readiness_check_text_reports_gate_summary() {
     ));
     assert!(output.contains("readiness gate=tun-backend category=platform status="));
     assert!(output.contains("readiness tun_preflight status="));
-    assert!(output.contains("readiness route_rule_smoke status=passed cases=4"));
+    assert!(output.contains("readiness route_rule_smoke status=passed cases=5"));
     assert!(output.contains("readiness dns_policy_smoke status=passed cases=5"));
     assert!(output.contains("readiness tcp_relay_smoke status=passed cases=4"));
     assert!(output.contains("readiness socks5_tcp_outbound_relay_smoke status=passed cases=4"));
@@ -3758,10 +3780,10 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     }
     assert_eq!(report["certification"]["route_rule_smoke_passed"], true);
     assert_eq!(report["route_rule_smoke"]["status"], "passed");
-    assert_eq!(report["route_rule_smoke"]["case_count"], 4);
+    assert_eq!(report["route_rule_smoke"]["case_count"], 5);
     assert_eq!(report["route_rule_smoke"]["failed_case_count"], 0);
     assert_eq!(report["readiness"]["route_rule_smoke"]["status"], "passed");
-    assert_eq!(report["readiness"]["route_rule_smoke"]["case_count"], 4);
+    assert_eq!(report["readiness"]["route_rule_smoke"]["case_count"], 5);
     assert_eq!(report["certification"]["dns_policy_smoke_passed"], true);
     assert_eq!(report["dns_policy_smoke"]["status"], "passed");
     assert_eq!(report["dns_policy_smoke"]["case_count"], 5);
@@ -5870,7 +5892,7 @@ fn default_core_certification_text_reports_summary_and_gates() {
     assert!(output.contains("require_machine_takeover_ready=false"));
     assert!(output.contains("rerun_args=-"));
     assert!(output.contains("default_core_certification tun_preflight status="));
-    assert!(output.contains("default_core_certification route_rule_smoke status=passed cases=4"));
+    assert!(output.contains("default_core_certification route_rule_smoke status=passed cases=5"));
     assert!(output.contains("default_core_certification dns_policy_smoke status=passed cases=5"));
     assert!(output.contains("default_core_certification tcp_relay_smoke status=passed cases=4"));
     assert!(output.contains(
