@@ -982,6 +982,10 @@ proxies:
         "machine-takeover-smoke-mode"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][94],
+        "default-core-release-gate"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
@@ -1448,6 +1452,18 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
         certification["default_core_promotion"]["missing_takeover_evidence"][1],
         "tun-runtime-smoke"
     );
+    assert_eq!(certification["release_gate"]["status"], "not-required");
+    assert_eq!(certification["release_gate"]["required_scope"], "none");
+    assert_eq!(
+        certification["release_gate"]["require_machine_takeover_ready"],
+        false
+    );
+    assert_eq!(certification["release_gate"]["passed"], true);
+    assert_eq!(
+        certification["release_gate"]["machine_takeover_smokes_requested"],
+        false
+    );
+    assert_eq!(certification["release_gate"]["blocker_count"], 0);
     let promotion_next_actions = certification["default_core_promotion"]["next_actions"]
         .as_array()
         .expect("promotion next actions");

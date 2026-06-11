@@ -747,6 +747,12 @@ The first implementation target is deliberately small:
    that maps the same evidence to a safe default scope: `core-ready` for local
    core use when takeover evidence is still missing, and
    `machine-takeover-ready` only after both optional takeover smokes pass.
+   `default-core-certify --machine-takeover-gate` turns that verdict into a
+   hard release check by enabling both takeover smokes and returning an error
+   unless the artifact reaches `machine-takeover-ready`; `release_gate` remains
+   in the JSON artifact so CI, release scripts, and UI promotion tooling can
+   show the required scope, pass/fail status, and blockers after the command
+   exits.
    The default TUN TCP session smoke is always part of readiness and
    certification, proving the managed packet loop can relay a TCP session
    through the outbound registry and clean up session state without touching the

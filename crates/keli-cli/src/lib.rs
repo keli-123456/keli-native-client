@@ -551,7 +551,7 @@ pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 96;
 pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 86;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 82;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 85;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 86;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -580,7 +580,7 @@ const READINESS_CHECK_CAPABILITIES: &str =
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode,default-core-release-gate";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -613,6 +613,7 @@ pub enum CliCommand {
         include_system_proxy_smoke: bool,
         include_tun_runtime_smoke: bool,
         tun_runtime_smoke_min_duration: Duration,
+        require_machine_takeover_ready: bool,
     },
     TunPreflight {
         config: TunDeviceConfig,
@@ -4726,9 +4727,10 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             include_system_proxy_smoke,
             include_tun_runtime_smoke,
             tun_runtime_smoke_min_duration,
+            require_machine_takeover_ready,
         } => {
             let mut stdout = io::stdout();
-            write_default_core_certification_report_with_options(
+            write_default_core_certification_report_with_release_gate_options(
                 output,
                 soak_connections,
                 first_byte_timeout,
@@ -4737,6 +4739,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 include_system_proxy_smoke,
                 include_tun_runtime_smoke,
                 tun_runtime_smoke_min_duration,
+                require_machine_takeover_ready,
                 &mut stdout,
             )
         }
@@ -4998,7 +5001,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli default-core-certify [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1] [--machine-takeover] [--include-system-proxy-smoke] [--include-tun-runtime-smoke] [--tun-runtime-smoke-min-duration-ms 50]"
+        "       keli-cli default-core-certify [--format text|json] [--soak-connections 3] [--first-byte-timeout-ms 30000] [--max-connection-workers 1024] [--soak-min-duration-ms 1] [--machine-takeover] [--machine-takeover-gate] [--require-machine-takeover-ready] [--include-system-proxy-smoke] [--include-tun-runtime-smoke] [--tun-runtime-smoke-min-duration-ms 50]"
     )?;
     writeln!(
         writer,
@@ -5184,6 +5187,7 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
     let mut include_system_proxy_smoke = false;
     let mut include_tun_runtime_smoke = false;
     let mut tun_runtime_smoke_min_duration = DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION;
+    let mut require_machine_takeover_ready = false;
     let mut args = args.peekable();
 
     while let Some(arg) = args.next() {
@@ -5234,6 +5238,14 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
                 include_system_proxy_smoke = true;
                 include_tun_runtime_smoke = true;
             }
+            "--require-machine-takeover" | "--require-machine-takeover-ready" => {
+                require_machine_takeover_ready = true;
+            }
+            "--machine-takeover-gate" => {
+                include_system_proxy_smoke = true;
+                include_tun_runtime_smoke = true;
+                require_machine_takeover_ready = true;
+            }
             "--tun-runtime-smoke-min-duration-ms" => {
                 include_tun_runtime_smoke = true;
                 tun_runtime_smoke_min_duration = parse_duration_ms(
@@ -5256,6 +5268,7 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
         include_system_proxy_smoke,
         include_tun_runtime_smoke,
         tun_runtime_smoke_min_duration,
+        require_machine_takeover_ready,
     })
 }
 
@@ -7401,6 +7414,7 @@ pub struct DefaultCoreCertificationReport {
     pub schema_version: u32,
     pub version: &'static str,
     pub ready_for_default_core: bool,
+    pub require_machine_takeover_ready: bool,
     pub readiness: DefaultCoreReadinessReport,
     pub tun_backend: TunBackendStatus,
     pub tun_preflight: TunDevicePreflight,
@@ -8542,6 +8556,32 @@ pub fn write_default_core_certification_report_with_options(
     tun_runtime_smoke_min_duration: Duration,
     mut writer: impl Write,
 ) -> Result<(), String> {
+    write_default_core_certification_report_with_release_gate_options(
+        output,
+        soak_connections,
+        first_byte_timeout,
+        max_connection_workers,
+        soak_min_duration,
+        include_system_proxy_smoke,
+        include_tun_runtime_smoke,
+        tun_runtime_smoke_min_duration,
+        false,
+        &mut writer,
+    )
+}
+
+pub fn write_default_core_certification_report_with_release_gate_options(
+    output: ProbeOutputFormat,
+    soak_connections: usize,
+    first_byte_timeout: Duration,
+    max_connection_workers: usize,
+    soak_min_duration: Duration,
+    include_system_proxy_smoke: bool,
+    include_tun_runtime_smoke: bool,
+    tun_runtime_smoke_min_duration: Duration,
+    require_machine_takeover_ready: bool,
+    mut writer: impl Write,
+) -> Result<(), String> {
     let report = collect_default_core_certification_report(
         soak_connections,
         first_byte_timeout,
@@ -8550,15 +8590,23 @@ pub fn write_default_core_certification_report_with_options(
         include_system_proxy_smoke,
         include_tun_runtime_smoke,
         tun_runtime_smoke_min_duration,
+        require_machine_takeover_ready,
     )?;
-    match output {
+    let write_result = match output {
         ProbeOutputFormat::Text => {
             write_default_core_certification_text_report(&mut writer, &report)
         }
         ProbeOutputFormat::Json => {
             write_default_core_certification_json_report(&mut writer, &report)
         }
+    };
+    write_result?;
+
+    if !default_core_release_gate_passed(&report) {
+        return Err(default_core_release_gate_error(&report));
     }
+
+    Ok(())
 }
 
 fn collect_default_core_certification_report(
@@ -8569,6 +8617,7 @@ fn collect_default_core_certification_report(
     include_system_proxy_smoke: bool,
     include_tun_runtime_smoke: bool,
     tun_runtime_smoke_min_duration: Duration,
+    require_machine_takeover_ready: bool,
 ) -> Result<DefaultCoreCertificationReport, String> {
     if soak_connections == 0 {
         return Err("default-core-certify soak connections must be greater than 0".to_string());
@@ -8744,6 +8793,7 @@ fn collect_default_core_certification_report(
         schema_version: DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION,
         version: env!("CARGO_PKG_VERSION"),
         ready_for_default_core,
+        require_machine_takeover_ready,
         readiness,
         tun_backend,
         tun_preflight,
@@ -57865,6 +57915,18 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification release_gate status={} required_scope={} passed={} require_machine_takeover_ready={} machine_takeover_ready={} machine_takeover_smokes_requested={} blockers={}",
+        default_core_release_gate_status(report),
+        default_core_release_gate_required_scope(report),
+        default_core_release_gate_passed(report),
+        report.require_machine_takeover_ready,
+        default_core_promotion_machine_takeover_ready(report),
+        default_core_machine_takeover_smokes_requested(report),
+        comma_list_or_dash(default_core_release_gate_blockers(report))
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification tun_preflight status={} ready={} state={} lifecycle_available={} packet_io_available={} interface={} address={} mtu={} reason={}",
         report.tun_preflight.readiness.label(),
         report.tun_preflight.ready,
@@ -58589,6 +58651,56 @@ fn default_core_promotion_next_actions(
     actions
 }
 
+fn default_core_release_gate_passed(report: &DefaultCoreCertificationReport) -> bool {
+    !report.require_machine_takeover_ready || default_core_promotion_machine_takeover_ready(report)
+}
+
+fn default_core_release_gate_status(report: &DefaultCoreCertificationReport) -> &'static str {
+    if !report.require_machine_takeover_ready {
+        "not-required"
+    } else if default_core_promotion_machine_takeover_ready(report) {
+        "passed"
+    } else {
+        "failed"
+    }
+}
+
+fn default_core_release_gate_required_scope(
+    report: &DefaultCoreCertificationReport,
+) -> &'static str {
+    if report.require_machine_takeover_ready {
+        "machine-takeover"
+    } else {
+        "none"
+    }
+}
+
+fn default_core_release_gate_blockers(
+    report: &DefaultCoreCertificationReport,
+) -> Vec<&'static str> {
+    let mut blockers = Vec::new();
+    if !report.require_machine_takeover_ready {
+        return blockers;
+    }
+    if !report.ready_for_default_core {
+        blockers.push("readiness-gates");
+    }
+    if !default_core_machine_takeover_smokes_requested(report) {
+        blockers.push("machine-takeover-smokes-not-requested");
+    }
+    for failed in default_core_takeover_coverage_failed_evidence(report) {
+        blockers.push(failed);
+    }
+    blockers
+}
+
+fn default_core_release_gate_error(report: &DefaultCoreCertificationReport) -> String {
+    format!(
+        "default-core-certify machine-takeover release gate failed: blockers={}",
+        comma_list_or_dash(default_core_release_gate_blockers(report))
+    )
+}
+
 fn comma_list_or_dash(items: Vec<&'static str>) -> String {
     if items.is_empty() {
         "-".to_string()
@@ -58655,6 +58767,26 @@ fn default_core_promotion_json_value(report: &DefaultCoreCertificationReport) ->
         "failed_takeover_evidence": default_core_takeover_coverage_failed_evidence(report),
         "next_actions": next_actions,
         "next_action_count": next_action_count,
+        "blockers": blockers,
+        "blocker_count": blocker_count,
+    })
+}
+
+fn default_core_release_gate_json_value(
+    report: &DefaultCoreCertificationReport,
+) -> serde_json::Value {
+    let blockers = default_core_release_gate_blockers(report);
+    let blocker_count = blockers.len();
+    serde_json::json!({
+        "status": default_core_release_gate_status(report),
+        "required_scope": default_core_release_gate_required_scope(report),
+        "passed": default_core_release_gate_passed(report),
+        "require_machine_takeover_ready": report.require_machine_takeover_ready,
+        "machine_takeover_ready": default_core_promotion_machine_takeover_ready(report),
+        "machine_takeover_smokes_requested": default_core_machine_takeover_smokes_requested(report),
+        "takeover_coverage_status": default_core_takeover_coverage_status(report),
+        "missing_takeover_evidence": default_core_takeover_coverage_missing_evidence(report),
+        "failed_takeover_evidence": default_core_takeover_coverage_failed_evidence(report),
         "blockers": blockers,
         "blocker_count": blocker_count,
     })
@@ -58798,6 +58930,7 @@ fn default_core_certification_json_value(
         "promotion_blockers": promotion_blockers,
         "takeover_coverage": default_core_takeover_coverage_json_value(report),
         "default_core_promotion": default_core_promotion_json_value(report),
+        "release_gate": default_core_release_gate_json_value(report),
         "tun_backend_status": if report.tun_backend.is_ready() { "ready" } else { "not-ready" },
         "tun_backend": tun_backend_json_value(&report.tun_backend),
         "tun_preflight": tun_preflight_json_value(&report.tun_preflight),
@@ -58994,6 +59127,14 @@ fn default_core_certification_json_value(
         certification.insert(
             "machine_takeover_smokes_requested".to_string(),
             serde_json::Value::Bool(default_core_machine_takeover_smokes_requested(report)),
+        );
+        certification.insert(
+            "require_machine_takeover_ready".to_string(),
+            serde_json::Value::Bool(report.require_machine_takeover_ready),
+        );
+        certification.insert(
+            "release_gate_passed".to_string(),
+            serde_json::Value::Bool(default_core_release_gate_passed(report)),
         );
     }
     value
@@ -61815,6 +61956,7 @@ pub fn write_support_bundle_report_with_options(
             options.certification_include_system_proxy_smoke,
             options.certification_include_tun_runtime_smoke,
             options.certification_tun_runtime_smoke_min_duration,
+            false,
         )?)
     } else {
         serde_json::Value::Null

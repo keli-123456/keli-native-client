@@ -700,7 +700,11 @@ be tuned with
 `--tun-runtime-smoke-min-duration-ms`. `--machine-takeover` is the shorthand
 release-certification mode for turning on both the system-proxy and TUN runtime
 smokes; the individual smoke flags remain available for isolating one takeover
-path. When
+path. `default-core-certify --machine-takeover-gate` enables those same smokes
+and treats `machine-takeover-ready` as a hard release gate: the report is still
+written, but the command returns an error when core readiness or takeover
+evidence is missing or failed. `--require-machine-takeover-ready` can apply the
+same hard check to explicitly chosen smoke flags. When
 `--soak-min-duration-ms` is provided, the local soak gates hold the managed
 runtime alive for that minimum duration and report `min_duration_ms` plus
 `duration_target_met` in the gate detail.
@@ -868,7 +872,9 @@ promotion, and certification summaries.
 `default_core_promotion` turns that evidence into a release verdict: a run with
 all default gates passing but no takeover smokes is `core-ready` with
 `safe_default_scope=local-core-only`, while only a run that also passes both
-takeover smokes is `machine-takeover-ready`.
+takeover smokes is `machine-takeover-ready`. `release_gate` records whether a
+hard machine-takeover gate was required, whether it passed, and the blockers
+that should fail CI or release promotion.
 `keli-cli support-bundle --include-certification` embeds that evidence into the
 redacted support bundle.
 
@@ -898,6 +904,7 @@ cargo run -p keli-cli -- readiness-check --format json --machine-takeover --tun-
 cargo run -p keli-cli -- readiness-check --format json --soak-min-duration-ms 60000
 cargo run -p keli-cli -- default-core-certify --format json
 cargo run -p keli-cli -- default-core-certify --format json --machine-takeover --tun-runtime-smoke-min-duration-ms 250
+cargo run -p keli-cli -- default-core-certify --format json --machine-takeover-gate --tun-runtime-smoke-min-duration-ms 250
 cargo run -p keli-cli -- default-core-certify --format json --soak-min-duration-ms 60000
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
 cargo run -p keli-cli -- support-bundle --include-certification --certification-soak-min-duration-ms 60000

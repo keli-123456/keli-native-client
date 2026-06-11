@@ -138,6 +138,7 @@ fn parses_default_core_certify_json_command() {
             include_system_proxy_smoke: true,
             include_tun_runtime_smoke: true,
             tun_runtime_smoke_min_duration: Duration::from_millis(75),
+            require_machine_takeover_ready: false,
         }
     );
 }
@@ -158,6 +159,28 @@ fn parses_default_core_certify_machine_takeover_mode() {
             include_system_proxy_smoke: true,
             include_tun_runtime_smoke: true,
             tun_runtime_smoke_min_duration: Duration::from_millis(50),
+            require_machine_takeover_ready: false,
+        }
+    );
+}
+
+#[test]
+fn parses_default_core_certify_machine_takeover_gate() {
+    let command = parse_cli_command(["default-core-certify", "--machine-takeover-gate"])
+        .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::DefaultCoreCertify {
+            output: ProbeOutputFormat::Text,
+            soak_connections: 3,
+            first_byte_timeout: Duration::from_secs(30),
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+            soak_min_duration: Duration::from_millis(0),
+            include_system_proxy_smoke: true,
+            include_tun_runtime_smoke: true,
+            tun_runtime_smoke_min_duration: Duration::from_millis(50),
+            require_machine_takeover_ready: true,
         }
     );
 }

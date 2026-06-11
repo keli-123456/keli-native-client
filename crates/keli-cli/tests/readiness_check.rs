@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use keli_cli::{
     write_default_core_certification_report,
+    write_default_core_certification_report_with_release_gate_options,
     write_default_core_certification_report_with_soak_min_duration, write_readiness_check_report,
     write_readiness_check_report_with_soak_min_duration, ProbeOutputFormat,
     DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION, READINESS_CHECK_SCHEMA_VERSION,
@@ -3604,6 +3605,19 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
         report["default_core_promotion"]["missing_takeover_evidence"][1],
         "tun-runtime-smoke"
     );
+    assert_eq!(report["release_gate"]["status"], "not-required");
+    assert_eq!(report["release_gate"]["required_scope"], "none");
+    assert_eq!(
+        report["release_gate"]["require_machine_takeover_ready"],
+        false
+    );
+    assert_eq!(report["release_gate"]["passed"], true);
+    assert_eq!(report["release_gate"]["machine_takeover_ready"], false);
+    assert_eq!(
+        report["release_gate"]["machine_takeover_smokes_requested"],
+        false
+    );
+    assert_eq!(report["release_gate"]["blocker_count"], 0);
     let promotion_next_actions = report["default_core_promotion"]["next_actions"]
         .as_array()
         .expect("promotion next actions");
@@ -5721,6 +5735,9 @@ fn default_core_certification_text_reports_summary_and_gates() {
     assert!(output.contains("machine_takeover_default_allowed=false"));
     assert!(output.contains("run-with-include-system-proxy-smoke"));
     assert!(output.contains("run-with-include-tun-runtime-smoke"));
+    assert!(output.contains("default_core_certification release_gate status=not-required"));
+    assert!(output.contains("required_scope=none"));
+    assert!(output.contains("require_machine_takeover_ready=false"));
     assert!(output.contains("default_core_certification tun_preflight status="));
     assert!(output.contains("default_core_certification route_rule_smoke status=passed cases=3"));
     assert!(output.contains("default_core_certification dns_policy_smoke status=passed cases=4"));
@@ -5875,6 +5892,64 @@ fn default_core_certification_text_reports_summary_and_gates() {
     assert!(output.contains(
         "default_core_certification readiness_gate=mixed-soak-socks5 category=stability status=passed"
     ));
+}
+
+#[test]
+fn default_core_certification_machine_takeover_release_gate_fails_without_takeover_evidence() {
+    let mut output = Vec::new();
+
+    let error = write_default_core_certification_report_with_release_gate_options(
+        ProbeOutputFormat::Json,
+        1,
+        Duration::from_secs(2),
+        1,
+        Duration::from_millis(0),
+        false,
+        false,
+        Duration::from_millis(50),
+        true,
+        &mut output,
+    )
+    .expect_err("release gate should fail without machine takeover evidence");
+
+    assert!(error.contains("machine-takeover release gate failed"));
+    assert!(error.contains("machine-takeover-smokes-not-requested"));
+
+    let report: Value = serde_json::from_slice(&output).expect("certification JSON");
+    assert_eq!(report["release_gate"]["status"], "failed");
+    assert_eq!(report["release_gate"]["required_scope"], "machine-takeover");
+    assert_eq!(
+        report["release_gate"]["require_machine_takeover_ready"],
+        true
+    );
+    assert_eq!(report["release_gate"]["passed"], false);
+    assert_eq!(report["release_gate"]["machine_takeover_ready"], false);
+    assert_eq!(
+        report["release_gate"]["machine_takeover_smokes_requested"],
+        false
+    );
+    assert_eq!(
+        report["release_gate"]["takeover_coverage_status"],
+        "not-run"
+    );
+    assert_eq!(
+        report["release_gate"]["missing_takeover_evidence"][0],
+        "system-proxy-smoke"
+    );
+    assert_eq!(
+        report["release_gate"]["missing_takeover_evidence"][1],
+        "tun-runtime-smoke"
+    );
+    let blockers = report["release_gate"]["blockers"]
+        .as_array()
+        .expect("release gate blockers");
+    assert!(blockers
+        .iter()
+        .any(|blocker| blocker.as_str() == Some("machine-takeover-smokes-not-requested")));
+    assert_eq!(
+        report["release_gate"]["blocker_count"].as_u64(),
+        Some(blockers.len() as u64)
+    );
 }
 
 #[test]
