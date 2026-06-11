@@ -1026,6 +1026,10 @@ proxies:
         "default-core-release-gate-preset"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][99],
+        "default-core-release-gate-preset-evidence"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
@@ -1414,6 +1418,7 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
             certification_require_machine_takeover_ready: false,
             certification_required_stability_window: None,
             certification_required_stability_connections: None,
+            certification_release_gate_preset: None,
         },
         &mut output,
     )
@@ -5283,6 +5288,7 @@ fn support_bundle_certification_records_stability_gate_failure() {
             certification_require_machine_takeover_ready: false,
             certification_required_stability_window: Some(Duration::from_millis(50)),
             certification_required_stability_connections: None,
+            certification_release_gate_preset: None,
         },
         &mut output,
     )
@@ -5343,6 +5349,7 @@ fn support_bundle_certification_records_stability_connection_gate_failure() {
             certification_require_machine_takeover_ready: false,
             certification_required_stability_window: None,
             certification_required_stability_connections: Some(2),
+            certification_release_gate_preset: None,
         },
         &mut output,
     )
@@ -5381,6 +5388,44 @@ fn support_bundle_certification_records_stability_connection_gate_failure() {
 }
 
 #[test]
+fn support_bundle_certification_records_release_gate_preset_evidence() {
+    let mut output = Vec::new();
+
+    keli_cli::write_support_bundle_report_with_options(
+        None,
+        SupportBundleOptions {
+            include_default_core_certification: true,
+            certification_soak_connections: 2,
+            certification_first_byte_timeout: Duration::from_secs(2),
+            certification_max_connection_workers: 2,
+            certification_soak_min_duration: Duration::from_millis(0),
+            certification_include_system_proxy_smoke: false,
+            certification_include_tun_runtime_smoke: false,
+            certification_tun_runtime_smoke_min_duration: Duration::from_millis(50),
+            certification_require_machine_takeover_ready: false,
+            certification_required_stability_window: Some(Duration::from_millis(0)),
+            certification_required_stability_connections: Some(2),
+            certification_release_gate_preset: Some("default-core-release-gate"),
+        },
+        &mut output,
+    )
+    .expect("write support bundle with release gate preset evidence");
+
+    let report: Value = serde_json::from_slice(&output).expect("support bundle json");
+    let certification = &report["default_core_certification"];
+
+    assert_eq!(
+        certification["release_gate"]["preset"],
+        "default-core-release-gate"
+    );
+    assert_eq!(certification["release_gate"]["preset_applied"], true);
+    assert_eq!(
+        certification["certification"]["release_gate_preset"],
+        "default-core-release-gate"
+    );
+}
+
+#[test]
 fn support_bundle_certification_records_machine_takeover_gate_failure() {
     let mut output = Vec::new();
 
@@ -5398,6 +5443,7 @@ fn support_bundle_certification_records_machine_takeover_gate_failure() {
             certification_require_machine_takeover_ready: true,
             certification_required_stability_window: None,
             certification_required_stability_connections: None,
+            certification_release_gate_preset: None,
         },
         &mut output,
     )

@@ -152,6 +152,7 @@ fn parses_default_core_certify_json_command() {
             require_machine_takeover_ready: false,
             required_stability_window: None,
             required_stability_connections: None,
+            release_gate_preset: None,
         }
     );
 }
@@ -175,6 +176,7 @@ fn parses_default_core_certify_machine_takeover_mode() {
             require_machine_takeover_ready: false,
             required_stability_window: None,
             required_stability_connections: None,
+            release_gate_preset: None,
         }
     );
 }
@@ -198,6 +200,7 @@ fn parses_default_core_certify_machine_takeover_gate() {
             require_machine_takeover_ready: true,
             required_stability_window: None,
             required_stability_connections: None,
+            release_gate_preset: None,
         }
     );
 }
@@ -226,6 +229,7 @@ fn parses_default_core_certify_stability_gate() {
             require_machine_takeover_ready: true,
             required_stability_window: Some(Duration::from_millis(250)),
             required_stability_connections: None,
+            release_gate_preset: None,
         }
     );
 }
@@ -249,6 +253,7 @@ fn parses_default_core_certify_stability_connection_gate() {
             require_machine_takeover_ready: false,
             required_stability_window: None,
             required_stability_connections: Some(25),
+            release_gate_preset: None,
         }
     );
 }
@@ -272,6 +277,7 @@ fn parses_default_core_certify_release_gate_preset() {
             require_machine_takeover_ready: true,
             required_stability_window: Some(Duration::from_secs(60)),
             required_stability_connections: Some(25),
+            release_gate_preset: Some("default-core-release-gate"),
         }
     );
 }
@@ -396,6 +402,7 @@ fn parses_support_bundle_command() {
             certification_require_machine_takeover_ready: false,
             certification_required_stability_window: None,
             certification_required_stability_connections: None,
+            certification_release_gate_preset: None,
         }
     );
 }
@@ -435,6 +442,7 @@ fn parses_support_bundle_with_certification_options() {
             certification_require_machine_takeover_ready: false,
             certification_required_stability_window: None,
             certification_required_stability_connections: None,
+            certification_release_gate_preset: None,
         }
     );
 }
@@ -464,6 +472,7 @@ fn parses_support_bundle_certification_stability_gate() {
             certification_require_machine_takeover_ready: false,
             certification_required_stability_window: Some(Duration::from_millis(250)),
             certification_required_stability_connections: None,
+            certification_release_gate_preset: None,
         }
     );
 }
@@ -492,6 +501,7 @@ fn parses_support_bundle_certification_stability_connection_gate() {
             certification_require_machine_takeover_ready: false,
             certification_required_stability_window: None,
             certification_required_stability_connections: Some(25),
+            certification_release_gate_preset: None,
         }
     );
 }
@@ -519,6 +529,7 @@ fn parses_support_bundle_certification_release_gate_preset() {
             certification_require_machine_takeover_ready: true,
             certification_required_stability_window: Some(Duration::from_secs(60)),
             certification_required_stability_connections: Some(25),
+            certification_release_gate_preset: Some("default-core-release-gate"),
         }
     );
 }
@@ -543,6 +554,7 @@ fn parses_support_bundle_certification_machine_takeover_gate() {
             certification_require_machine_takeover_ready: true,
             certification_required_stability_window: None,
             certification_required_stability_connections: None,
+            certification_release_gate_preset: None,
         }
     );
 }
@@ -567,6 +579,7 @@ fn parses_support_bundle_certification_machine_takeover_mode() {
             certification_require_machine_takeover_ready: false,
             certification_required_stability_window: None,
             certification_required_stability_connections: None,
+            certification_release_gate_preset: None,
         }
     );
 }

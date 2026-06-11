@@ -5,6 +5,7 @@ use keli_cli::{
     write_default_core_certification_report_with_release_gate_and_stability_options,
     write_default_core_certification_report_with_release_gate_and_stability_requirements,
     write_default_core_certification_report_with_release_gate_options,
+    write_default_core_certification_report_with_release_gate_preset_and_stability_requirements,
     write_default_core_certification_report_with_soak_min_duration, write_readiness_check_report,
     write_readiness_check_report_with_soak_min_duration, ProbeOutputFormat,
     DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION, READINESS_CHECK_SCHEMA_VERSION,
@@ -6112,6 +6113,39 @@ fn default_core_certification_stability_gate_fails_when_soak_connections_are_too
     assert_eq!(
         report["release_gate"]["blockers"][0],
         "local-soak-stability-connections-too-low"
+    );
+}
+
+#[test]
+fn default_core_certification_records_release_gate_preset_evidence() {
+    let mut output = Vec::new();
+
+    write_default_core_certification_report_with_release_gate_preset_and_stability_requirements(
+        ProbeOutputFormat::Json,
+        2,
+        Duration::from_secs(2),
+        2,
+        Duration::from_millis(0),
+        false,
+        false,
+        Duration::from_millis(50),
+        false,
+        Some(Duration::from_millis(0)),
+        Some(2),
+        Some("default-core-release-gate"),
+        &mut output,
+    )
+    .expect("write default core certification with release gate preset evidence");
+
+    let report: Value = serde_json::from_slice(&output).expect("certification JSON");
+    assert_eq!(
+        report["release_gate"]["preset"],
+        "default-core-release-gate"
+    );
+    assert_eq!(report["release_gate"]["preset_applied"], true);
+    assert_eq!(
+        report["certification"]["release_gate_preset"],
+        "default-core-release-gate"
     );
 }
 
