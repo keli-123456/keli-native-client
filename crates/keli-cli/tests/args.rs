@@ -283,6 +283,43 @@ fn parses_default_core_certify_release_gate_preset() {
 }
 
 #[test]
+fn default_core_certify_release_gate_preset_enforces_minimums_against_weaker_overrides() {
+    let command = parse_cli_command([
+        "default-core-certify",
+        "--default-core-release-gate",
+        "--stability-gate-ms",
+        "1",
+        "--stability-gate-connections",
+        "2",
+        "--soak-min-duration-ms",
+        "1",
+        "--soak-connections",
+        "2",
+        "--tun-runtime-smoke-min-duration-ms",
+        "1",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::DefaultCoreCertify {
+            output: ProbeOutputFormat::Text,
+            soak_connections: 25,
+            first_byte_timeout: Duration::from_secs(30),
+            max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+            soak_min_duration: Duration::from_secs(60),
+            include_system_proxy_smoke: true,
+            include_tun_runtime_smoke: true,
+            tun_runtime_smoke_min_duration: Duration::from_secs(60),
+            require_machine_takeover_ready: true,
+            required_stability_window: Some(Duration::from_secs(60)),
+            required_stability_connections: Some(25),
+            release_gate_preset: Some("default-core-release-gate"),
+        }
+    );
+}
+
+#[test]
 fn parses_tun_preflight_json_command() {
     let command = parse_cli_command([
         "tun-preflight",
@@ -511,6 +548,44 @@ fn parses_support_bundle_certification_release_gate_preset() {
     let command = parse_cli_command([
         "support-bundle",
         "--certification-default-core-release-gate",
+    ])
+    .expect("command should parse");
+
+    assert_eq!(
+        command,
+        CliCommand::SupportBundle {
+            profile_config: None,
+            include_default_core_certification: true,
+            certification_soak_connections: 25,
+            certification_first_byte_timeout: Duration::from_secs(30),
+            certification_max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+            certification_soak_min_duration: Duration::from_secs(60),
+            certification_include_system_proxy_smoke: true,
+            certification_include_tun_runtime_smoke: true,
+            certification_tun_runtime_smoke_min_duration: Duration::from_secs(60),
+            certification_require_machine_takeover_ready: true,
+            certification_required_stability_window: Some(Duration::from_secs(60)),
+            certification_required_stability_connections: Some(25),
+            certification_release_gate_preset: Some("default-core-release-gate"),
+        }
+    );
+}
+
+#[test]
+fn support_bundle_certification_release_gate_preset_enforces_minimums_against_weaker_overrides() {
+    let command = parse_cli_command([
+        "support-bundle",
+        "--certification-default-core-release-gate",
+        "--certification-stability-gate-ms",
+        "1",
+        "--certification-stability-gate-connections",
+        "2",
+        "--certification-soak-min-duration-ms",
+        "1",
+        "--certification-soak-connections",
+        "2",
+        "--certification-tun-runtime-smoke-min-duration-ms",
+        "1",
     ])
     .expect("command should parse");
 

@@ -1030,6 +1030,10 @@ proxies:
         "default-core-release-gate-preset-evidence"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][100],
+        "default-core-release-gate-preset-minimums"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
@@ -5418,10 +5422,36 @@ fn support_bundle_certification_records_release_gate_preset_evidence() {
         certification["release_gate"]["preset"],
         "default-core-release-gate"
     );
-    assert_eq!(certification["release_gate"]["preset_applied"], true);
+    assert_eq!(certification["release_gate"]["preset_requested"], true);
+    assert_eq!(certification["release_gate"]["preset_applied"], false);
+    assert_eq!(certification["release_gate"]["preset_minimums_met"], false);
+    assert_eq!(
+        certification["release_gate"]["preset_required_stability_window_ms"],
+        60000
+    );
+    assert_eq!(
+        certification["release_gate"]["preset_required_stability_connections"],
+        25
+    );
+    let preset_blockers = certification["release_gate"]["preset_blockers"]
+        .as_array()
+        .expect("preset blockers");
+    assert!(preset_blockers
+        .iter()
+        .any(|blocker| blocker.as_str() == Some("preset-machine-takeover-not-required")));
+    assert!(preset_blockers
+        .iter()
+        .any(|blocker| blocker.as_str() == Some("preset-stability-window-below-default")));
+    assert!(preset_blockers
+        .iter()
+        .any(|blocker| blocker.as_str() == Some("preset-stability-connections-below-default")));
     assert_eq!(
         certification["certification"]["release_gate_preset"],
         "default-core-release-gate"
+    );
+    assert_eq!(
+        certification["certification"]["release_gate_preset_applied"],
+        false
     );
 }
 

@@ -551,7 +551,7 @@ pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 97;
 pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 86;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 82;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 91;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 92;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW: Duration = Duration::from_secs(60);
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS: usize = 25;
@@ -583,7 +583,7 @@ const READINESS_CHECK_CAPABILITIES: &str =
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode,default-core-release-gate,default-core-release-gate-stability-evidence,default-core-release-gate-stability-window,default-core-release-gate-stability-traffic-floor,default-core-release-gate-preset,default-core-release-gate-preset-evidence";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode,default-core-release-gate,default-core-release-gate-stability-evidence,default-core-release-gate-stability-window,default-core-release-gate-stability-traffic-floor,default-core-release-gate-preset,default-core-release-gate-preset-evidence,default-core-release-gate-preset-minimums";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -5319,19 +5319,36 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
         }
     }
 
+    if release_gate_preset.is_some() {
+        required_stability_window = Some(
+            required_stability_window
+                .unwrap_or(DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW)
+                .max(DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW),
+        );
+        required_stability_connections = Some(
+            required_stability_connections
+                .unwrap_or(DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS)
+                .max(DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS),
+        );
+    }
+
     if let Some(required_window) = required_stability_window {
-        if !soak_min_duration_explicit && soak_min_duration < required_window {
+        if (!soak_min_duration_explicit || release_gate_preset.is_some())
+            && soak_min_duration < required_window
+        {
             soak_min_duration = required_window;
         }
         if include_tun_runtime_smoke
-            && !tun_runtime_smoke_min_duration_explicit
+            && (!tun_runtime_smoke_min_duration_explicit || release_gate_preset.is_some())
             && tun_runtime_smoke_min_duration < required_window
         {
             tun_runtime_smoke_min_duration = required_window;
         }
     }
     if let Some(required_connections) = required_stability_connections {
-        if !soak_connections_explicit && soak_connections < required_connections {
+        if (!soak_connections_explicit || release_gate_preset.is_some())
+            && soak_connections < required_connections
+        {
             soak_connections = required_connections;
         }
     }
@@ -5709,21 +5726,36 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
         }
     }
 
+    if certification_release_gate_preset.is_some() {
+        certification_required_stability_window = Some(
+            certification_required_stability_window
+                .unwrap_or(DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW)
+                .max(DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW),
+        );
+        certification_required_stability_connections = Some(
+            certification_required_stability_connections
+                .unwrap_or(DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS)
+                .max(DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS),
+        );
+    }
+
     if let Some(required_window) = certification_required_stability_window {
-        if !certification_soak_min_duration_explicit
-            && certification_soak_min_duration < required_window
+        if !certification_soak_min_duration_explicit || certification_release_gate_preset.is_some()
         {
-            certification_soak_min_duration = required_window;
+            if certification_soak_min_duration < required_window {
+                certification_soak_min_duration = required_window;
+            }
         }
         if certification_include_tun_runtime_smoke
-            && !certification_tun_runtime_smoke_min_duration_explicit
+            && (!certification_tun_runtime_smoke_min_duration_explicit
+                || certification_release_gate_preset.is_some())
             && certification_tun_runtime_smoke_min_duration < required_window
         {
             certification_tun_runtime_smoke_min_duration = required_window;
         }
     }
     if let Some(required_connections) = certification_required_stability_connections {
-        if !certification_soak_connections_explicit
+        if (!certification_soak_connections_explicit || certification_release_gate_preset.is_some())
             && certification_soak_connections < required_connections
         {
             certification_soak_connections = required_connections;
@@ -58216,12 +58248,17 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
-        "default_core_certification release_gate status={} required_scope={} passed={} preset={} preset_applied={} require_machine_takeover_ready={} require_stability_window={} required_stability_window_ms={} require_stability_connections={} required_stability_connections={} machine_takeover_ready={} machine_takeover_smokes_requested={} local_soak_min_duration_ms={} local_soak_connections={} local_soak_complete={} stability_window_met={} stability_connections_met={} blockers={}",
+        "default_core_certification release_gate status={} required_scope={} passed={} preset={} preset_requested={} preset_applied={} preset_minimums_met={} preset_required_stability_window_ms={} preset_required_stability_connections={} preset_blockers={} require_machine_takeover_ready={} require_stability_window={} required_stability_window_ms={} require_stability_connections={} required_stability_connections={} machine_takeover_ready={} machine_takeover_smokes_requested={} local_soak_min_duration_ms={} local_soak_connections={} local_soak_complete={} stability_window_met={} stability_connections_met={} blockers={}",
         default_core_release_gate_status(report),
         default_core_release_gate_required_scope(report),
         default_core_release_gate_passed(report),
         report.release_gate_preset.unwrap_or("-"),
-        report.release_gate_preset.is_some(),
+        default_core_release_gate_preset_requested(report),
+        default_core_release_gate_preset_applied(report),
+        default_core_release_gate_preset_minimums_met(report),
+        duration_millis_for_report(DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW),
+        DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS,
+        comma_list_or_dash(default_core_release_gate_preset_blockers(report)),
         report.require_machine_takeover_ready,
         report.required_stability_window.is_some(),
         duration_millis_option_or_dash(report.required_stability_window),
@@ -59020,6 +59057,69 @@ fn default_core_release_gate_required(report: &DefaultCoreCertificationReport) -
     report.require_machine_takeover_ready || default_core_release_gate_stability_required(report)
 }
 
+fn default_core_release_gate_preset_requested(report: &DefaultCoreCertificationReport) -> bool {
+    report.release_gate_preset.is_some()
+}
+
+fn default_core_release_gate_preset_applied(report: &DefaultCoreCertificationReport) -> bool {
+    default_core_release_gate_preset_requested(report)
+        && default_core_release_gate_preset_blockers(report).is_empty()
+}
+
+fn default_core_release_gate_preset_minimums_met(report: &DefaultCoreCertificationReport) -> bool {
+    default_core_release_gate_preset_applied(report)
+}
+
+fn default_core_release_gate_preset_blockers(
+    report: &DefaultCoreCertificationReport,
+) -> Vec<&'static str> {
+    let Some(preset) = report.release_gate_preset else {
+        return Vec::new();
+    };
+
+    let mut blockers = Vec::new();
+    if preset != DEFAULT_CORE_RELEASE_GATE_PRESET_NAME {
+        blockers.push("preset-unknown");
+    }
+    if !report.require_machine_takeover_ready {
+        blockers.push("preset-machine-takeover-not-required");
+    }
+    if !report.include_system_proxy_smoke {
+        blockers.push("preset-system-proxy-smoke-not-included");
+    }
+    if !report.include_tun_runtime_smoke {
+        blockers.push("preset-tun-runtime-smoke-not-included");
+    }
+    if report
+        .required_stability_window
+        .map(|required_window| required_window < DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW)
+        .unwrap_or(true)
+    {
+        blockers.push("preset-stability-window-below-default");
+    }
+    if report
+        .required_stability_connections
+        .map(|required_connections| {
+            required_connections < DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS
+        })
+        .unwrap_or(true)
+    {
+        blockers.push("preset-stability-connections-below-default");
+    }
+    if report.soak_min_duration < DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW {
+        blockers.push("preset-local-soak-window-below-default");
+    }
+    if report.soak_connections < DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS {
+        blockers.push("preset-local-soak-connections-below-default");
+    }
+    if report.include_tun_runtime_smoke
+        && report.tun_runtime_smoke_min_duration < DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW
+    {
+        blockers.push("preset-tun-runtime-window-below-default");
+    }
+    blockers
+}
+
 fn default_core_release_gate_status(report: &DefaultCoreCertificationReport) -> &'static str {
     if !default_core_release_gate_required(report) {
         "not-required"
@@ -59215,7 +59315,14 @@ fn default_core_release_gate_json_value(
         "required_scope": default_core_release_gate_required_scope(report),
         "passed": default_core_release_gate_passed(report),
         "preset": report.release_gate_preset,
-        "preset_applied": report.release_gate_preset.is_some(),
+        "preset_requested": default_core_release_gate_preset_requested(report),
+        "preset_applied": default_core_release_gate_preset_applied(report),
+        "preset_minimums_met": default_core_release_gate_preset_minimums_met(report),
+        "preset_required_stability_window_ms": duration_millis_for_report(
+            DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW
+        ),
+        "preset_required_stability_connections": DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS,
+        "preset_blockers": default_core_release_gate_preset_blockers(report),
         "require_machine_takeover_ready": report.require_machine_takeover_ready,
         "require_stability_window": report.required_stability_window.is_some(),
         "required_stability_window_ms": report
@@ -59656,7 +59763,15 @@ fn default_core_certification_json_value(
         );
         certification.insert(
             "release_gate_preset_applied".to_string(),
-            serde_json::Value::Bool(report.release_gate_preset.is_some()),
+            serde_json::Value::Bool(default_core_release_gate_preset_applied(report)),
+        );
+        certification.insert(
+            "release_gate_preset_requested".to_string(),
+            serde_json::Value::Bool(default_core_release_gate_preset_requested(report)),
+        );
+        certification.insert(
+            "release_gate_preset_minimums_met".to_string(),
+            serde_json::Value::Bool(default_core_release_gate_preset_minimums_met(report)),
         );
     }
     value

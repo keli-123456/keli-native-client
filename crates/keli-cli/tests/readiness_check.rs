@@ -6142,10 +6142,36 @@ fn default_core_certification_records_release_gate_preset_evidence() {
         report["release_gate"]["preset"],
         "default-core-release-gate"
     );
-    assert_eq!(report["release_gate"]["preset_applied"], true);
+    assert_eq!(report["release_gate"]["preset_requested"], true);
+    assert_eq!(report["release_gate"]["preset_applied"], false);
+    assert_eq!(report["release_gate"]["preset_minimums_met"], false);
+    assert_eq!(
+        report["release_gate"]["preset_required_stability_window_ms"],
+        60000
+    );
+    assert_eq!(
+        report["release_gate"]["preset_required_stability_connections"],
+        25
+    );
+    let preset_blockers = report["release_gate"]["preset_blockers"]
+        .as_array()
+        .expect("preset blockers");
+    assert!(preset_blockers
+        .iter()
+        .any(|blocker| blocker.as_str() == Some("preset-machine-takeover-not-required")));
+    assert!(preset_blockers
+        .iter()
+        .any(|blocker| blocker.as_str() == Some("preset-stability-window-below-default")));
+    assert!(preset_blockers
+        .iter()
+        .any(|blocker| blocker.as_str() == Some("preset-stability-connections-below-default")));
     assert_eq!(
         report["certification"]["release_gate_preset"],
         "default-core-release-gate"
+    );
+    assert_eq!(
+        report["certification"]["release_gate_preset_applied"],
+        false
     );
 }
 
