@@ -1399,6 +1399,10 @@ fn doctor_json_report_is_machine_readable() {
         "default-core-release-gate-preset-scope"
     );
     assert_eq!(
+        report["default_core_certification_capabilities"][104],
+        "default-core-release-gate-takeover-evidence"
+    );
+    assert_eq!(
         report["resource_limits"]["runtime_event_history"],
         DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT
     );

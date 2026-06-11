@@ -1046,6 +1046,10 @@ proxies:
         "default-core-release-gate-preset-scope"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][104],
+        "default-core-release-gate-takeover-evidence"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
@@ -5593,6 +5597,54 @@ fn support_bundle_certification_records_machine_takeover_gate_failure() {
         false
     );
     assert_eq!(certification["release_gate"]["passed"], false);
+    assert_eq!(certification["release_gate"]["takeover"]["required"], true);
+    assert_eq!(certification["release_gate"]["takeover"]["ready"], false);
+    assert_eq!(
+        certification["release_gate"]["takeover"]["coverage_status"],
+        "not-run"
+    );
+    assert_eq!(
+        certification["release_gate"]["takeover"]["machine_takeover_smokes_requested"],
+        false
+    );
+    assert_eq!(
+        certification["release_gate"]["takeover"]["system_proxy_smoke_included"],
+        false
+    );
+    assert_eq!(
+        certification["release_gate"]["takeover"]["system_proxy_smoke_status"],
+        "not-run"
+    );
+    assert!(certification["release_gate"]["takeover"]["system_proxy_smoke_passed"].is_null());
+    assert_eq!(
+        certification["release_gate"]["takeover"]["tun_runtime_smoke_included"],
+        false
+    );
+    assert_eq!(
+        certification["release_gate"]["takeover"]["tun_runtime_smoke_status"],
+        "not-run"
+    );
+    assert_eq!(
+        certification["release_gate"]["takeover"]["tun_runtime_smoke_min_duration_ms"],
+        50
+    );
+    assert!(certification["release_gate"]["takeover"]["tun_runtime_smoke_passed"].is_null());
+    assert_eq!(
+        certification["release_gate"]["takeover"]["missing_evidence_count"],
+        2
+    );
+    assert_eq!(
+        certification["release_gate"]["takeover"]["missing_evidence"][0],
+        "system-proxy-smoke"
+    );
+    assert_eq!(
+        certification["release_gate"]["takeover"]["missing_evidence"][1],
+        "tun-runtime-smoke"
+    );
+    assert_eq!(
+        certification["release_gate"]["takeover"]["failed_evidence_count"],
+        0
+    );
     let blockers = certification["release_gate"]["blockers"]
         .as_array()
         .expect("release gate blockers");

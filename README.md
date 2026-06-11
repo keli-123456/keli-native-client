@@ -903,6 +903,10 @@ window, hard stability window requirement, local soak window result, and
 optional TUN runtime smoke duration result so release tooling can distinguish a
 quick certification from one that held the managed runtime open for a minimum
 stability window.
+Its nested `takeover` evidence mirrors the system-proxy and TUN runtime smoke
+inclusion, status, pass result, and missing/failed evidence counts inside the
+release gate itself, so release automation can explain machine-takeover failures
+without stitching together top-level promotion fields.
 When a release preset is requested, the preset itself is part of
 `release_gate.required_scope`; unmet preset minimums make the release gate
 `failed` with preset blockers instead of reporting `not-required`.

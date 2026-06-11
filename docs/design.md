@@ -764,10 +764,13 @@ The first implementation target is deliberately small:
    unless the artifact reaches `machine-takeover-ready`; `release_gate` remains
    in the JSON artifact so CI, release scripts, and UI promotion tooling can
    show the required scope, pass/fail status, and blockers after the command
-   exits. The nested `release_gate.stability` object lifts the existing local
-   SOCKS5/HTTP CONNECT soak gate statuses, requested soak window, requested
-   soak connection count, and optional TUN runtime duration result into one
-   place, so release tooling can tell a quick certification from a
+   exits. The nested `release_gate.takeover` object mirrors system-proxy and
+   TUN runtime inclusion, status, pass result, and missing/failed evidence
+   counts so release automation can explain machine-takeover failures from the
+   gate payload alone. The nested `release_gate.stability` object lifts the
+   existing local SOCKS5/HTTP CONNECT soak gate statuses, requested soak window,
+   requested soak connection count, and optional TUN runtime duration result
+   into one place, so release tooling can tell a quick certification from a
    minimum-duration or minimum-traffic stability run without parsing readiness
    gate detail strings. `--stability-gate-ms` promotes that evidence into a
    hard release window by requiring the local soak gates and any included TUN

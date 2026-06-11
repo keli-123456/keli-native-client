@@ -5995,6 +5995,54 @@ fn default_core_certification_machine_takeover_release_gate_fails_without_takeov
         report["release_gate"]["missing_takeover_evidence"][1],
         "tun-runtime-smoke"
     );
+    assert_eq!(report["release_gate"]["takeover"]["required"], true);
+    assert_eq!(report["release_gate"]["takeover"]["ready"], false);
+    assert_eq!(
+        report["release_gate"]["takeover"]["coverage_status"],
+        "not-run"
+    );
+    assert_eq!(
+        report["release_gate"]["takeover"]["machine_takeover_smokes_requested"],
+        false
+    );
+    assert_eq!(
+        report["release_gate"]["takeover"]["system_proxy_smoke_included"],
+        false
+    );
+    assert_eq!(
+        report["release_gate"]["takeover"]["system_proxy_smoke_status"],
+        "not-run"
+    );
+    assert!(report["release_gate"]["takeover"]["system_proxy_smoke_passed"].is_null());
+    assert_eq!(
+        report["release_gate"]["takeover"]["tun_runtime_smoke_included"],
+        false
+    );
+    assert_eq!(
+        report["release_gate"]["takeover"]["tun_runtime_smoke_status"],
+        "not-run"
+    );
+    assert_eq!(
+        report["release_gate"]["takeover"]["tun_runtime_smoke_min_duration_ms"],
+        50
+    );
+    assert!(report["release_gate"]["takeover"]["tun_runtime_smoke_passed"].is_null());
+    assert_eq!(
+        report["release_gate"]["takeover"]["missing_evidence_count"],
+        2
+    );
+    assert_eq!(
+        report["release_gate"]["takeover"]["missing_evidence"][0],
+        "system-proxy-smoke"
+    );
+    assert_eq!(
+        report["release_gate"]["takeover"]["missing_evidence"][1],
+        "tun-runtime-smoke"
+    );
+    assert_eq!(
+        report["release_gate"]["takeover"]["failed_evidence_count"],
+        0
+    );
     let blockers = report["release_gate"]["blockers"]
         .as_array()
         .expect("release gate blockers");
