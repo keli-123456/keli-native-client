@@ -859,6 +859,10 @@ so release and UI tooling can distinguish protocol/readiness success from a
 run that actually included the optional system-proxy and TUN runtime takeover
 smokes. When those smokes are omitted, `takeover_coverage` reports the missing
 evidence instead of hiding the gap behind the overall ready decision.
+`default_core_promotion` turns that evidence into a release verdict: a run with
+all default gates passing but no takeover smokes is `core-ready` with
+`safe_default_scope=local-core-only`, while only a run that also passes both
+takeover smokes is `machine-takeover-ready`.
 `keli-cli support-bundle --include-certification` embeds that evidence into the
 redacted support bundle.
 

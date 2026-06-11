@@ -970,6 +970,10 @@ proxies:
         "machine-takeover-coverage"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][92],
+        "default-core-promotion-verdict"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
@@ -1397,6 +1401,76 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
         certification["takeover_coverage"]["failed_evidence_count"],
         0
     );
+    let core_gates_ready = certification["ready_for_default_core"]
+        .as_bool()
+        .expect("ready_for_default_core boolean");
+    assert_eq!(
+        certification["default_core_promotion"]["core_gates_ready"],
+        core_gates_ready
+    );
+    assert_eq!(
+        certification["default_core_promotion"]["machine_takeover_ready"],
+        false
+    );
+    assert_eq!(
+        certification["default_core_promotion"]["local_core_default_allowed"],
+        core_gates_ready
+    );
+    assert_eq!(
+        certification["default_core_promotion"]["machine_takeover_default_allowed"],
+        false
+    );
+    assert_eq!(
+        certification["default_core_promotion"]["missing_takeover_evidence"][0],
+        "system-proxy-smoke"
+    );
+    assert_eq!(
+        certification["default_core_promotion"]["missing_takeover_evidence"][1],
+        "tun-runtime-smoke"
+    );
+    let promotion_next_actions = certification["default_core_promotion"]["next_actions"]
+        .as_array()
+        .expect("promotion next actions");
+    assert!(promotion_next_actions
+        .iter()
+        .any(|action| action.as_str() == Some("run-with-include-system-proxy-smoke")));
+    assert!(promotion_next_actions
+        .iter()
+        .any(|action| action.as_str() == Some("run-with-include-tun-runtime-smoke")));
+    if core_gates_ready {
+        assert_eq!(
+            certification["default_core_promotion"]["status"],
+            "core-ready"
+        );
+        assert_eq!(
+            certification["default_core_promotion"]["safe_default_scope"],
+            "local-core-only"
+        );
+        assert_eq!(
+            certification["default_core_promotion"]["next_action_count"],
+            2
+        );
+        assert_eq!(certification["default_core_promotion"]["blocker_count"], 0);
+    } else {
+        assert_eq!(certification["default_core_promotion"]["status"], "blocked");
+        assert_eq!(
+            certification["default_core_promotion"]["safe_default_scope"],
+            "none"
+        );
+        assert_eq!(
+            certification["default_core_promotion"]["next_actions"][0],
+            "fix-readiness-blockers"
+        );
+        assert_eq!(
+            certification["default_core_promotion"]["blockers"][0],
+            "readiness-gates"
+        );
+        assert_eq!(
+            certification["default_core_promotion"]["next_action_count"],
+            3
+        );
+        assert_eq!(certification["default_core_promotion"]["blocker_count"], 1);
+    }
     assert_eq!(
         certification["certification"]["route_rule_smoke_passed"],
         true

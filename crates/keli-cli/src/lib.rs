@@ -547,11 +547,11 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(4);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 94;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 84;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 95;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 85;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 82;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 83;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 84;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -580,7 +580,7 @@ const READINESS_CHECK_CAPABILITIES: &str =
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -29829,6 +29829,7 @@ fn run_vless_grpc_udp_relay_smoke_exchange(
         return Err("VLESS gRPC UDP smoke relay returned port 0".to_string());
     }
 
+    thread::sleep(Duration::from_millis(50));
     let udp_client = UdpSocket::bind("127.0.0.1:0")
         .map_err(|error| format!("bind VLESS gRPC UDP smoke client: {error}"))?;
     udp_client
@@ -39823,6 +39824,7 @@ fn run_vmess_grpc_udp_relay_smoke_exchange(
         return Err("VMess gRPC UDP smoke relay returned port 0".to_string());
     }
 
+    thread::sleep(Duration::from_millis(50));
     let udp_client = UdpSocket::bind("127.0.0.1:0")
         .map_err(|error| format!("bind VMess gRPC UDP smoke client: {error}"))?;
     udp_client
@@ -57822,6 +57824,19 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification promotion status={} safe_default_scope={} core_gates_ready={} machine_takeover_ready={} local_core_default_allowed={} machine_takeover_default_allowed={} next_actions={} blockers={}",
+        default_core_promotion_status(report),
+        default_core_promotion_safe_default_scope(report),
+        report.ready_for_default_core,
+        default_core_promotion_machine_takeover_ready(report),
+        default_core_promotion_local_core_default_allowed(report),
+        default_core_promotion_machine_takeover_default_allowed(report),
+        comma_list_or_dash(default_core_promotion_next_actions(report)),
+        comma_list_or_dash(default_core_promotion_blockers(report))
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification tun_preflight status={} ready={} state={} lifecycle_available={} packet_io_available={} interface={} address={} mtu={} reason={}",
         report.tun_preflight.readiness.label(),
         report.tun_preflight.ready,
@@ -58472,6 +58487,76 @@ fn default_core_takeover_coverage_status(report: &DefaultCoreCertificationReport
     }
 }
 
+fn default_core_promotion_machine_takeover_ready(report: &DefaultCoreCertificationReport) -> bool {
+    report.ready_for_default_core && default_core_takeover_coverage_complete(report)
+}
+
+fn default_core_promotion_local_core_default_allowed(
+    report: &DefaultCoreCertificationReport,
+) -> bool {
+    report.ready_for_default_core
+}
+
+fn default_core_promotion_machine_takeover_default_allowed(
+    report: &DefaultCoreCertificationReport,
+) -> bool {
+    default_core_promotion_machine_takeover_ready(report)
+}
+
+fn default_core_promotion_status(report: &DefaultCoreCertificationReport) -> &'static str {
+    if !report.ready_for_default_core {
+        "blocked"
+    } else if default_core_promotion_machine_takeover_ready(report) {
+        "machine-takeover-ready"
+    } else if !default_core_takeover_coverage_failed_evidence(report).is_empty() {
+        "machine-takeover-failed"
+    } else {
+        "core-ready"
+    }
+}
+
+fn default_core_promotion_safe_default_scope(
+    report: &DefaultCoreCertificationReport,
+) -> &'static str {
+    if default_core_promotion_machine_takeover_ready(report) {
+        "machine-takeover"
+    } else if default_core_promotion_local_core_default_allowed(report) {
+        "local-core-only"
+    } else {
+        "none"
+    }
+}
+
+fn default_core_promotion_blockers(report: &DefaultCoreCertificationReport) -> Vec<&'static str> {
+    let mut blockers = Vec::new();
+    if !report.ready_for_default_core {
+        blockers.push("readiness-gates");
+    }
+    for failed in default_core_takeover_coverage_failed_evidence(report) {
+        blockers.push(failed);
+    }
+    blockers
+}
+
+fn default_core_promotion_next_actions(
+    report: &DefaultCoreCertificationReport,
+) -> Vec<&'static str> {
+    let mut actions = Vec::new();
+    if !report.ready_for_default_core {
+        actions.push("fix-readiness-blockers");
+    }
+    if !report.include_system_proxy_smoke {
+        actions.push("run-with-include-system-proxy-smoke");
+    }
+    if !report.include_tun_runtime_smoke {
+        actions.push("run-with-include-tun-runtime-smoke");
+    }
+    if !default_core_takeover_coverage_failed_evidence(report).is_empty() {
+        actions.push("fix-machine-takeover-smoke-failures");
+    }
+    actions
+}
+
 fn comma_list_or_dash(items: Vec<&'static str>) -> String {
     if items.is_empty() {
         "-".to_string()
@@ -58515,6 +58600,29 @@ fn default_core_takeover_coverage_json_value(
         "missing_evidence": missing_evidence,
         "failed_evidence_count": failed_evidence.len(),
         "failed_evidence": failed_evidence,
+    })
+}
+
+fn default_core_promotion_json_value(report: &DefaultCoreCertificationReport) -> serde_json::Value {
+    let blockers = default_core_promotion_blockers(report);
+    let next_actions = default_core_promotion_next_actions(report);
+    let blocker_count = blockers.len();
+    let next_action_count = next_actions.len();
+    serde_json::json!({
+        "status": default_core_promotion_status(report),
+        "safe_default_scope": default_core_promotion_safe_default_scope(report),
+        "core_gates_ready": report.ready_for_default_core,
+        "machine_takeover_ready": default_core_promotion_machine_takeover_ready(report),
+        "local_core_default_allowed": default_core_promotion_local_core_default_allowed(report),
+        "machine_takeover_default_allowed":
+            default_core_promotion_machine_takeover_default_allowed(report),
+        "takeover_coverage_status": default_core_takeover_coverage_status(report),
+        "missing_takeover_evidence": default_core_takeover_coverage_missing_evidence(report),
+        "failed_takeover_evidence": default_core_takeover_coverage_failed_evidence(report),
+        "next_actions": next_actions,
+        "next_action_count": next_action_count,
+        "blockers": blockers,
+        "blocker_count": blocker_count,
     })
 }
 
@@ -58655,6 +58763,7 @@ fn default_core_certification_json_value(
         "readiness": readiness_check_json_value(&report.readiness),
         "promotion_blockers": promotion_blockers,
         "takeover_coverage": default_core_takeover_coverage_json_value(report),
+        "default_core_promotion": default_core_promotion_json_value(report),
         "tun_backend_status": if report.tun_backend.is_ready() { "ready" } else { "not-ready" },
         "tun_backend": tun_backend_json_value(&report.tun_backend),
         "tun_preflight": tun_preflight_json_value(&report.tun_preflight),

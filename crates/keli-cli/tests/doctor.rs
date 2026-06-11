@@ -1320,6 +1320,10 @@ fn doctor_json_report_is_machine_readable() {
         "machine-takeover-coverage"
     );
     assert_eq!(
+        report["default_core_certification_capabilities"][92],
+        "default-core-promotion-verdict"
+    );
+    assert_eq!(
         report["resource_limits"]["runtime_event_history"],
         DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT
     );

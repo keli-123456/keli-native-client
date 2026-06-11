@@ -3561,6 +3561,71 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
         "tun-runtime-smoke"
     );
     assert_eq!(report["takeover_coverage"]["failed_evidence_count"], 0);
+    let core_gates_ready = report["ready_for_default_core"]
+        .as_bool()
+        .expect("ready_for_default_core boolean");
+    assert_eq!(
+        report["default_core_promotion"]["core_gates_ready"],
+        core_gates_ready
+    );
+    assert_eq!(
+        report["default_core_promotion"]["machine_takeover_ready"],
+        false
+    );
+    assert_eq!(
+        report["default_core_promotion"]["local_core_default_allowed"],
+        core_gates_ready
+    );
+    assert_eq!(
+        report["default_core_promotion"]["machine_takeover_default_allowed"],
+        false
+    );
+    assert_eq!(
+        report["default_core_promotion"]["takeover_coverage_status"],
+        "not-run"
+    );
+    assert_eq!(
+        report["default_core_promotion"]["missing_takeover_evidence"][0],
+        "system-proxy-smoke"
+    );
+    assert_eq!(
+        report["default_core_promotion"]["missing_takeover_evidence"][1],
+        "tun-runtime-smoke"
+    );
+    let promotion_next_actions = report["default_core_promotion"]["next_actions"]
+        .as_array()
+        .expect("promotion next actions");
+    assert!(promotion_next_actions
+        .iter()
+        .any(|action| action.as_str() == Some("run-with-include-system-proxy-smoke")));
+    assert!(promotion_next_actions
+        .iter()
+        .any(|action| action.as_str() == Some("run-with-include-tun-runtime-smoke")));
+    if core_gates_ready {
+        assert_eq!(report["default_core_promotion"]["status"], "core-ready");
+        assert_eq!(
+            report["default_core_promotion"]["safe_default_scope"],
+            "local-core-only"
+        );
+        assert_eq!(report["default_core_promotion"]["next_action_count"], 2);
+        assert_eq!(report["default_core_promotion"]["blocker_count"], 0);
+    } else {
+        assert_eq!(report["default_core_promotion"]["status"], "blocked");
+        assert_eq!(
+            report["default_core_promotion"]["safe_default_scope"],
+            "none"
+        );
+        assert_eq!(
+            report["default_core_promotion"]["next_actions"][0],
+            "fix-readiness-blockers"
+        );
+        assert_eq!(
+            report["default_core_promotion"]["blockers"][0],
+            "readiness-gates"
+        );
+        assert_eq!(report["default_core_promotion"]["next_action_count"], 3);
+        assert_eq!(report["default_core_promotion"]["blocker_count"], 1);
+    }
     assert_eq!(report["certification"]["route_rule_smoke_passed"], true);
     assert_eq!(report["route_rule_smoke"]["status"], "passed");
     assert_eq!(report["route_rule_smoke"]["case_count"], 3);
@@ -5638,6 +5703,12 @@ fn default_core_certification_text_reports_summary_and_gates() {
     assert!(output.contains("blockers="));
     assert!(output.contains("tun_backend_status="));
     assert!(output.contains("default_core_certification takeover_coverage status=not-run complete=false system_proxy_included=false system_proxy_status=not-run tun_runtime_included=false tun_runtime_status=not-run missing=system-proxy-smoke,tun-runtime-smoke failed=-"));
+    assert!(output.contains("default_core_certification promotion status="));
+    assert!(output.contains("safe_default_scope="));
+    assert!(output.contains("machine_takeover_ready=false"));
+    assert!(output.contains("machine_takeover_default_allowed=false"));
+    assert!(output.contains("run-with-include-system-proxy-smoke"));
+    assert!(output.contains("run-with-include-tun-runtime-smoke"));
     assert!(output.contains("default_core_certification tun_preflight status="));
     assert!(output.contains("default_core_certification route_rule_smoke status=passed cases=3"));
     assert!(output.contains("default_core_certification dns_policy_smoke status=passed cases=4"));

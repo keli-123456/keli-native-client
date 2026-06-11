@@ -739,6 +739,10 @@ The first implementation target is deliberately small:
    were included, passed, omitted, or failed, giving release automation a
    direct way to tell "all default gates passed" apart from "this machine
    actually proved desktop proxy and native TUN takeover."
+   Certification JSON also includes `default_core_promotion`, a release verdict
+   that maps the same evidence to a safe default scope: `core-ready` for local
+   core use when takeover evidence is still missing, and
+   `machine-takeover-ready` only after both optional takeover smokes pass.
    The default TUN TCP session smoke is always part of readiness and
    certification, proving the managed packet loop can relay a TCP session
    through the outbound registry and clean up session state without touching the
