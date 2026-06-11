@@ -1316,6 +1316,10 @@ fn doctor_json_report_is_machine_readable() {
         "tun-tcp-session-close-marker-rst-clear-smoke"
     );
     assert_eq!(
+        report["default_core_certification_capabilities"][91],
+        "machine-takeover-coverage"
+    );
+    assert_eq!(
         report["resource_limits"]["runtime_event_history"],
         DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT
     );

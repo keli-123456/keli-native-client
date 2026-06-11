@@ -966,6 +966,10 @@ proxies:
         "tun-tcp-session-close-marker-rst-clear-smoke"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][91],
+        "machine-takeover-coverage"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
@@ -1379,6 +1383,20 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     assert!(certification["certification"]["system_proxy_smoke_passed"].is_null());
     assert_eq!(certification["system_proxy_smoke"]["included"], false);
     assert_eq!(certification["system_proxy_smoke"]["status"], "not-run");
+    assert_eq!(certification["takeover_coverage"]["status"], "not-run");
+    assert_eq!(certification["takeover_coverage"]["complete"], false);
+    assert_eq!(
+        certification["takeover_coverage"]["missing_evidence"][0],
+        "system-proxy-smoke"
+    );
+    assert_eq!(
+        certification["takeover_coverage"]["missing_evidence"][1],
+        "tun-runtime-smoke"
+    );
+    assert_eq!(
+        certification["takeover_coverage"]["failed_evidence_count"],
+        0
+    );
     assert_eq!(
         certification["certification"]["route_rule_smoke_passed"],
         true

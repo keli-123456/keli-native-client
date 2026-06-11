@@ -3542,6 +3542,25 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert_eq!(report["system_proxy_smoke"]["included"], false);
     assert_eq!(report["system_proxy_smoke"]["status"], "not-run");
     assert!(report["system_proxy_smoke"]["passed"].is_null());
+    assert_eq!(report["takeover_coverage"]["status"], "not-run");
+    assert_eq!(report["takeover_coverage"]["complete"], false);
+    assert_eq!(
+        report["takeover_coverage"]["system_proxy_smoke_status"],
+        "not-run"
+    );
+    assert_eq!(
+        report["takeover_coverage"]["tun_runtime_smoke_status"],
+        "not-run"
+    );
+    assert_eq!(
+        report["takeover_coverage"]["missing_evidence"][0],
+        "system-proxy-smoke"
+    );
+    assert_eq!(
+        report["takeover_coverage"]["missing_evidence"][1],
+        "tun-runtime-smoke"
+    );
+    assert_eq!(report["takeover_coverage"]["failed_evidence_count"], 0);
     assert_eq!(report["certification"]["route_rule_smoke_passed"], true);
     assert_eq!(report["route_rule_smoke"]["status"], "passed");
     assert_eq!(report["route_rule_smoke"]["case_count"], 3);
@@ -5618,6 +5637,7 @@ fn default_core_certification_text_reports_summary_and_gates() {
     )));
     assert!(output.contains("blockers="));
     assert!(output.contains("tun_backend_status="));
+    assert!(output.contains("default_core_certification takeover_coverage status=not-run complete=false system_proxy_included=false system_proxy_status=not-run tun_runtime_included=false tun_runtime_status=not-run missing=system-proxy-smoke,tun-runtime-smoke failed=-"));
     assert!(output.contains("default_core_certification tun_preflight status="));
     assert!(output.contains("default_core_certification route_rule_smoke status=passed cases=3"));
     assert!(output.contains("default_core_certification dns_policy_smoke status=passed cases=4"));

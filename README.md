@@ -854,6 +854,11 @@ evidence, and promotion blockers for default-core promotion checks. Add
 certification run should also prove the native TUN runtime can start, open
 packet I/O, stay alive for the requested minimum smoke duration, and stop
 cleanly on the current machine.
+The certification artifact also includes a machine takeover coverage summary,
+so release and UI tooling can distinguish protocol/readiness success from a
+run that actually included the optional system-proxy and TUN runtime takeover
+smokes. When those smokes are omitted, `takeover_coverage` reports the missing
+evidence instead of hiding the gap behind the overall ready decision.
 `keli-cli support-bundle --include-certification` embeds that evidence into the
 redacted support bundle.
 

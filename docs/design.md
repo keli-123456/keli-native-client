@@ -734,6 +734,11 @@ The first implementation target is deliberately small:
    preflight, and backend evidence.
    Certification parameters include `soak_min_duration_ms`, so a promotion
    record can prove both traffic success and a minimum managed-runtime window.
+   Certification JSON also carries a machine takeover coverage summary. That
+   summary reports whether the optional system-proxy and TUN runtime smokes
+   were included, passed, omitted, or failed, giving release automation a
+   direct way to tell "all default gates passed" apart from "this machine
+   actually proved desktop proxy and native TUN takeover."
    The default TUN TCP session smoke is always part of readiness and
    certification, proving the managed packet loop can relay a TCP session
    through the outbound registry and clean up session state without touching the
