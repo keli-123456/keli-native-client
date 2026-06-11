@@ -6053,6 +6053,19 @@ fn default_core_certification_machine_takeover_release_gate_fails_without_takeov
         report["release_gate"]["blocker_count"].as_u64(),
         Some(blockers.len() as u64)
     );
+    let next_actions = report["release_gate"]["next_actions"]
+        .as_array()
+        .expect("release gate next actions");
+    assert!(next_actions
+        .iter()
+        .any(|action| action.as_str() == Some("run-with-include-system-proxy-smoke")));
+    assert!(next_actions
+        .iter()
+        .any(|action| action.as_str() == Some("run-with-include-tun-runtime-smoke")));
+    assert_eq!(
+        report["release_gate"]["next_action_count"].as_u64(),
+        Some(next_actions.len() as u64)
+    );
 }
 
 #[test]
@@ -6108,6 +6121,19 @@ fn default_core_certification_stability_gate_fails_when_soak_window_is_too_short
     assert_eq!(
         report["release_gate"]["blockers"][0],
         "local-soak-stability-window-too-short"
+    );
+    let next_actions = report["release_gate"]["next_actions"]
+        .as_array()
+        .expect("release gate next actions");
+    assert!(next_actions
+        .iter()
+        .any(|action| action.as_str() == Some("run-with-default-release-stability-window")));
+    assert!(next_actions
+        .iter()
+        .any(|action| action.as_str() == Some("fix-local-soak-stability-window")));
+    assert_eq!(
+        report["release_gate"]["next_action_count"].as_u64(),
+        Some(next_actions.len() as u64)
     );
 }
 
@@ -6254,6 +6280,22 @@ fn default_core_certification_records_release_gate_preset_evidence() {
     assert_eq!(
         report["release_gate"]["blocker_count"].as_u64(),
         Some(release_gate_blockers.len() as u64)
+    );
+    let next_actions = report["release_gate"]["next_actions"]
+        .as_array()
+        .expect("release gate next actions");
+    assert!(next_actions
+        .iter()
+        .any(|action| action.as_str() == Some("enable-machine-takeover-release-gate")));
+    assert!(next_actions
+        .iter()
+        .any(|action| action.as_str() == Some("run-with-default-release-stability-window")));
+    assert!(next_actions
+        .iter()
+        .any(|action| action.as_str() == Some("run-with-default-release-stability-connections")));
+    assert_eq!(
+        report["release_gate"]["next_action_count"].as_u64(),
+        Some(next_actions.len() as u64)
     );
     assert_eq!(
         report["certification"]["release_gate_preset"],

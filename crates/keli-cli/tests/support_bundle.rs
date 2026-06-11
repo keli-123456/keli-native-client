@@ -1050,6 +1050,10 @@ proxies:
         "default-core-release-gate-takeover-evidence"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][105],
+        "default-core-release-gate-next-actions"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
@@ -5651,4 +5655,17 @@ fn support_bundle_certification_records_machine_takeover_gate_failure() {
     assert!(blockers
         .iter()
         .any(|blocker| { blocker.as_str() == Some("machine-takeover-smokes-not-requested") }));
+    let next_actions = certification["release_gate"]["next_actions"]
+        .as_array()
+        .expect("release gate next actions");
+    assert!(next_actions
+        .iter()
+        .any(|action| action.as_str() == Some("run-with-include-system-proxy-smoke")));
+    assert!(next_actions
+        .iter()
+        .any(|action| action.as_str() == Some("run-with-include-tun-runtime-smoke")));
+    assert_eq!(
+        certification["release_gate"]["next_action_count"].as_u64(),
+        Some(next_actions.len() as u64)
+    );
 }

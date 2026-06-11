@@ -906,7 +906,9 @@ stability window.
 Its nested `takeover` evidence mirrors the system-proxy and TUN runtime smoke
 inclusion, status, pass result, and missing/failed evidence counts inside the
 release gate itself, so release automation can explain machine-takeover failures
-without stitching together top-level promotion fields.
+without stitching together top-level promotion fields. `release_gate.next_actions`
+turns those blockers into command- or fix-oriented hints, with
+`next_action_count` for machine checks.
 When a release preset is requested, the preset itself is part of
 `release_gate.required_scope`; unmet preset minimums make the release gate
 `failed` with preset blockers instead of reporting `not-required`.
