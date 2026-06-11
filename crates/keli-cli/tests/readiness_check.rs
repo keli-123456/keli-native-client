@@ -3,6 +3,7 @@ use std::time::Duration;
 use keli_cli::{
     write_default_core_certification_report,
     write_default_core_certification_report_with_release_gate_and_stability_options,
+    write_default_core_certification_report_with_release_gate_and_stability_requirements,
     write_default_core_certification_report_with_release_gate_options,
     write_default_core_certification_report_with_soak_min_duration, write_readiness_check_report,
     write_readiness_check_report_with_soak_min_duration, ProbeOutputFormat,
@@ -3614,6 +3615,11 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     );
     assert_eq!(report["release_gate"]["require_stability_window"], false);
     assert!(report["release_gate"]["required_stability_window_ms"].is_null());
+    assert_eq!(
+        report["release_gate"]["require_stability_connections"],
+        false
+    );
+    assert!(report["release_gate"]["required_stability_connections"].is_null());
     assert_eq!(report["release_gate"]["passed"], true);
     assert_eq!(report["release_gate"]["machine_takeover_ready"], false);
     assert_eq!(
@@ -3629,6 +3635,12 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert_eq!(
         report["release_gate"]["stability"]["required_window_met"],
         true
+    );
+    assert!(report["release_gate"]["stability"]["required_connections"].is_null());
+    assert!(report["release_gate"]["stability"]["required_connections_met"].is_null());
+    assert_eq!(
+        report["release_gate"]["stability"]["local_soak_connections"],
+        2
     );
     assert_eq!(
         report["release_gate"]["stability"]["local_soak_duration_required"],
@@ -5959,6 +5971,11 @@ fn default_core_certification_machine_takeover_release_gate_fails_without_takeov
     );
     assert_eq!(report["release_gate"]["require_stability_window"], false);
     assert!(report["release_gate"]["required_stability_window_ms"].is_null());
+    assert_eq!(
+        report["release_gate"]["require_stability_connections"],
+        false
+    );
+    assert!(report["release_gate"]["required_stability_connections"].is_null());
     assert_eq!(report["release_gate"]["passed"], false);
     assert_eq!(report["release_gate"]["machine_takeover_ready"], false);
     assert_eq!(
@@ -6016,6 +6033,11 @@ fn default_core_certification_stability_gate_fails_when_soak_window_is_too_short
     assert_eq!(report["release_gate"]["required_scope"], "stability");
     assert_eq!(report["release_gate"]["require_stability_window"], true);
     assert_eq!(report["release_gate"]["required_stability_window_ms"], 50);
+    assert_eq!(
+        report["release_gate"]["require_stability_connections"],
+        false
+    );
+    assert!(report["release_gate"]["required_stability_connections"].is_null());
     assert_eq!(report["release_gate"]["passed"], false);
     assert_eq!(
         report["release_gate"]["stability"]["required_window_ms"],
@@ -6037,6 +6059,59 @@ fn default_core_certification_stability_gate_fails_when_soak_window_is_too_short
     assert_eq!(
         report["release_gate"]["blockers"][0],
         "local-soak-stability-window-too-short"
+    );
+}
+
+#[test]
+fn default_core_certification_stability_gate_fails_when_soak_connections_are_too_low() {
+    let mut output = Vec::new();
+
+    let error =
+        write_default_core_certification_report_with_release_gate_and_stability_requirements(
+            ProbeOutputFormat::Json,
+            1,
+            Duration::from_secs(2),
+            1,
+            Duration::from_millis(0),
+            false,
+            false,
+            Duration::from_millis(50),
+            false,
+            None,
+            Some(2),
+            &mut output,
+        )
+        .expect_err("stability gate should fail when local soak connections are too low");
+
+    assert!(error.contains("stability release gate failed"));
+    assert!(error.contains("local-soak-stability-connections-too-low"));
+
+    let report: Value = serde_json::from_slice(&output).expect("certification JSON");
+    assert_eq!(report["release_gate"]["status"], "failed");
+    assert_eq!(report["release_gate"]["required_scope"], "stability");
+    assert_eq!(report["release_gate"]["require_stability_window"], false);
+    assert!(report["release_gate"]["required_stability_window_ms"].is_null());
+    assert_eq!(
+        report["release_gate"]["require_stability_connections"],
+        true
+    );
+    assert_eq!(report["release_gate"]["required_stability_connections"], 2);
+    assert_eq!(report["release_gate"]["passed"], false);
+    assert_eq!(
+        report["release_gate"]["stability"]["local_soak_connections"],
+        1
+    );
+    assert_eq!(
+        report["release_gate"]["stability"]["required_connections"],
+        2
+    );
+    assert_eq!(
+        report["release_gate"]["stability"]["required_connections_met"],
+        false
+    );
+    assert_eq!(
+        report["release_gate"]["blockers"][0],
+        "local-soak-stability-connections-too-low"
     );
 }
 

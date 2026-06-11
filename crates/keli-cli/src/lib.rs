@@ -551,7 +551,7 @@ pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 96;
 pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 86;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 82;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 88;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 89;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -580,7 +580,7 @@ const READINESS_CHECK_CAPABILITIES: &str =
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode,default-core-release-gate,default-core-release-gate-stability-evidence,default-core-release-gate-stability-window";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode,default-core-release-gate,default-core-release-gate-stability-evidence,default-core-release-gate-stability-window,default-core-release-gate-stability-traffic-floor";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -615,6 +615,7 @@ pub enum CliCommand {
         tun_runtime_smoke_min_duration: Duration,
         require_machine_takeover_ready: bool,
         required_stability_window: Option<Duration>,
+        required_stability_connections: Option<usize>,
     },
     TunPreflight {
         config: TunDeviceConfig,
@@ -700,6 +701,7 @@ pub enum CliCommand {
         certification_tun_runtime_smoke_min_duration: Duration,
         certification_require_machine_takeover_ready: bool,
         certification_required_stability_window: Option<Duration>,
+        certification_required_stability_connections: Option<usize>,
     },
 }
 
@@ -4732,9 +4734,10 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             tun_runtime_smoke_min_duration,
             require_machine_takeover_ready,
             required_stability_window,
+            required_stability_connections,
         } => {
             let mut stdout = io::stdout();
-            write_default_core_certification_report_with_release_gate_and_stability_options(
+            write_default_core_certification_report_with_release_gate_and_stability_requirements(
                 output,
                 soak_connections,
                 first_byte_timeout,
@@ -4745,6 +4748,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                 tun_runtime_smoke_min_duration,
                 require_machine_takeover_ready,
                 required_stability_window,
+                required_stability_connections,
                 &mut stdout,
             )
         }
@@ -4965,6 +4969,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             certification_tun_runtime_smoke_min_duration,
             certification_require_machine_takeover_ready,
             certification_required_stability_window,
+            certification_required_stability_connections,
         } => {
             let config_text = profile_config
                 .as_deref()
@@ -4987,6 +4992,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                     certification_tun_runtime_smoke_min_duration,
                     certification_require_machine_takeover_ready,
                     certification_required_stability_window,
+                    certification_required_stability_connections,
                 },
                 &mut stdout,
             )
@@ -5198,6 +5204,8 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
     let mut tun_runtime_smoke_min_duration = DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION;
     let mut require_machine_takeover_ready = false;
     let mut required_stability_window = None;
+    let mut required_stability_connections = None;
+    let mut soak_connections_explicit = false;
     let mut soak_min_duration_explicit = false;
     let mut tun_runtime_smoke_min_duration_explicit = false;
     let mut args = args.peekable();
@@ -5211,6 +5219,7 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
                 )?;
             }
             "--soak-connections" => {
+                soak_connections_explicit = true;
                 soak_connections = parse_positive_usize(
                     args.next()
                         .ok_or_else(|| "--soak-connections requires a value".to_string())?,
@@ -5278,6 +5287,15 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
                     arg.as_str(),
                 )?);
             }
+            "--stability-gate-connections"
+            | "--require-stability-connections"
+            | "--release-stability-connections" => {
+                required_stability_connections = Some(parse_positive_usize(
+                    args.next()
+                        .ok_or_else(|| format!("{arg} requires a value"))?,
+                    arg.as_str(),
+                )?);
+            }
             other => return Err(format!("unknown default-core-certify option: {other}")),
         }
     }
@@ -5293,6 +5311,11 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
             tun_runtime_smoke_min_duration = required_window;
         }
     }
+    if let Some(required_connections) = required_stability_connections {
+        if !soak_connections_explicit && soak_connections < required_connections {
+            soak_connections = required_connections;
+        }
+    }
 
     Ok(CliCommand::DefaultCoreCertify {
         output,
@@ -5305,6 +5328,7 @@ fn parse_default_core_certify(args: impl Iterator<Item = String>) -> Result<CliC
         tun_runtime_smoke_min_duration,
         require_machine_takeover_ready,
         required_stability_window,
+        required_stability_connections,
     })
 }
 
@@ -5534,6 +5558,8 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
     let mut certification_tun_runtime_smoke_min_duration = DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION;
     let mut certification_require_machine_takeover_ready = false;
     let mut certification_required_stability_window = None;
+    let mut certification_required_stability_connections = None;
+    let mut certification_soak_connections_explicit = false;
     let mut certification_soak_min_duration_explicit = false;
     let mut certification_tun_runtime_smoke_min_duration_explicit = false;
     let mut args = args.peekable();
@@ -5551,6 +5577,7 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
             }
             "--certification-soak-connections" => {
                 include_default_core_certification = true;
+                certification_soak_connections_explicit = true;
                 certification_soak_connections = parse_positive_usize(
                     args.next().ok_or_else(|| {
                         "--certification-soak-connections requires a value".to_string()
@@ -5636,6 +5663,16 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
                     arg.as_str(),
                 )?);
             }
+            "--certification-stability-gate-connections"
+            | "--certification-require-stability-connections"
+            | "--certification-release-stability-connections" => {
+                include_default_core_certification = true;
+                certification_required_stability_connections = Some(parse_positive_usize(
+                    args.next()
+                        .ok_or_else(|| format!("{arg} requires a value"))?,
+                    arg.as_str(),
+                )?);
+            }
             other => return Err(format!("unknown support-bundle option: {other}")),
         }
     }
@@ -5653,6 +5690,13 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
             certification_tun_runtime_smoke_min_duration = required_window;
         }
     }
+    if let Some(required_connections) = certification_required_stability_connections {
+        if !certification_soak_connections_explicit
+            && certification_soak_connections < required_connections
+        {
+            certification_soak_connections = required_connections;
+        }
+    }
 
     Ok(CliCommand::SupportBundle {
         profile_config,
@@ -5666,6 +5710,7 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
         certification_tun_runtime_smoke_min_duration,
         certification_require_machine_takeover_ready,
         certification_required_stability_window,
+        certification_required_stability_connections,
     })
 }
 
@@ -7495,6 +7540,7 @@ pub struct DefaultCoreCertificationReport {
     pub ready_for_default_core: bool,
     pub require_machine_takeover_ready: bool,
     pub required_stability_window: Option<Duration>,
+    pub required_stability_connections: Option<usize>,
     pub readiness: DefaultCoreReadinessReport,
     pub tun_backend: TunBackendStatus,
     pub tun_preflight: TunDevicePreflight,
@@ -8690,6 +8736,36 @@ pub fn write_default_core_certification_report_with_release_gate_and_stability_o
     required_stability_window: Option<Duration>,
     mut writer: impl Write,
 ) -> Result<(), String> {
+    write_default_core_certification_report_with_release_gate_and_stability_requirements(
+        output,
+        soak_connections,
+        first_byte_timeout,
+        max_connection_workers,
+        soak_min_duration,
+        include_system_proxy_smoke,
+        include_tun_runtime_smoke,
+        tun_runtime_smoke_min_duration,
+        require_machine_takeover_ready,
+        required_stability_window,
+        None,
+        &mut writer,
+    )
+}
+
+pub fn write_default_core_certification_report_with_release_gate_and_stability_requirements(
+    output: ProbeOutputFormat,
+    soak_connections: usize,
+    first_byte_timeout: Duration,
+    max_connection_workers: usize,
+    soak_min_duration: Duration,
+    include_system_proxy_smoke: bool,
+    include_tun_runtime_smoke: bool,
+    tun_runtime_smoke_min_duration: Duration,
+    require_machine_takeover_ready: bool,
+    required_stability_window: Option<Duration>,
+    required_stability_connections: Option<usize>,
+    mut writer: impl Write,
+) -> Result<(), String> {
     let report = collect_default_core_certification_report(
         soak_connections,
         first_byte_timeout,
@@ -8700,6 +8776,7 @@ pub fn write_default_core_certification_report_with_release_gate_and_stability_o
         tun_runtime_smoke_min_duration,
         require_machine_takeover_ready,
         required_stability_window,
+        required_stability_connections,
     )?;
     let write_result = match output {
         ProbeOutputFormat::Text => {
@@ -8728,6 +8805,7 @@ fn collect_default_core_certification_report(
     tun_runtime_smoke_min_duration: Duration,
     require_machine_takeover_ready: bool,
     required_stability_window: Option<Duration>,
+    required_stability_connections: Option<usize>,
 ) -> Result<DefaultCoreCertificationReport, String> {
     if soak_connections == 0 {
         return Err("default-core-certify soak connections must be greater than 0".to_string());
@@ -8905,6 +8983,7 @@ fn collect_default_core_certification_report(
         ready_for_default_core,
         require_machine_takeover_ready,
         required_stability_window,
+        required_stability_connections,
         readiness,
         tun_backend,
         tun_preflight,
@@ -58048,18 +58127,26 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
-        "default_core_certification release_gate status={} required_scope={} passed={} require_machine_takeover_ready={} require_stability_window={} required_stability_window_ms={} machine_takeover_ready={} machine_takeover_smokes_requested={} local_soak_min_duration_ms={} local_soak_complete={} stability_window_met={} blockers={}",
+        "default_core_certification release_gate status={} required_scope={} passed={} require_machine_takeover_ready={} require_stability_window={} required_stability_window_ms={} require_stability_connections={} required_stability_connections={} machine_takeover_ready={} machine_takeover_smokes_requested={} local_soak_min_duration_ms={} local_soak_connections={} local_soak_complete={} stability_window_met={} stability_connections_met={} blockers={}",
         default_core_release_gate_status(report),
         default_core_release_gate_required_scope(report),
         default_core_release_gate_passed(report),
         report.require_machine_takeover_ready,
         report.required_stability_window.is_some(),
         duration_millis_option_or_dash(report.required_stability_window),
+        report.required_stability_connections.is_some(),
+        usize_option_or_dash(report.required_stability_connections),
         default_core_promotion_machine_takeover_ready(report),
         default_core_machine_takeover_smokes_requested(report),
         duration_millis_for_report(report.soak_min_duration),
+        report.soak_connections,
         default_core_release_gate_local_soak_complete(report),
-        default_core_release_gate_stability_passed(report),
+        default_core_release_gate_stability_window_passed(report),
+        bool_option_or_dash(
+            report
+                .required_stability_connections
+                .map(|_| default_core_release_gate_stability_connections_passed(report))
+        ),
         comma_list_or_dash(default_core_release_gate_blockers(report))
     )
     .map_err(|error| error.to_string())?;
@@ -58801,10 +58888,16 @@ fn default_core_release_gate_machine_takeover_passed(
 }
 
 fn default_core_release_gate_stability_passed(report: &DefaultCoreCertificationReport) -> bool {
+    default_core_release_gate_stability_window_passed(report)
+        && default_core_release_gate_stability_connections_passed(report)
+}
+
+fn default_core_release_gate_stability_window_passed(
+    report: &DefaultCoreCertificationReport,
+) -> bool {
     let Some(required_window) = report.required_stability_window else {
         return true;
     };
-
     let local_soak_passed = default_core_release_gate_local_soak_complete(report)
         && report.soak_min_duration >= required_window;
     let tun_runtime_passed = !report.include_tun_runtime_smoke
@@ -58818,8 +58911,22 @@ fn default_core_release_gate_stability_passed(report: &DefaultCoreCertificationR
     local_soak_passed && tun_runtime_passed
 }
 
+fn default_core_release_gate_stability_connections_passed(
+    report: &DefaultCoreCertificationReport,
+) -> bool {
+    let Some(required_connections) = report.required_stability_connections else {
+        return true;
+    };
+    default_core_release_gate_local_soak_complete(report)
+        && report.soak_connections >= required_connections
+}
+
+fn default_core_release_gate_stability_required(report: &DefaultCoreCertificationReport) -> bool {
+    report.required_stability_window.is_some() || report.required_stability_connections.is_some()
+}
+
 fn default_core_release_gate_required(report: &DefaultCoreCertificationReport) -> bool {
-    report.require_machine_takeover_ready || report.required_stability_window.is_some()
+    report.require_machine_takeover_ready || default_core_release_gate_stability_required(report)
 }
 
 fn default_core_release_gate_status(report: &DefaultCoreCertificationReport) -> &'static str {
@@ -58837,7 +58944,7 @@ fn default_core_release_gate_required_scope(
 ) -> &'static str {
     match (
         report.require_machine_takeover_ready,
-        report.required_stability_window.is_some(),
+        default_core_release_gate_stability_required(report),
     ) {
         (false, false) => "none",
         (true, false) => "machine-takeover",
@@ -58882,6 +58989,14 @@ fn default_core_release_gate_blockers(
             }
         }
     }
+    if let Some(required_connections) = report.required_stability_connections {
+        if report.soak_connections < required_connections {
+            blockers.push("local-soak-stability-connections-too-low");
+        }
+        if !default_core_release_gate_local_soak_complete(report) {
+            blockers.push("local-soak-stability-connections-not-passed");
+        }
+    }
     blockers
 }
 
@@ -58921,6 +59036,18 @@ fn comma_list_or_dash(items: Vec<&'static str>) -> String {
 fn duration_millis_option_or_dash(duration: Option<Duration>) -> String {
     duration
         .map(|duration| duration_millis_for_report(duration).to_string())
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn usize_option_or_dash(value: Option<usize>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn bool_option_or_dash(value: Option<bool>) -> String {
+    value
+        .map(|value| value.to_string())
         .unwrap_or_else(|| "-".to_string())
 }
 
@@ -59001,6 +59128,8 @@ fn default_core_release_gate_json_value(
         "required_stability_window_ms": report
             .required_stability_window
             .map(duration_millis_for_report),
+        "require_stability_connections": report.required_stability_connections.is_some(),
+        "required_stability_connections": report.required_stability_connections,
         "machine_takeover_ready": default_core_promotion_machine_takeover_ready(report),
         "machine_takeover_smokes_requested": default_core_machine_takeover_smokes_requested(report),
         "takeover_coverage_status": default_core_takeover_coverage_status(report),
@@ -59020,6 +59149,9 @@ fn default_core_release_gate_stability_json_value(
         report.soak_min_duration >= required_window
             && default_core_release_gate_local_soak_complete(report)
     });
+    let required_connections = report.required_stability_connections;
+    let local_soak_required_connections_met = required_connections
+        .map(|_| default_core_release_gate_stability_connections_passed(report));
     let tun_runtime_required_window_met = if report.include_tun_runtime_smoke {
         required_window.map(|required_window| {
             report.tun_runtime_smoke_min_duration >= required_window
@@ -59034,11 +59166,15 @@ fn default_core_release_gate_stability_json_value(
     };
     serde_json::json!({
         "required_window_ms": required_window.map(duration_millis_for_report),
-        "required_window_met": default_core_release_gate_stability_passed(report),
+        "required_window_met": default_core_release_gate_stability_window_passed(report),
+        "required_connections": required_connections,
+        "required_connections_met": local_soak_required_connections_met,
+        "local_soak_connections": report.soak_connections,
         "local_soak_min_duration_ms": duration_millis_for_report(report.soak_min_duration),
         "local_soak_duration_required": report.soak_min_duration > Duration::from_millis(0),
         "local_soak_complete": default_core_release_gate_local_soak_complete(report),
         "local_soak_required_window_met": local_soak_required_window_met,
+        "local_soak_required_connections_met": local_soak_required_connections_met,
         "local_soak_socks5_status": readiness_gate_status_label(
             &report.readiness,
             "mixed-soak-socks5"
@@ -59398,6 +59534,21 @@ fn default_core_certification_json_value(
         certification.insert(
             "require_machine_takeover_ready".to_string(),
             serde_json::Value::Bool(report.require_machine_takeover_ready),
+        );
+        certification.insert(
+            "required_stability_window_ms".to_string(),
+            report
+                .required_stability_window
+                .map(duration_millis_for_report)
+                .map(serde_json::Value::from)
+                .unwrap_or(serde_json::Value::Null),
+        );
+        certification.insert(
+            "required_stability_connections".to_string(),
+            report
+                .required_stability_connections
+                .map(serde_json::Value::from)
+                .unwrap_or(serde_json::Value::Null),
         );
         certification.insert(
             "release_gate_passed".to_string(),
@@ -62190,6 +62341,7 @@ pub struct SupportBundleOptions {
     pub certification_tun_runtime_smoke_min_duration: Duration,
     pub certification_require_machine_takeover_ready: bool,
     pub certification_required_stability_window: Option<Duration>,
+    pub certification_required_stability_connections: Option<usize>,
 }
 
 impl Default for SupportBundleOptions {
@@ -62205,6 +62357,7 @@ impl Default for SupportBundleOptions {
             certification_tun_runtime_smoke_min_duration: DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION,
             certification_require_machine_takeover_ready: false,
             certification_required_stability_window: None,
+            certification_required_stability_connections: None,
         }
     }
 }
@@ -62229,6 +62382,7 @@ pub fn write_support_bundle_report_with_options(
             options.certification_tun_runtime_smoke_min_duration,
             options.certification_require_machine_takeover_ready,
             options.certification_required_stability_window,
+            options.certification_required_stability_connections,
         )?)
     } else {
         serde_json::Value::Null

@@ -404,8 +404,10 @@ The first implementation target is deliberately small:
    `--soak-min-duration-ms`, and support bundle certification can embed it with
    `--certification-soak-min-duration-ms`. Support bundle certification can
    also record the hard release-gate stability window with
-   `--certification-stability-gate-ms`, preserving whether the target machine's
-   local soak and optional TUN runtime evidence met the requested window.
+   `--certification-stability-gate-ms`, and the matching local soak traffic
+   floor with `--certification-stability-gate-connections`, preserving whether
+   the target machine's local soak and optional TUN runtime evidence met the
+   requested window and connection count.
    `--certification-machine-takeover-gate` similarly records the hard machine
    takeover release-gate scope and blockers inside the embedded certification
    artifact while still allowing support bundle collection to complete.
@@ -759,13 +761,16 @@ The first implementation target is deliberately small:
    in the JSON artifact so CI, release scripts, and UI promotion tooling can
    show the required scope, pass/fail status, and blockers after the command
    exits. The nested `release_gate.stability` object lifts the existing local
-   SOCKS5/HTTP CONNECT soak gate statuses, requested soak window, and optional
-   TUN runtime duration result into one place, so release tooling can tell a
-   quick certification from a minimum-duration stability run without parsing
-   readiness gate detail strings. `--stability-gate-ms` promotes that evidence
-   into a hard release window by requiring the local soak gates and any included
-   TUN runtime smoke to meet the requested minimum duration before the release
-   gate can pass.
+   SOCKS5/HTTP CONNECT soak gate statuses, requested soak window, requested
+   soak connection count, and optional TUN runtime duration result into one
+   place, so release tooling can tell a quick certification from a
+   minimum-duration or minimum-traffic stability run without parsing readiness
+   gate detail strings. `--stability-gate-ms` promotes that evidence into a
+   hard release window by requiring the local soak gates and any included TUN
+   runtime smoke to meet the requested minimum duration before the release gate
+   can pass. `--stability-gate-connections` adds the companion local soak
+   traffic floor, failing the release gate when the artifact was produced with
+   too few local soak connections.
    The default TUN TCP session smoke is always part of readiness and
    certification, proving the managed packet loop can relay a TCP session
    through the outbound registry and clean up session state without touching the

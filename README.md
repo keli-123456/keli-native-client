@@ -707,10 +707,13 @@ evidence is missing or failed. `--require-machine-takeover-ready` can apply the
 same hard check to explicitly chosen smoke flags. `--stability-gate-ms` turns
 the local soak and included TUN runtime minimum durations into a hard release
 window, auto-filling omitted duration flags to the requested window and failing
-the command when the certification evidence does not meet it. When
-`--soak-min-duration-ms` is provided, the local soak gates hold the managed
-runtime alive for that minimum duration and report `min_duration_ms` plus
-`duration_target_met` in the gate detail.
+the command when the certification evidence does not meet it.
+`--stability-gate-connections` adds a local soak traffic floor to that same
+release gate, auto-filling omitted soak connections to the requested minimum
+and recording the required and observed connection counts in the JSON/text
+artifact. When `--soak-min-duration-ms` is provided, the local soak gates hold
+the managed runtime alive for that minimum duration and report
+`min_duration_ms` plus `duration_target_met` in the gate detail.
 `default-core-certify` runs the non-skipped readiness gates and emits a
 single certification artifact that embeds the readiness report, TUN backend
 packaging evidence, structured TUN preflight evidence, route-rule smoke
@@ -773,9 +776,11 @@ bundles can also embed the same certification artifact with
 `--include-certification`, keeping the default bundle lightweight while giving
 release/support flows a one-file promotion record when they need it.
 `--certification-stability-gate-ms` records the same hard stability-window
-requirement inside that embedded certification artifact, so support bundles can
-preserve the exact local soak/TUN runtime release-gate evidence from a target
-machine without making the default bundle expensive.
+requirement inside that embedded certification artifact, and
+`--certification-stability-gate-connections` records the matching local soak
+traffic floor, so support bundles can preserve the exact local soak/TUN runtime
+release-gate evidence from a target machine without making the default bundle
+expensive.
 `--certification-machine-takeover-gate` records the matching hard machine
 takeover release gate inside the embedded artifact, including missing system
 proxy or TUN runtime evidence, while still letting the support bundle itself be
@@ -922,11 +927,13 @@ cargo run -p keli-cli -- default-core-certify --format json
 cargo run -p keli-cli -- default-core-certify --format json --machine-takeover --tun-runtime-smoke-min-duration-ms 250
 cargo run -p keli-cli -- default-core-certify --format json --machine-takeover-gate --tun-runtime-smoke-min-duration-ms 250
 cargo run -p keli-cli -- default-core-certify --format json --machine-takeover-gate --stability-gate-ms 60000
+cargo run -p keli-cli -- default-core-certify --format json --machine-takeover-gate --stability-gate-ms 60000 --stability-gate-connections 25
 cargo run -p keli-cli -- default-core-certify --format json --soak-min-duration-ms 60000
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
 cargo run -p keli-cli -- support-bundle --include-certification --certification-soak-min-duration-ms 60000
 cargo run -p keli-cli -- support-bundle --include-certification --certification-stability-gate-ms 60000
 cargo run -p keli-cli -- support-bundle --include-certification --certification-machine-takeover-gate --certification-stability-gate-ms 60000
+cargo run -p keli-cli -- support-bundle --include-certification --certification-machine-takeover-gate --certification-stability-gate-ms 60000 --certification-stability-gate-connections 25
 cargo run -p keli-cli -- subscription-update --current-config active.yaml --new-config subscription.yaml --current-outbound proxy --format json
 cargo run -p keli-cli -- soak-mixed --connections 25 --format json
 cargo run -p keli-cli -- soak-mixed --connections 25 --min-duration-ms 60000 --format json
