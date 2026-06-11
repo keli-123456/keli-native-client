@@ -213,8 +213,7 @@ The first implementation target is deliberately small:
    the caller and record a runtime status note with the TUN packet counters when
    the listener exits.
    Those summaries split TCP relay plans from UDP relay plans, so UI and
-   support tooling can distinguish the executed UDP packet path from the
-   remaining TCP/TUN stream-stack boundary.
+   support tooling can inspect the combined UDP/TCP packet execution path.
    The TCP side now has a TUN segment parser for flags, sequence and
    acknowledgment numbers, window size, options length, and payload boundaries,
    giving the future user-space TCP session runner concrete packet metadata
@@ -305,6 +304,11 @@ The first implementation target is deliberately small:
    outbound TCP streams, writes accepted client payloads into those streams,
    reads server payloads back, and packetizes them into TUN TCP response
    packets.
+   The default TUN TCP session smoke now runs the managed packet loop against an
+   injected TUN packet device and a real local TCP server, covering SYN/SYN-ACK,
+   client payload relay, server payload packetization, FIN/RST cleanup, summary
+   counters, and residual session-state cleanup without requiring a platform
+   TUN device.
    Established TCP sessions can also poll additional server payload on
    follow-up client ACKs, allowing split upstream responses to continue flowing
    back to TUN after the first response packet; remote TCP EOF is surfaced as a
@@ -721,7 +725,7 @@ The first implementation target is deliberately small:
    checks and exporting one promotion artifact with the embedded readiness
    report, TUN backend packaging evidence, structured TUN preflight evidence,
    route-rule smoke evidence, DNS policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, Trojan WebSocket TCP relay smoke evidence, Trojan HTTPUpgrade TCP relay smoke evidence, Trojan gRPC TCP relay smoke evidence, Trojan H2 TCP relay smoke evidence, Trojan QUIC TCP relay smoke evidence, Trojan QUIC UDP relay smoke evidence, Trojan TLS UDP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, AnyTLS TLS UDP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VLESS WebSocket TCP relay smoke evidence, VLESS WebSocket UDP relay smoke evidence, VLESS HTTPUpgrade TCP relay smoke evidence, VLESS HTTPUpgrade UDP relay smoke evidence, VLESS gRPC TCP relay smoke evidence, VLESS gRPC UDP relay smoke evidence, VLESS H2 TCP relay smoke evidence, VLESS H2 UDP relay smoke evidence, VLESS QUIC TCP relay smoke evidence, VLESS QUIC UDP relay smoke evidence, VLESS TCP UDP relay smoke evidence, VMess TCP relay smoke evidence, VMess WebSocket TCP relay smoke evidence, VMess WebSocket UDP relay smoke evidence, VMess HTTPUpgrade TCP relay smoke evidence, VMess HTTPUpgrade UDP relay smoke evidence, VMess gRPC TCP relay smoke evidence, VMess gRPC UDP relay smoke evidence, VMess H2 TCP relay smoke evidence, VMess H2 UDP relay smoke evidence, VMess QUIC TCP relay smoke evidence, VMess QUIC UDP relay smoke evidence, VMess TCP UDP relay smoke evidence, Mieru TCP relay smoke evidence, Mieru TCP UDP relay smoke evidence, UDP relay smoke evidence, SOCKS5 UDP outbound relay smoke evidence, subscription reload
-   smoke evidence, resource-limit smoke evidence, panel/subscription smoke evidence, runtime recovery smoke evidence, certification
+   smoke evidence, resource-limit smoke evidence, panel/subscription smoke evidence, runtime recovery smoke evidence, TUN TCP session smoke evidence, certification
    parameters, and final
    `ready_for_default_core` decision for release automation and UI handoff. The
    certification artifact mirrors the blocker summary as `promotion_blockers`
@@ -730,7 +734,10 @@ The first implementation target is deliberately small:
    preflight, and backend evidence.
    Certification parameters include `soak_min_duration_ms`, so a promotion
    record can prove both traffic success and a minimum managed-runtime window.
-   The optional TUN runtime smoke gate is also carried into certification JSON,
+   The default TUN TCP session smoke is always part of readiness and
+   certification, proving the managed packet loop can relay a TCP session
+   through the outbound registry and clean up session state without touching the
+   host TUN adapter. The optional TUN runtime smoke gate is also carried into certification JSON,
    letting release automation distinguish "preflight says ready" from "the
    runtime actually started, opened packet I/O, stayed alive for the requested
    smoke duration, observed real routed traffic, and stopped cleanly" on the

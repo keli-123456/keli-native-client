@@ -550,6 +550,10 @@ proxies:
         "mieru-tcp-udp-relay-smoke"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][82],
+        "tun-tcp-session-smoke"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -892,6 +896,10 @@ proxies:
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][81],
         "mieru-tcp-udp-relay-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][82],
+        "tun-tcp-session-smoke"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
@@ -3148,6 +3156,12 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
         certification["readiness"]["runtime_recovery_smoke"]["case_count"],
         4
     );
+    assert_eq!(
+        certification["certification"]["tun_tcp_session_smoke_passed"],
+        true
+    );
+    assert_tun_tcp_session_smoke_json(&certification["tun_tcp_session_smoke"]);
+    assert_tun_tcp_session_smoke_json(&certification["readiness"]["tun_tcp_session_smoke"]);
     assert_eq!(certification["readiness"]["soak_min_duration_ms"], 50);
     let promotion_blockers = certification["promotion_blockers"]
         .as_array()
@@ -4349,6 +4363,44 @@ fn assert_vmess_httpupgrade_udp_relay_smoke_certification(certification: &Value)
         certification["readiness"]["vmess_httpupgrade_udp_relay_smoke"]["case_count"],
         4
     );
+}
+
+fn assert_tun_tcp_session_smoke_json(smoke: &Value) {
+    assert_eq!(smoke["status"], "passed");
+    assert_eq!(smoke["passed"], true);
+    assert_eq!(smoke["selected_outbound"], "TUN-TCP-SESSION-SMOKE");
+    assert!(smoke["target"]
+        .as_str()
+        .expect("TUN TCP session target")
+        .starts_with("127.0.0.1:"));
+    assert_eq!(smoke["request_payload_bytes"], 5);
+    assert_eq!(smoke["response_payload_bytes"], 8);
+    assert_eq!(smoke["response_payload_observed"], true);
+    assert_eq!(smoke["server_received_payload"], true);
+    assert_eq!(smoke["starts_observed"], 1);
+    assert_eq!(smoke["opens_observed"], 1);
+    assert_eq!(smoke["stops_observed"], 1);
+    assert_eq!(smoke["tun_writes_observed"], 3);
+    assert_eq!(smoke["processed_packets"], 4);
+    assert_eq!(smoke["tcp_session_events"], 4);
+    assert_eq!(smoke["tcp_session_packets_written"], 3);
+    assert_eq!(smoke["tcp_sessions_peak"], 1);
+    assert_eq!(smoke["tcp_sessions_open"], 0);
+    assert_eq!(smoke["tcp_session_errors"], 0);
+    assert_eq!(smoke["tcp_session_limit_rejections"], 0);
+    assert_eq!(smoke["clean_stop_observed"], true);
+    assert_eq!(smoke["residual_state_clean"], true);
+    assert_eq!(smoke["case_count"], 4);
+    assert_eq!(smoke["failed_case_count"], 0);
+    let cases = smoke["cases"]
+        .as_array()
+        .expect("TUN TCP session smoke cases");
+    let response = cases
+        .iter()
+        .find(|case| case["name"] == "write-tun-tcp-server-payload")
+        .expect("TUN TCP session response case");
+    assert_eq!(response["observed_response"], "HTTP/1.1");
+    assert_eq!(response["passed"], true);
 }
 
 #[test]

@@ -27,7 +27,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(report["schema_version"], READINESS_CHECK_SCHEMA_VERSION);
     assert_eq!(report["ready_for_default_core"], false);
     assert_eq!(report["status"], "not-ready");
-    assert_eq!(report["summary"]["total_gate_count"], 62);
+    assert_eq!(report["summary"]["total_gate_count"], 63);
     assert_eq!(report["summary"]["skipped_gate_count"], 2);
     assert_eq!(report["soak_min_duration_ms"], 0);
     assert_eq!(
@@ -2945,6 +2945,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(unusable["applied"], false);
     assert_eq!(unusable["observed_selected_outbound"], "SS-READY");
     assert_eq!(unusable["runtime_still_running"], true);
+    assert_tun_tcp_session_smoke_json(&report["tun_tcp_session_smoke"]);
     assert!(report["system_proxy_smoke"]["config"].is_null());
     assert!(report["system_proxy_smoke"]["original_snapshot"].is_null());
     assert!(report["system_proxy_smoke"]["applied_snapshot"].is_null());
@@ -3239,7 +3240,7 @@ fn readiness_check_text_reports_gate_summary() {
 
     let output = String::from_utf8(output).expect("readiness text");
     assert!(output.contains(&format!(
-        "readiness status=not-ready schema_version={} gates=62",
+        "readiness status=not-ready schema_version={} gates=63",
         READINESS_CHECK_SCHEMA_VERSION
     )));
     assert!(output.contains("blockers="));
@@ -3362,6 +3363,7 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(
         output.contains("readiness gate=runtime-recovery-smoke category=stability status=passed")
     );
+    assert!(output.contains("readiness gate=tun-tcp-session-smoke category=platform status=passed"));
     assert!(output.contains("readiness gate=tun-backend category=platform status="));
     assert!(output.contains("readiness tun_preflight status="));
     assert!(output.contains("readiness route_rule_smoke status=passed cases=3"));
@@ -3417,6 +3419,7 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(output.contains("readiness panel_subscription_smoke status=passed cases=9"));
     assert!(output.contains("readiness subscription_reload_smoke status=passed cases=4"));
     assert!(output.contains("readiness runtime_recovery_smoke status=passed cases=4"));
+    assert!(output.contains("readiness tun_tcp_session_smoke status=passed cases=4"));
     assert!(output.contains("readiness system_proxy_smoke status=not-run included=false"));
     assert!(output.contains("readiness tun_runtime_smoke status=not-run included=false"));
     assert!(
@@ -5174,6 +5177,12 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
         4
     );
     assert_eq!(
+        report["certification"]["tun_tcp_session_smoke_passed"],
+        true
+    );
+    assert_tun_tcp_session_smoke_json(&report["tun_tcp_session_smoke"]);
+    assert_tun_tcp_session_smoke_json(&report["readiness"]["tun_tcp_session_smoke"]);
+    assert_eq!(
         report["certification"]["system_proxy_smoke_included"],
         false
     );
@@ -5422,6 +5431,7 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert_eq!(gate(gates, "panel-subscription-state")["status"], "passed");
     assert_eq!(gate(gates, "subscription-reload-smoke")["status"], "passed");
     assert_eq!(gate(gates, "runtime-recovery-smoke")["status"], "passed");
+    assert_eq!(gate(gates, "tun-tcp-session-smoke")["status"], "passed");
     assert_eq!(gate(gates, "mixed-soak-socks5")["status"], "passed");
     assert_eq!(gate(gates, "mixed-soak-http-connect")["status"], "passed");
 }
@@ -5565,6 +5575,9 @@ fn default_core_certification_text_reports_summary_and_gates() {
     assert!(
         output.contains("default_core_certification runtime_recovery_smoke status=passed cases=4")
     );
+    assert!(
+        output.contains("default_core_certification tun_tcp_session_smoke status=passed cases=4")
+    );
     assert!(output
         .contains("default_core_certification system_proxy_smoke status=not-run included=false"));
     assert!(output
@@ -5603,6 +5616,68 @@ fn default_core_certification_json_records_soak_min_duration() {
 
 fn gate<'a>(gates: &'a [Value], name: &str) -> &'a Value {
     find_gate(gates, name).unwrap_or_else(|| panic!("missing gate {name}"))
+}
+
+fn assert_tun_tcp_session_smoke_json(smoke: &Value) {
+    assert_eq!(smoke["status"], "passed");
+    assert_eq!(smoke["passed"], true);
+    assert_eq!(smoke["selected_outbound"], "TUN-TCP-SESSION-SMOKE");
+    assert!(smoke["target"]
+        .as_str()
+        .expect("TUN TCP session target")
+        .starts_with("127.0.0.1:"));
+    assert_eq!(smoke["request_payload_bytes"], 5);
+    assert_eq!(smoke["response_payload_bytes"], 8);
+    assert_eq!(smoke["response_payload_observed"], true);
+    assert_eq!(smoke["server_received_payload"], true);
+    assert_eq!(smoke["starts_observed"], 1);
+    assert_eq!(smoke["opens_observed"], 1);
+    assert_eq!(smoke["stops_observed"], 1);
+    assert_eq!(smoke["tun_writes_observed"], 3);
+    assert_eq!(smoke["processed_packets"], 4);
+    assert_eq!(smoke["tcp_session_events"], 4);
+    assert_eq!(smoke["tcp_session_packets_written"], 3);
+    assert_eq!(smoke["tcp_sessions_peak"], 1);
+    assert_eq!(smoke["tcp_sessions_open"], 0);
+    assert_eq!(smoke["tcp_server_close_markers_open"], 0);
+    assert_eq!(smoke["tcp_post_close_markers_open"], 0);
+    assert_eq!(smoke["tcp_session_errors"], 0);
+    assert_eq!(smoke["tcp_session_limit_rejections"], 0);
+    assert!(
+        smoke["tcp_max_active_sessions"]
+            .as_u64()
+            .expect("TUN TCP max active sessions")
+            > 0
+    );
+    assert_eq!(smoke["clean_stop_observed"], true);
+    assert_eq!(smoke["residual_state_clean"], true);
+    assert_eq!(smoke["case_count"], 4);
+    assert_eq!(smoke["passed_case_count"], 4);
+    assert_eq!(smoke["failed_case_count"], 0);
+    let cases = smoke["cases"]
+        .as_array()
+        .expect("TUN TCP session smoke cases");
+    let case_names: Vec<_> = cases
+        .iter()
+        .filter_map(|case| case["name"].as_str())
+        .collect();
+    for expected in [
+        "start-tun-tcp-session-relay",
+        "relay-tun-tcp-client-payload",
+        "write-tun-tcp-server-payload",
+        "stop-tun-tcp-session-relay-cleanly",
+    ] {
+        assert!(
+            case_names.contains(&expected),
+            "missing TUN TCP session smoke case {expected}: {case_names:?}"
+        );
+    }
+    let response = cases
+        .iter()
+        .find(|case| case["name"] == "write-tun-tcp-server-payload")
+        .expect("TUN TCP session response case");
+    assert_eq!(response["observed_response"], "HTTP/1.1");
+    assert_eq!(response["passed"], true);
 }
 
 fn assert_trojan_quic_udp_relay_smoke_json(report: &Value) {
