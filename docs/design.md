@@ -756,7 +756,10 @@ The first implementation target is deliberately small:
    SOCKS5/HTTP CONNECT soak gate statuses, requested soak window, and optional
    TUN runtime duration result into one place, so release tooling can tell a
    quick certification from a minimum-duration stability run without parsing
-   readiness gate detail strings.
+   readiness gate detail strings. `--stability-gate-ms` promotes that evidence
+   into a hard release window by requiring the local soak gates and any included
+   TUN runtime smoke to meet the requested minimum duration before the release
+   gate can pass.
    The default TUN TCP session smoke is always part of readiness and
    certification, proving the managed packet loop can relay a TCP session
    through the outbound registry and clean up session state without touching the

@@ -704,7 +704,10 @@ path. `default-core-certify --machine-takeover-gate` enables those same smokes
 and treats `machine-takeover-ready` as a hard release gate: the report is still
 written, but the command returns an error when core readiness or takeover
 evidence is missing or failed. `--require-machine-takeover-ready` can apply the
-same hard check to explicitly chosen smoke flags. When
+same hard check to explicitly chosen smoke flags. `--stability-gate-ms` turns
+the local soak and included TUN runtime minimum durations into a hard release
+window, auto-filling omitted duration flags to the requested window and failing
+the command when the certification evidence does not meet it. When
 `--soak-min-duration-ms` is provided, the local soak gates hold the managed
 runtime alive for that minimum duration and report `min_duration_ms` plus
 `duration_target_met` in the gate detail.
@@ -876,9 +879,10 @@ takeover smokes is `machine-takeover-ready`. `release_gate` records whether a
 hard machine-takeover gate was required, whether it passed, and the blockers
 that should fail CI or release promotion. Its nested `stability` evidence
 summarizes the local SOCKS5/HTTP CONNECT soak gate status, requested soak
-window, and optional TUN runtime smoke duration result so release tooling can
-distinguish a quick certification from one that held the managed runtime open
-for a minimum stability window.
+window, hard stability window requirement, local soak window result, and
+optional TUN runtime smoke duration result so release tooling can distinguish a
+quick certification from one that held the managed runtime open for a minimum
+stability window.
 `keli-cli support-bundle --include-certification` embeds that evidence into the
 redacted support bundle.
 
@@ -909,6 +913,7 @@ cargo run -p keli-cli -- readiness-check --format json --soak-min-duration-ms 60
 cargo run -p keli-cli -- default-core-certify --format json
 cargo run -p keli-cli -- default-core-certify --format json --machine-takeover --tun-runtime-smoke-min-duration-ms 250
 cargo run -p keli-cli -- default-core-certify --format json --machine-takeover-gate --tun-runtime-smoke-min-duration-ms 250
+cargo run -p keli-cli -- default-core-certify --format json --machine-takeover-gate --stability-gate-ms 60000
 cargo run -p keli-cli -- default-core-certify --format json --soak-min-duration-ms 60000
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
 cargo run -p keli-cli -- support-bundle --include-certification --certification-soak-min-duration-ms 60000

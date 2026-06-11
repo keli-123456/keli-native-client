@@ -990,6 +990,10 @@ proxies:
         "default-core-release-gate-stability-evidence"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][96],
+        "default-core-release-gate-stability-window"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
@@ -1462,6 +1466,11 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
         certification["release_gate"]["require_machine_takeover_ready"],
         false
     );
+    assert_eq!(
+        certification["release_gate"]["require_stability_window"],
+        false
+    );
+    assert!(certification["release_gate"]["required_stability_window_ms"].is_null());
     assert_eq!(certification["release_gate"]["passed"], true);
     assert_eq!(
         certification["release_gate"]["machine_takeover_smokes_requested"],
@@ -1472,6 +1481,11 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
         certification["release_gate"]["stability"]["local_soak_min_duration_ms"],
         50
     );
+    assert!(certification["release_gate"]["stability"]["required_window_ms"].is_null());
+    assert_eq!(
+        certification["release_gate"]["stability"]["required_window_met"],
+        true
+    );
     assert_eq!(
         certification["release_gate"]["stability"]["local_soak_duration_required"],
         true
@@ -1479,6 +1493,10 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     assert_eq!(
         certification["release_gate"]["stability"]["local_soak_complete"],
         true
+    );
+    assert!(certification["release_gate"]["stability"]["local_soak_required_window_met"].is_null());
+    assert!(
+        certification["release_gate"]["stability"]["tun_runtime_required_window_met"].is_null()
     );
     let promotion_next_actions = certification["default_core_promotion"]["next_actions"]
         .as_array()
