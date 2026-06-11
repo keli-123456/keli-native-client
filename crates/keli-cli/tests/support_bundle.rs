@@ -1042,6 +1042,10 @@ proxies:
         "default-core-release-gate-preset-enforced"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][103],
+        "default-core-release-gate-preset-scope"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
@@ -5500,6 +5504,52 @@ fn support_bundle_certification_records_release_gate_preset_evidence() {
         certification["certification"]["release_gate_preset_applied"],
         false
     );
+}
+
+#[test]
+fn support_bundle_certification_treats_preset_request_as_release_gate_scope() {
+    let mut output = Vec::new();
+
+    keli_cli::write_support_bundle_report_with_options(
+        None,
+        SupportBundleOptions {
+            include_default_core_certification: true,
+            certification_soak_connections: 2,
+            certification_first_byte_timeout: Duration::from_secs(2),
+            certification_max_connection_workers: 2,
+            certification_soak_min_duration: Duration::from_millis(0),
+            certification_include_system_proxy_smoke: false,
+            certification_include_tun_runtime_smoke: false,
+            certification_tun_runtime_smoke_min_duration: Duration::from_millis(50),
+            certification_require_machine_takeover_ready: false,
+            certification_required_stability_window: None,
+            certification_required_stability_connections: None,
+            certification_release_gate_preset: Some("default-core-release-gate"),
+        },
+        &mut output,
+    )
+    .expect("write support bundle with preset-only release gate evidence");
+
+    let report: Value = serde_json::from_slice(&output).expect("support bundle json");
+    let certification = &report["default_core_certification"];
+
+    assert_eq!(certification["release_gate"]["status"], "failed");
+    assert_eq!(certification["release_gate"]["required_scope"], "preset");
+    assert_eq!(certification["release_gate"]["passed"], false);
+    assert_eq!(certification["release_gate"]["preset_requested"], true);
+    assert_eq!(certification["release_gate"]["preset_applied"], false);
+    let blockers = certification["release_gate"]["blockers"]
+        .as_array()
+        .expect("release gate blockers");
+    assert!(blockers
+        .iter()
+        .any(|blocker| blocker.as_str() == Some("preset-machine-takeover-not-required")));
+    assert!(blockers
+        .iter()
+        .any(|blocker| blocker.as_str() == Some("preset-stability-window-below-default")));
+    assert!(blockers
+        .iter()
+        .any(|blocker| blocker.as_str() == Some("preset-stability-connections-below-default")));
 }
 
 #[test]

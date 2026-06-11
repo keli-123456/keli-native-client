@@ -777,6 +777,9 @@ The first implementation target is deliberately small:
    too few local soak connections. `--default-core-release-gate` applies the
    CI/release preset for default desktop-core promotion by enabling machine
    takeover plus a 60s stability window and 25 local soak connections.
+   A requested release preset is itself part of `release_gate.required_scope`,
+   so preset-only or partially applied preset evidence reports `failed` with
+   preset blockers instead of `not-required`.
    The default TUN TCP session smoke is always part of readiness and
    certification, proving the managed packet loop can relay a TCP session
    through the outbound registry and clean up session state without touching the

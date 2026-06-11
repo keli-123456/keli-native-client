@@ -6218,6 +6218,52 @@ fn default_core_certification_records_release_gate_preset_evidence() {
 }
 
 #[test]
+fn default_core_certification_treats_preset_request_as_release_gate_scope() {
+    let mut output = Vec::new();
+
+    let error = write_default_core_certification_report_with_release_gate_preset_and_stability_requirements(
+        ProbeOutputFormat::Json,
+        2,
+        Duration::from_secs(2),
+        2,
+        Duration::from_millis(0),
+        false,
+        false,
+        Duration::from_millis(50),
+        false,
+        None,
+        None,
+        Some("default-core-release-gate"),
+        &mut output,
+    )
+    .expect_err("preset request should be a release gate even without explicit gate options");
+
+    assert!(error.contains("preset release gate failed"));
+    assert!(error.contains("preset-machine-takeover-not-required"));
+    assert!(error.contains("preset-stability-window-below-default"));
+    assert!(error.contains("preset-stability-connections-below-default"));
+
+    let report: Value = serde_json::from_slice(&output).expect("certification JSON");
+    assert_eq!(report["release_gate"]["status"], "failed");
+    assert_eq!(report["release_gate"]["required_scope"], "preset");
+    assert_eq!(report["release_gate"]["passed"], false);
+    assert_eq!(report["release_gate"]["preset_requested"], true);
+    assert_eq!(report["release_gate"]["preset_applied"], false);
+    let blockers = report["release_gate"]["blockers"]
+        .as_array()
+        .expect("release gate blockers");
+    assert!(blockers
+        .iter()
+        .any(|blocker| blocker.as_str() == Some("preset-machine-takeover-not-required")));
+    assert!(blockers
+        .iter()
+        .any(|blocker| blocker.as_str() == Some("preset-stability-window-below-default")));
+    assert!(blockers
+        .iter()
+        .any(|blocker| blocker.as_str() == Some("preset-stability-connections-below-default")));
+}
+
+#[test]
 fn default_core_certification_json_records_soak_min_duration() {
     let mut output = Vec::new();
 
