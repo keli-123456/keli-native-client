@@ -919,18 +919,22 @@ fn doctor_json_report_is_machine_readable() {
     );
     assert_eq!(
         report["readiness_check_capabilities"][84],
-        "tun-tcp-session-limit-smoke"
+        "tun-tcp-unknown-session-reset-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][85],
-        "tun-tcp-session-idle-prune-smoke"
+        "tun-tcp-session-limit-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][86],
-        "tun-tcp-session-close-marker-prune-smoke"
+        "tun-tcp-session-idle-prune-smoke"
     );
     assert_eq!(
         report["readiness_check_capabilities"][87],
+        "tun-tcp-session-close-marker-prune-smoke"
+    );
+    assert_eq!(
+        report["readiness_check_capabilities"][88],
         "tun-tcp-session-close-marker-rst-clear-smoke"
     );
     assert_eq!(report["tun_backend_check_capabilities"][0], "backend-kind");
@@ -1277,18 +1281,22 @@ fn doctor_json_report_is_machine_readable() {
     );
     assert_eq!(
         report["default_core_certification_capabilities"][84],
-        "tun-tcp-session-limit-smoke"
+        "tun-tcp-unknown-session-reset-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][85],
-        "tun-tcp-session-idle-prune-smoke"
+        "tun-tcp-session-limit-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][86],
-        "tun-tcp-session-close-marker-prune-smoke"
+        "tun-tcp-session-idle-prune-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][87],
+        "tun-tcp-session-close-marker-prune-smoke"
+    );
+    assert_eq!(
+        report["default_core_certification_capabilities"][88],
         "tun-tcp-session-close-marker-rst-clear-smoke"
     );
     assert_eq!(

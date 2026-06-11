@@ -708,9 +708,10 @@ evidence, DNS policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbou
 resource-limit smoke evidence,
 subscription reload smoke evidence, soak parameters, runtime recovery smoke
 evidence, TUN TCP session smoke evidence, TUN TCP session server-retransmit
-smoke evidence, TUN TCP session limit smoke evidence, TUN TCP session
-idle-prune smoke evidence, TUN TCP session close-marker prune smoke evidence,
-TUN TCP session close-marker RST-clear smoke evidence, and the final
+smoke evidence, TUN TCP unknown-session reset smoke evidence, TUN TCP session
+limit smoke evidence, TUN TCP session idle-prune smoke evidence, TUN TCP
+session close-marker prune smoke evidence, TUN TCP session close-marker
+RST-clear smoke evidence, and the final
 `ready_for_default_core` decision for release automation and desktop UI
 handoff. Its JSON output mirrors
 the readiness blockers as `promotion_blockers` and includes a
@@ -722,11 +723,13 @@ certification artifact for release runs that are allowed to touch Windows proxy
 settings. The default TUN TCP session smoke is always part of readiness and
 certification, proving the managed packet loop can relay a TCP session through
 the outbound registry and clean up session state without touching the host TUN
-adapter. The default TUN TCP session limit smoke is also always part of
 adapter. The default TUN TCP session server-retransmit smoke is also always
 part of readiness and certification, proving duplicate stale ACKs replay the
 last server payload while a later latest ACK clears that retransmit slot so
 future stale ACKs cannot replay already-acknowledged data. The default TUN TCP
+unknown-session reset smoke is always part of readiness and certification,
+proving unknown data/FIN packets receive RST+ACK responses while stray RST
+packets are absorbed without creating a reset loop. The default TUN TCP
 session limit smoke is also always part of readiness and certification, proving
 the managed packet loop enforces the max-active-session guard, records one
 `TcpSessionLimitExceeded` rejection, keeps bounded active-session counters

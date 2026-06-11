@@ -559,18 +559,22 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][84],
-        "tun-tcp-session-limit-smoke"
+        "tun-tcp-unknown-session-reset-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][85],
-        "tun-tcp-session-idle-prune-smoke"
+        "tun-tcp-session-limit-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][86],
-        "tun-tcp-session-close-marker-prune-smoke"
+        "tun-tcp-session-idle-prune-smoke"
     );
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][87],
+        "tun-tcp-session-close-marker-prune-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][88],
         "tun-tcp-session-close-marker-rst-clear-smoke"
     );
     assert_eq!(
@@ -927,18 +931,22 @@ proxies:
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][84],
-        "tun-tcp-session-limit-smoke"
+        "tun-tcp-unknown-session-reset-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][85],
-        "tun-tcp-session-idle-prune-smoke"
+        "tun-tcp-session-limit-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][86],
-        "tun-tcp-session-close-marker-prune-smoke"
+        "tun-tcp-session-idle-prune-smoke"
     );
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][87],
+        "tun-tcp-session-close-marker-prune-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][88],
         "tun-tcp-session-close-marker-rst-clear-smoke"
     );
     assert_eq!(
@@ -3205,6 +3213,10 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
         true
     );
     assert_eq!(
+        certification["certification"]["tun_tcp_unknown_session_reset_smoke_passed"],
+        true
+    );
+    assert_eq!(
         certification["certification"]["tun_tcp_session_limit_smoke_passed"],
         true
     );
@@ -3227,6 +3239,12 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     );
     assert_tun_tcp_session_server_retransmit_smoke_json(
         &certification["readiness"]["tun_tcp_session_server_retransmit_smoke"],
+    );
+    assert_tun_tcp_unknown_session_reset_smoke_json(
+        &certification["tun_tcp_unknown_session_reset_smoke"],
+    );
+    assert_tun_tcp_unknown_session_reset_smoke_json(
+        &certification["readiness"]["tun_tcp_unknown_session_reset_smoke"],
     );
     assert_tun_tcp_session_limit_smoke_json(&certification["tun_tcp_session_limit_smoke"]);
     assert_tun_tcp_session_limit_smoke_json(
@@ -4552,6 +4570,59 @@ fn assert_tun_tcp_session_server_retransmit_smoke_json(smoke: &Value) {
     assert_eq!(no_replay["observed_response_payload_count"], 1);
     assert_eq!(no_replay["observed_no_retransmit_after_ack_clear"], true);
     assert_eq!(no_replay["passed"], true);
+}
+
+fn assert_tun_tcp_unknown_session_reset_smoke_json(smoke: &Value) {
+    assert_eq!(smoke["status"], "passed");
+    assert_eq!(smoke["passed"], true);
+    assert_eq!(
+        smoke["selected_outbound"],
+        "TUN-TCP-UNKNOWN-SESSION-RESET-SMOKE"
+    );
+    assert_eq!(smoke["target"], "93.184.216.34:443");
+    assert_eq!(smoke["request_payload_bytes"], 5);
+    assert_eq!(smoke["data_reset_observed"], true);
+    assert_eq!(smoke["fin_reset_observed"], true);
+    assert_eq!(smoke["stray_rst_absorbed"], true);
+    assert_eq!(smoke["reset_loop_avoided"], true);
+    assert_eq!(smoke["data_reset_sequence_number"], 1001);
+    assert_eq!(smoke["data_reset_acknowledgment_number"], 16);
+    assert_eq!(smoke["fin_reset_sequence_number"], 1001);
+    assert_eq!(smoke["fin_reset_acknowledgment_number"], 17);
+    assert_eq!(smoke["starts_observed"], 1);
+    assert_eq!(smoke["opens_observed"], 1);
+    assert_eq!(smoke["stops_observed"], 1);
+    assert_eq!(smoke["processed_packets"], 3);
+    assert_eq!(smoke["tcp_session_events"], 3);
+    assert_eq!(smoke["tcp_session_packets_written"], 2);
+    assert_eq!(smoke["tun_writes_observed"], 2);
+    assert_eq!(smoke["tcp_sessions_open"], 0);
+    assert_eq!(smoke["tcp_session_errors"], 0);
+    assert_eq!(smoke["clean_stop_observed"], true);
+    assert_eq!(smoke["residual_state_clean"], true);
+    assert_eq!(smoke["case_count"], 3);
+    assert_eq!(smoke["passed_case_count"], 3);
+    assert_eq!(smoke["failed_case_count"], 0);
+    let cases = smoke["cases"]
+        .as_array()
+        .expect("TUN TCP unknown-session reset smoke cases");
+    let data = cases
+        .iter()
+        .find(|case| case["name"] == "reset-unknown-tun-tcp-data")
+        .expect("TUN TCP unknown data reset case");
+    assert_eq!(data["observed_reset_written"], true);
+    assert_eq!(data["observed_sequence_number"], 1001);
+    assert_eq!(data["observed_acknowledgment_number"], 16);
+    assert_eq!(data["observed_rst_flag"], true);
+    assert_eq!(data["observed_ack_flag"], true);
+    assert_eq!(data["passed"], true);
+    let stray_rst = cases
+        .iter()
+        .find(|case| case["name"] == "absorb-unknown-tun-tcp-rst-without-reset-loop")
+        .expect("TUN TCP unknown RST absorb case");
+    assert_eq!(stray_rst["expected_reset_written"], false);
+    assert_eq!(stray_rst["observed_reset_written"], false);
+    assert_eq!(stray_rst["passed"], true);
 }
 
 fn assert_tun_tcp_session_limit_smoke_json(smoke: &Value) {

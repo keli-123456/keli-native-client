@@ -106,6 +106,10 @@ const TUN_TCP_SESSION_SMOKE_RESPONSE: &[u8] = b"HTTP/1.1";
 const TUN_TCP_SESSION_SERVER_RETRANSMIT_SMOKE_OUTBOUND: &str =
     "TUN-TCP-SESSION-SERVER-RETRANSMIT-SMOKE";
 const TUN_TCP_SESSION_SERVER_RETRANSMIT_SMOKE_FOLLOW_UP: &[u8] = b"more";
+const TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_OUTBOUND: &str = "TUN-TCP-UNKNOWN-SESSION-RESET-SMOKE";
+const TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_TARGET: Ipv4Addr = Ipv4Addr::new(93, 184, 216, 34);
+const TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_DESTINATION_PORT: u16 = 443;
+const TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_MAX_PACKETS: usize = 3;
 const TUN_TCP_SESSION_LIMIT_SMOKE_OUTBOUND: &str = "TUN-TCP-SESSION-LIMIT-SMOKE";
 const TUN_TCP_SESSION_LIMIT_SMOKE_TARGET: Ipv4Addr = Ipv4Addr::new(93, 184, 216, 34);
 const TUN_TCP_SESSION_LIMIT_SMOKE_DESTINATION_PORT: u16 = 443;
@@ -536,11 +540,11 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(4);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 89;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 79;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 90;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 80;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 78;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 78;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 79;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 79;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const SUPPORTED_OUTBOUNDS: &str =
     "direct,socks5-tcp,http-connect,trojan-tcp,trojan-ws,trojan-httpupgrade,trojan-grpc,trojan-h2,trojan-quic,vless-tcp,vless-ws,vless-httpupgrade,vless-grpc,vless-h2,vless-quic,vmess-tcp,vmess-ws,vmess-httpupgrade,vmess-grpc,vmess-h2,vmess-quic,shadowsocks-tcp,anytls-tls-tcp,naive-h2-tcp,naive-h3-quic,mieru-tcp,hy2-quic,tuic-quic";
@@ -565,11 +569,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -7356,6 +7360,7 @@ pub struct DefaultCoreReadinessReport {
     pub tun_runtime_smoke: Option<TunRuntimeSmokeReport>,
     pub tun_tcp_session_smoke: TunTcpSessionSmokeReport,
     pub tun_tcp_session_server_retransmit_smoke: TunTcpSessionServerRetransmitSmokeReport,
+    pub tun_tcp_unknown_session_reset_smoke: TunTcpUnknownSessionResetSmokeReport,
     pub tun_tcp_session_limit_smoke: TunTcpSessionLimitSmokeReport,
     pub tun_tcp_session_idle_prune_smoke: TunTcpSessionIdlePruneSmokeReport,
     pub tun_tcp_session_close_marker_prune_smoke: TunTcpSessionCloseMarkerPruneSmokeReport,
@@ -7431,6 +7436,7 @@ pub struct DefaultCoreCertificationReport {
     pub tun_runtime_smoke: Option<TunRuntimeSmokeReport>,
     pub tun_tcp_session_smoke: TunTcpSessionSmokeReport,
     pub tun_tcp_session_server_retransmit_smoke: TunTcpSessionServerRetransmitSmokeReport,
+    pub tun_tcp_unknown_session_reset_smoke: TunTcpUnknownSessionResetSmokeReport,
     pub tun_tcp_session_limit_smoke: TunTcpSessionLimitSmokeReport,
     pub tun_tcp_session_idle_prune_smoke: TunTcpSessionIdlePruneSmokeReport,
     pub tun_tcp_session_close_marker_prune_smoke: TunTcpSessionCloseMarkerPruneSmokeReport,
@@ -7882,6 +7888,56 @@ pub struct TunTcpSessionServerRetransmitSmokeCaseReport {
     pub observed_ack_clear_packet: bool,
     pub expected_no_retransmit_after_ack_clear: bool,
     pub observed_no_retransmit_after_ack_clear: bool,
+    pub processed_packets: usize,
+    pub tcp_session_events: usize,
+    pub tcp_session_packets_written: usize,
+    pub tun_writes_observed: usize,
+    pub passed: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunTcpUnknownSessionResetSmokeReport {
+    pub passed: bool,
+    pub detail: String,
+    pub selected_outbound: String,
+    pub target: String,
+    pub request_payload_bytes: usize,
+    pub data_reset_observed: bool,
+    pub fin_reset_observed: bool,
+    pub stray_rst_absorbed: bool,
+    pub reset_loop_avoided: bool,
+    pub data_reset_sequence_number: Option<u32>,
+    pub data_reset_acknowledgment_number: Option<u32>,
+    pub fin_reset_sequence_number: Option<u32>,
+    pub fin_reset_acknowledgment_number: Option<u32>,
+    pub starts_observed: usize,
+    pub opens_observed: usize,
+    pub stops_observed: usize,
+    pub processed_packets: usize,
+    pub tcp_session_events: usize,
+    pub tcp_session_packets_written: usize,
+    pub tun_writes_observed: usize,
+    pub tcp_sessions_open: usize,
+    pub tcp_session_errors: usize,
+    pub clean_stop_observed: bool,
+    pub residual_state_clean: bool,
+    pub cases: Vec<TunTcpUnknownSessionResetSmokeCaseReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunTcpUnknownSessionResetSmokeCaseReport {
+    pub name: &'static str,
+    pub action: &'static str,
+    pub target: String,
+    pub expected_reset_written: bool,
+    pub observed_reset_written: bool,
+    pub expected_sequence_number: Option<u32>,
+    pub observed_sequence_number: Option<u32>,
+    pub expected_acknowledgment_number: Option<u32>,
+    pub observed_acknowledgment_number: Option<u32>,
+    pub observed_rst_flag: Option<bool>,
+    pub observed_ack_flag: Option<bool>,
     pub processed_packets: usize,
     pub tcp_session_events: usize,
     pub tcp_session_packets_written: usize,
@@ -8452,6 +8508,7 @@ fn collect_default_core_certification_report(
     let tun_tcp_session_smoke = readiness.tun_tcp_session_smoke.clone();
     let tun_tcp_session_server_retransmit_smoke =
         readiness.tun_tcp_session_server_retransmit_smoke.clone();
+    let tun_tcp_unknown_session_reset_smoke = readiness.tun_tcp_unknown_session_reset_smoke.clone();
     let tun_tcp_session_limit_smoke = readiness.tun_tcp_session_limit_smoke.clone();
     let tun_tcp_session_idle_prune_smoke = readiness.tun_tcp_session_idle_prune_smoke.clone();
     let tun_tcp_session_close_marker_prune_smoke =
@@ -8529,6 +8586,7 @@ fn collect_default_core_certification_report(
         && runtime_recovery_smoke.passed
         && tun_tcp_session_smoke.passed
         && tun_tcp_session_server_retransmit_smoke.passed
+        && tun_tcp_unknown_session_reset_smoke.passed
         && tun_tcp_session_limit_smoke.passed
         && tun_tcp_session_idle_prune_smoke.passed
         && tun_tcp_session_close_marker_prune_smoke.passed
@@ -8598,6 +8656,7 @@ fn collect_default_core_certification_report(
         runtime_recovery_smoke,
         tun_tcp_session_smoke,
         tun_tcp_session_server_retransmit_smoke,
+        tun_tcp_unknown_session_reset_smoke,
         tun_tcp_session_limit_smoke,
         tun_tcp_session_idle_prune_smoke,
         tun_tcp_session_close_marker_prune_smoke,
@@ -8696,6 +8755,8 @@ fn collect_readiness_check_report(
     let tun_tcp_session_smoke = collect_default_tun_tcp_session_smoke_report();
     let tun_tcp_session_server_retransmit_smoke =
         collect_default_tun_tcp_session_server_retransmit_smoke_report();
+    let tun_tcp_unknown_session_reset_smoke =
+        collect_default_tun_tcp_unknown_session_reset_smoke_report();
     let tun_tcp_session_limit_smoke = collect_default_tun_tcp_session_limit_smoke_report();
     let tun_tcp_session_idle_prune_smoke =
         collect_default_tun_tcp_session_idle_prune_smoke_report();
@@ -9075,6 +9136,7 @@ fn collect_readiness_check_report(
         readiness_tun_tcp_session_server_retransmit_smoke_gate(
             &tun_tcp_session_server_retransmit_smoke,
         ),
+        readiness_tun_tcp_unknown_session_reset_smoke_gate(&tun_tcp_unknown_session_reset_smoke),
         readiness_tun_tcp_session_limit_smoke_gate(&tun_tcp_session_limit_smoke),
         readiness_tun_tcp_session_idle_prune_smoke_gate(&tun_tcp_session_idle_prune_smoke),
         readiness_tun_tcp_session_close_marker_prune_smoke_gate(
@@ -9272,6 +9334,7 @@ fn collect_readiness_check_report(
         runtime_recovery_smoke,
         tun_tcp_session_smoke,
         tun_tcp_session_server_retransmit_smoke,
+        tun_tcp_unknown_session_reset_smoke,
         tun_tcp_session_limit_smoke,
         tun_tcp_session_idle_prune_smoke,
         tun_tcp_session_close_marker_prune_smoke,
@@ -50231,6 +50294,17 @@ fn readiness_tun_tcp_session_server_retransmit_smoke_gate(
     )
 }
 
+fn readiness_tun_tcp_unknown_session_reset_smoke_gate(
+    smoke_report: &TunTcpUnknownSessionResetSmokeReport,
+) -> ReadinessGateReport {
+    readiness_gate(
+        "tun-tcp-unknown-session-reset-smoke",
+        "platform",
+        smoke_report.passed,
+        smoke_report.detail.clone(),
+    )
+}
+
 fn readiness_tun_tcp_session_limit_smoke_gate(
     smoke_report: &TunTcpSessionLimitSmokeReport,
 ) -> ReadinessGateReport {
@@ -51196,6 +51270,420 @@ fn tun_tcp_session_server_retransmit_ack_clear_packet_observed(
             && !segment.flags.psh()
             && !segment.flags.rst()
     })
+}
+
+fn collect_default_tun_tcp_unknown_session_reset_smoke_report(
+) -> TunTcpUnknownSessionResetSmokeReport {
+    match run_default_tun_tcp_unknown_session_reset_smoke() {
+        Ok(evidence) => tun_tcp_unknown_session_reset_smoke_report_from_evidence(evidence),
+        Err(error) => tun_tcp_unknown_session_reset_smoke_failed_report(error),
+    }
+}
+
+#[derive(Debug)]
+struct TunTcpUnknownSessionResetSmokeRunEvidence {
+    report: ManagedTunPacketLoopReport,
+    target: SocketAddr,
+    starts_observed: usize,
+    opens_observed: usize,
+    stops_observed: usize,
+    tun_writes: Vec<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TunTcpUnknownSessionResetObservation {
+    sequence_number: u32,
+    acknowledgment_number: u32,
+    rst: bool,
+    ack: bool,
+}
+
+fn run_default_tun_tcp_unknown_session_reset_smoke(
+) -> Result<TunTcpUnknownSessionResetSmokeRunEvidence, String> {
+    let config = default_tun_device_config();
+    let stopped_snapshot = tun_tcp_session_smoke_stopped_snapshot();
+    let target = SocketAddr::new(
+        IpAddr::V4(TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_TARGET),
+        TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_DESTINATION_PORT,
+    );
+    let tun_writes = Arc::new(Mutex::new(Vec::new()));
+    let packet_io = TunTcpSessionSmokeFakePacketIo {
+        reads: VecDeque::from(tun_tcp_unknown_session_reset_smoke_packets()),
+        writes: Vec::new(),
+        shared_writes: Arc::clone(&tun_writes),
+    };
+    let controller = TunTcpSessionSmokeFakeController::new(
+        stopped_snapshot.clone(),
+        TunDeviceSnapshot::running(&config),
+        stopped_snapshot,
+        packet_io,
+    );
+    let runtime = default_tun_tcp_unknown_session_reset_smoke_runtime();
+
+    let report = run_managed_tun_packet_loop_with_runtime(
+        &controller,
+        config,
+        &runtime,
+        DEFAULT_TUN_DNS_TTL_SECONDS,
+        TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_MAX_PACKETS,
+    )?;
+    let tun_writes = tun_writes
+        .lock()
+        .map_err(|_| "TUN TCP unknown-session reset smoke writes lock poisoned".to_string())?
+        .clone();
+
+    Ok(TunTcpUnknownSessionResetSmokeRunEvidence {
+        report,
+        target,
+        starts_observed: controller.starts_observed()?,
+        opens_observed: controller.opens_observed()?,
+        stops_observed: controller.stops_observed(),
+        tun_writes,
+    })
+}
+
+fn default_tun_tcp_unknown_session_reset_smoke_runtime() -> MixedProxyRuntime {
+    let mut outbounds = OutboundRegistry::new();
+    outbounds.add_direct(TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_OUTBOUND);
+    MixedProxyRuntime {
+        routes: RouteEngine::new(RouteAction::Outbound(
+            TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_OUTBOUND.to_string(),
+        )),
+        relay_options: RelayOptions {
+            first_byte_timeout: Some(Duration::from_secs(1)),
+            idle_timeout: Some(Duration::from_secs(1)),
+        },
+        outbounds,
+        dns_options: MixedDnsOptions::default(),
+        tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+        connection_metrics: ConnectionMetrics::default(),
+        max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+        connection_worker_gauge: ConnectionWorkerGauge::default(),
+        active_connection_registry: ActiveConnectionRegistry::default(),
+    }
+}
+
+fn tun_tcp_unknown_session_reset_smoke_report_from_evidence(
+    evidence: TunTcpUnknownSessionResetSmokeRunEvidence,
+) -> TunTcpUnknownSessionResetSmokeReport {
+    let summary = &evidence.report.summary;
+    let data_reset = tun_tcp_unknown_session_reset_observation(
+        &evidence.tun_writes,
+        0,
+        tun_tcp_unknown_session_reset_expected_sequence_number(),
+        tun_tcp_unknown_session_reset_expected_data_acknowledgment_number(),
+    );
+    let fin_reset = tun_tcp_unknown_session_reset_observation(
+        &evidence.tun_writes,
+        1,
+        tun_tcp_unknown_session_reset_expected_sequence_number(),
+        tun_tcp_unknown_session_reset_expected_fin_acknowledgment_number(),
+    );
+    let clean_stop_observed =
+        evidence.stops_observed == 1 && !evidence.report.stop_snapshot.running;
+    let residual_state_clean = summary.tcp_sessions_open == 0
+        && summary.tcp_server_close_markers_open == 0
+        && summary.tcp_post_close_markers_open == 0;
+    let stray_rst_absorbed = evidence.tun_writes.len() == 2;
+    let reset_loop_avoided = stray_rst_absorbed && summary.tcp_session_packets_written == 2;
+    let mut report = TunTcpUnknownSessionResetSmokeReport {
+        passed: false,
+        detail: String::new(),
+        selected_outbound: TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_OUTBOUND.to_string(),
+        target: evidence.target.to_string(),
+        request_payload_bytes: TUN_TCP_SESSION_SMOKE_REQUEST.len(),
+        data_reset_observed: data_reset.is_some(),
+        fin_reset_observed: fin_reset.is_some(),
+        stray_rst_absorbed,
+        reset_loop_avoided,
+        data_reset_sequence_number: data_reset.map(|reset| reset.sequence_number),
+        data_reset_acknowledgment_number: data_reset.map(|reset| reset.acknowledgment_number),
+        fin_reset_sequence_number: fin_reset.map(|reset| reset.sequence_number),
+        fin_reset_acknowledgment_number: fin_reset.map(|reset| reset.acknowledgment_number),
+        starts_observed: evidence.starts_observed,
+        opens_observed: evidence.opens_observed,
+        stops_observed: evidence.stops_observed,
+        processed_packets: summary.processed_packets(),
+        tcp_session_events: summary.tcp_session_events,
+        tcp_session_packets_written: summary.tcp_session_packets_written,
+        tun_writes_observed: evidence.tun_writes.len(),
+        tcp_sessions_open: summary.tcp_sessions_open,
+        tcp_session_errors: summary.tcp_session_errors,
+        clean_stop_observed,
+        residual_state_clean,
+        cases: Vec::new(),
+    };
+    report.passed = tun_tcp_unknown_session_reset_smoke_passed(&report);
+    report.detail = tun_tcp_unknown_session_reset_smoke_detail(&report);
+    report.cases = tun_tcp_unknown_session_reset_smoke_cases(&report, data_reset, fin_reset, None);
+    report
+}
+
+fn tun_tcp_unknown_session_reset_smoke_failed_report(
+    error: String,
+) -> TunTcpUnknownSessionResetSmokeReport {
+    let mut report = TunTcpUnknownSessionResetSmokeReport {
+        passed: false,
+        detail: format!("TUN TCP unknown-session reset smoke failed: {error}"),
+        selected_outbound: TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_OUTBOUND.to_string(),
+        target: SocketAddr::new(
+            IpAddr::V4(TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_TARGET),
+            TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_DESTINATION_PORT,
+        )
+        .to_string(),
+        request_payload_bytes: TUN_TCP_SESSION_SMOKE_REQUEST.len(),
+        data_reset_observed: false,
+        fin_reset_observed: false,
+        stray_rst_absorbed: false,
+        reset_loop_avoided: false,
+        data_reset_sequence_number: None,
+        data_reset_acknowledgment_number: None,
+        fin_reset_sequence_number: None,
+        fin_reset_acknowledgment_number: None,
+        starts_observed: 0,
+        opens_observed: 0,
+        stops_observed: 0,
+        processed_packets: 0,
+        tcp_session_events: 0,
+        tcp_session_packets_written: 0,
+        tun_writes_observed: 0,
+        tcp_sessions_open: 0,
+        tcp_session_errors: 0,
+        clean_stop_observed: false,
+        residual_state_clean: false,
+        cases: Vec::new(),
+    };
+    report.cases = tun_tcp_unknown_session_reset_smoke_cases(&report, None, None, Some(error));
+    report
+}
+
+fn tun_tcp_unknown_session_reset_smoke_passed(
+    report: &TunTcpUnknownSessionResetSmokeReport,
+) -> bool {
+    report.starts_observed == 1
+        && report.opens_observed == 1
+        && report.stops_observed == 1
+        && report.data_reset_observed
+        && report.fin_reset_observed
+        && report.stray_rst_absorbed
+        && report.reset_loop_avoided
+        && report.data_reset_sequence_number
+            == Some(tun_tcp_unknown_session_reset_expected_sequence_number())
+        && report.data_reset_acknowledgment_number
+            == Some(tun_tcp_unknown_session_reset_expected_data_acknowledgment_number())
+        && report.fin_reset_sequence_number
+            == Some(tun_tcp_unknown_session_reset_expected_sequence_number())
+        && report.fin_reset_acknowledgment_number
+            == Some(tun_tcp_unknown_session_reset_expected_fin_acknowledgment_number())
+        && report.processed_packets == TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_MAX_PACKETS
+        && report.tcp_session_events == TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_MAX_PACKETS
+        && report.tcp_session_packets_written == 2
+        && report.tun_writes_observed == 2
+        && report.tcp_sessions_open == 0
+        && report.tcp_session_errors == 0
+        && report.clean_stop_observed
+        && report.residual_state_clean
+}
+
+fn tun_tcp_unknown_session_reset_smoke_detail(
+    report: &TunTcpUnknownSessionResetSmokeReport,
+) -> String {
+    format!(
+        "outbound={} target={} request_bytes={} data_reset_observed={} data_reset_seq={:?} data_reset_ack={:?} fin_reset_observed={} fin_reset_seq={:?} fin_reset_ack={:?} stray_rst_absorbed={} reset_loop_avoided={} starts={} opens={} stops={} processed={} tcp_events={} tcp_writes={} tun_writes={} tcp_sessions_open={} tcp_errors={} residual_state_clean={}",
+        report.selected_outbound,
+        report.target,
+        report.request_payload_bytes,
+        report.data_reset_observed,
+        report.data_reset_sequence_number,
+        report.data_reset_acknowledgment_number,
+        report.fin_reset_observed,
+        report.fin_reset_sequence_number,
+        report.fin_reset_acknowledgment_number,
+        report.stray_rst_absorbed,
+        report.reset_loop_avoided,
+        report.starts_observed,
+        report.opens_observed,
+        report.stops_observed,
+        report.processed_packets,
+        report.tcp_session_events,
+        report.tcp_session_packets_written,
+        report.tun_writes_observed,
+        report.tcp_sessions_open,
+        report.tcp_session_errors,
+        report.residual_state_clean
+    )
+}
+
+fn tun_tcp_unknown_session_reset_smoke_cases(
+    report: &TunTcpUnknownSessionResetSmokeReport,
+    data_reset: Option<TunTcpUnknownSessionResetObservation>,
+    fin_reset: Option<TunTcpUnknownSessionResetObservation>,
+    error: Option<String>,
+) -> Vec<TunTcpUnknownSessionResetSmokeCaseReport> {
+    let case_error = |passed: bool| {
+        if passed {
+            None
+        } else {
+            error.clone().or_else(|| Some(report.detail.clone()))
+        }
+    };
+    let reset_case = |name,
+                      action,
+                      reset: Option<TunTcpUnknownSessionResetObservation>,
+                      expected_acknowledgment_number|
+     -> TunTcpUnknownSessionResetSmokeCaseReport {
+        let observed_reset_written = reset.is_some();
+        let observed_sequence_number = reset.map(|reset| reset.sequence_number);
+        let observed_acknowledgment_number = reset.map(|reset| reset.acknowledgment_number);
+        let observed_rst_flag = reset.map(|reset| reset.rst);
+        let observed_ack_flag = reset.map(|reset| reset.ack);
+        let passed = observed_reset_written
+            && observed_sequence_number
+                == Some(tun_tcp_unknown_session_reset_expected_sequence_number())
+            && observed_acknowledgment_number == Some(expected_acknowledgment_number)
+            && observed_rst_flag == Some(true)
+            && observed_ack_flag == Some(true);
+        TunTcpUnknownSessionResetSmokeCaseReport {
+            name,
+            action,
+            target: report.target.clone(),
+            expected_reset_written: true,
+            observed_reset_written,
+            expected_sequence_number: Some(tun_tcp_unknown_session_reset_expected_sequence_number()),
+            observed_sequence_number,
+            expected_acknowledgment_number: Some(expected_acknowledgment_number),
+            observed_acknowledgment_number,
+            observed_rst_flag,
+            observed_ack_flag,
+            processed_packets: report.processed_packets,
+            tcp_session_events: report.tcp_session_events,
+            tcp_session_packets_written: report.tcp_session_packets_written,
+            tun_writes_observed: report.tun_writes_observed,
+            passed,
+            error: case_error(passed),
+        }
+    };
+    let stray_rst_passed = report.stray_rst_absorbed && report.reset_loop_avoided;
+    vec![
+        reset_case(
+            "reset-unknown-tun-tcp-data",
+            "write RST+ACK for an unknown TUN TCP data segment",
+            data_reset,
+            tun_tcp_unknown_session_reset_expected_data_acknowledgment_number(),
+        ),
+        reset_case(
+            "reset-unknown-tun-tcp-fin",
+            "write RST+ACK for an unknown TUN TCP FIN segment",
+            fin_reset,
+            tun_tcp_unknown_session_reset_expected_fin_acknowledgment_number(),
+        ),
+        TunTcpUnknownSessionResetSmokeCaseReport {
+            name: "absorb-unknown-tun-tcp-rst-without-reset-loop",
+            action: "absorb an unknown TUN TCP RST without writing another reset",
+            target: report.target.clone(),
+            expected_reset_written: false,
+            observed_reset_written: !report.stray_rst_absorbed,
+            expected_sequence_number: None,
+            observed_sequence_number: None,
+            expected_acknowledgment_number: None,
+            observed_acknowledgment_number: None,
+            observed_rst_flag: None,
+            observed_ack_flag: None,
+            processed_packets: report.processed_packets,
+            tcp_session_events: report.tcp_session_events,
+            tcp_session_packets_written: report.tcp_session_packets_written,
+            tun_writes_observed: report.tun_writes_observed,
+            passed: stray_rst_passed,
+            error: case_error(stray_rst_passed),
+        },
+    ]
+}
+
+fn tun_tcp_unknown_session_reset_observation(
+    writes: &[Vec<u8>],
+    index: usize,
+    expected_sequence_number: u32,
+    expected_acknowledgment_number: u32,
+) -> Option<TunTcpUnknownSessionResetObservation> {
+    let packet = writes.get(index)?;
+    let segment = parse_tun_tcp_segment(packet).ok()?;
+    let observation = TunTcpUnknownSessionResetObservation {
+        sequence_number: segment.sequence_number,
+        acknowledgment_number: segment.acknowledgment_number,
+        rst: segment.flags.rst(),
+        ack: segment.flags.ack(),
+    };
+    if segment.flow.source_port == Some(TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_DESTINATION_PORT)
+        && segment.flow.destination_port == Some(TUN_TCP_SESSION_SMOKE_CLIENT_PORT)
+        && segment.payload.is_empty()
+        && observation.sequence_number == expected_sequence_number
+        && observation.acknowledgment_number == expected_acknowledgment_number
+        && observation.rst
+        && observation.ack
+    {
+        Some(observation)
+    } else {
+        None
+    }
+}
+
+fn tun_tcp_unknown_session_reset_smoke_packets() -> Vec<Vec<u8>> {
+    vec![
+        tun_tcp_session_smoke_ipv4_packet(
+            TUN_TCP_SESSION_SMOKE_CLIENT_IP,
+            TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_TARGET,
+            6,
+            &tun_tcp_session_smoke_tcp_segment(
+                TUN_TCP_SESSION_SMOKE_CLIENT_PORT,
+                TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_DESTINATION_PORT,
+                11,
+                tun_tcp_unknown_session_reset_expected_sequence_number(),
+                0x0018,
+                DEFAULT_TUN_TCP_WINDOW_SIZE,
+                TUN_TCP_SESSION_SMOKE_REQUEST,
+            ),
+        ),
+        tun_tcp_session_smoke_ipv4_packet(
+            TUN_TCP_SESSION_SMOKE_CLIENT_IP,
+            TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_TARGET,
+            6,
+            &tun_tcp_session_smoke_tcp_segment(
+                TUN_TCP_SESSION_SMOKE_CLIENT_PORT,
+                TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_DESTINATION_PORT,
+                tun_tcp_unknown_session_reset_expected_data_acknowledgment_number(),
+                tun_tcp_unknown_session_reset_expected_sequence_number(),
+                0x0011,
+                DEFAULT_TUN_TCP_WINDOW_SIZE,
+                b"",
+            ),
+        ),
+        tun_tcp_session_smoke_ipv4_packet(
+            TUN_TCP_SESSION_SMOKE_CLIENT_IP,
+            TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_TARGET,
+            6,
+            &tun_tcp_session_smoke_tcp_segment(
+                TUN_TCP_SESSION_SMOKE_CLIENT_PORT,
+                TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_DESTINATION_PORT,
+                tun_tcp_unknown_session_reset_expected_data_acknowledgment_number(),
+                tun_tcp_unknown_session_reset_expected_sequence_number(),
+                0x0014,
+                DEFAULT_TUN_TCP_WINDOW_SIZE,
+                b"",
+            ),
+        ),
+    ]
+}
+
+fn tun_tcp_unknown_session_reset_expected_sequence_number() -> u32 {
+    1001
+}
+
+fn tun_tcp_unknown_session_reset_expected_data_acknowledgment_number() -> u32 {
+    11 + TUN_TCP_SESSION_SMOKE_REQUEST.len() as u32
+}
+
+fn tun_tcp_unknown_session_reset_expected_fin_acknowledgment_number() -> u32 {
+    tun_tcp_unknown_session_reset_expected_data_acknowledgment_number() + 1
 }
 
 fn collect_default_tun_tcp_session_limit_smoke_report() -> TunTcpSessionLimitSmokeReport {
@@ -53523,6 +54011,61 @@ mod tun_tcp_session_smoke_tests {
     }
 
     #[test]
+    fn default_tun_tcp_unknown_session_reset_smoke_resets_data_fin_and_absorbs_rst() {
+        let report = collect_default_tun_tcp_unknown_session_reset_smoke_report();
+
+        assert!(report.passed, "{}", report.detail);
+        assert_eq!(
+            report.selected_outbound,
+            TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_OUTBOUND
+        );
+        assert_eq!(report.target, "93.184.216.34:443");
+        assert_eq!(
+            report.request_payload_bytes,
+            TUN_TCP_SESSION_SMOKE_REQUEST.len()
+        );
+        assert!(report.data_reset_observed);
+        assert!(report.fin_reset_observed);
+        assert!(report.stray_rst_absorbed);
+        assert!(report.reset_loop_avoided);
+        assert_eq!(
+            report.data_reset_sequence_number,
+            Some(tun_tcp_unknown_session_reset_expected_sequence_number())
+        );
+        assert_eq!(
+            report.data_reset_acknowledgment_number,
+            Some(tun_tcp_unknown_session_reset_expected_data_acknowledgment_number())
+        );
+        assert_eq!(
+            report.fin_reset_sequence_number,
+            Some(tun_tcp_unknown_session_reset_expected_sequence_number())
+        );
+        assert_eq!(
+            report.fin_reset_acknowledgment_number,
+            Some(tun_tcp_unknown_session_reset_expected_fin_acknowledgment_number())
+        );
+        assert_eq!(report.starts_observed, 1);
+        assert_eq!(report.opens_observed, 1);
+        assert_eq!(report.stops_observed, 1);
+        assert_eq!(
+            report.processed_packets,
+            TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_MAX_PACKETS
+        );
+        assert_eq!(
+            report.tcp_session_events,
+            TUN_TCP_UNKNOWN_SESSION_RESET_SMOKE_MAX_PACKETS
+        );
+        assert_eq!(report.tcp_session_packets_written, 2);
+        assert_eq!(report.tun_writes_observed, 2);
+        assert_eq!(report.tcp_sessions_open, 0);
+        assert_eq!(report.tcp_session_errors, 0);
+        assert!(report.clean_stop_observed);
+        assert!(report.residual_state_clean);
+        assert_eq!(report.cases.len(), 3);
+        assert!(report.cases.iter().all(|case| case.passed));
+    }
+
+    #[test]
     fn default_tun_tcp_session_limit_smoke_records_limit_rejection() {
         let report = collect_default_tun_tcp_session_limit_smoke_report();
 
@@ -55552,6 +56095,16 @@ fn write_readiness_check_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "readiness tun_tcp_unknown_session_reset_smoke status={} cases={} detail={}",
+        tun_tcp_unknown_session_reset_smoke_status_label(
+            &report.tun_tcp_unknown_session_reset_smoke
+        ),
+        report.tun_tcp_unknown_session_reset_smoke.cases.len(),
+        report.tun_tcp_unknown_session_reset_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "readiness tun_tcp_session_limit_smoke status={} cases={} detail={}",
         tun_tcp_session_limit_smoke_status_label(&report.tun_tcp_session_limit_smoke),
         report.tun_tcp_session_limit_smoke.cases.len(),
@@ -55812,6 +56365,9 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         ),
         "tun_tcp_session_server_retransmit_smoke": tun_tcp_session_server_retransmit_smoke_json_value(
             &report.tun_tcp_session_server_retransmit_smoke
+        ),
+        "tun_tcp_unknown_session_reset_smoke": tun_tcp_unknown_session_reset_smoke_json_value(
+            &report.tun_tcp_unknown_session_reset_smoke
         ),
         "tun_tcp_session_limit_smoke": tun_tcp_session_limit_smoke_json_value(
             &report.tun_tcp_session_limit_smoke
@@ -56367,6 +56923,16 @@ fn write_default_core_certification_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "default_core_certification tun_tcp_unknown_session_reset_smoke status={} cases={} detail={}",
+        tun_tcp_unknown_session_reset_smoke_status_label(
+            &report.tun_tcp_unknown_session_reset_smoke
+        ),
+        report.tun_tcp_unknown_session_reset_smoke.cases.len(),
+        report.tun_tcp_unknown_session_reset_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "default_core_certification tun_tcp_session_limit_smoke status={} cases={} detail={}",
         tun_tcp_session_limit_smoke_status_label(&report.tun_tcp_session_limit_smoke),
         report.tun_tcp_session_limit_smoke.cases.len(),
@@ -56568,6 +57134,9 @@ fn default_core_certification_json_value(
             "tun_tcp_session_server_retransmit_smoke_passed": report
                 .tun_tcp_session_server_retransmit_smoke
                 .passed,
+            "tun_tcp_unknown_session_reset_smoke_passed": report
+                .tun_tcp_unknown_session_reset_smoke
+                .passed,
             "tun_tcp_session_limit_smoke_passed": report.tun_tcp_session_limit_smoke.passed,
             "tun_tcp_session_idle_prune_smoke_passed": report
                 .tun_tcp_session_idle_prune_smoke
@@ -56753,6 +57322,9 @@ fn default_core_certification_json_value(
         ),
         "tun_tcp_session_server_retransmit_smoke": tun_tcp_session_server_retransmit_smoke_json_value(
             &report.tun_tcp_session_server_retransmit_smoke
+        ),
+        "tun_tcp_unknown_session_reset_smoke": tun_tcp_unknown_session_reset_smoke_json_value(
+            &report.tun_tcp_unknown_session_reset_smoke
         ),
         "tun_tcp_session_limit_smoke": tun_tcp_session_limit_smoke_json_value(
             &report.tun_tcp_session_limit_smoke
@@ -57374,6 +57946,81 @@ fn tun_tcp_session_server_retransmit_smoke_case_json_value(
         "observed_ack_clear_packet": case.observed_ack_clear_packet,
         "expected_no_retransmit_after_ack_clear": case.expected_no_retransmit_after_ack_clear,
         "observed_no_retransmit_after_ack_clear": case.observed_no_retransmit_after_ack_clear,
+        "processed_packets": case.processed_packets,
+        "tcp_session_events": case.tcp_session_events,
+        "tcp_session_packets_written": case.tcp_session_packets_written,
+        "tun_writes_observed": case.tun_writes_observed,
+        "passed": case.passed,
+        "error": &case.error,
+    })
+}
+
+fn tun_tcp_unknown_session_reset_smoke_status_label(
+    report: &TunTcpUnknownSessionResetSmokeReport,
+) -> &'static str {
+    if report.passed {
+        "passed"
+    } else {
+        "failed"
+    }
+}
+
+fn tun_tcp_unknown_session_reset_smoke_json_value(
+    report: &TunTcpUnknownSessionResetSmokeReport,
+) -> serde_json::Value {
+    let cases: Vec<_> = report
+        .cases
+        .iter()
+        .map(tun_tcp_unknown_session_reset_smoke_case_json_value)
+        .collect();
+    serde_json::json!({
+        "status": tun_tcp_unknown_session_reset_smoke_status_label(report),
+        "passed": report.passed,
+        "detail": &report.detail,
+        "selected_outbound": &report.selected_outbound,
+        "target": &report.target,
+        "request_payload_bytes": report.request_payload_bytes,
+        "data_reset_observed": report.data_reset_observed,
+        "fin_reset_observed": report.fin_reset_observed,
+        "stray_rst_absorbed": report.stray_rst_absorbed,
+        "reset_loop_avoided": report.reset_loop_avoided,
+        "data_reset_sequence_number": report.data_reset_sequence_number,
+        "data_reset_acknowledgment_number": report.data_reset_acknowledgment_number,
+        "fin_reset_sequence_number": report.fin_reset_sequence_number,
+        "fin_reset_acknowledgment_number": report.fin_reset_acknowledgment_number,
+        "starts_observed": report.starts_observed,
+        "opens_observed": report.opens_observed,
+        "stops_observed": report.stops_observed,
+        "processed_packets": report.processed_packets,
+        "tcp_session_events": report.tcp_session_events,
+        "tcp_session_packets_written": report.tcp_session_packets_written,
+        "tun_writes_observed": report.tun_writes_observed,
+        "tcp_sessions_open": report.tcp_sessions_open,
+        "tcp_session_errors": report.tcp_session_errors,
+        "clean_stop_observed": report.clean_stop_observed,
+        "residual_state_clean": report.residual_state_clean,
+        "case_count": report.cases.len(),
+        "passed_case_count": report.cases.iter().filter(|case| case.passed).count(),
+        "failed_case_count": report.cases.iter().filter(|case| !case.passed).count(),
+        "cases": cases,
+    })
+}
+
+fn tun_tcp_unknown_session_reset_smoke_case_json_value(
+    case: &TunTcpUnknownSessionResetSmokeCaseReport,
+) -> serde_json::Value {
+    serde_json::json!({
+        "name": case.name,
+        "action": case.action,
+        "target": &case.target,
+        "expected_reset_written": case.expected_reset_written,
+        "observed_reset_written": case.observed_reset_written,
+        "expected_sequence_number": case.expected_sequence_number,
+        "observed_sequence_number": case.observed_sequence_number,
+        "expected_acknowledgment_number": case.expected_acknowledgment_number,
+        "observed_acknowledgment_number": case.observed_acknowledgment_number,
+        "observed_rst_flag": case.observed_rst_flag,
+        "observed_ack_flag": case.observed_ack_flag,
         "processed_packets": case.processed_packets,
         "tcp_session_events": case.tcp_session_events,
         "tcp_session_packets_written": case.tcp_session_packets_written,

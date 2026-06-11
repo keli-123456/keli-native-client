@@ -27,7 +27,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(report["schema_version"], READINESS_CHECK_SCHEMA_VERSION);
     assert_eq!(report["ready_for_default_core"], false);
     assert_eq!(report["status"], "not-ready");
-    assert_eq!(report["summary"]["total_gate_count"], 68);
+    assert_eq!(report["summary"]["total_gate_count"], 69);
     assert_eq!(report["summary"]["skipped_gate_count"], 2);
     assert_eq!(report["soak_min_duration_ms"], 0);
     assert_eq!(
@@ -2949,6 +2949,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_tun_tcp_session_server_retransmit_smoke_json(
         &report["tun_tcp_session_server_retransmit_smoke"],
     );
+    assert_tun_tcp_unknown_session_reset_smoke_json(&report["tun_tcp_unknown_session_reset_smoke"]);
     assert_tun_tcp_session_limit_smoke_json(&report["tun_tcp_session_limit_smoke"]);
     assert_tun_tcp_session_idle_prune_smoke_json(&report["tun_tcp_session_idle_prune_smoke"]);
     assert_tun_tcp_session_close_marker_prune_smoke_json(
@@ -3251,7 +3252,7 @@ fn readiness_check_text_reports_gate_summary() {
 
     let output = String::from_utf8(output).expect("readiness text");
     assert!(output.contains(&format!(
-        "readiness status=not-ready schema_version={} gates=68",
+        "readiness status=not-ready schema_version={} gates=69",
         READINESS_CHECK_SCHEMA_VERSION
     )));
     assert!(output.contains("blockers="));
@@ -3378,6 +3379,9 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(output.contains(
         "readiness gate=tun-tcp-session-server-retransmit-smoke category=platform status=passed"
     ));
+    assert!(output.contains(
+        "readiness gate=tun-tcp-unknown-session-reset-smoke category=platform status=passed"
+    ));
     assert!(output
         .contains("readiness gate=tun-tcp-session-limit-smoke category=platform status=passed"));
     assert!(output.contains(
@@ -3448,6 +3452,7 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(
         output.contains("readiness tun_tcp_session_server_retransmit_smoke status=passed cases=4")
     );
+    assert!(output.contains("readiness tun_tcp_unknown_session_reset_smoke status=passed cases=3"));
     assert!(output.contains("readiness tun_tcp_session_limit_smoke status=passed cases=4"));
     assert!(output.contains("readiness tun_tcp_session_idle_prune_smoke status=passed cases=4"));
     assert!(
@@ -5220,6 +5225,10 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
         true
     );
     assert_eq!(
+        report["certification"]["tun_tcp_unknown_session_reset_smoke_passed"],
+        true
+    );
+    assert_eq!(
         report["certification"]["tun_tcp_session_limit_smoke_passed"],
         true
     );
@@ -5242,6 +5251,10 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     );
     assert_tun_tcp_session_server_retransmit_smoke_json(
         &report["readiness"]["tun_tcp_session_server_retransmit_smoke"],
+    );
+    assert_tun_tcp_unknown_session_reset_smoke_json(&report["tun_tcp_unknown_session_reset_smoke"]);
+    assert_tun_tcp_unknown_session_reset_smoke_json(
+        &report["readiness"]["tun_tcp_unknown_session_reset_smoke"],
     );
     assert_tun_tcp_session_limit_smoke_json(&report["tun_tcp_session_limit_smoke"]);
     assert_tun_tcp_session_limit_smoke_json(&report["readiness"]["tun_tcp_session_limit_smoke"]);
@@ -5512,6 +5525,14 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert_eq!(gate(gates, "runtime-recovery-smoke")["status"], "passed");
     assert_eq!(gate(gates, "tun-tcp-session-smoke")["status"], "passed");
     assert_eq!(
+        gate(gates, "tun-tcp-session-server-retransmit-smoke")["status"],
+        "passed"
+    );
+    assert_eq!(
+        gate(gates, "tun-tcp-unknown-session-reset-smoke")["status"],
+        "passed"
+    );
+    assert_eq!(
         gate(gates, "tun-tcp-session-limit-smoke")["status"],
         "passed"
     );
@@ -5675,6 +5696,9 @@ fn default_core_certification_text_reports_summary_and_gates() {
     );
     assert!(output.contains(
         "default_core_certification tun_tcp_session_server_retransmit_smoke status=passed cases=4"
+    ));
+    assert!(output.contains(
+        "default_core_certification tun_tcp_unknown_session_reset_smoke status=passed cases=3"
     ));
     assert!(output
         .contains("default_core_certification tun_tcp_session_limit_smoke status=passed cases=4"));
@@ -5866,6 +5890,81 @@ fn assert_tun_tcp_session_server_retransmit_smoke_json(smoke: &Value) {
     assert_eq!(no_replay["observed_ack_clear_packet"], true);
     assert_eq!(no_replay["observed_no_retransmit_after_ack_clear"], true);
     assert_eq!(no_replay["passed"], true);
+}
+
+fn assert_tun_tcp_unknown_session_reset_smoke_json(smoke: &Value) {
+    assert_eq!(smoke["status"], "passed");
+    assert_eq!(smoke["passed"], true);
+    assert_eq!(
+        smoke["selected_outbound"],
+        "TUN-TCP-UNKNOWN-SESSION-RESET-SMOKE"
+    );
+    assert_eq!(smoke["target"], "93.184.216.34:443");
+    assert_eq!(smoke["request_payload_bytes"], 5);
+    assert_eq!(smoke["data_reset_observed"], true);
+    assert_eq!(smoke["fin_reset_observed"], true);
+    assert_eq!(smoke["stray_rst_absorbed"], true);
+    assert_eq!(smoke["reset_loop_avoided"], true);
+    assert_eq!(smoke["data_reset_sequence_number"], 1001);
+    assert_eq!(smoke["data_reset_acknowledgment_number"], 16);
+    assert_eq!(smoke["fin_reset_sequence_number"], 1001);
+    assert_eq!(smoke["fin_reset_acknowledgment_number"], 17);
+    assert_eq!(smoke["starts_observed"], 1);
+    assert_eq!(smoke["opens_observed"], 1);
+    assert_eq!(smoke["stops_observed"], 1);
+    assert_eq!(smoke["processed_packets"], 3);
+    assert_eq!(smoke["tcp_session_events"], 3);
+    assert_eq!(smoke["tcp_session_packets_written"], 2);
+    assert_eq!(smoke["tun_writes_observed"], 2);
+    assert_eq!(smoke["tcp_sessions_open"], 0);
+    assert_eq!(smoke["tcp_session_errors"], 0);
+    assert_eq!(smoke["clean_stop_observed"], true);
+    assert_eq!(smoke["residual_state_clean"], true);
+    assert_eq!(smoke["case_count"], 3);
+    assert_eq!(smoke["passed_case_count"], 3);
+    assert_eq!(smoke["failed_case_count"], 0);
+    let cases = smoke["cases"]
+        .as_array()
+        .expect("TUN TCP unknown-session reset smoke cases");
+    let case_names: Vec<_> = cases
+        .iter()
+        .filter_map(|case| case["name"].as_str())
+        .collect();
+    for expected in [
+        "reset-unknown-tun-tcp-data",
+        "reset-unknown-tun-tcp-fin",
+        "absorb-unknown-tun-tcp-rst-without-reset-loop",
+    ] {
+        assert!(
+            case_names.contains(&expected),
+            "missing TUN TCP unknown-session reset smoke case {expected}: {case_names:?}"
+        );
+    }
+    let data = cases
+        .iter()
+        .find(|case| case["name"] == "reset-unknown-tun-tcp-data")
+        .expect("TUN TCP unknown data reset case");
+    assert_eq!(data["observed_reset_written"], true);
+    assert_eq!(data["observed_sequence_number"], 1001);
+    assert_eq!(data["observed_acknowledgment_number"], 16);
+    assert_eq!(data["observed_rst_flag"], true);
+    assert_eq!(data["observed_ack_flag"], true);
+    assert_eq!(data["passed"], true);
+    let fin = cases
+        .iter()
+        .find(|case| case["name"] == "reset-unknown-tun-tcp-fin")
+        .expect("TUN TCP unknown FIN reset case");
+    assert_eq!(fin["observed_reset_written"], true);
+    assert_eq!(fin["observed_sequence_number"], 1001);
+    assert_eq!(fin["observed_acknowledgment_number"], 17);
+    assert_eq!(fin["passed"], true);
+    let stray_rst = cases
+        .iter()
+        .find(|case| case["name"] == "absorb-unknown-tun-tcp-rst-without-reset-loop")
+        .expect("TUN TCP unknown RST absorb case");
+    assert_eq!(stray_rst["expected_reset_written"], false);
+    assert_eq!(stray_rst["observed_reset_written"], false);
+    assert_eq!(stray_rst["passed"], true);
 }
 
 fn assert_tun_tcp_session_limit_smoke_json(smoke: &Value) {

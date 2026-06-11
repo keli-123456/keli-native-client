@@ -725,7 +725,7 @@ The first implementation target is deliberately small:
    checks and exporting one promotion artifact with the embedded readiness
    report, TUN backend packaging evidence, structured TUN preflight evidence,
    route-rule smoke evidence, DNS policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbound relay smoke evidence, HTTP CONNECT relay smoke evidence, HTTP CONNECT outbound relay smoke evidence, HTTP proxy relay smoke evidence, Trojan TLS TCP relay smoke evidence, Trojan WebSocket TCP relay smoke evidence, Trojan HTTPUpgrade TCP relay smoke evidence, Trojan gRPC TCP relay smoke evidence, Trojan H2 TCP relay smoke evidence, Trojan QUIC TCP relay smoke evidence, Trojan QUIC UDP relay smoke evidence, Trojan TLS UDP relay smoke evidence, AnyTLS TLS TCP relay smoke evidence, AnyTLS TLS UDP relay smoke evidence, Naive H2 TCP relay smoke evidence, Naive H3 QUIC TCP relay smoke evidence, HY2 QUIC TCP relay smoke evidence, TUIC QUIC TCP relay smoke evidence, VLESS TCP relay smoke evidence, VLESS WebSocket TCP relay smoke evidence, VLESS WebSocket UDP relay smoke evidence, VLESS HTTPUpgrade TCP relay smoke evidence, VLESS HTTPUpgrade UDP relay smoke evidence, VLESS gRPC TCP relay smoke evidence, VLESS gRPC UDP relay smoke evidence, VLESS H2 TCP relay smoke evidence, VLESS H2 UDP relay smoke evidence, VLESS QUIC TCP relay smoke evidence, VLESS QUIC UDP relay smoke evidence, VLESS TCP UDP relay smoke evidence, VMess TCP relay smoke evidence, VMess WebSocket TCP relay smoke evidence, VMess WebSocket UDP relay smoke evidence, VMess HTTPUpgrade TCP relay smoke evidence, VMess HTTPUpgrade UDP relay smoke evidence, VMess gRPC TCP relay smoke evidence, VMess gRPC UDP relay smoke evidence, VMess H2 TCP relay smoke evidence, VMess H2 UDP relay smoke evidence, VMess QUIC TCP relay smoke evidence, VMess QUIC UDP relay smoke evidence, VMess TCP UDP relay smoke evidence, Mieru TCP relay smoke evidence, Mieru TCP UDP relay smoke evidence, UDP relay smoke evidence, SOCKS5 UDP outbound relay smoke evidence, subscription reload
-   smoke evidence, resource-limit smoke evidence, panel/subscription smoke evidence, runtime recovery smoke evidence, TUN TCP session smoke evidence, TUN TCP session server-retransmit smoke evidence, TUN TCP session limit smoke evidence, TUN TCP session idle-prune smoke evidence, TUN TCP session close-marker prune smoke evidence, TUN TCP session close-marker RST-clear smoke evidence, certification
+   smoke evidence, resource-limit smoke evidence, panel/subscription smoke evidence, runtime recovery smoke evidence, TUN TCP session smoke evidence, TUN TCP session server-retransmit smoke evidence, TUN TCP unknown-session reset smoke evidence, TUN TCP session limit smoke evidence, TUN TCP session idle-prune smoke evidence, TUN TCP session close-marker prune smoke evidence, TUN TCP session close-marker RST-clear smoke evidence, certification
    parameters, and final
    `ready_for_default_core` decision for release automation and UI handoff. The
    certification artifact mirrors the blocker summary as `promotion_blockers`
@@ -741,11 +741,15 @@ The first implementation target is deliberately small:
    also always part of readiness and certification, proving duplicate stale ACKs
    replay the last server payload while a later latest ACK clears that
    retransmit slot so future stale ACKs cannot replay already-acknowledged
-   data. The default TUN TCP session limit smoke is also always part of
+   data. The default TUN TCP unknown-session reset smoke is always part of
+   readiness and certification, proving unknown data/FIN packets receive
+   RST+ACK responses while stray RST packets are absorbed without creating a
+   reset loop. The default TUN TCP session limit smoke is also always part of
    readiness and certification, proving the managed packet loop enforces the
    max-active-session guard, records one `TcpSessionLimitExceeded` rejection,
    keeps bounded active-session counters visible, and needs no host TUN
-   adapter. The default TUN TCP session idle-prune smoke is likewise always part of readiness and certification,
+   adapter. The default TUN TCP session idle-prune smoke is likewise always
+   part of readiness and certification,
    proving an idle TUN TCP session is pruned on the next packet-loop pass,
    leaves no residual session/close-marker state, and records the prune
    counters without host TUN access. The default TUN TCP session close-marker
