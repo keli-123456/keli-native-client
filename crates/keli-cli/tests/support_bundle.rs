@@ -1379,6 +1379,7 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
             certification_include_system_proxy_smoke: false,
             certification_include_tun_runtime_smoke: false,
             certification_tun_runtime_smoke_min_duration: Duration::from_millis(50),
+            certification_require_machine_takeover_ready: false,
             certification_required_stability_window: None,
         },
         &mut output,
@@ -5235,6 +5236,7 @@ fn support_bundle_certification_records_stability_gate_failure() {
             certification_include_system_proxy_smoke: false,
             certification_include_tun_runtime_smoke: false,
             certification_tun_runtime_smoke_min_duration: Duration::from_millis(50),
+            certification_require_machine_takeover_ready: false,
             certification_required_stability_window: Some(Duration::from_millis(50)),
         },
         &mut output,
@@ -5271,4 +5273,51 @@ fn support_bundle_certification_records_stability_gate_failure() {
         certification["release_gate"]["blockers"][0],
         "local-soak-stability-window-too-short"
     );
+}
+
+#[test]
+fn support_bundle_certification_records_machine_takeover_gate_failure() {
+    let mut output = Vec::new();
+
+    keli_cli::write_support_bundle_report_with_options(
+        None,
+        SupportBundleOptions {
+            include_default_core_certification: true,
+            certification_soak_connections: 1,
+            certification_first_byte_timeout: Duration::from_secs(2),
+            certification_max_connection_workers: 1,
+            certification_soak_min_duration: Duration::from_millis(0),
+            certification_include_system_proxy_smoke: false,
+            certification_include_tun_runtime_smoke: false,
+            certification_tun_runtime_smoke_min_duration: Duration::from_millis(50),
+            certification_require_machine_takeover_ready: true,
+            certification_required_stability_window: None,
+        },
+        &mut output,
+    )
+    .expect("write support bundle with machine takeover gate evidence");
+
+    let report: Value = serde_json::from_slice(&output).expect("support bundle json");
+    let certification = &report["default_core_certification"];
+
+    assert_eq!(certification["release_gate"]["status"], "failed");
+    assert_eq!(
+        certification["release_gate"]["required_scope"],
+        "machine-takeover"
+    );
+    assert_eq!(
+        certification["release_gate"]["require_machine_takeover_ready"],
+        true
+    );
+    assert_eq!(
+        certification["release_gate"]["machine_takeover_smokes_requested"],
+        false
+    );
+    assert_eq!(certification["release_gate"]["passed"], false);
+    let blockers = certification["release_gate"]["blockers"]
+        .as_array()
+        .expect("release gate blockers");
+    assert!(blockers
+        .iter()
+        .any(|blocker| { blocker.as_str() == Some("machine-takeover-smokes-not-requested") }));
 }

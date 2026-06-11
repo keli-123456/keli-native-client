@@ -698,6 +698,7 @@ pub enum CliCommand {
         certification_include_system_proxy_smoke: bool,
         certification_include_tun_runtime_smoke: bool,
         certification_tun_runtime_smoke_min_duration: Duration,
+        certification_require_machine_takeover_ready: bool,
         certification_required_stability_window: Option<Duration>,
     },
 }
@@ -4962,6 +4963,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             certification_include_system_proxy_smoke,
             certification_include_tun_runtime_smoke,
             certification_tun_runtime_smoke_min_duration,
+            certification_require_machine_takeover_ready,
             certification_required_stability_window,
         } => {
             let config_text = profile_config
@@ -4983,6 +4985,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                     certification_include_system_proxy_smoke,
                     certification_include_tun_runtime_smoke,
                     certification_tun_runtime_smoke_min_duration,
+                    certification_require_machine_takeover_ready,
                     certification_required_stability_window,
                 },
                 &mut stdout,
@@ -5055,7 +5058,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli support-bundle [--profile-config subscription.yaml] [--include-certification] [--certification-soak-connections 3] [--certification-first-byte-timeout-ms 30000] [--certification-max-connection-workers 1024] [--certification-soak-min-duration-ms 1] [--certification-machine-takeover] [--certification-stability-gate-ms 60000] [--certification-include-system-proxy-smoke] [--certification-include-tun-runtime-smoke] [--certification-tun-runtime-smoke-min-duration-ms 50]"
+        "       keli-cli support-bundle [--profile-config subscription.yaml] [--include-certification] [--certification-soak-connections 3] [--certification-first-byte-timeout-ms 30000] [--certification-max-connection-workers 1024] [--certification-soak-min-duration-ms 1] [--certification-machine-takeover] [--certification-machine-takeover-gate] [--certification-stability-gate-ms 60000] [--certification-include-system-proxy-smoke] [--certification-include-tun-runtime-smoke] [--certification-tun-runtime-smoke-min-duration-ms 50]"
     )
 }
 
@@ -5529,6 +5532,7 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
     let mut certification_include_system_proxy_smoke = false;
     let mut certification_include_tun_runtime_smoke = false;
     let mut certification_tun_runtime_smoke_min_duration = DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION;
+    let mut certification_require_machine_takeover_ready = false;
     let mut certification_required_stability_window = None;
     let mut certification_soak_min_duration_explicit = false;
     let mut certification_tun_runtime_smoke_min_duration_explicit = false;
@@ -5599,6 +5603,17 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
                 certification_include_system_proxy_smoke = true;
                 certification_include_tun_runtime_smoke = true;
             }
+            "--certification-require-machine-takeover"
+            | "--certification-require-machine-takeover-ready" => {
+                include_default_core_certification = true;
+                certification_require_machine_takeover_ready = true;
+            }
+            "--certification-machine-takeover-gate" => {
+                include_default_core_certification = true;
+                certification_include_system_proxy_smoke = true;
+                certification_include_tun_runtime_smoke = true;
+                certification_require_machine_takeover_ready = true;
+            }
             "--certification-tun-runtime-smoke-min-duration-ms" => {
                 include_default_core_certification = true;
                 certification_include_tun_runtime_smoke = true;
@@ -5649,6 +5664,7 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
         certification_include_system_proxy_smoke,
         certification_include_tun_runtime_smoke,
         certification_tun_runtime_smoke_min_duration,
+        certification_require_machine_takeover_ready,
         certification_required_stability_window,
     })
 }
@@ -41007,8 +41023,12 @@ async fn serve_vmess_h2_tcp_relay_smoke_request(
             send.send_data(Bytes::copy_from_slice(&payload), false)
                 .map_err(|error| format!("send VMess H2 TCP smoke response data: {error}"))?;
         }
-        send.send_data(Bytes::new(), true)
-            .map_err(|error| format!("finish VMess H2 TCP smoke response data: {error}"))?;
+        if let Err(error) = send.send_data(Bytes::new(), true) {
+            let error = error.to_string();
+            if !h2_smoke_finish_response_data_error_is_benign(&error) {
+                return Err(format!("finish VMess H2 TCP smoke response data: {error}"));
+            }
+        }
         tokio::time::sleep(Duration::from_millis(50)).await;
         Ok::<(), String>(())
     });
@@ -41971,8 +41991,12 @@ async fn serve_vmess_h2_udp_relay_smoke_request(
             send.send_data(Bytes::copy_from_slice(&payload), false)
                 .map_err(|error| format!("send VMess H2 UDP smoke response data: {error}"))?;
         }
-        send.send_data(Bytes::new(), true)
-            .map_err(|error| format!("finish VMess H2 UDP smoke response data: {error}"))?;
+        if let Err(error) = send.send_data(Bytes::new(), true) {
+            let error = error.to_string();
+            if !h2_smoke_finish_response_data_error_is_benign(&error) {
+                return Err(format!("finish VMess H2 UDP smoke response data: {error}"));
+            }
+        }
         tokio::time::sleep(Duration::from_millis(50)).await;
         Ok::<(), String>(())
     });
@@ -42113,9 +42137,23 @@ fn vmess_h2_udp_relay_smoke_target() -> String {
     )
 }
 
+fn h2_smoke_finish_response_data_error_is_benign(error: &str) -> bool {
+    error.contains("inactive stream")
+}
+
 #[cfg(test)]
 mod vmess_h2_udp_relay_smoke_tests {
     use super::*;
+
+    #[test]
+    fn h2_smoke_finish_response_data_treats_inactive_stream_as_benign_close() {
+        assert!(h2_smoke_finish_response_data_error_is_benign(
+            "user error: inactive stream"
+        ));
+        assert!(!h2_smoke_finish_response_data_error_is_benign(
+            "flow-control window exhausted"
+        ));
+    }
 
     #[test]
     fn default_vmess_h2_udp_relay_smoke_proves_h2_vmess_udp_round_trip() {
@@ -62150,6 +62188,7 @@ pub struct SupportBundleOptions {
     pub certification_include_system_proxy_smoke: bool,
     pub certification_include_tun_runtime_smoke: bool,
     pub certification_tun_runtime_smoke_min_duration: Duration,
+    pub certification_require_machine_takeover_ready: bool,
     pub certification_required_stability_window: Option<Duration>,
 }
 
@@ -62164,6 +62203,7 @@ impl Default for SupportBundleOptions {
             certification_include_system_proxy_smoke: false,
             certification_include_tun_runtime_smoke: false,
             certification_tun_runtime_smoke_min_duration: DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION,
+            certification_require_machine_takeover_ready: false,
             certification_required_stability_window: None,
         }
     }
@@ -62187,7 +62227,7 @@ pub fn write_support_bundle_report_with_options(
             options.certification_include_system_proxy_smoke,
             options.certification_include_tun_runtime_smoke,
             options.certification_tun_runtime_smoke_min_duration,
-            false,
+            options.certification_require_machine_takeover_ready,
             options.certification_required_stability_window,
         )?)
     } else {

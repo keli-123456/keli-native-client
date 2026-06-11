@@ -776,6 +776,10 @@ release/support flows a one-file promotion record when they need it.
 requirement inside that embedded certification artifact, so support bundles can
 preserve the exact local soak/TUN runtime release-gate evidence from a target
 machine without making the default bundle expensive.
+`--certification-machine-takeover-gate` records the matching hard machine
+takeover release gate inside the embedded artifact, including missing system
+proxy or TUN runtime evidence, while still letting the support bundle itself be
+written for diagnosis.
 
 ## Protocol Matrix
 
@@ -922,6 +926,7 @@ cargo run -p keli-cli -- default-core-certify --format json --soak-min-duration-
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
 cargo run -p keli-cli -- support-bundle --include-certification --certification-soak-min-duration-ms 60000
 cargo run -p keli-cli -- support-bundle --include-certification --certification-stability-gate-ms 60000
+cargo run -p keli-cli -- support-bundle --include-certification --certification-machine-takeover-gate --certification-stability-gate-ms 60000
 cargo run -p keli-cli -- subscription-update --current-config active.yaml --new-config subscription.yaml --current-outbound proxy --format json
 cargo run -p keli-cli -- soak-mixed --connections 25 --format json
 cargo run -p keli-cli -- soak-mixed --connections 25 --min-duration-ms 60000 --format json
