@@ -774,7 +774,8 @@ The first implementation target is deliberately small:
    even when the JSON artifact is not parsed inline. `release_gate.rerun_args`
    maps runnable next actions to concrete `default-core-certify` flags so
    release tooling can present a copy/paste retry without hard-coding blocker
-   names. The nested
+   names; failed preset checks use the canonical
+   `--default-core-release-gate` retry instead of expanded flags. The nested
    `release_gate.stability` object lifts the
    existing local SOCKS5/HTTP CONNECT soak gate statuses, requested soak window,
    requested soak connection count, and optional TUN runtime duration result

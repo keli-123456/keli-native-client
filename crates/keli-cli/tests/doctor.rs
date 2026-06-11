@@ -1415,6 +1415,10 @@ fn doctor_json_report_is_machine_readable() {
         "default-core-release-gate-rerun-args"
     );
     assert_eq!(
+        report["default_core_certification_capabilities"][108],
+        "default-core-release-gate-canonical-rerun-args"
+    );
+    assert_eq!(
         report["resource_limits"]["runtime_event_history"],
         DEFAULT_RUNTIME_EVENT_HISTORY_LIMIT
     );

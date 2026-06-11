@@ -551,7 +551,7 @@ pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 97;
 pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 86;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 82;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 99;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 100;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW: Duration = Duration::from_secs(60);
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS: usize = 25;
@@ -583,7 +583,7 @@ const READINESS_CHECK_CAPABILITIES: &str =
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode,default-core-release-gate,default-core-release-gate-stability-evidence,default-core-release-gate-stability-window,default-core-release-gate-stability-traffic-floor,default-core-release-gate-preset,default-core-release-gate-preset-evidence,default-core-release-gate-preset-minimums,default-core-release-gate-stability-summary,default-core-release-gate-preset-enforced,default-core-release-gate-preset-scope,default-core-release-gate-takeover-evidence,default-core-release-gate-next-actions,default-core-release-gate-actionable-error,default-core-release-gate-rerun-args";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode,default-core-release-gate,default-core-release-gate-stability-evidence,default-core-release-gate-stability-window,default-core-release-gate-stability-traffic-floor,default-core-release-gate-preset,default-core-release-gate-preset-evidence,default-core-release-gate-preset-minimums,default-core-release-gate-stability-summary,default-core-release-gate-preset-enforced,default-core-release-gate-preset-scope,default-core-release-gate-takeover-evidence,default-core-release-gate-next-actions,default-core-release-gate-actionable-error,default-core-release-gate-rerun-args,default-core-release-gate-canonical-rerun-args";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -59288,6 +59288,12 @@ fn default_core_release_gate_next_actions(
 fn default_core_release_gate_rerun_args(
     report: &DefaultCoreCertificationReport,
 ) -> Vec<&'static str> {
+    if default_core_release_gate_preset_requested(report)
+        && !default_core_release_gate_preset_applied(report)
+    {
+        return vec!["--default-core-release-gate"];
+    }
+
     let mut args = Vec::new();
 
     for action in default_core_release_gate_next_actions(report) {
@@ -59314,12 +59320,6 @@ fn default_core_release_gate_rerun_args(
             }
             _ => {}
         }
-    }
-
-    if default_core_release_gate_preset_requested(report)
-        && !default_core_release_gate_preset_applied(report)
-    {
-        push_unique_action(&mut args, "--default-core-release-gate");
     }
 
     args

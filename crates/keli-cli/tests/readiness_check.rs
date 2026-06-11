@@ -6320,13 +6320,9 @@ fn default_core_certification_records_release_gate_preset_evidence() {
     let rerun_args = report["release_gate"]["rerun_args"]
         .as_array()
         .expect("release gate rerun args");
-    assert!(rerun_args
-        .iter()
-        .any(|arg| arg.as_str() == Some("--default-core-release-gate")));
-    assert_eq!(
-        report["release_gate"]["rerun_arg_count"].as_u64(),
-        Some(rerun_args.len() as u64)
-    );
+    assert_eq!(rerun_args.len(), 1);
+    assert_eq!(rerun_args[0], "--default-core-release-gate");
+    assert_eq!(report["release_gate"]["rerun_arg_count"].as_u64(), Some(1));
     assert_eq!(
         report["certification"]["release_gate_preset"],
         "default-core-release-gate"
