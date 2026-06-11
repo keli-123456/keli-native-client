@@ -874,7 +874,11 @@ all default gates passing but no takeover smokes is `core-ready` with
 `safe_default_scope=local-core-only`, while only a run that also passes both
 takeover smokes is `machine-takeover-ready`. `release_gate` records whether a
 hard machine-takeover gate was required, whether it passed, and the blockers
-that should fail CI or release promotion.
+that should fail CI or release promotion. Its nested `stability` evidence
+summarizes the local SOCKS5/HTTP CONNECT soak gate status, requested soak
+window, and optional TUN runtime smoke duration result so release tooling can
+distinguish a quick certification from one that held the managed runtime open
+for a minimum stability window.
 `keli-cli support-bundle --include-certification` embeds that evidence into the
 redacted support bundle.
 

@@ -986,6 +986,10 @@ proxies:
         "default-core-release-gate"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][95],
+        "default-core-release-gate-stability-evidence"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
@@ -1464,6 +1468,18 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
         false
     );
     assert_eq!(certification["release_gate"]["blocker_count"], 0);
+    assert_eq!(
+        certification["release_gate"]["stability"]["local_soak_min_duration_ms"],
+        50
+    );
+    assert_eq!(
+        certification["release_gate"]["stability"]["local_soak_duration_required"],
+        true
+    );
+    assert_eq!(
+        certification["release_gate"]["stability"]["local_soak_complete"],
+        true
+    );
     let promotion_next_actions = certification["default_core_promotion"]["next_actions"]
         .as_array()
         .expect("promotion next actions");

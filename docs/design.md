@@ -752,7 +752,11 @@ The first implementation target is deliberately small:
    unless the artifact reaches `machine-takeover-ready`; `release_gate` remains
    in the JSON artifact so CI, release scripts, and UI promotion tooling can
    show the required scope, pass/fail status, and blockers after the command
-   exits.
+   exits. The nested `release_gate.stability` object lifts the existing local
+   SOCKS5/HTTP CONNECT soak gate statuses, requested soak window, and optional
+   TUN runtime duration result into one place, so release tooling can tell a
+   quick certification from a minimum-duration stability run without parsing
+   readiness gate detail strings.
    The default TUN TCP session smoke is always part of readiness and
    certification, proving the managed packet loop can relay a TCP session
    through the outbound registry and clean up session state without touching the

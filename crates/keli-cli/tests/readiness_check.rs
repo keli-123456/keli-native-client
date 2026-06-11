@@ -3618,6 +3618,31 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
         false
     );
     assert_eq!(report["release_gate"]["blocker_count"], 0);
+    assert_eq!(
+        report["release_gate"]["stability"]["local_soak_min_duration_ms"],
+        0
+    );
+    assert_eq!(
+        report["release_gate"]["stability"]["local_soak_duration_required"],
+        false
+    );
+    assert_eq!(
+        report["release_gate"]["stability"]["local_soak_complete"],
+        true
+    );
+    assert_eq!(
+        report["release_gate"]["stability"]["local_soak_socks5_status"],
+        "passed"
+    );
+    assert_eq!(
+        report["release_gate"]["stability"]["local_soak_http_connect_status"],
+        "passed"
+    );
+    assert_eq!(
+        report["release_gate"]["stability"]["tun_runtime_smoke_min_duration_ms"],
+        50
+    );
+    assert!(report["release_gate"]["stability"]["tun_runtime_duration_target_met"].is_null());
     let promotion_next_actions = report["default_core_promotion"]["next_actions"]
         .as_array()
         .expect("promotion next actions");
@@ -5969,6 +5994,18 @@ fn default_core_certification_json_records_soak_min_duration() {
     let report: Value = serde_json::from_slice(&output).expect("certification JSON");
     assert_eq!(report["certification"]["soak_min_duration_ms"], 50);
     assert_eq!(report["readiness"]["soak_min_duration_ms"], 50);
+    assert_eq!(
+        report["release_gate"]["stability"]["local_soak_min_duration_ms"],
+        50
+    );
+    assert_eq!(
+        report["release_gate"]["stability"]["local_soak_duration_required"],
+        true
+    );
+    assert_eq!(
+        report["release_gate"]["stability"]["local_soak_complete"],
+        true
+    );
     let gates = report["readiness"]["gates"].as_array().expect("gates");
     assert!(gate(gates, "mixed-soak-socks5")["detail"]
         .as_str()
