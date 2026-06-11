@@ -96,6 +96,36 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
         .find(|case| case["name"] == "address-family-http-connect")
         .expect("address family DNS policy smoke case");
     assert_eq!(dns_address_family["target_contacted"], false);
+    let dns_hijack_a = dns_cases
+        .iter()
+        .find(|case| case["name"] == "hijack-localhost-a")
+        .expect("A DNS hijack smoke case");
+    assert_eq!(dns_hijack_a["dns_response_rcode"], 0);
+    assert_eq!(dns_hijack_a["dns_response_answer_count"], 1);
+    assert_eq!(
+        dns_hijack_a["dns_response_ips"],
+        serde_json::json!(["127.0.0.1"])
+    );
+    let dns_hijack_aaaa = dns_cases
+        .iter()
+        .find(|case| case["name"] == "hijack-localhost-aaaa")
+        .expect("AAAA DNS hijack smoke case");
+    assert_eq!(dns_hijack_aaaa["dns_response_rcode"], 0);
+    assert_eq!(dns_hijack_aaaa["dns_response_answer_count"], 1);
+    assert_eq!(
+        dns_hijack_aaaa["dns_response_ips"],
+        serde_json::json!(["::1"])
+    );
+    let dns_hijack_nxdomain = dns_cases
+        .iter()
+        .find(|case| case["name"] == "hijack-public-leak-nxdomain")
+        .expect("NXDOMAIN DNS hijack smoke case");
+    assert_eq!(dns_hijack_nxdomain["dns_response_rcode"], 3);
+    assert_eq!(dns_hijack_nxdomain["dns_response_answer_count"], 0);
+    assert_eq!(
+        dns_hijack_nxdomain["dns_response_ips"],
+        serde_json::json!([])
+    );
     assert_eq!(report["tcp_relay_smoke"]["status"], "passed");
     assert_eq!(report["tcp_relay_smoke"]["passed"], true);
     assert_eq!(report["tcp_relay_smoke"]["case_count"], 4);

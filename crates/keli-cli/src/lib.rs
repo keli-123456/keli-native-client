@@ -562,11 +562,11 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(4);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 100;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 89;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 101;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 90;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 85;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 104;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 86;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 105;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW: Duration = Duration::from_secs(60);
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS: usize = 25;
@@ -7757,9 +7757,21 @@ pub struct DnsPolicySmokeCaseReport {
     pub target: String,
     pub expected_response: String,
     pub observed_response: Option<String>,
+    pub dns_response_id: Option<u16>,
+    pub dns_response_rcode: Option<u8>,
+    pub dns_response_answer_count: Option<u16>,
+    pub dns_response_ips: Vec<IpAddr>,
     pub target_contacted: Option<bool>,
     pub passed: bool,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DnsPolicySmokeDnsResponseSummary {
+    id: u16,
+    rcode: u8,
+    answer_count: u16,
+    ips: Vec<IpAddr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10697,11 +10709,24 @@ fn dns_policy_smoke_case_from_result(
 ) -> DnsPolicySmokeCaseReport {
     match result {
         Ok((response, target_contacted)) => {
+            let dns_response_summary = if inbound == "socks5-udp-dns-hijack" {
+                dns_policy_smoke_dns_response_summary(&response)
+            } else {
+                None
+            };
             let observed_response = if inbound == "socks5-udp-dns-hijack" {
                 dns_policy_smoke_dns_response_label(&response)
             } else {
                 route_rule_smoke_response_label(&response)
             };
+            let dns_response_id = dns_response_summary.as_ref().map(|summary| summary.id);
+            let dns_response_rcode = dns_response_summary.as_ref().map(|summary| summary.rcode);
+            let dns_response_answer_count = dns_response_summary
+                .as_ref()
+                .map(|summary| summary.answer_count);
+            let dns_response_ips = dns_response_summary
+                .map(|summary| summary.ips)
+                .unwrap_or_default();
             let passed = observed_response == expected_response && target_contacted != Some(true);
             DnsPolicySmokeCaseReport {
                 name,
@@ -10710,6 +10735,10 @@ fn dns_policy_smoke_case_from_result(
                 target,
                 expected_response,
                 observed_response: Some(observed_response),
+                dns_response_id,
+                dns_response_rcode,
+                dns_response_answer_count,
+                dns_response_ips,
                 target_contacted,
                 passed,
                 error: None,
@@ -10736,6 +10765,10 @@ fn dns_policy_smoke_error_case(
         target,
         expected_response,
         observed_response: None,
+        dns_response_id: None,
+        dns_response_rcode: None,
+        dns_response_answer_count: None,
+        dns_response_ips: Vec::new(),
         target_contacted: None,
         passed: false,
         error: Some(error),
@@ -10760,26 +10793,97 @@ fn dns_policy_smoke_dns_expected_response(
 }
 
 fn dns_policy_smoke_dns_response_label(response: &[u8]) -> String {
-    if response.len() < 12 {
+    let Some(summary) = dns_policy_smoke_dns_response_summary(response) else {
         return format!("dns-response-too-short bytes={}", response.len());
+    };
+    let contains_expected_ip = !summary.ips.is_empty();
+    format!(
+        "id=0x{id:04x} rcode={} answers={} contains_expected_ip={}",
+        summary.rcode,
+        summary.answer_count,
+        contains_expected_ip,
+        id = summary.id
+    )
+}
+
+fn dns_policy_smoke_dns_response_summary(
+    response: &[u8],
+) -> Option<DnsPolicySmokeDnsResponseSummary> {
+    if response.len() < 12 {
+        return None;
     }
     let id = u16::from_be_bytes([response[0], response[1]]);
     let flags = u16::from_be_bytes([response[2], response[3]]);
     let rcode = (flags & 0x000f) as u8;
+    let question_count = u16::from_be_bytes([response[4], response[5]]);
     let answer_count = u16::from_be_bytes([response[6], response[7]]);
-    let contains_localhost_v4 = response.windows(4).any(|window| window == [127, 0, 0, 1]);
-    let contains_localhost_v6 = response
-        .windows(16)
-        .any(|window| window == Ipv6Addr::LOCALHOST.octets());
-    let contains_expected_ip = if answer_count == 0 {
-        false
-    } else {
-        contains_localhost_v4 || contains_localhost_v6
-    };
-    format!(
-        "id=0x{id:04x} rcode={} answers={} contains_expected_ip={}",
-        rcode, answer_count, contains_expected_ip
-    )
+    let mut offset = 12;
+    for _ in 0..question_count {
+        offset = dns_policy_smoke_skip_dns_name(response, offset)?;
+        offset = offset.checked_add(4)?;
+        if offset > response.len() {
+            return None;
+        }
+    }
+
+    let mut ips = Vec::new();
+    for _ in 0..answer_count {
+        offset = dns_policy_smoke_skip_dns_name(response, offset)?;
+        let header_end = offset.checked_add(10)?;
+        let answer_header = response.get(offset..header_end)?;
+        let record_type = u16::from_be_bytes([answer_header[0], answer_header[1]]);
+        let record_class = u16::from_be_bytes([answer_header[2], answer_header[3]]);
+        let rdlen = u16::from_be_bytes([answer_header[8], answer_header[9]]) as usize;
+        offset = header_end;
+        let rdata_end = offset.checked_add(rdlen)?;
+        let rdata = response.get(offset..rdata_end)?;
+        if record_class == 1 {
+            match (record_type, rdlen) {
+                (1, 4) => ips.push(IpAddr::V4(Ipv4Addr::new(
+                    rdata[0], rdata[1], rdata[2], rdata[3],
+                ))),
+                (28, 16) => {
+                    let mut octets = [0; 16];
+                    octets.copy_from_slice(rdata);
+                    ips.push(IpAddr::V6(Ipv6Addr::from(octets)));
+                }
+                _ => {}
+            }
+        }
+        offset = rdata_end;
+    }
+
+    Some(DnsPolicySmokeDnsResponseSummary {
+        id,
+        rcode,
+        answer_count,
+        ips,
+    })
+}
+
+fn dns_policy_smoke_skip_dns_name(packet: &[u8], mut offset: usize) -> Option<usize> {
+    loop {
+        let label_len = *packet.get(offset)?;
+        offset = offset.checked_add(1)?;
+        if label_len == 0 {
+            return Some(offset);
+        }
+        if label_len & 0xc0 == 0xc0 {
+            offset = offset.checked_add(1)?;
+            return if offset <= packet.len() {
+                Some(offset)
+            } else {
+                None
+            };
+        }
+        if label_len & 0xc0 != 0 {
+            return None;
+        }
+        offset = offset.checked_add(label_len as usize)?;
+        if offset > packet.len() {
+            return None;
+        }
+    }
 }
 
 fn dns_policy_smoke_query(id: u16, name: &str, qtype: u16) -> Vec<u8> {
@@ -61835,6 +61939,11 @@ fn dns_policy_smoke_json_value(report: &DnsPolicySmokeReport) -> serde_json::Val
 }
 
 fn dns_policy_smoke_case_json_value(case: &DnsPolicySmokeCaseReport) -> serde_json::Value {
+    let dns_response_ips: Vec<_> = case
+        .dns_response_ips
+        .iter()
+        .map(ToString::to_string)
+        .collect();
     serde_json::json!({
         "name": case.name,
         "inbound": case.inbound,
@@ -61842,6 +61951,10 @@ fn dns_policy_smoke_case_json_value(case: &DnsPolicySmokeCaseReport) -> serde_js
         "target": &case.target,
         "expected_response": &case.expected_response,
         "observed_response": &case.observed_response,
+        "dns_response_id": case.dns_response_id,
+        "dns_response_rcode": case.dns_response_rcode,
+        "dns_response_answer_count": case.dns_response_answer_count,
+        "dns_response_ips": dns_response_ips,
         "target_contacted": case.target_contacted,
         "passed": case.passed,
         "error": &case.error,

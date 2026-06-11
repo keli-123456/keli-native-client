@@ -382,6 +382,8 @@ listener was not contacted. The default DNS policy smoke proves local DNS leak
 prevention, address-family filtering, and SOCKS5 UDP DNS hijack A/AAAA responses
 without external network access by combining HTTP CONNECT failures with
 controlled DNS A/AAAA-query responses.
+Each DNS hijack case records the response rcode, answer count, and response IPs
+so automation can verify IPv4/IPv6 hijack evidence without parsing wire bytes.
 The default TCP relay smoke starts a managed mixed runtime from a local
 Shadowsocks subscription node, sends a SOCKS5 CONNECT stream through the
 selected outbound to a loopback encrypted TCP echo server, verifies the
@@ -826,7 +828,8 @@ UI, and support tooling. `keli-cli readiness-check --format json` exports the
 current default-core readiness gates plus a blocker summary, including skipped
 or failed gates, plus route-rule smoke evidence for local mixed-inbound routing
 decisions and DNS policy smoke evidence for leak prevention, address-family
-filtering, and hijacked DNS A/AAAA responses, plus TCP relay smoke evidence for
+filtering, hijacked DNS A/AAAA responses, and structured DNS rcode/answer/IP
+evidence, plus TCP relay smoke evidence for
 SOCKS5 CONNECT through a selected local Shadowsocks outbound, plus SOCKS5 TCP outbound relay smoke evidence for
 SOCKS5 CONNECT through a selected local SOCKS5 outbound, plus HTTP CONNECT relay smoke evidence for
 the system-proxy-style TCP inbound through a selected local Shadowsocks outbound, plus HTTP CONNECT outbound relay smoke evidence for
