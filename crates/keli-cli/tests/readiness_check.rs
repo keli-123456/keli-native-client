@@ -27,7 +27,7 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_eq!(report["schema_version"], READINESS_CHECK_SCHEMA_VERSION);
     assert_eq!(report["ready_for_default_core"], false);
     assert_eq!(report["status"], "not-ready");
-    assert_eq!(report["summary"]["total_gate_count"], 69);
+    assert_eq!(report["summary"]["total_gate_count"], 70);
     assert_eq!(report["summary"]["skipped_gate_count"], 2);
     assert_eq!(report["soak_min_duration_ms"], 0);
     assert_eq!(
@@ -2949,6 +2949,9 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert_tun_tcp_session_server_retransmit_smoke_json(
         &report["tun_tcp_session_server_retransmit_smoke"],
     );
+    assert_tun_tcp_session_server_fin_retransmit_smoke_json(
+        &report["tun_tcp_session_server_fin_retransmit_smoke"],
+    );
     assert_tun_tcp_unknown_session_reset_smoke_json(&report["tun_tcp_unknown_session_reset_smoke"]);
     assert_tun_tcp_session_limit_smoke_json(&report["tun_tcp_session_limit_smoke"]);
     assert_tun_tcp_session_idle_prune_smoke_json(&report["tun_tcp_session_idle_prune_smoke"]);
@@ -3252,7 +3255,7 @@ fn readiness_check_text_reports_gate_summary() {
 
     let output = String::from_utf8(output).expect("readiness text");
     assert!(output.contains(&format!(
-        "readiness status=not-ready schema_version={} gates=69",
+        "readiness status=not-ready schema_version={} gates=70",
         READINESS_CHECK_SCHEMA_VERSION
     )));
     assert!(output.contains("blockers="));
@@ -3380,6 +3383,9 @@ fn readiness_check_text_reports_gate_summary() {
         "readiness gate=tun-tcp-session-server-retransmit-smoke category=platform status=passed"
     ));
     assert!(output.contains(
+        "readiness gate=tun-tcp-session-server-fin-retransmit-smoke category=platform status=passed"
+    ));
+    assert!(output.contains(
         "readiness gate=tun-tcp-unknown-session-reset-smoke category=platform status=passed"
     ));
     assert!(output
@@ -3452,6 +3458,8 @@ fn readiness_check_text_reports_gate_summary() {
     assert!(
         output.contains("readiness tun_tcp_session_server_retransmit_smoke status=passed cases=4")
     );
+    assert!(output
+        .contains("readiness tun_tcp_session_server_fin_retransmit_smoke status=passed cases=3"));
     assert!(output.contains("readiness tun_tcp_unknown_session_reset_smoke status=passed cases=3"));
     assert!(output.contains("readiness tun_tcp_session_limit_smoke status=passed cases=4"));
     assert!(output.contains("readiness tun_tcp_session_idle_prune_smoke status=passed cases=4"));
@@ -5225,6 +5233,10 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
         true
     );
     assert_eq!(
+        report["certification"]["tun_tcp_session_server_fin_retransmit_smoke_passed"],
+        true
+    );
+    assert_eq!(
         report["certification"]["tun_tcp_unknown_session_reset_smoke_passed"],
         true
     );
@@ -5251,6 +5263,12 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     );
     assert_tun_tcp_session_server_retransmit_smoke_json(
         &report["readiness"]["tun_tcp_session_server_retransmit_smoke"],
+    );
+    assert_tun_tcp_session_server_fin_retransmit_smoke_json(
+        &report["tun_tcp_session_server_fin_retransmit_smoke"],
+    );
+    assert_tun_tcp_session_server_fin_retransmit_smoke_json(
+        &report["readiness"]["tun_tcp_session_server_fin_retransmit_smoke"],
     );
     assert_tun_tcp_unknown_session_reset_smoke_json(&report["tun_tcp_unknown_session_reset_smoke"]);
     assert_tun_tcp_unknown_session_reset_smoke_json(
@@ -5529,6 +5547,10 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
         "passed"
     );
     assert_eq!(
+        gate(gates, "tun-tcp-session-server-fin-retransmit-smoke")["status"],
+        "passed"
+    );
+    assert_eq!(
         gate(gates, "tun-tcp-unknown-session-reset-smoke")["status"],
         "passed"
     );
@@ -5696,6 +5718,9 @@ fn default_core_certification_text_reports_summary_and_gates() {
     );
     assert!(output.contains(
         "default_core_certification tun_tcp_session_server_retransmit_smoke status=passed cases=4"
+    ));
+    assert!(output.contains(
+        "default_core_certification tun_tcp_session_server_fin_retransmit_smoke status=passed cases=3"
     ));
     assert!(output.contains(
         "default_core_certification tun_tcp_unknown_session_reset_smoke status=passed cases=3"
@@ -5890,6 +5915,81 @@ fn assert_tun_tcp_session_server_retransmit_smoke_json(smoke: &Value) {
     assert_eq!(no_replay["observed_ack_clear_packet"], true);
     assert_eq!(no_replay["observed_no_retransmit_after_ack_clear"], true);
     assert_eq!(no_replay["passed"], true);
+}
+
+fn assert_tun_tcp_session_server_fin_retransmit_smoke_json(smoke: &Value) {
+    assert_eq!(smoke["status"], "passed");
+    assert_eq!(smoke["passed"], true);
+    assert_eq!(
+        smoke["selected_outbound"],
+        "TUN-TCP-SESSION-SERVER-FIN-RETRANSMIT-SMOKE"
+    );
+    assert!(smoke["target"]
+        .as_str()
+        .expect("TUN TCP server FIN retransmit target")
+        .starts_with("127.0.0.1:"));
+    assert_eq!(smoke["request_payload_bytes"], 5);
+    assert_eq!(smoke["server_received_payload"], true);
+    assert_eq!(smoke["server_fin_observed"], true);
+    assert_eq!(smoke["server_fin_retransmitted"], true);
+    assert_eq!(smoke["final_ack_absorbed"], true);
+    assert_eq!(smoke["no_reset_observed"], true);
+    assert_eq!(smoke["first_fin_sequence_number"], 2);
+    assert_eq!(smoke["first_fin_acknowledgment_number"], 16);
+    assert_eq!(smoke["retransmitted_fin_sequence_number"], 2);
+    assert_eq!(smoke["retransmitted_fin_acknowledgment_number"], 16);
+    assert_eq!(smoke["starts_observed"], 1);
+    assert_eq!(smoke["opens_observed"], 1);
+    assert_eq!(smoke["stops_observed"], 1);
+    assert_eq!(smoke["processed_packets"], 5);
+    assert_eq!(smoke["tcp_session_events"], 5);
+    assert_eq!(smoke["tcp_session_packets_written"], 4);
+    assert_eq!(smoke["tun_writes_observed"], 4);
+    assert_eq!(smoke["tcp_sessions_open"], 0);
+    assert_eq!(smoke["tcp_server_close_markers_open"], 0);
+    assert_eq!(smoke["tcp_post_close_markers_open"], 1);
+    assert_eq!(smoke["tcp_session_errors"], 0);
+    assert_eq!(smoke["post_close_marker_retained"], true);
+    assert_eq!(smoke["clean_stop_observed"], true);
+    assert_eq!(smoke["residual_state_clean"], true);
+    assert_eq!(smoke["case_count"], 3);
+    assert_eq!(smoke["passed_case_count"], 3);
+    assert_eq!(smoke["failed_case_count"], 0);
+    let cases = smoke["cases"]
+        .as_array()
+        .expect("TUN TCP server FIN retransmit smoke cases");
+    let case_names: Vec<_> = cases
+        .iter()
+        .filter_map(|case| case["name"].as_str())
+        .collect();
+    for expected in [
+        "write-server-fin-after-eof",
+        "retransmit-server-fin-on-duplicate-ack",
+        "absorb-server-fin-final-ack-without-reset",
+    ] {
+        assert!(
+            case_names.contains(&expected),
+            "missing TUN TCP server FIN retransmit smoke case {expected}: {case_names:?}"
+        );
+    }
+    let retransmit = cases
+        .iter()
+        .find(|case| case["name"] == "retransmit-server-fin-on-duplicate-ack")
+        .expect("TUN TCP server FIN retransmit case");
+    assert_eq!(retransmit["observed_fin_written"], true);
+    assert_eq!(retransmit["observed_sequence_number"], 2);
+    assert_eq!(retransmit["observed_acknowledgment_number"], 16);
+    assert_eq!(retransmit["observed_reset_written"], false);
+    assert_eq!(retransmit["passed"], true);
+    let final_ack = cases
+        .iter()
+        .find(|case| case["name"] == "absorb-server-fin-final-ack-without-reset")
+        .expect("TUN TCP server FIN final ACK case");
+    assert_eq!(final_ack["expected_fin_written"], false);
+    assert_eq!(final_ack["observed_fin_written"], false);
+    assert_eq!(final_ack["expected_reset_written"], false);
+    assert_eq!(final_ack["observed_reset_written"], false);
+    assert_eq!(final_ack["passed"], true);
 }
 
 fn assert_tun_tcp_unknown_session_reset_smoke_json(smoke: &Value) {

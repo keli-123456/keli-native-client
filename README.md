@@ -708,8 +708,8 @@ evidence, DNS policy smoke evidence, TCP relay smoke evidence, SOCKS5 TCP outbou
 resource-limit smoke evidence,
 subscription reload smoke evidence, soak parameters, runtime recovery smoke
 evidence, TUN TCP session smoke evidence, TUN TCP session server-retransmit
-smoke evidence, TUN TCP unknown-session reset smoke evidence, TUN TCP session
-limit smoke evidence, TUN TCP session idle-prune smoke evidence, TUN TCP
+smoke evidence, TUN TCP session server-FIN retransmit smoke evidence, TUN TCP
+unknown-session reset smoke evidence, TUN TCP session limit smoke evidence, TUN TCP
 session close-marker prune smoke evidence, TUN TCP session close-marker
 RST-clear smoke evidence, and the final
 `ready_for_default_core` decision for release automation and desktop UI
@@ -727,6 +727,10 @@ adapter. The default TUN TCP session server-retransmit smoke is also always
 part of readiness and certification, proving duplicate stale ACKs replay the
 last server payload while a later latest ACK clears that retransmit slot so
 future stale ACKs cannot replay already-acknowledged data. The default TUN TCP
+session server-FIN retransmit smoke is always part of readiness and
+certification, proving server EOF writes a FIN+ACK, a duplicate ACK retransmits
+that FIN, and the final ACK is absorbed without a reset while retaining one
+bounded post-close marker for the close-marker prune evidence. The default TUN TCP
 unknown-session reset smoke is always part of readiness and certification,
 proving unknown data/FIN packets receive RST+ACK responses while stray RST
 packets are absorbed without creating a reset loop. The default TUN TCP
