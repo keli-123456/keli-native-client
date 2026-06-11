@@ -698,6 +698,7 @@ pub enum CliCommand {
         certification_include_system_proxy_smoke: bool,
         certification_include_tun_runtime_smoke: bool,
         certification_tun_runtime_smoke_min_duration: Duration,
+        certification_required_stability_window: Option<Duration>,
     },
 }
 
@@ -4961,6 +4962,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
             certification_include_system_proxy_smoke,
             certification_include_tun_runtime_smoke,
             certification_tun_runtime_smoke_min_duration,
+            certification_required_stability_window,
         } => {
             let config_text = profile_config
                 .as_deref()
@@ -4981,6 +4983,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                     certification_include_system_proxy_smoke,
                     certification_include_tun_runtime_smoke,
                     certification_tun_runtime_smoke_min_duration,
+                    certification_required_stability_window,
                 },
                 &mut stdout,
             )
@@ -5052,7 +5055,7 @@ pub fn print_usage(mut writer: impl Write) -> io::Result<()> {
     )?;
     writeln!(
         writer,
-        "       keli-cli support-bundle [--profile-config subscription.yaml] [--include-certification] [--certification-soak-connections 3] [--certification-first-byte-timeout-ms 30000] [--certification-max-connection-workers 1024] [--certification-soak-min-duration-ms 1] [--certification-machine-takeover] [--certification-include-system-proxy-smoke] [--certification-include-tun-runtime-smoke] [--certification-tun-runtime-smoke-min-duration-ms 50]"
+        "       keli-cli support-bundle [--profile-config subscription.yaml] [--include-certification] [--certification-soak-connections 3] [--certification-first-byte-timeout-ms 30000] [--certification-max-connection-workers 1024] [--certification-soak-min-duration-ms 1] [--certification-machine-takeover] [--certification-stability-gate-ms 60000] [--certification-include-system-proxy-smoke] [--certification-include-tun-runtime-smoke] [--certification-tun-runtime-smoke-min-duration-ms 50]"
     )
 }
 
@@ -5526,6 +5529,9 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
     let mut certification_include_system_proxy_smoke = false;
     let mut certification_include_tun_runtime_smoke = false;
     let mut certification_tun_runtime_smoke_min_duration = DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION;
+    let mut certification_required_stability_window = None;
+    let mut certification_soak_min_duration_explicit = false;
+    let mut certification_tun_runtime_smoke_min_duration_explicit = false;
     let mut args = args.peekable();
 
     while let Some(arg) = args.next() {
@@ -5568,6 +5574,7 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
             }
             "--certification-soak-min-duration-ms" => {
                 include_default_core_certification = true;
+                certification_soak_min_duration_explicit = true;
                 certification_soak_min_duration = parse_duration_ms(
                     args.next().ok_or_else(|| {
                         "--certification-soak-min-duration-ms requires a value".to_string()
@@ -5595,6 +5602,7 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
             "--certification-tun-runtime-smoke-min-duration-ms" => {
                 include_default_core_certification = true;
                 certification_include_tun_runtime_smoke = true;
+                certification_tun_runtime_smoke_min_duration_explicit = true;
                 certification_tun_runtime_smoke_min_duration = parse_duration_ms(
                     args.next().ok_or_else(|| {
                         "--certification-tun-runtime-smoke-min-duration-ms requires a value"
@@ -5603,7 +5611,31 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
                     "--certification-tun-runtime-smoke-min-duration-ms",
                 )?;
             }
+            "--certification-stability-gate-ms"
+            | "--certification-require-stability-window-ms"
+            | "--certification-release-stability-window-ms" => {
+                include_default_core_certification = true;
+                certification_required_stability_window = Some(parse_duration_ms(
+                    args.next()
+                        .ok_or_else(|| format!("{arg} requires a value"))?,
+                    arg.as_str(),
+                )?);
+            }
             other => return Err(format!("unknown support-bundle option: {other}")),
+        }
+    }
+
+    if let Some(required_window) = certification_required_stability_window {
+        if !certification_soak_min_duration_explicit
+            && certification_soak_min_duration < required_window
+        {
+            certification_soak_min_duration = required_window;
+        }
+        if certification_include_tun_runtime_smoke
+            && !certification_tun_runtime_smoke_min_duration_explicit
+            && certification_tun_runtime_smoke_min_duration < required_window
+        {
+            certification_tun_runtime_smoke_min_duration = required_window;
         }
     }
 
@@ -5617,6 +5649,7 @@ fn parse_support_bundle(args: impl Iterator<Item = String>) -> Result<CliCommand
         certification_include_system_proxy_smoke,
         certification_include_tun_runtime_smoke,
         certification_tun_runtime_smoke_min_duration,
+        certification_required_stability_window,
     })
 }
 
@@ -62117,6 +62150,7 @@ pub struct SupportBundleOptions {
     pub certification_include_system_proxy_smoke: bool,
     pub certification_include_tun_runtime_smoke: bool,
     pub certification_tun_runtime_smoke_min_duration: Duration,
+    pub certification_required_stability_window: Option<Duration>,
 }
 
 impl Default for SupportBundleOptions {
@@ -62130,6 +62164,7 @@ impl Default for SupportBundleOptions {
             certification_include_system_proxy_smoke: false,
             certification_include_tun_runtime_smoke: false,
             certification_tun_runtime_smoke_min_duration: DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION,
+            certification_required_stability_window: None,
         }
     }
 }
@@ -62153,7 +62188,7 @@ pub fn write_support_bundle_report_with_options(
             options.certification_include_tun_runtime_smoke,
             options.certification_tun_runtime_smoke_min_duration,
             false,
-            None,
+            options.certification_required_stability_window,
         )?)
     } else {
         serde_json::Value::Null

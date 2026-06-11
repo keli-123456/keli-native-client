@@ -402,8 +402,11 @@ The first implementation target is deliberately small:
    clean stop-drain behavior for bounded long-running stability checks.
    Readiness and certification gates can pass the same requirement through
    `--soak-min-duration-ms`, and support bundle certification can embed it with
-   `--certification-soak-min-duration-ms`. Doctor and support bundles advertise
-   this stability diagnostic surface.
+   `--certification-soak-min-duration-ms`. Support bundle certification can
+   also record the hard release-gate stability window with
+   `--certification-stability-gate-ms`, preserving whether the target machine's
+   local soak and optional TUN runtime evidence met the requested window.
+   Doctor and support bundles advertise this stability diagnostic surface.
    `interop-matrix` now exposes the current protocol readiness matrix as text
    or JSON, including covered transports, TCP/UDP relay support, profile source
    coverage, validation sample counts, and outbound registry registration
@@ -807,7 +810,9 @@ The first implementation target is deliberately small:
    artifact via `--include-certification`, so release/support workflows can
    collect doctor, interop, TUN preflight, redacted profile summary, and
    default-core promotion evidence in one JSON document without making the
-   default bundle run soak checks.
+   default bundle run soak checks. The embedded certification can also carry a
+   stability release-gate requirement, so support artifacts can show the same
+   pass/fail blockers release automation would use.
 
 The managed mixed runtime now supports a background handle with runtime status,
 generation tracking, event history, explicit stop, system proxy restoration, and
