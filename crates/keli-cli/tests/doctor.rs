@@ -976,6 +976,10 @@ fn doctor_json_report_is_machine_readable() {
         report["readiness_check_capabilities"][91],
         "machine-takeover-smoke-mode"
     );
+    assert_eq!(
+        report["readiness_check_capabilities"][92],
+        "hy2-quic-udp-relay-smoke"
+    );
     assert_eq!(report["tun_backend_check_capabilities"][0], "backend-kind");
     assert_eq!(
         report["tun_backend_check_capabilities"][2],
@@ -1421,6 +1425,10 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(
         report["default_core_certification_capabilities"][109],
         "default-core-release-gate-rerun-command"
+    );
+    assert_eq!(
+        report["default_core_certification_capabilities"][110],
+        "hy2-quic-udp-relay-smoke"
     );
     assert_eq!(
         report["resource_limits"]["runtime_event_history"],

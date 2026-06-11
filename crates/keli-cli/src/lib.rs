@@ -1,4 +1,4 @@
-#![recursion_limit = "256"]
+#![recursion_limit = "512"]
 
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -301,6 +301,13 @@ const HY2_QUIC_TCP_RELAY_SMOKE_TARGET_HOST: &str = "example.com";
 const HY2_QUIC_TCP_RELAY_SMOKE_TARGET_PORT: u16 = 443;
 const HY2_QUIC_TCP_RELAY_SMOKE_PAYLOAD: &[u8] = b"keli-hy2-smoke";
 const HY2_QUIC_TCP_RELAY_SMOKE_RESPONSE: &[u8] = b"keli-hy2-pong";
+const HY2_QUIC_UDP_RELAY_SMOKE_OUTBOUND: &str = "HY2-QUIC-UDP-SMOKE";
+const HY2_QUIC_UDP_RELAY_SMOKE_PASSWORD: &str = "keli-hy2-secret";
+const HY2_QUIC_UDP_RELAY_SMOKE_SNI: &str = "localhost";
+const HY2_QUIC_UDP_RELAY_SMOKE_TARGET_HOST: &str = "example.com";
+const HY2_QUIC_UDP_RELAY_SMOKE_TARGET_PORT: u16 = 53;
+const HY2_QUIC_UDP_RELAY_SMOKE_PAYLOAD: &[u8] = b"keli-hy2-udp-smoke";
+const HY2_QUIC_UDP_RELAY_SMOKE_RESPONSE: &[u8] = b"keli-hy2-udp-pong";
 const TUIC_QUIC_TCP_RELAY_SMOKE_OUTBOUND: &str = "TUIC-QUIC-TCP-SMOKE";
 const TUIC_QUIC_TCP_RELAY_SMOKE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const TUIC_QUIC_TCP_RELAY_SMOKE_PASSWORD: &str = "keli-tuic-secret";
@@ -547,11 +554,11 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(4);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 97;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 86;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 98;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 87;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 82;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 101;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 83;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 102;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW: Duration = Duration::from_secs(60);
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS: usize = 25;
@@ -579,11 +586,11 @@ const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-smoke-mode";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-smoke-mode,hy2-quic-udp-relay-smoke";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode,default-core-release-gate,default-core-release-gate-stability-evidence,default-core-release-gate-stability-window,default-core-release-gate-stability-traffic-floor,default-core-release-gate-preset,default-core-release-gate-preset-evidence,default-core-release-gate-preset-minimums,default-core-release-gate-stability-summary,default-core-release-gate-preset-enforced,default-core-release-gate-preset-scope,default-core-release-gate-takeover-evidence,default-core-release-gate-next-actions,default-core-release-gate-actionable-error,default-core-release-gate-rerun-args,default-core-release-gate-canonical-rerun-args,default-core-release-gate-rerun-command";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode,default-core-release-gate,default-core-release-gate-stability-evidence,default-core-release-gate-stability-window,default-core-release-gate-stability-traffic-floor,default-core-release-gate-preset,default-core-release-gate-preset-evidence,default-core-release-gate-preset-minimums,default-core-release-gate-stability-summary,default-core-release-gate-preset-enforced,default-core-release-gate-preset-scope,default-core-release-gate-takeover-evidence,default-core-release-gate-next-actions,default-core-release-gate-actionable-error,default-core-release-gate-rerun-args,default-core-release-gate-canonical-rerun-args,default-core-release-gate-rerun-command,hy2-quic-udp-relay-smoke";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -7568,6 +7575,7 @@ pub struct DefaultCoreReadinessReport {
     pub naive_h2_tcp_relay_smoke: TcpRelaySmokeReport,
     pub naive_h3_quic_tcp_relay_smoke: TcpRelaySmokeReport,
     pub hy2_quic_tcp_relay_smoke: TcpRelaySmokeReport,
+    pub hy2_quic_udp_relay_smoke: UdpRelaySmokeReport,
     pub tuic_quic_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vless_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vless_ws_tcp_relay_smoke: TcpRelaySmokeReport,
@@ -7650,6 +7658,7 @@ pub struct DefaultCoreCertificationReport {
     pub naive_h2_tcp_relay_smoke: TcpRelaySmokeReport,
     pub naive_h3_quic_tcp_relay_smoke: TcpRelaySmokeReport,
     pub hy2_quic_tcp_relay_smoke: TcpRelaySmokeReport,
+    pub hy2_quic_udp_relay_smoke: UdpRelaySmokeReport,
     pub tuic_quic_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vless_tcp_relay_smoke: TcpRelaySmokeReport,
     pub vless_ws_tcp_relay_smoke: TcpRelaySmokeReport,
@@ -8968,6 +8977,7 @@ fn collect_default_core_certification_report(
     let naive_h2_tcp_relay_smoke = readiness.naive_h2_tcp_relay_smoke.clone();
     let naive_h3_quic_tcp_relay_smoke = readiness.naive_h3_quic_tcp_relay_smoke.clone();
     let hy2_quic_tcp_relay_smoke = readiness.hy2_quic_tcp_relay_smoke.clone();
+    let hy2_quic_udp_relay_smoke = readiness.hy2_quic_udp_relay_smoke.clone();
     let tuic_quic_tcp_relay_smoke = readiness.tuic_quic_tcp_relay_smoke.clone();
     let vless_tcp_relay_smoke = readiness.vless_tcp_relay_smoke.clone();
     let vless_ws_tcp_relay_smoke = readiness.vless_ws_tcp_relay_smoke.clone();
@@ -9052,6 +9062,7 @@ fn collect_default_core_certification_report(
         && naive_h2_tcp_relay_smoke.passed
         && naive_h3_quic_tcp_relay_smoke.passed
         && hy2_quic_tcp_relay_smoke.passed
+        && hy2_quic_udp_relay_smoke.passed
         && tuic_quic_tcp_relay_smoke.passed
         && vless_tcp_relay_smoke.passed
         && vless_ws_tcp_relay_smoke.passed
@@ -9128,6 +9139,7 @@ fn collect_default_core_certification_report(
         naive_h2_tcp_relay_smoke,
         naive_h3_quic_tcp_relay_smoke,
         hy2_quic_tcp_relay_smoke,
+        hy2_quic_udp_relay_smoke,
         tuic_quic_tcp_relay_smoke,
         vless_tcp_relay_smoke,
         vless_ws_tcp_relay_smoke,
@@ -9224,6 +9236,7 @@ fn collect_readiness_check_report(
     let naive_h2_tcp_relay_smoke = collect_default_naive_h2_tcp_relay_smoke_report();
     let naive_h3_quic_tcp_relay_smoke = collect_default_naive_h3_quic_tcp_relay_smoke_report();
     let hy2_quic_tcp_relay_smoke = collect_default_hy2_quic_tcp_relay_smoke_report();
+    let hy2_quic_udp_relay_smoke = collect_default_hy2_quic_udp_relay_smoke_report();
     let tuic_quic_tcp_relay_smoke = collect_default_tuic_quic_tcp_relay_smoke_report();
     let vless_tcp_relay_smoke = collect_default_vless_tcp_relay_smoke_report();
     let vless_ws_tcp_relay_smoke = collect_default_vless_ws_tcp_relay_smoke_report();
@@ -9458,6 +9471,12 @@ fn collect_readiness_check_report(
             "protocols",
             hy2_quic_tcp_relay_smoke.passed,
             hy2_quic_tcp_relay_smoke.detail.clone(),
+        ),
+        readiness_gate(
+            "hy2-quic-udp-relay-smoke",
+            "protocols",
+            hy2_quic_udp_relay_smoke.passed,
+            hy2_quic_udp_relay_smoke.detail.clone(),
         ),
         readiness_gate(
             "tuic-quic-tcp-relay-smoke",
@@ -9818,6 +9837,7 @@ fn collect_readiness_check_report(
         naive_h2_tcp_relay_smoke,
         naive_h3_quic_tcp_relay_smoke,
         hy2_quic_tcp_relay_smoke,
+        hy2_quic_udp_relay_smoke,
         tuic_quic_tcp_relay_smoke,
         vless_tcp_relay_smoke,
         vless_ws_tcp_relay_smoke,
@@ -24054,6 +24074,840 @@ mod hy2_quic_tcp_relay_smoke_tests {
             round_trip.observed_response.as_deref(),
             Some("keli-hy2-pong")
         );
+        assert_eq!(round_trip.round_trip_observed, Some(true));
+        assert_eq!(round_trip.server_received_payload, Some(true));
+    }
+}
+
+fn collect_default_hy2_quic_udp_relay_smoke_report() -> UdpRelaySmokeReport {
+    let mut cases = Vec::new();
+    let mut selected_outbound = None;
+    let mut relay_port = None;
+    let mut response_source = None;
+    let request_payload_bytes = HY2_QUIC_UDP_RELAY_SMOKE_PAYLOAD.len();
+    let mut response_payload_bytes = None;
+    let mut round_trip_observed = false;
+    let mut server_received_payload = false;
+    let mut metrics_recorded = false;
+    let mut metrics_total_connections = 0;
+    let mut metrics_success_count = 0;
+    let mut metrics_inbound_count = 0;
+    let mut metrics_outbound_route_count = 0;
+    let mut clean_stop_observed = false;
+    let mut stop_workers_remaining = None;
+    let mut stop_timed_out = None;
+
+    let (hy2_port, hy2_thread) = match spawn_hy2_quic_udp_relay_smoke_server() {
+        Ok(server) => server,
+        Err(error) => {
+            cases.push(hy2_quic_udp_relay_smoke_error_case(
+                "start-hy2-quic-udp-server",
+                "start-protocol-server",
+                error,
+            ));
+            return finalize_hy2_quic_udp_relay_smoke_report(
+                cases,
+                selected_outbound,
+                relay_port,
+                response_source,
+                request_payload_bytes,
+                response_payload_bytes,
+                round_trip_observed,
+                server_received_payload,
+                metrics_recorded,
+                metrics_total_connections,
+                metrics_success_count,
+                metrics_inbound_count,
+                metrics_outbound_route_count,
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+            );
+        }
+    };
+
+    let controller = SubscriptionReloadSmokeSystemProxyController;
+    let mut core = ManagedMixedController::new(&controller);
+    let config = hy2_quic_udp_relay_smoke_config(hy2_port);
+    let relay_options = RelayOptions {
+        first_byte_timeout: Some(UDP_RELAY_SMOKE_TIMEOUT),
+        idle_timeout: Some(UDP_RELAY_SMOKE_TIMEOUT),
+    };
+
+    let started = match core.start_from_subscription_config_text(
+        &config,
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some(HY2_QUIC_UDP_RELAY_SMOKE_OUTBOUND.to_string()),
+            relay_options,
+            system_proxy: false,
+            max_connection_workers: 2,
+            ..ManagedMixedOptions::default()
+        },
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            cases.push(hy2_quic_udp_relay_smoke_error_case(
+                "start-hy2-quic-udp-relay-runtime",
+                "start",
+                error,
+            ));
+            let _ = join_udp_relay_smoke_server(hy2_thread);
+            return finalize_hy2_quic_udp_relay_smoke_report(
+                cases,
+                selected_outbound,
+                relay_port,
+                response_source,
+                request_payload_bytes,
+                response_payload_bytes,
+                round_trip_observed,
+                server_received_payload,
+                metrics_recorded,
+                metrics_total_connections,
+                metrics_success_count,
+                metrics_inbound_count,
+                metrics_outbound_route_count,
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+            );
+        }
+    };
+    selected_outbound = started.selected_outbound.clone();
+    cases.push(hy2_quic_udp_relay_smoke_start_case(&started));
+
+    if let Some(listen_addr) = started.listen_addr {
+        let exchange_result = run_hy2_quic_udp_relay_smoke_exchange(listen_addr);
+        let server_result = join_udp_relay_smoke_server(hy2_thread);
+        if let Ok(exchange) = exchange_result.as_ref() {
+            relay_port = Some(exchange.relay_port);
+            response_source = Some(exchange.response_source.clone());
+            response_payload_bytes = Some(exchange.response_payload.len());
+            round_trip_observed = exchange.response_payload == HY2_QUIC_UDP_RELAY_SMOKE_RESPONSE;
+        }
+        if let Ok(server) = server_result.as_ref() {
+            server_received_payload = server.received_expected_payload;
+        }
+        cases.push(hy2_quic_udp_relay_smoke_exchange_case(
+            exchange_result,
+            server_result,
+            round_trip_observed,
+            server_received_payload,
+        ));
+
+        let status = wait_for_udp_relay_smoke_status(&core, |status| {
+            hy2_quic_udp_relay_smoke_metrics_recorded(&status.connection_metrics)
+        });
+        metrics_total_connections = status.connection_metrics.total_connection_count;
+        metrics_success_count = status.connection_metrics.success_count;
+        metrics_inbound_count =
+            udp_relay_smoke_inbound_count(&status.connection_metrics, "socks5-udp");
+        metrics_outbound_route_count =
+            hy2_quic_udp_relay_smoke_outbound_route_count(&status.connection_metrics);
+        metrics_recorded = hy2_quic_udp_relay_smoke_metrics_recorded(&status.connection_metrics);
+        cases.push(hy2_quic_udp_relay_smoke_metrics_case(
+            &status,
+            metrics_recorded,
+        ));
+    } else {
+        cases.push(hy2_quic_udp_relay_smoke_error_case(
+            "hy2-quic-udp-protocol-round-trip",
+            "socks5-udp-associate",
+            "managed mixed runtime did not expose a listen address".to_string(),
+        ));
+        let _ = join_udp_relay_smoke_server(hy2_thread);
+    }
+
+    match core.stop() {
+        Ok(stopped) => {
+            let stop_drain = stopped.events().iter().rev().find_map(|event| {
+                if let Some(RuntimeDiagnostic::ManagedMixedStopDrain(diagnostic)) =
+                    event.diagnostic.as_ref()
+                {
+                    Some(diagnostic)
+                } else {
+                    None
+                }
+            });
+            stop_workers_remaining = stop_drain.map(|diagnostic| diagnostic.workers_remaining);
+            stop_timed_out = stop_drain.map(|diagnostic| diagnostic.timed_out);
+            clean_stop_observed = matches!(stopped.status(), RuntimeStatus::Stopped)
+                && stop_workers_remaining == Some(0)
+                && stop_timed_out == Some(false);
+            cases.push(hy2_quic_udp_relay_smoke_stop_case(
+                clean_stop_observed,
+                stop_workers_remaining,
+                stop_timed_out,
+                None,
+            ));
+        }
+        Err(error) => cases.push(hy2_quic_udp_relay_smoke_stop_case(
+            clean_stop_observed,
+            stop_workers_remaining,
+            stop_timed_out,
+            Some(error),
+        )),
+    }
+
+    finalize_hy2_quic_udp_relay_smoke_report(
+        cases,
+        selected_outbound,
+        relay_port,
+        response_source,
+        request_payload_bytes,
+        response_payload_bytes,
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+    )
+}
+
+fn hy2_quic_udp_relay_smoke_config(hy2_port: u16) -> String {
+    format!(
+        r#"
+proxies:
+  - name: {HY2_QUIC_UDP_RELAY_SMOKE_OUTBOUND}
+    type: hy2
+    server: 127.0.0.1
+    port: {hy2_port}
+    password: {HY2_QUIC_UDP_RELAY_SMOKE_PASSWORD}
+    sni: {HY2_QUIC_UDP_RELAY_SMOKE_SNI}
+    skip-cert-verify: true
+"#
+    )
+}
+
+fn finalize_hy2_quic_udp_relay_smoke_report(
+    cases: Vec<UdpRelaySmokeCaseReport>,
+    selected_outbound: Option<String>,
+    relay_port: Option<u16>,
+    response_source: Option<String>,
+    request_payload_bytes: usize,
+    response_payload_bytes: Option<usize>,
+    round_trip_observed: bool,
+    server_received_payload: bool,
+    metrics_recorded: bool,
+    metrics_total_connections: u64,
+    metrics_success_count: u64,
+    metrics_inbound_count: u64,
+    metrics_outbound_route_count: u64,
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+) -> UdpRelaySmokeReport {
+    let failed = cases
+        .iter()
+        .filter(|case| !case.passed)
+        .map(|case| case.name)
+        .collect::<Vec<_>>();
+    let passed = failed.is_empty()
+        && selected_outbound.as_deref() == Some(HY2_QUIC_UDP_RELAY_SMOKE_OUTBOUND)
+        && round_trip_observed
+        && server_received_payload
+        && metrics_recorded
+        && clean_stop_observed;
+    let target = hy2_quic_udp_relay_smoke_target();
+    let detail = format!(
+        "cases={} passed={} failed={} failed_cases={} selected={} transport=quic sni={} target={} relay_port={} response_source={} request_bytes={} response_bytes={} round_trip_observed={} server_received_payload={} metrics_recorded={} metrics_total={} metrics_success={} metrics_inbound_socks5_udp={} metrics_outbound_route={} clean_stop_observed={} stop_workers_remaining={} stop_timed_out={}",
+        cases.len(),
+        passed,
+        failed.len(),
+        if failed.is_empty() {
+            "-".to_string()
+        } else {
+            failed.join(",")
+        },
+        selected_outbound.as_deref().unwrap_or("-"),
+        HY2_QUIC_UDP_RELAY_SMOKE_SNI,
+        target,
+        relay_port
+            .map(|port| port.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        response_source.as_deref().unwrap_or("-"),
+        request_payload_bytes,
+        response_payload_bytes
+            .map(|bytes| bytes.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining
+            .map(|workers| workers.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        stop_timed_out
+            .map(|timed_out| timed_out.to_string())
+            .unwrap_or_else(|| "-".to_string())
+    );
+    UdpRelaySmokeReport {
+        passed,
+        detail,
+        selected_outbound,
+        target,
+        relay_port,
+        response_source,
+        request_payload_bytes,
+        response_payload_bytes,
+        round_trip_observed,
+        server_received_payload,
+        metrics_recorded,
+        metrics_total_connections,
+        metrics_success_count,
+        metrics_inbound_count,
+        metrics_outbound_route_count,
+        clean_stop_observed,
+        stop_workers_remaining,
+        stop_timed_out,
+        cases,
+    }
+}
+
+fn hy2_quic_udp_relay_smoke_start_case(
+    status: &ManagedMixedStatusSnapshot,
+) -> UdpRelaySmokeCaseReport {
+    let selected = status.selected_outbound.clone();
+    let passed = selected.as_deref() == Some(HY2_QUIC_UDP_RELAY_SMOKE_OUTBOUND)
+        && status.generation == 1
+        && matches!(&status.status, RuntimeStatus::Running { .. });
+    UdpRelaySmokeCaseReport {
+        name: "start-hy2-quic-udp-relay-runtime",
+        action: "start",
+        expected_selected_outbound: Some(HY2_QUIC_UDP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: selected,
+        expected_generation: Some(1),
+        observed_generation: Some(status.generation),
+        target: hy2_quic_udp_relay_smoke_target(),
+        relay_port: None,
+        expected_response: None,
+        observed_response: None,
+        response_source: None,
+        request_payload_bytes: None,
+        response_payload_bytes: None,
+        runtime_running: Some(matches!(&status.status, RuntimeStatus::Running { .. })),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+        error: None,
+    }
+}
+
+fn hy2_quic_udp_relay_smoke_exchange_case(
+    exchange_result: Result<UdpRelaySmokeExchangeObservation, String>,
+    server_result: Result<UdpRelaySmokeServerObservation, String>,
+    round_trip_observed: bool,
+    server_received_payload: bool,
+) -> UdpRelaySmokeCaseReport {
+    let error = match (&exchange_result, &server_result) {
+        (Ok(_), Ok(_)) => None,
+        (Err(error), Ok(_)) => Some(error.clone()),
+        (Ok(_), Err(error)) => Some(error.clone()),
+        (Err(exchange_error), Err(server_error)) => {
+            Some(format!("{exchange_error}; server={server_error}"))
+        }
+    };
+    let (relay_port, observed_response, response_source, response_payload_bytes) =
+        match exchange_result.as_ref() {
+            Ok(exchange) => (
+                Some(exchange.relay_port),
+                Some(String::from_utf8_lossy(&exchange.response_payload).to_string()),
+                Some(exchange.response_source.clone()),
+                Some(exchange.response_payload.len()),
+            ),
+            Err(_) => (None, None, None, None),
+        };
+    let passed =
+        error.is_none() && round_trip_observed && server_received_payload && relay_port.is_some();
+    UdpRelaySmokeCaseReport {
+        name: "hy2-quic-udp-protocol-round-trip",
+        action: "socks5-udp-associate",
+        expected_selected_outbound: Some(HY2_QUIC_UDP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: hy2_quic_udp_relay_smoke_target(),
+        relay_port,
+        expected_response: Some(
+            String::from_utf8_lossy(HY2_QUIC_UDP_RELAY_SMOKE_RESPONSE).to_string(),
+        ),
+        observed_response,
+        response_source,
+        request_payload_bytes: Some(HY2_QUIC_UDP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes,
+        runtime_running: None,
+        round_trip_observed: Some(round_trip_observed),
+        server_received_payload: Some(server_received_payload),
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed,
+        error,
+    }
+}
+
+fn hy2_quic_udp_relay_smoke_metrics_case(
+    status: &ManagedMixedStatusSnapshot,
+    metrics_recorded: bool,
+) -> UdpRelaySmokeCaseReport {
+    let inbound_count = udp_relay_smoke_inbound_count(&status.connection_metrics, "socks5-udp");
+    let outbound_route_count =
+        hy2_quic_udp_relay_smoke_outbound_route_count(&status.connection_metrics);
+    UdpRelaySmokeCaseReport {
+        name: "record-hy2-quic-udp-relay-metrics",
+        action: "metrics",
+        expected_selected_outbound: Some(HY2_QUIC_UDP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: status.selected_outbound.clone(),
+        expected_generation: Some(1),
+        observed_generation: Some(status.generation),
+        target: hy2_quic_udp_relay_smoke_target(),
+        relay_port: None,
+        expected_response: None,
+        observed_response: None,
+        response_source: None,
+        request_payload_bytes: Some(HY2_QUIC_UDP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: Some(HY2_QUIC_UDP_RELAY_SMOKE_RESPONSE.len()),
+        runtime_running: Some(matches!(&status.status, RuntimeStatus::Running { .. })),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: Some(metrics_recorded),
+        metrics_total_connections: Some(status.connection_metrics.total_connection_count),
+        metrics_success_count: Some(status.connection_metrics.success_count),
+        metrics_inbound_count: Some(inbound_count),
+        metrics_outbound_route_count: Some(outbound_route_count),
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed: metrics_recorded,
+        error: if metrics_recorded {
+            None
+        } else {
+            Some(format!(
+                "metrics did not record HY2 QUIC UDP relay: total={} success={} inbound_socks5_udp={} outbound_route={} upload_bytes={} download_bytes={}",
+                status.connection_metrics.total_connection_count,
+                status.connection_metrics.success_count,
+                inbound_count,
+                outbound_route_count,
+                status.connection_metrics.total_upload_bytes,
+                status.connection_metrics.total_download_bytes
+            ))
+        },
+    }
+}
+
+fn hy2_quic_udp_relay_smoke_stop_case(
+    clean_stop_observed: bool,
+    stop_workers_remaining: Option<usize>,
+    stop_timed_out: Option<bool>,
+    error: Option<String>,
+) -> UdpRelaySmokeCaseReport {
+    UdpRelaySmokeCaseReport {
+        name: "stop-hy2-quic-udp-relay-runtime",
+        action: "stop",
+        expected_selected_outbound: Some(HY2_QUIC_UDP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: hy2_quic_udp_relay_smoke_target(),
+        relay_port: None,
+        expected_response: None,
+        observed_response: None,
+        response_source: None,
+        request_payload_bytes: None,
+        response_payload_bytes: None,
+        runtime_running: Some(false),
+        round_trip_observed: None,
+        server_received_payload: None,
+        metrics_recorded: None,
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: Some(clean_stop_observed),
+        stop_workers_remaining,
+        stop_timed_out,
+        passed: error.is_none() && clean_stop_observed,
+        error,
+    }
+}
+
+fn hy2_quic_udp_relay_smoke_error_case(
+    name: &'static str,
+    action: &'static str,
+    error: String,
+) -> UdpRelaySmokeCaseReport {
+    UdpRelaySmokeCaseReport {
+        name,
+        action,
+        expected_selected_outbound: Some(HY2_QUIC_UDP_RELAY_SMOKE_OUTBOUND.to_string()),
+        observed_selected_outbound: None,
+        expected_generation: None,
+        observed_generation: None,
+        target: hy2_quic_udp_relay_smoke_target(),
+        relay_port: None,
+        expected_response: Some(
+            String::from_utf8_lossy(HY2_QUIC_UDP_RELAY_SMOKE_RESPONSE).to_string(),
+        ),
+        observed_response: None,
+        response_source: None,
+        request_payload_bytes: Some(HY2_QUIC_UDP_RELAY_SMOKE_PAYLOAD.len()),
+        response_payload_bytes: None,
+        runtime_running: None,
+        round_trip_observed: Some(false),
+        server_received_payload: Some(false),
+        metrics_recorded: Some(false),
+        metrics_total_connections: None,
+        metrics_success_count: None,
+        metrics_inbound_count: None,
+        metrics_outbound_route_count: None,
+        clean_stop_observed: None,
+        stop_workers_remaining: None,
+        stop_timed_out: None,
+        passed: false,
+        error: Some(error),
+    }
+}
+
+fn run_hy2_quic_udp_relay_smoke_exchange(
+    listen_addr: SocketAddr,
+) -> Result<UdpRelaySmokeExchangeObservation, String> {
+    let mut client = TcpStream::connect(listen_addr)
+        .map_err(|error| format!("connect HY2 QUIC UDP smoke listener {listen_addr}: {error}"))?;
+    client
+        .set_read_timeout(Some(UDP_RELAY_SMOKE_TIMEOUT))
+        .map_err(|error| format!("set HY2 QUIC UDP smoke control read timeout: {error}"))?;
+    client
+        .set_write_timeout(Some(UDP_RELAY_SMOKE_TIMEOUT))
+        .map_err(|error| format!("set HY2 QUIC UDP smoke control write timeout: {error}"))?;
+    client
+        .write_all(&[0x05, 0x01, 0x00])
+        .map_err(|error| format!("write HY2 QUIC UDP smoke SOCKS hello: {error}"))?;
+    let mut hello = [0; 2];
+    client
+        .read_exact(&mut hello)
+        .map_err(|error| format!("read HY2 QUIC UDP smoke SOCKS hello: {error}"))?;
+    if hello != [0x05, 0x00] {
+        return Err(format!(
+            "unexpected HY2 QUIC UDP smoke SOCKS hello response: {hello:?}"
+        ));
+    }
+
+    client
+        .write_all(&[0x05, 0x03, 0x00, 0x01, 127, 0, 0, 1, 0x00, 0x00])
+        .map_err(|error| format!("write HY2 QUIC UDP smoke associate request: {error}"))?;
+    let mut reply = [0; 10];
+    client
+        .read_exact(&mut reply)
+        .map_err(|error| format!("read HY2 QUIC UDP smoke associate response: {error}"))?;
+    if &reply[..4] != [0x05, 0x00, 0x00, 0x01] {
+        return Err(format!(
+            "unexpected HY2 QUIC UDP smoke associate response: {reply:?}"
+        ));
+    }
+    let relay_port = u16::from_be_bytes([reply[8], reply[9]]);
+    if relay_port == 0 {
+        return Err("HY2 QUIC UDP smoke relay returned port 0".to_string());
+    }
+
+    let udp_client = UdpSocket::bind("127.0.0.1:0")
+        .map_err(|error| format!("bind HY2 QUIC UDP smoke client: {error}"))?;
+    udp_client
+        .set_read_timeout(Some(UDP_RELAY_SMOKE_TIMEOUT))
+        .map_err(|error| format!("set HY2 QUIC UDP smoke client read timeout: {error}"))?;
+    udp_client
+        .set_write_timeout(Some(UDP_RELAY_SMOKE_TIMEOUT))
+        .map_err(|error| format!("set HY2 QUIC UDP smoke client write timeout: {error}"))?;
+    let request = encode_socks5_udp_datagram(
+        &Socks5Address::Domain(HY2_QUIC_UDP_RELAY_SMOKE_TARGET_HOST.to_string()),
+        HY2_QUIC_UDP_RELAY_SMOKE_TARGET_PORT,
+        HY2_QUIC_UDP_RELAY_SMOKE_PAYLOAD,
+    )
+    .map_err(|error| format!("encode HY2 QUIC UDP smoke request: {error}"))?;
+    udp_client
+        .send_to(&request, ("127.0.0.1", relay_port))
+        .map_err(|error| format!("send HY2 QUIC UDP smoke request: {error}"))?;
+
+    let mut response = [0; 1500];
+    let (size, _) = udp_client
+        .recv_from(&mut response)
+        .map_err(|error| format!("read HY2 QUIC UDP smoke response: {error}"))?;
+    let response = parse_socks5_udp_datagram(&response[..size])
+        .map_err(|error| format!("parse HY2 QUIC UDP smoke response: {error}"))?;
+    client.shutdown(Shutdown::Both).ok();
+    Ok(UdpRelaySmokeExchangeObservation {
+        relay_port,
+        response_source: format!(
+            "{}:{}",
+            udp_relay_smoke_socks5_address_label(&response.address),
+            response.port
+        ),
+        response_payload: response.payload,
+    })
+}
+
+fn spawn_hy2_quic_udp_relay_smoke_server() -> Result<
+    (
+        u16,
+        thread::JoinHandle<Result<UdpRelaySmokeServerObservation, String>>,
+    ),
+    String,
+> {
+    let server_config = hy2_quic_udp_relay_smoke_server_config()?;
+    let (port_tx, port_rx) = std::sync::mpsc::channel();
+    let handle = thread::spawn(move || -> Result<UdpRelaySmokeServerObservation, String> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| format!("build HY2 QUIC UDP smoke runtime: {error}"))?;
+        runtime.block_on(async move {
+            let endpoint = match quinn::Endpoint::server(
+                server_config,
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+            ) {
+                Ok(endpoint) => endpoint,
+                Err(error) => {
+                    let message = format!("bind HY2 QUIC UDP smoke server: {error}");
+                    let _ = port_tx.send(Err(message.clone()));
+                    return Err(message);
+                }
+            };
+            let listen_port = match endpoint.local_addr() {
+                Ok(address) => address.port(),
+                Err(error) => {
+                    let message = format!("read HY2 QUIC UDP smoke address: {error}");
+                    let _ = port_tx.send(Err(message.clone()));
+                    return Err(message);
+                }
+            };
+            port_tx
+                .send(Ok(listen_port))
+                .map_err(|error| format!("publish HY2 QUIC UDP smoke address: {error}"))?;
+            let incoming = tokio::time::timeout(UDP_RELAY_SMOKE_TIMEOUT, endpoint.accept())
+                .await
+                .map_err(|_| "HY2 QUIC UDP smoke accept timed out".to_string())?
+                .ok_or_else(|| "HY2 QUIC UDP smoke endpoint closed before accept".to_string())?;
+            let connection = tokio::time::timeout(UDP_RELAY_SMOKE_TIMEOUT, incoming)
+                .await
+                .map_err(|_| "HY2 QUIC UDP smoke handshake timed out".to_string())?
+                .map_err(|error| format!("accept HY2 QUIC UDP connection: {error}"))?;
+            let mut h3_connection: h3::server::Connection<h3_quinn::Connection, bytes::Bytes> =
+                h3::server::builder()
+                    .build(h3_quinn::Connection::new(connection.clone()))
+                    .await
+                    .map_err(|error| {
+                        format!("build HY2 H3 UDP smoke server connection: {error}")
+                    })?;
+            let resolver = tokio::time::timeout(UDP_RELAY_SMOKE_TIMEOUT, h3_connection.accept())
+                .await
+                .map_err(|_| "HY2 H3 UDP auth accept timed out".to_string())?
+                .map_err(|error| format!("accept HY2 H3 UDP auth request: {error}"))?
+                .ok_or_else(|| "HY2 H3 UDP auth request missing".to_string())?;
+            let (request, mut auth_stream) = resolver
+                .resolve_request()
+                .await
+                .map_err(|error| format!("resolve HY2 H3 UDP auth request: {error}"))?;
+            let observed_auth = request
+                .headers()
+                .get("Hysteria-Auth")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("");
+            if observed_auth != HY2_QUIC_UDP_RELAY_SMOKE_PASSWORD {
+                return Err(format!(
+                    "unexpected HY2 H3 UDP auth header: expected {}, got {}",
+                    HY2_QUIC_UDP_RELAY_SMOKE_PASSWORD, observed_auth
+                ));
+            }
+            auth_stream
+                .send_response(http::Response::builder().status(233).body(()).unwrap())
+                .await
+                .map_err(|error| format!("send HY2 H3 UDP auth response: {error}"))?;
+            auth_stream
+                .finish()
+                .await
+                .map_err(|error| format!("finish HY2 H3 UDP auth response: {error}"))?;
+
+            let message = tokio::time::timeout(
+                UDP_RELAY_SMOKE_TIMEOUT,
+                keli_net_core::hy2_read_udp_datagram(&connection),
+            )
+            .await
+            .map_err(|_| "HY2 QUIC UDP request read timed out".to_string())?
+            .map_err(|error| format!("read HY2 QUIC UDP request: {error}"))?;
+            let expected_target = Endpoint::new(
+                HY2_QUIC_UDP_RELAY_SMOKE_TARGET_HOST,
+                HY2_QUIC_UDP_RELAY_SMOKE_TARGET_PORT,
+            );
+            if message.address != expected_target {
+                return Err(format!(
+                    "unexpected HY2 UDP target: expected {:?}, got {:?}",
+                    expected_target, message.address
+                ));
+            }
+            if message.payload != HY2_QUIC_UDP_RELAY_SMOKE_PAYLOAD {
+                return Err(format!(
+                    "unexpected HY2 UDP payload: expected {:?}, got {:?}",
+                    HY2_QUIC_UDP_RELAY_SMOKE_PAYLOAD, message.payload
+                ));
+            }
+            keli_net_core::hy2_send_udp_datagram(
+                &connection,
+                message.session_id,
+                message.packet_id,
+                message.fragment_id,
+                message.fragment_count,
+                &Endpoint::new("127.0.0.1", HY2_QUIC_UDP_RELAY_SMOKE_TARGET_PORT),
+                HY2_QUIC_UDP_RELAY_SMOKE_RESPONSE,
+            )
+            .map_err(|error| format!("send HY2 QUIC UDP response: {error}"))?;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            Ok(UdpRelaySmokeServerObservation {
+                received_expected_payload: true,
+            })
+        })
+    });
+    let listen_port = match port_rx.recv_timeout(UDP_RELAY_SMOKE_TIMEOUT) {
+        Ok(Ok(port)) => port,
+        Ok(Err(error)) => {
+            let _ = join_udp_relay_smoke_server(handle);
+            return Err(error);
+        }
+        Err(error) => {
+            let _ = join_udp_relay_smoke_server(handle);
+            return Err(format!("receive HY2 QUIC UDP smoke address: {error}"));
+        }
+    };
+    Ok((listen_port, handle))
+}
+
+fn hy2_quic_udp_relay_smoke_server_config() -> Result<quinn::ServerConfig, String> {
+    let cert = generate_simple_self_signed(vec![HY2_QUIC_UDP_RELAY_SMOKE_SNI.to_string()])
+        .map_err(|error| format!("generate HY2 QUIC UDP smoke cert: {error}"))?;
+    let cert_der: CertificateDer<'static> = cert.cert.der().clone();
+    let key_der = PrivateKeyDer::Pkcs8(cert.signing_key.serialize_der().into());
+    let mut tls = rustls::ServerConfig::builder_with_provider(
+        rustls::crypto::ring::default_provider().into(),
+    )
+    .with_protocol_versions(&[&rustls::version::TLS13])
+    .map_err(|error| format!("configure HY2 QUIC UDP smoke TLS versions: {error}"))?
+    .with_no_client_auth()
+    .with_single_cert(vec![cert_der], key_der)
+    .map_err(|error| format!("configure HY2 QUIC UDP smoke certificate: {error}"))?;
+    tls.alpn_protocols = vec![b"h3".to_vec()];
+    quinn::crypto::rustls::QuicServerConfig::try_from(tls)
+        .map(|config| quinn::ServerConfig::with_crypto(Arc::new(config)))
+        .map_err(|error| format!("configure HY2 QUIC UDP smoke server: {error}"))
+}
+
+fn hy2_quic_udp_relay_smoke_metrics_recorded(metrics: &ConnectionMetricsSnapshot) -> bool {
+    metrics.total_connection_count >= 1
+        && metrics.success_count >= 1
+        && udp_relay_smoke_inbound_count(metrics, "socks5-udp") >= 1
+        && hy2_quic_udp_relay_smoke_outbound_route_count(metrics) >= 1
+        && metrics.total_upload_bytes >= HY2_QUIC_UDP_RELAY_SMOKE_PAYLOAD.len() as u64
+        && metrics.total_download_bytes >= HY2_QUIC_UDP_RELAY_SMOKE_RESPONSE.len() as u64
+}
+
+fn hy2_quic_udp_relay_smoke_outbound_route_count(metrics: &ConnectionMetricsSnapshot) -> u64 {
+    metrics
+        .route_action_counts
+        .iter()
+        .find(|entry| {
+            entry.route_action
+                == RouteAction::Outbound(HY2_QUIC_UDP_RELAY_SMOKE_OUTBOUND.to_string())
+        })
+        .map(|entry| entry.count)
+        .unwrap_or(0)
+}
+
+fn hy2_quic_udp_relay_smoke_target() -> String {
+    format!(
+        "{}:{}",
+        HY2_QUIC_UDP_RELAY_SMOKE_TARGET_HOST, HY2_QUIC_UDP_RELAY_SMOKE_TARGET_PORT
+    )
+}
+
+#[cfg(test)]
+mod hy2_quic_udp_relay_smoke_tests {
+    use super::*;
+
+    #[test]
+    fn default_hy2_quic_udp_relay_smoke_proves_h3_auth_and_udp_round_trip() {
+        let report = collect_default_hy2_quic_udp_relay_smoke_report();
+
+        assert!(report.passed, "{report:#?}");
+        assert_eq!(
+            report.selected_outbound.as_deref(),
+            Some(HY2_QUIC_UDP_RELAY_SMOKE_OUTBOUND)
+        );
+        assert_eq!(report.target, hy2_quic_udp_relay_smoke_target());
+        assert!(report.relay_port.is_some());
+        assert_eq!(report.response_source.as_deref(), Some("127.0.0.1:53"));
+        assert_eq!(
+            report.request_payload_bytes,
+            HY2_QUIC_UDP_RELAY_SMOKE_PAYLOAD.len()
+        );
+        assert_eq!(
+            report.response_payload_bytes,
+            Some(HY2_QUIC_UDP_RELAY_SMOKE_RESPONSE.len())
+        );
+        assert!(report.round_trip_observed);
+        assert!(report.server_received_payload);
+        assert!(report.metrics_recorded);
+        assert!(report.metrics_total_connections >= 1);
+        assert!(report.metrics_success_count >= 1);
+        assert!(report.metrics_inbound_count >= 1);
+        assert!(report.metrics_outbound_route_count >= 1);
+        assert!(report.clean_stop_observed);
+        assert_eq!(report.stop_workers_remaining, Some(0));
+        assert_eq!(report.stop_timed_out, Some(false));
+        let case_names = report
+            .cases
+            .iter()
+            .map(|case| case.name)
+            .collect::<Vec<_>>();
+        for expected in [
+            "start-hy2-quic-udp-relay-runtime",
+            "hy2-quic-udp-protocol-round-trip",
+            "record-hy2-quic-udp-relay-metrics",
+            "stop-hy2-quic-udp-relay-runtime",
+        ] {
+            assert!(
+                case_names.contains(&expected),
+                "missing HY2 QUIC UDP relay smoke case {expected}: {case_names:?}"
+            );
+        }
+        let round_trip = report
+            .cases
+            .iter()
+            .find(|case| case.name == "hy2-quic-udp-protocol-round-trip")
+            .expect("round trip case");
+        assert_eq!(
+            round_trip.observed_response.as_deref(),
+            Some("keli-hy2-udp-pong")
+        );
+        assert_eq!(round_trip.response_source.as_deref(), Some("127.0.0.1:53"));
         assert_eq!(round_trip.round_trip_observed, Some(true));
         assert_eq!(round_trip.server_received_payload, Some(true));
     }
@@ -57532,6 +58386,14 @@ fn write_readiness_check_text_report(
     .map_err(|error| error.to_string())?;
     writeln!(
         writer,
+        "readiness hy2_quic_udp_relay_smoke status={} cases={} detail={}",
+        udp_relay_smoke_status_label(&report.hy2_quic_udp_relay_smoke),
+        report.hy2_quic_udp_relay_smoke.cases.len(),
+        report.hy2_quic_udp_relay_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
         "readiness tuic_quic_tcp_relay_smoke status={} cases={} detail={}",
         tcp_relay_smoke_status_label(&report.tuic_quic_tcp_relay_smoke),
         report.tuic_quic_tcp_relay_smoke.cases.len(),
@@ -58007,6 +58869,9 @@ fn readiness_check_json_value(report: &DefaultCoreReadinessReport) -> serde_json
         "hy2_quic_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.hy2_quic_tcp_relay_smoke
         ),
+        "hy2_quic_udp_relay_smoke": udp_relay_smoke_json_value(
+            &report.hy2_quic_udp_relay_smoke
+        ),
         "tuic_quic_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.tuic_quic_tcp_relay_smoke
         ),
@@ -58455,6 +59320,14 @@ fn write_default_core_certification_text_report(
         tcp_relay_smoke_status_label(&report.hy2_quic_tcp_relay_smoke),
         report.hy2_quic_tcp_relay_smoke.cases.len(),
         report.hy2_quic_tcp_relay_smoke.detail
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        writer,
+        "default_core_certification hy2_quic_udp_relay_smoke status={} cases={} detail={}",
+        udp_relay_smoke_status_label(&report.hy2_quic_udp_relay_smoke),
+        report.hy2_quic_udp_relay_smoke.cases.len(),
+        report.hy2_quic_udp_relay_smoke.detail
     )
     .map_err(|error| error.to_string())?;
     writeln!(
@@ -59678,6 +60551,7 @@ fn default_core_certification_json_value(
             "naive_h2_tcp_relay_smoke_passed": report.naive_h2_tcp_relay_smoke.passed,
             "naive_h3_quic_tcp_relay_smoke_passed": report.naive_h3_quic_tcp_relay_smoke.passed,
             "hy2_quic_tcp_relay_smoke_passed": report.hy2_quic_tcp_relay_smoke.passed,
+            "hy2_quic_udp_relay_smoke_passed": report.hy2_quic_udp_relay_smoke.passed,
             "tuic_quic_tcp_relay_smoke_passed": report.tuic_quic_tcp_relay_smoke.passed,
             "vless_tcp_relay_smoke_passed": report.vless_tcp_relay_smoke.passed,
             "vless_ws_tcp_relay_smoke_passed": report.vless_ws_tcp_relay_smoke.passed,
@@ -59821,6 +60695,9 @@ fn default_core_certification_json_value(
         ),
         "hy2_quic_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.hy2_quic_tcp_relay_smoke
+        ),
+        "hy2_quic_udp_relay_smoke": udp_relay_smoke_json_value(
+            &report.hy2_quic_udp_relay_smoke
         ),
         "tuic_quic_tcp_relay_smoke": tcp_relay_smoke_json_value(
             &report.tuic_quic_tcp_relay_smoke

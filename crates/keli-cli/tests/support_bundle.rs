@@ -614,6 +614,10 @@ proxies:
         "machine-takeover-smoke-mode"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][92],
+        "hy2-quic-udp-relay-smoke"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -1068,6 +1072,10 @@ proxies:
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][109],
         "default-core-release-gate-rerun-command"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][110],
+        "hy2-quic-udp-relay-smoke"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
@@ -2490,6 +2498,7 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
         certification["readiness"]["hy2_quic_tcp_relay_smoke"]["case_count"],
         4
     );
+    assert_hy2_quic_udp_relay_smoke_certification(certification);
     assert_eq!(
         certification["certification"]["tuic_quic_tcp_relay_smoke_passed"],
         true
@@ -4368,6 +4377,83 @@ fn assert_vless_httpupgrade_udp_relay_smoke_certification(certification: &Value)
     );
     assert_eq!(
         certification["readiness"]["vless_httpupgrade_udp_relay_smoke"]["case_count"],
+        4
+    );
+}
+
+fn assert_hy2_quic_udp_relay_smoke_certification(certification: &Value) {
+    assert_eq!(
+        certification["certification"]["hy2_quic_udp_relay_smoke_passed"],
+        true
+    );
+    assert_eq!(
+        certification["hy2_quic_udp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(certification["hy2_quic_udp_relay_smoke"]["case_count"], 4);
+    assert_eq!(
+        certification["hy2_quic_udp_relay_smoke"]["failed_case_count"],
+        0
+    );
+    assert_eq!(
+        certification["hy2_quic_udp_relay_smoke"]["selected_outbound"],
+        "HY2-QUIC-UDP-SMOKE"
+    );
+    assert_eq!(
+        certification["hy2_quic_udp_relay_smoke"]["target"],
+        "example.com:53"
+    );
+    assert!(certification["hy2_quic_udp_relay_smoke"]["relay_port"].is_number());
+    assert_eq!(
+        certification["hy2_quic_udp_relay_smoke"]["response_source"],
+        "127.0.0.1:53"
+    );
+    assert_eq!(
+        certification["hy2_quic_udp_relay_smoke"]["request_payload_bytes"],
+        18
+    );
+    assert_eq!(
+        certification["hy2_quic_udp_relay_smoke"]["response_payload_bytes"],
+        17
+    );
+    assert_eq!(
+        certification["hy2_quic_udp_relay_smoke"]["round_trip_observed"],
+        true
+    );
+    assert_eq!(
+        certification["hy2_quic_udp_relay_smoke"]["server_received_payload"],
+        true
+    );
+    assert_eq!(
+        certification["hy2_quic_udp_relay_smoke"]["metrics_recorded"],
+        true
+    );
+    assert_eq!(
+        certification["hy2_quic_udp_relay_smoke"]["metrics_inbound_count"],
+        1
+    );
+    assert_eq!(
+        certification["hy2_quic_udp_relay_smoke"]["metrics_outbound_route_count"],
+        1
+    );
+    assert_eq!(
+        certification["hy2_quic_udp_relay_smoke"]["clean_stop_observed"],
+        true
+    );
+    assert_eq!(
+        certification["hy2_quic_udp_relay_smoke"]["stop_workers_remaining"],
+        0
+    );
+    assert_eq!(
+        certification["hy2_quic_udp_relay_smoke"]["stop_timed_out"],
+        false
+    );
+    assert_eq!(
+        certification["readiness"]["hy2_quic_udp_relay_smoke"]["status"],
+        "passed"
+    );
+    assert_eq!(
+        certification["readiness"]["hy2_quic_udp_relay_smoke"]["case_count"],
         4
     );
 }
