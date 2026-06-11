@@ -6542,6 +6542,20 @@ fn assert_tun_tcp_session_smoke_json(smoke: &Value) {
     assert_eq!(smoke["status"], "passed");
     assert_eq!(smoke["passed"], true);
     assert_eq!(smoke["selected_outbound"], "TUN-TCP-SESSION-SMOKE");
+    assert_eq!(smoke["expected_route_action"], "outbound");
+    assert_eq!(
+        smoke["observed_route_action"],
+        "outbound:TUN-TCP-SESSION-SMOKE"
+    );
+    assert_eq!(smoke["outbound_route_observed"], true);
+    let tcp_relay_plans = smoke["tcp_relay_plans_observed"]
+        .as_u64()
+        .expect("TUN TCP session relay plan count");
+    let tcp_session_events = smoke["tcp_session_events"]
+        .as_u64()
+        .expect("TUN TCP session event count");
+    assert!(tcp_relay_plans > 0);
+    assert_eq!(tcp_relay_plans, tcp_session_events);
     assert!(smoke["target"]
         .as_str()
         .expect("TUN TCP session target")

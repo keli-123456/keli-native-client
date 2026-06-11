@@ -408,6 +408,8 @@ pub struct TunPacketLoopSummary {
     pub relay_packets: usize,
     pub tcp_relay_plans: usize,
     pub udp_relay_plans: usize,
+    pub last_relay_route_action: Option<RouteAction>,
+    pub last_relay_matched_rule: Option<String>,
     pub dropped_packets: usize,
     pub last_dropped_flow: Option<TunPacketFlow>,
     pub last_dropped_route_action: Option<RouteAction>,
@@ -986,12 +988,21 @@ impl TunPacketLoopSummary {
                 self.tcp_resets_written += 1;
             }
             TunPacketLoopEvent::TcpSession {
+                plan,
                 step,
                 packets_written,
-                ..
             } => {
                 self.tcp_session_events += 1;
                 self.tcp_session_packets_written += packets_written;
+                self.last_relay_route_action = Some(plan.route.action.clone());
+                self.last_relay_matched_rule = plan.route.matched_rule.clone();
+                if matches!(
+                    plan.relay_action,
+                    TunPacketRelayAction::DirectTcp { .. }
+                        | TunPacketRelayAction::OutboundTcp { .. }
+                ) {
+                    self.tcp_relay_plans += 1;
+                }
                 if let TunTcpSessionStep::CloseMarkerReset { kind, .. } = step {
                     match kind {
                         TunTcpCloseMarkerResetKind::ServerClose => {
@@ -1005,6 +1016,8 @@ impl TunPacketLoopSummary {
             }
             TunPacketLoopEvent::Relay(plan) => {
                 self.relay_packets += 1;
+                self.last_relay_route_action = Some(plan.route.action.clone());
+                self.last_relay_matched_rule = plan.route.matched_rule.clone();
                 match plan.relay_action {
                     TunPacketRelayAction::DirectTcp { .. }
                     | TunPacketRelayAction::OutboundTcp { .. } => {
@@ -3969,6 +3982,34 @@ mod tests {
         })
     }
 
+    fn outbound_tcp_relay_plan() -> TunPacketRelayPlan {
+        let route = TunPacketRouteDecision {
+            flow: tcp_flow(TunIpVersion::Ipv4),
+            action: RouteAction::Outbound("edge".to_string()),
+            matched_rule: Some("proxy-https".to_string()),
+            dns_hijacked: false,
+        };
+        TunPacketRelayPlan {
+            relay_action: TunPacketRelayAction::OutboundTcp {
+                tag: "edge".to_string(),
+                target: OutboundTarget::new("93.184.216.34", 443),
+            },
+            route,
+        }
+    }
+
+    fn outbound_tcp_relay_event() -> TunPacketLoopEvent {
+        TunPacketLoopEvent::Relay(outbound_tcp_relay_plan())
+    }
+
+    fn outbound_tcp_session_event() -> TunPacketLoopEvent {
+        TunPacketLoopEvent::TcpSession {
+            plan: outbound_tcp_relay_plan(),
+            step: TunTcpSessionStep::Noop,
+            packets_written: 0,
+        }
+    }
+
     fn dns_hijack_route_decision(source_port: u16) -> TunPacketRouteDecision {
         TunPacketRouteDecision {
             flow: TunPacketFlow {
@@ -4063,6 +4104,38 @@ mod tests {
             expected.matched_rule.clone()
         );
         assert_eq!(summary.recent_dropped_routes, vec![expected]);
+    }
+
+    #[test]
+    fn packet_loop_summary_records_last_relay_route_action() {
+        let summary = TunPacketLoopSummary::from_events(&[outbound_tcp_relay_event()]);
+
+        assert_eq!(summary.relay_packets, 1);
+        assert_eq!(summary.tcp_relay_plans, 1);
+        assert_eq!(
+            summary.last_relay_route_action,
+            Some(RouteAction::Outbound("edge".to_string()))
+        );
+        assert_eq!(
+            summary.last_relay_matched_rule,
+            Some("proxy-https".to_string())
+        );
+    }
+
+    #[test]
+    fn packet_loop_summary_records_tcp_session_route_action() {
+        let summary = TunPacketLoopSummary::from_events(&[outbound_tcp_session_event()]);
+
+        assert_eq!(summary.tcp_session_events, 1);
+        assert_eq!(summary.tcp_relay_plans, 1);
+        assert_eq!(
+            summary.last_relay_route_action,
+            Some(RouteAction::Outbound("edge".to_string()))
+        );
+        assert_eq!(
+            summary.last_relay_matched_rule,
+            Some("proxy-https".to_string())
+        );
     }
 
     #[test]
