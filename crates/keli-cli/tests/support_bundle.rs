@@ -626,6 +626,10 @@ proxies:
         "dns-policy-ipv6-hijack-smoke"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][95],
+        "route-rule-block-evidence"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -1092,6 +1096,10 @@ proxies:
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][112],
         "dns-policy-ipv6-hijack-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][113],
+        "route-rule-block-evidence"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],

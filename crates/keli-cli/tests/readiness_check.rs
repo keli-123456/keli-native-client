@@ -63,6 +63,11 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
             "missing route smoke case {expected}: {route_case_names:?}"
         );
     }
+    for route_case in route_cases {
+        assert_eq!(route_case["expected_route_action"], "block");
+        assert_eq!(route_case["observed_route_action"], "block");
+        assert_eq!(route_case["block_confirmed"], true);
+    }
     let port_case = route_cases
         .iter()
         .find(|case| case["name"] == "port-block")

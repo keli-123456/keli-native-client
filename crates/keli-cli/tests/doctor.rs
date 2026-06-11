@@ -988,6 +988,10 @@ fn doctor_json_report_is_machine_readable() {
         report["readiness_check_capabilities"][94],
         "dns-policy-ipv6-hijack-smoke"
     );
+    assert_eq!(
+        report["readiness_check_capabilities"][95],
+        "route-rule-block-evidence"
+    );
     assert_eq!(report["tun_backend_check_capabilities"][0], "backend-kind");
     assert_eq!(
         report["tun_backend_check_capabilities"][2],
@@ -1445,6 +1449,10 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(
         report["default_core_certification_capabilities"][112],
         "dns-policy-ipv6-hijack-smoke"
+    );
+    assert_eq!(
+        report["default_core_certification_capabilities"][113],
+        "route-rule-block-evidence"
     );
     assert_eq!(
         report["resource_limits"]["runtime_event_history"],

@@ -378,7 +378,9 @@ as `tun-preflight --format json`, so platform handoff evidence is available
 without parsing gate detail strings. The default route-rule smoke proves
 domain suffix, IP CIDR, and exact-port block rules through local HTTP CONNECT
 and SOCKS5 mixed-inbound requests, including evidence that the blocked target
-listener was not contacted. The default DNS policy smoke proves local DNS leak
+listener was not contacted. Each route-rule case records the expected route
+action, observed route action, and block confirmation for machine-readable
+release evidence. The default DNS policy smoke proves local DNS leak
 prevention, address-family filtering, and SOCKS5 UDP DNS hijack A/AAAA responses
 without external network access by combining HTTP CONNECT failures with
 controlled DNS A/AAAA-query responses.
@@ -827,7 +829,7 @@ the current protocol matrix with validation and registry sample counts for CI,
 UI, and support tooling. `keli-cli readiness-check --format json` exports the
 current default-core readiness gates plus a blocker summary, including skipped
 or failed gates, plus route-rule smoke evidence for local mixed-inbound routing
-decisions and DNS policy smoke evidence for leak prevention, address-family
+decisions, structured block confirmation, and DNS policy smoke evidence for leak prevention, address-family
 filtering, hijacked DNS A/AAAA responses, and structured DNS rcode/answer/IP
 evidence, plus TCP relay smoke evidence for
 SOCKS5 CONNECT through a selected local Shadowsocks outbound, plus SOCKS5 TCP outbound relay smoke evidence for
