@@ -622,6 +622,10 @@ proxies:
         "tuic-quic-udp-relay-smoke"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][94],
+        "dns-policy-ipv6-hijack-smoke"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -1084,6 +1088,10 @@ proxies:
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][111],
         "tuic-quic-udp-relay-smoke"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][112],
+        "dns-policy-ipv6-hijack-smoke"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
@@ -1668,7 +1676,7 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
         true
     );
     assert_eq!(certification["dns_policy_smoke"]["status"], "passed");
-    assert_eq!(certification["dns_policy_smoke"]["case_count"], 4);
+    assert_eq!(certification["dns_policy_smoke"]["case_count"], 5);
     assert_eq!(certification["dns_policy_smoke"]["failed_case_count"], 0);
     assert_eq!(
         certification["readiness"]["dns_policy_smoke"]["status"],
@@ -1676,7 +1684,7 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     );
     assert_eq!(
         certification["readiness"]["dns_policy_smoke"]["case_count"],
-        4
+        5
     );
     assert_eq!(
         certification["certification"]["tcp_relay_smoke_passed"],

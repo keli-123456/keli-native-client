@@ -441,8 +441,8 @@ The first implementation target is deliberately small:
    through local HTTP CONNECT and SOCKS5 mixed-inbound requests, including
    evidence that the blocked target listener was not contacted. The default DNS
    policy smoke proves local DNS leak prevention, address-family filtering, and
-   SOCKS5 UDP DNS hijack responses without external network access by combining
-   HTTP CONNECT failures with controlled DNS A-query responses. The default TCP
+   SOCKS5 UDP DNS A/AAAA hijack responses without external network access by
+   combining HTTP CONNECT failures with controlled DNS A/AAAA-query responses. The default TCP
    relay smoke starts a managed mixed runtime from a local Shadowsocks
    subscription node, sends a SOCKS5 CONNECT stream through the selected
    outbound to a loopback encrypted TCP echo server, verifies the payload round

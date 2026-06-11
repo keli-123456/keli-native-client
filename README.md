@@ -379,9 +379,9 @@ without parsing gate detail strings. The default route-rule smoke proves
 domain suffix, IP CIDR, and exact-port block rules through local HTTP CONNECT
 and SOCKS5 mixed-inbound requests, including evidence that the blocked target
 listener was not contacted. The default DNS policy smoke proves local DNS leak
-prevention, address-family filtering, and SOCKS5 UDP DNS hijack responses
+prevention, address-family filtering, and SOCKS5 UDP DNS hijack A/AAAA responses
 without external network access by combining HTTP CONNECT failures with
-controlled DNS A-query responses.
+controlled DNS A/AAAA-query responses.
 The default TCP relay smoke starts a managed mixed runtime from a local
 Shadowsocks subscription node, sends a SOCKS5 CONNECT stream through the
 selected outbound to a loopback encrypted TCP echo server, verifies the
@@ -826,7 +826,7 @@ UI, and support tooling. `keli-cli readiness-check --format json` exports the
 current default-core readiness gates plus a blocker summary, including skipped
 or failed gates, plus route-rule smoke evidence for local mixed-inbound routing
 decisions and DNS policy smoke evidence for leak prevention, address-family
-filtering, and hijacked DNS responses, plus TCP relay smoke evidence for
+filtering, and hijacked DNS A/AAAA responses, plus TCP relay smoke evidence for
 SOCKS5 CONNECT through a selected local Shadowsocks outbound, plus SOCKS5 TCP outbound relay smoke evidence for
 SOCKS5 CONNECT through a selected local SOCKS5 outbound, plus HTTP CONNECT relay smoke evidence for
 the system-proxy-style TCP inbound through a selected local Shadowsocks outbound, plus HTTP CONNECT outbound relay smoke evidence for
