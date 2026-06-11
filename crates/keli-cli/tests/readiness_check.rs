@@ -6111,6 +6111,27 @@ fn default_core_certification_stability_gate_fails_when_soak_connections_are_too
         false
     );
     assert_eq!(
+        report["release_gate"]["stability"]["summary"]["evidence_required"],
+        true
+    );
+    assert_eq!(
+        report["release_gate"]["stability"]["summary"]["evidence_ready"],
+        false
+    );
+    assert!(report["release_gate"]["stability"]["summary"]["required_window_ms"].is_null());
+    assert_eq!(
+        report["release_gate"]["stability"]["summary"]["required_connections"],
+        2
+    );
+    assert_eq!(
+        report["release_gate"]["stability"]["summary"]["observed_local_soak_connections"],
+        1
+    );
+    assert_eq!(
+        report["release_gate"]["stability"]["summary"]["local_soak_connections_met"],
+        false
+    );
+    assert_eq!(
         report["release_gate"]["blockers"][0],
         "local-soak-stability-connections-too-low"
     );

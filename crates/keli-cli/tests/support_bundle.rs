@@ -1034,6 +1034,10 @@ proxies:
         "default-core-release-gate-preset-minimums"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][101],
+        "default-core-release-gate-stability-summary"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
@@ -5383,6 +5387,27 @@ fn support_bundle_certification_records_stability_connection_gate_failure() {
     );
     assert_eq!(
         certification["release_gate"]["stability"]["required_connections_met"],
+        false
+    );
+    assert_eq!(
+        certification["release_gate"]["stability"]["summary"]["evidence_required"],
+        true
+    );
+    assert_eq!(
+        certification["release_gate"]["stability"]["summary"]["evidence_ready"],
+        false
+    );
+    assert!(certification["release_gate"]["stability"]["summary"]["required_window_ms"].is_null());
+    assert_eq!(
+        certification["release_gate"]["stability"]["summary"]["required_connections"],
+        2
+    );
+    assert_eq!(
+        certification["release_gate"]["stability"]["summary"]["observed_local_soak_connections"],
+        1
+    );
+    assert_eq!(
+        certification["release_gate"]["stability"]["summary"]["local_soak_connections_met"],
         false
     );
     assert_eq!(
