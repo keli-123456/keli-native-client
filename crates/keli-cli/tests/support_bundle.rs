@@ -1058,6 +1058,10 @@ proxies:
         "default-core-release-gate-actionable-error"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][107],
+        "default-core-release-gate-rerun-args"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );

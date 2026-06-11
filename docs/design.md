@@ -771,7 +771,10 @@ The first implementation target is deliberately small:
    concrete command or remediation hints, with `next_action_count` for release
    scripts that only need to know whether follow-up work remains. Release-gate
    command errors include the same next-action list so CI logs remain actionable
-   even when the JSON artifact is not parsed inline. The nested
+   even when the JSON artifact is not parsed inline. `release_gate.rerun_args`
+   maps runnable next actions to concrete `default-core-certify` flags so
+   release tooling can present a copy/paste retry without hard-coding blocker
+   names. The nested
    `release_gate.stability` object lifts the
    existing local SOCKS5/HTTP CONNECT soak gate statuses, requested soak window,
    requested soak connection count, and optional TUN runtime duration result

@@ -5786,6 +5786,7 @@ fn default_core_certification_text_reports_summary_and_gates() {
     assert!(output.contains("default_core_certification release_gate status=not-required"));
     assert!(output.contains("required_scope=none"));
     assert!(output.contains("require_machine_takeover_ready=false"));
+    assert!(output.contains("rerun_args=-"));
     assert!(output.contains("default_core_certification tun_preflight status="));
     assert!(output.contains("default_core_certification route_rule_smoke status=passed cases=3"));
     assert!(output.contains("default_core_certification dns_policy_smoke status=passed cases=4"));
@@ -5965,6 +5966,9 @@ fn default_core_certification_machine_takeover_release_gate_fails_without_takeov
     assert!(error.contains("next_actions="));
     assert!(error.contains("run-with-include-system-proxy-smoke"));
     assert!(error.contains("run-with-include-tun-runtime-smoke"));
+    assert!(error.contains("rerun_args="));
+    assert!(error.contains("--include-system-proxy-smoke"));
+    assert!(error.contains("--include-tun-runtime-smoke"));
 
     let report: Value = serde_json::from_slice(&output).expect("certification JSON");
     assert_eq!(report["release_gate"]["status"], "failed");
@@ -6068,6 +6072,19 @@ fn default_core_certification_machine_takeover_release_gate_fails_without_takeov
     assert_eq!(
         report["release_gate"]["next_action_count"].as_u64(),
         Some(next_actions.len() as u64)
+    );
+    let rerun_args = report["release_gate"]["rerun_args"]
+        .as_array()
+        .expect("release gate rerun args");
+    assert!(rerun_args
+        .iter()
+        .any(|arg| arg.as_str() == Some("--include-system-proxy-smoke")));
+    assert!(rerun_args
+        .iter()
+        .any(|arg| arg.as_str() == Some("--include-tun-runtime-smoke")));
+    assert_eq!(
+        report["release_gate"]["rerun_arg_count"].as_u64(),
+        Some(rerun_args.len() as u64)
     );
 }
 
@@ -6299,6 +6316,16 @@ fn default_core_certification_records_release_gate_preset_evidence() {
     assert_eq!(
         report["release_gate"]["next_action_count"].as_u64(),
         Some(next_actions.len() as u64)
+    );
+    let rerun_args = report["release_gate"]["rerun_args"]
+        .as_array()
+        .expect("release gate rerun args");
+    assert!(rerun_args
+        .iter()
+        .any(|arg| arg.as_str() == Some("--default-core-release-gate")));
+    assert_eq!(
+        report["release_gate"]["rerun_arg_count"].as_u64(),
+        Some(rerun_args.len() as u64)
     );
     assert_eq!(
         report["certification"]["release_gate_preset"],

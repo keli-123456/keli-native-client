@@ -910,7 +910,9 @@ without stitching together top-level promotion fields. `release_gate.next_action
 turns those blockers into command- or fix-oriented hints, with
 `next_action_count` for machine checks; failed release-gate command errors print
 the same `next_actions` list so CI logs are actionable without parsing the JSON
-artifact first.
+artifact first. `release_gate.rerun_args` maps runnable next actions to concrete
+`default-core-certify` flags, with `rerun_arg_count` for automation that wants to
+surface a copy/paste retry.
 When a release preset is requested, the preset itself is part of
 `release_gate.required_scope`; unmet preset minimums make the release gate
 `failed` with preset blockers instead of reporting `not-required`.
