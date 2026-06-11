@@ -408,6 +408,9 @@ The first implementation target is deliberately small:
    floor with `--certification-stability-gate-connections`, preserving whether
    the target machine's local soak and optional TUN runtime evidence met the
    requested window and connection count.
+   `--certification-default-core-release-gate` is the support-bundle form of
+   the default desktop-core release preset: machine takeover plus a 60s
+   stability window and 25 local soak connections.
    `--certification-machine-takeover-gate` similarly records the hard machine
    takeover release-gate scope and blockers inside the embedded certification
    artifact while still allowing support bundle collection to complete.
@@ -770,7 +773,9 @@ The first implementation target is deliberately small:
    runtime smoke to meet the requested minimum duration before the release gate
    can pass. `--stability-gate-connections` adds the companion local soak
    traffic floor, failing the release gate when the artifact was produced with
-   too few local soak connections.
+   too few local soak connections. `--default-core-release-gate` applies the
+   CI/release preset for default desktop-core promotion by enabling machine
+   takeover plus a 60s stability window and 25 local soak connections.
    The default TUN TCP session smoke is always part of readiness and
    certification, proving the managed packet loop can relay a TCP session
    through the outbound registry and clean up session state without touching the

@@ -711,9 +711,13 @@ the command when the certification evidence does not meet it.
 `--stability-gate-connections` adds a local soak traffic floor to that same
 release gate, auto-filling omitted soak connections to the requested minimum
 and recording the required and observed connection counts in the JSON/text
-artifact. When `--soak-min-duration-ms` is provided, the local soak gates hold
-the managed runtime alive for that minimum duration and report
-`min_duration_ms` plus `duration_target_met` in the gate detail.
+artifact. `--default-core-release-gate` is the CI/release preset for default
+desktop-core promotion: it enables the machine-takeover gate plus a 60s
+stability window and 25 local soak connections while still allowing explicit
+duration or connection flags to override those defaults. When
+`--soak-min-duration-ms` is provided, the local soak gates hold the managed
+runtime alive for that minimum duration and report `min_duration_ms` plus
+`duration_target_met` in the gate detail.
 `default-core-certify` runs the non-skipped readiness gates and emits a
 single certification artifact that embeds the readiness report, TUN backend
 packaging evidence, structured TUN preflight evidence, route-rule smoke
@@ -780,7 +784,9 @@ requirement inside that embedded certification artifact, and
 `--certification-stability-gate-connections` records the matching local soak
 traffic floor, so support bundles can preserve the exact local soak/TUN runtime
 release-gate evidence from a target machine without making the default bundle
-expensive.
+expensive. `--certification-default-core-release-gate` embeds the same default
+desktop-core release preset into a support bundle so support artifacts and CI
+logs use the same machine-takeover plus 60s/25-connection stability criteria.
 `--certification-machine-takeover-gate` records the matching hard machine
 takeover release gate inside the embedded artifact, including missing system
 proxy or TUN runtime evidence, while still letting the support bundle itself be
@@ -928,12 +934,14 @@ cargo run -p keli-cli -- default-core-certify --format json --machine-takeover -
 cargo run -p keli-cli -- default-core-certify --format json --machine-takeover-gate --tun-runtime-smoke-min-duration-ms 250
 cargo run -p keli-cli -- default-core-certify --format json --machine-takeover-gate --stability-gate-ms 60000
 cargo run -p keli-cli -- default-core-certify --format json --machine-takeover-gate --stability-gate-ms 60000 --stability-gate-connections 25
+cargo run -p keli-cli -- default-core-certify --format json --default-core-release-gate
 cargo run -p keli-cli -- default-core-certify --format json --soak-min-duration-ms 60000
 cargo run -p keli-cli -- support-bundle --profile-config subscription.yaml
 cargo run -p keli-cli -- support-bundle --include-certification --certification-soak-min-duration-ms 60000
 cargo run -p keli-cli -- support-bundle --include-certification --certification-stability-gate-ms 60000
 cargo run -p keli-cli -- support-bundle --include-certification --certification-machine-takeover-gate --certification-stability-gate-ms 60000
 cargo run -p keli-cli -- support-bundle --include-certification --certification-machine-takeover-gate --certification-stability-gate-ms 60000 --certification-stability-gate-connections 25
+cargo run -p keli-cli -- support-bundle --certification-default-core-release-gate
 cargo run -p keli-cli -- subscription-update --current-config active.yaml --new-config subscription.yaml --current-outbound proxy --format json
 cargo run -p keli-cli -- soak-mixed --connections 25 --format json
 cargo run -p keli-cli -- soak-mixed --connections 25 --min-duration-ms 60000 --format json

@@ -998,6 +998,10 @@ proxies:
         "default-core-release-gate-stability-traffic-floor"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][98],
+        "default-core-release-gate-preset"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
