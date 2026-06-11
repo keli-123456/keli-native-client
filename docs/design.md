@@ -439,9 +439,11 @@ The first implementation target is deliberately small:
    handoff evidence without parsing gate detail strings. The default
    route-rule smoke proves domain suffix, IP CIDR, and exact-port block rules
    through local HTTP CONNECT and SOCKS5 mixed-inbound requests, including
-   evidence that the blocked target listener was not contacted. Each route-rule
-   case records expected route action, observed route action, and block
-   confirmation for machine-readable release evidence. The default DNS
+   evidence that the blocked target listener was not contacted, and also proves
+   an unmatched HTTP CONNECT can pass through direct routing and exchange
+   payload with a local target. Each route-rule case records expected route
+   action, observed route action, block confirmation, and direct confirmation
+   for machine-readable release evidence. The default DNS
    policy smoke proves local DNS leak prevention, address-family filtering, and
    SOCKS5 UDP DNS A/AAAA hijack responses without external network access by
    combining HTTP CONNECT failures with controlled DNS A/AAAA-query responses.

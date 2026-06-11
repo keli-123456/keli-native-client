@@ -630,6 +630,10 @@ proxies:
         "route-rule-block-evidence"
     );
     assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][96],
+        "route-rule-direct-evidence"
+    );
+    assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
         "backend-kind"
     );
@@ -1100,6 +1104,10 @@ proxies:
     assert_eq!(
         report["doctor"]["default_core_certification_capabilities"][113],
         "route-rule-block-evidence"
+    );
+    assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][114],
+        "route-rule-direct-evidence"
     );
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
@@ -1669,7 +1677,7 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
         true
     );
     assert_eq!(certification["route_rule_smoke"]["status"], "passed");
-    assert_eq!(certification["route_rule_smoke"]["case_count"], 3);
+    assert_eq!(certification["route_rule_smoke"]["case_count"], 4);
     assert_eq!(certification["route_rule_smoke"]["failed_case_count"], 0);
     assert_eq!(
         certification["readiness"]["route_rule_smoke"]["status"],
@@ -1677,7 +1685,7 @@ fn support_bundle_can_embed_default_core_certification_evidence() {
     );
     assert_eq!(
         certification["readiness"]["route_rule_smoke"]["case_count"],
-        3
+        4
     );
     assert_eq!(
         certification["certification"]["dns_policy_smoke_passed"],
