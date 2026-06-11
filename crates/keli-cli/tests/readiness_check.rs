@@ -6141,7 +6141,7 @@ fn default_core_certification_stability_gate_fails_when_soak_connections_are_too
 fn default_core_certification_records_release_gate_preset_evidence() {
     let mut output = Vec::new();
 
-    write_default_core_certification_report_with_release_gate_preset_and_stability_requirements(
+    let error = write_default_core_certification_report_with_release_gate_preset_and_stability_requirements(
         ProbeOutputFormat::Json,
         2,
         Duration::from_secs(2),
@@ -6156,9 +6156,14 @@ fn default_core_certification_records_release_gate_preset_evidence() {
         Some("default-core-release-gate"),
         &mut output,
     )
-    .expect("write default core certification with release gate preset evidence");
+    .expect_err("preset evidence should fail when preset minimums are not met");
+    assert!(error.contains("preset-machine-takeover-not-required"));
+    assert!(error.contains("preset-stability-window-below-default"));
+    assert!(error.contains("preset-stability-connections-below-default"));
 
     let report: Value = serde_json::from_slice(&output).expect("certification JSON");
+    assert_eq!(report["release_gate"]["status"], "failed");
+    assert_eq!(report["release_gate"]["passed"], false);
     assert_eq!(
         report["release_gate"]["preset"],
         "default-core-release-gate"
@@ -6186,6 +6191,22 @@ fn default_core_certification_records_release_gate_preset_evidence() {
     assert!(preset_blockers
         .iter()
         .any(|blocker| blocker.as_str() == Some("preset-stability-connections-below-default")));
+    let release_gate_blockers = report["release_gate"]["blockers"]
+        .as_array()
+        .expect("release gate blockers");
+    assert!(release_gate_blockers
+        .iter()
+        .any(|blocker| blocker.as_str() == Some("preset-machine-takeover-not-required")));
+    assert!(release_gate_blockers
+        .iter()
+        .any(|blocker| blocker.as_str() == Some("preset-stability-window-below-default")));
+    assert!(release_gate_blockers
+        .iter()
+        .any(|blocker| blocker.as_str() == Some("preset-stability-connections-below-default")));
+    assert_eq!(
+        report["release_gate"]["blocker_count"].as_u64(),
+        Some(release_gate_blockers.len() as u64)
+    );
     assert_eq!(
         report["certification"]["release_gate_preset"],
         "default-core-release-gate"
