@@ -47,6 +47,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let diagnostics_connection_metrics = diagnostics_connection_metrics(snapshot);
     let diagnostics_node_health = diagnostics_node_health(snapshot);
     let diagnostics_recent_event = diagnostics_recent_event(snapshot);
+    let runtime_event_items = runtime_event_items(snapshot);
     let diagnostics_system_proxy = diagnostics_system_proxy(snapshot);
     let diagnostics_tun = diagnostics_tun(snapshot);
     let diagnostics_default_core = diagnostics_default_core(snapshot);
@@ -344,6 +345,23 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       font-size: 12px;
       overflow-wrap: anywhere;
     }}
+    .event-list {{
+      display: grid;
+      gap: 6px;
+      margin-top: 10px;
+    }}
+    .event-row {{
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      gap: 8px;
+      color: #4d5968;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }}
+    .event-state {{
+      color: #171a1f;
+      font-weight: 700;
+    }}
     pre {{
       max-height: 160px;
       overflow: auto;
@@ -485,6 +503,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="muted" id="diagnostics-connection-metrics">{diagnostics_connection_metrics}</div>
         <div class="muted" id="diagnostics-node-health">{diagnostics_node_health}</div>
         <div class="muted" id="diagnostics-recent-event">{diagnostics_recent_event}</div>
+        <div class="event-list" id="runtime-event-list">{runtime_event_items}</div>
         <div class="muted" id="diagnostics-system-proxy">{diagnostics_system_proxy}</div>
         <div class="muted" id="diagnostics-tun">{diagnostics_tun}</div>
         <div class="muted" id="diagnostics-default-core">{diagnostics_default_core}</div>
@@ -799,6 +818,33 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const note = event.note ? ` - ${{event.note}}` : "";
       return `Recent event: ${{status}}${{note}}`;
     }}
+    function appendRuntimeEventRow(container, status, note) {{
+      const row = document.createElement("div");
+      const state = document.createElement("span");
+      const detail = document.createElement("span");
+      row.className = "event-row";
+      state.className = "event-state";
+      state.textContent = status;
+      detail.textContent = note;
+      row.append(state, detail);
+      container.appendChild(row);
+    }}
+    function renderRuntimeEventList(snapshot) {{
+      const container = document.getElementById("runtime-event-list");
+      container.replaceChildren();
+      const events = (snapshot.status.recent_events || []).slice(0, 6);
+      if (!events.length) {{
+        appendRuntimeEventRow(container, "Idle", "No runtime events");
+        return;
+      }}
+      for (const event of events) {{
+        appendRuntimeEventRow(
+          container,
+          runStateLabels[event.status] || event.status,
+          event.note || "No event detail"
+        );
+      }}
+    }}
     function diagnosticsSystemProxy(snapshot) {{
       return `System proxy: ${{systemProxyDependency(snapshot)}}`;
     }}
@@ -873,6 +919,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       document.getElementById("diagnostics-connection-metrics").textContent = diagnosticsConnectionMetrics(snapshot);
       document.getElementById("diagnostics-node-health").textContent = diagnosticsNodeHealth(snapshot);
       document.getElementById("diagnostics-recent-event").textContent = diagnosticsRecentEvent(snapshot);
+      renderRuntimeEventList(snapshot);
       document.getElementById("diagnostics-system-proxy").textContent = diagnosticsSystemProxy(snapshot);
       document.getElementById("diagnostics-tun").textContent = diagnosticsTun(snapshot);
       document.getElementById("diagnostics-default-core").textContent = diagnosticsDefaultCore(snapshot);
@@ -905,6 +952,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         diagnostics_connection_metrics = escape_html(&diagnostics_connection_metrics),
         diagnostics_node_health = escape_html(&diagnostics_node_health),
         diagnostics_recent_event = escape_html(&diagnostics_recent_event),
+        runtime_event_items = runtime_event_items,
         diagnostics_system_proxy = escape_html(&diagnostics_system_proxy),
         diagnostics_tun = escape_html(&diagnostics_tun),
         diagnostics_default_core = escape_html(&diagnostics_default_core),
@@ -1242,6 +1290,28 @@ fn diagnostics_recent_event(snapshot: &DesktopShellState) -> String {
         .map(|note| format!(" - {note}"))
         .unwrap_or_default();
     format!("Recent event: {}{}", run_state_label(event.status), note)
+}
+
+fn runtime_event_items(snapshot: &DesktopShellState) -> String {
+    if snapshot.status.recent_events.is_empty() {
+        return r#"<div class="event-row"><span class="event-state">Idle</span><span>No runtime events</span></div>"#
+            .to_string();
+    }
+
+    snapshot
+        .status
+        .recent_events
+        .iter()
+        .take(6)
+        .map(|event| {
+            let status = escape_html(run_state_label(event.status));
+            let note = escape_html(event.note.as_deref().unwrap_or("No event detail"));
+            format!(
+                r#"<div class="event-row"><span class="event-state">{status}</span><span>{note}</span></div>"#
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("")
 }
 
 fn diagnostics_system_proxy(snapshot: &DesktopShellState) -> String {
@@ -1973,6 +2043,28 @@ mod tests {
         ));
         assert!(html.contains("Recent event: Running - runtime running"));
         assert!(html.contains("Native core default"));
+    }
+
+    #[test]
+    fn diagnostics_html_renders_recent_runtime_event_list() {
+        let mut snapshot = snapshot();
+        snapshot.status.recent_events = vec![
+            DesktopRecentRuntimeEvent {
+                status: DesktopRunState::Running,
+                note: Some("listener ready".to_string()),
+            },
+            DesktopRecentRuntimeEvent {
+                status: DesktopRunState::Stopped,
+                note: Some("stopped cleanly".to_string()),
+            },
+        ];
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("id=\"runtime-event-list\""));
+        assert!(html.contains("listener ready"));
+        assert!(html.contains("stopped cleanly"));
+        assert!(html.contains("renderRuntimeEventList(snapshot)"));
     }
 
     #[test]
