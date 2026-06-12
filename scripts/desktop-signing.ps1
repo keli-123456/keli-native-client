@@ -6,7 +6,8 @@ param(
     [string]$CertificatePath = $env:KELI_SIGN_CERT_PATH,
     [string]$CertificatePassword = $env:KELI_SIGN_CERT_PASSWORD,
     [string]$CertificateSubject = $env:KELI_SIGN_CERT_SUBJECT,
-    [string]$TimestampUrl = $env:KELI_SIGN_TIMESTAMP_URL
+    [string]$TimestampUrl = $env:KELI_SIGN_TIMESTAMP_URL,
+    [switch]$SkipCertificateStoreDiscovery
 )
 
 Set-StrictMode -Version Latest
@@ -99,6 +100,47 @@ function Find-SignTool {
     }
 }
 
+function Get-CodeSigningCertificateCandidates {
+    param(
+        [switch]$SkipDiscovery
+    )
+
+    $stores = @('Cert:\CurrentUser\My', 'Cert:\LocalMachine\My')
+    if ($SkipDiscovery) {
+        return [ordered]@{
+            enabled = $false
+            stores = $stores
+            candidates = @()
+            count = 0
+        }
+    }
+
+    $candidates = @()
+    foreach ($store in $stores) {
+        if (!(Test-Path -LiteralPath $store)) {
+            continue
+        }
+
+        $certificates = Get-ChildItem -Path $store -CodeSigningCert -ErrorAction SilentlyContinue
+        foreach ($certificate in $certificates) {
+            $candidates += [ordered]@{
+                store = $store
+                subject = [string]$certificate.Subject
+                thumbprint = [string]$certificate.Thumbprint
+                not_after = $certificate.NotAfter.ToUniversalTime().ToString('o')
+                has_private_key = [bool]$certificate.HasPrivateKey
+            }
+        }
+    }
+
+    [ordered]@{
+        enabled = $true
+        stores = $stores
+        candidates = $candidates
+        count = $candidates.Count
+    }
+}
+
 function Get-SignatureEvidence {
     param(
         [Parameter(Mandatory = $true)]
@@ -152,6 +194,9 @@ function Get-SigningConfiguration {
         [string]$ConfiguredCertificateSubject,
 
         [Parameter(Mandatory = $true)]
+        [object]$CertificateStoreDiscovery,
+
+        [Parameter(Mandatory = $true)]
         [string]$ConfiguredTimestampUrl
     )
 
@@ -172,8 +217,120 @@ function Get-SigningConfiguration {
         certificate_password_configured = ![string]::IsNullOrWhiteSpace($ConfiguredCertificatePassword)
         timestamp_url = $ConfiguredTimestampUrl
         signing_method = $method
+        store_certificate_discovery = [ordered]@{
+            enabled = [bool]$CertificateStoreDiscovery.enabled
+            stores = @($CertificateStoreDiscovery.stores)
+        }
+        store_certificate_candidates_count = [int]$CertificateStoreDiscovery.count
+        store_certificate_candidates = @($CertificateStoreDiscovery.candidates)
         can_sign = ([bool]$SignTool.available -and $null -ne $method)
     }
+}
+
+function Get-ReleaseCommands {
+    [ordered]@{
+        inspect = 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-signing.ps1'
+        sign = 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-signing.ps1 -Sign'
+        public_release_gate = 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-public-release-gate.ps1'
+    }
+}
+
+function New-OperatorNextStep {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Id,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Detail,
+
+        [AllowNull()]
+        [string]$Command
+    )
+
+    [ordered]@{
+        id = $Id
+        detail = $Detail
+        command = $Command
+    }
+}
+
+function Add-OperatorNextStep {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [object[]]$Steps,
+
+        [Parameter(Mandatory = $true)]
+        [object]$Step
+    )
+
+    $existingIds = @($Steps | ForEach-Object { [string]$_.id })
+    if ($existingIds -contains [string]$Step.id) {
+        return $Steps
+    }
+    return @($Steps + $Step)
+}
+
+function Get-OperatorNextSteps {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$SignTool,
+
+        [Parameter(Mandatory = $true)]
+        [object]$Configuration,
+
+        [Parameter(Mandatory = $true)]
+        [object[]]$Artifacts,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$Blockers,
+
+        [Parameter(Mandatory = $true)]
+        [object]$ReleaseCommands
+    )
+
+    $steps = @()
+    if (!$SignTool.available) {
+        $steps = Add-OperatorNextStep -Steps $steps -Step (New-OperatorNextStep `
+            -Id 'signtool-missing' `
+            -Detail 'Install Windows SDK signtool.exe or set KELI_SIGNTOOL_PATH to signtool.exe.' `
+            -Command $null)
+    }
+    if ($Configuration.certificate_path_configured -and !$Configuration.certificate_path_exists) {
+        $steps = Add-OperatorNextStep -Steps $steps -Step (New-OperatorNextStep `
+            -Id 'fix-certificate-path' `
+            -Detail 'KELI_SIGN_CERT_PATH is configured but the PFX file was not found; set it to an existing code-signing PFX.' `
+            -Command $null)
+    }
+    if (!$Configuration.certificate_path_exists -and !$Configuration.certificate_subject_configured) {
+        if ($Configuration.store_certificate_candidates_count -gt 0) {
+            $steps = Add-OperatorNextStep -Steps $steps -Step (New-OperatorNextStep `
+                -Id 'choose-store-certificate-subject' `
+                -Detail 'A code-signing certificate exists in the Windows certificate store; set KELI_SIGN_CERT_SUBJECT to the certificate subject before signing.' `
+                -Command $null)
+        } else {
+            $steps = Add-OperatorNextStep -Steps $steps -Step (New-OperatorNextStep `
+                -Id 'configure-code-signing-certificate' `
+                -Detail 'Provide a trusted code-signing certificate with KELI_SIGN_CERT_PATH or KELI_SIGN_CERT_SUBJECT before public release signing.' `
+                -Command $null)
+        }
+    }
+
+    $unsignedArtifacts = @($Artifacts | Where-Object { !$_.signature.signed })
+    if ($unsignedArtifacts.Count -gt 0) {
+        $steps = Add-OperatorNextStep -Steps $steps -Step (New-OperatorNextStep `
+            -Id 'run-desktop-signing-sign' `
+            -Detail 'After certificate configuration is ready, sign the desktop EXE and MSI artifacts.' `
+            -Command $ReleaseCommands.sign)
+    }
+    if ($Blockers.Count -gt 0) {
+        $steps = Add-OperatorNextStep -Steps $steps -Step (New-OperatorNextStep `
+            -Id 'run-public-release-gate' `
+            -Detail 'After signing succeeds, rerun the hard public release gate to regenerate evidence and confirm readiness.' `
+            -Command $ReleaseCommands.public_release_gate)
+    }
+
+    return $steps
 }
 
 function Invoke-SignToolSign {
@@ -235,10 +392,14 @@ try {
         Write-Output 'config KELI_SIGN_CERT_SUBJECT optional_store_subject'
         Write-Output 'config KELI_SIGN_CERT_PASSWORD optional_secret'
         Write-Output 'config KELI_SIGN_TIMESTAMP_URL default http://timestamp.digicert.com'
+        Write-Output 'discover certificate_store_code_signing_candidates'
+        Write-Output 'config -SkipCertificateStoreDiscovery deterministic_tests'
         Write-Output 'mode inspect default'
         Write-Output 'mode sign requires -Sign'
         Write-Output 'metadata public_release_blocker artifact-signature-missing'
         Write-Output 'metadata public_release_blocker signing-certificate-missing'
+        Write-Output 'metadata operator_next_steps'
+        Write-Output 'metadata release_commands'
         Write-Output "output $evidenceRelativePath"
         return
     }
@@ -247,11 +408,13 @@ try {
     Require-File -Path $msiPath
 
     $signTool = Find-SignTool -ConfiguredPath $SignToolPath
+    $certificateStoreDiscovery = Get-CodeSigningCertificateCandidates -SkipDiscovery:$SkipCertificateStoreDiscovery
     $configuration = Get-SigningConfiguration `
         -SignTool $signTool `
         -ConfiguredCertificatePath $CertificatePath `
         -ConfiguredCertificatePassword $CertificatePassword `
         -ConfiguredCertificateSubject $CertificateSubject `
+        -CertificateStoreDiscovery $certificateStoreDiscovery `
         -ConfiguredTimestampUrl $TimestampUrl
 
     if ($Sign) {
@@ -281,12 +444,22 @@ try {
         $blockers = Add-UniqueString -Values $blockers -Value 'signtool-missing'
     }
 
+    $releaseCommands = Get-ReleaseCommands
+    $operatorNextSteps = Get-OperatorNextSteps `
+        -SignTool $signTool `
+        -Configuration $configuration `
+        -Artifacts $artifacts `
+        -Blockers $blockers `
+        -ReleaseCommands $releaseCommands
+
     $evidence = [ordered]@{
         status = 'passed'
         mode = if ($Sign) { 'sign' } else { 'inspect' }
         signtool = $signTool
         configuration = $configuration
         artifacts = $artifacts
+        operator_next_steps = $operatorNextSteps
+        release_commands = $releaseCommands
         public_release_ready = ($blockers.Count -eq 0)
         public_release_blockers = $blockers
     }

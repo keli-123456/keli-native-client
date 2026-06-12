@@ -31,6 +31,9 @@ $expected = @(
     'metadata public_release_ready false_when_unsigned',
     'metadata public_release_ready false_when_machine_takeover_missing',
     'metadata public_release_ready false_when_signing_missing',
+    'metadata signing_store_certificate_candidates_count',
+    'metadata signing_operator_next_steps',
+    'metadata signing_release_commands',
     'output target\desktop\keli-desktop-release-evidence.json'
 )
 

@@ -171,12 +171,30 @@ function Read-SigningStatus {
         $blockers = @($signing.public_release_blockers | ForEach-Object { [string]$_ })
     }
 
+    $storeCertificateCandidatesCount = 0
+    if ($null -ne $signing.configuration.PSObject.Properties['store_certificate_candidates_count']) {
+        $storeCertificateCandidatesCount = [int]$signing.configuration.store_certificate_candidates_count
+    }
+
+    $operatorNextSteps = @()
+    if ($null -ne $signing.PSObject.Properties['operator_next_steps']) {
+        $operatorNextSteps = @($signing.operator_next_steps | ForEach-Object { [string]$_.id })
+    }
+
+    $releaseCommands = [ordered]@{}
+    if ($null -ne $signing.PSObject.Properties['release_commands']) {
+        $releaseCommands = $signing.release_commands
+    }
+
     [ordered]@{
         path = $RelativePath
         status = [string]$signing.status
         mode = [string]$signing.mode
         signtool_available = [bool]$signing.signtool.available
         can_sign = [bool]$signing.configuration.can_sign
+        store_certificate_candidates_count = $storeCertificateCandidatesCount
+        operator_next_steps = $operatorNextSteps
+        release_commands = $releaseCommands
         blockers = $blockers
     }
 }
@@ -232,6 +250,9 @@ try {
         Write-Output 'metadata public_release_ready false_when_unsigned'
         Write-Output 'metadata public_release_ready false_when_machine_takeover_missing'
         Write-Output 'metadata public_release_ready false_when_signing_missing'
+        Write-Output 'metadata signing_store_certificate_candidates_count'
+        Write-Output 'metadata signing_operator_next_steps'
+        Write-Output 'metadata signing_release_commands'
         Write-Output "output $evidenceRelativePath"
         return
     }
