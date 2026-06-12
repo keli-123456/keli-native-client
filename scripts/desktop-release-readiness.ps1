@@ -125,6 +125,28 @@ function Get-SignCommandPreviewsProperty {
     })
 }
 
+function Get-FirstRunBlockersProperty {
+    param(
+        [AllowNull()]
+        [object]$InputObject,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if (!(Test-JsonProperty -InputObject $InputObject -Name $Name)) {
+        return @()
+    }
+
+    return @($InputObject.$Name | ForEach-Object {
+        [ordered]@{
+            code = Get-StringProperty -InputObject $_ -Name 'code'
+            message = Get-StringProperty -InputObject $_ -Name 'message'
+            action = Get-StringProperty -InputObject $_ -Name 'action'
+        }
+    })
+}
+
 function Get-ReleaseCommands {
     param(
         [AllowNull()]
@@ -158,6 +180,7 @@ function New-ReadinessReport {
 
     $signing = if (Test-JsonProperty -InputObject $Evidence -Name 'signing') { $Evidence.signing } else { $null }
     $smoke = if (Test-JsonProperty -InputObject $Evidence -Name 'smoke') { $Evidence.smoke } else { $null }
+    $install = if (Test-JsonProperty -InputObject $smoke -Name 'install') { $smoke.install } else { $null }
     $machine = if (Test-JsonProperty -InputObject $smoke -Name 'machine') { $smoke.machine } else { $null }
     $commands = Get-ReleaseCommands -Signing $signing
 
@@ -166,6 +189,12 @@ function New-ReadinessReport {
         blockers = Get-StringArrayProperty -InputObject $Evidence -Name 'public_release_blockers'
         next_steps = Get-StringArrayProperty -InputObject $Evidence -Name 'public_release_next_steps'
         machine_takeover_status = Get-StringProperty -InputObject $machine -Name 'machine_takeover_status' -Default 'unknown'
+        install_first_run = [ordered]@{
+            system_proxy_ready = Get-BoolProperty -InputObject $install -Name 'first_run_system_proxy_ready'
+            tun_ready = Get-BoolProperty -InputObject $install -Name 'first_run_tun_ready'
+            blockers = @(Get-FirstRunBlockersProperty -InputObject $install -Name 'first_run_blockers')
+            dependency_action_entrypoints = @(Get-StringArrayProperty -InputObject $install -Name 'dependency_action_entrypoints')
+        }
         signing = [ordered]@{
             status = Get-StringProperty -InputObject $signing -Name 'status'
             mode = Get-StringProperty -InputObject $signing -Name 'mode'
@@ -202,6 +231,10 @@ function Write-ReadinessText {
     Write-Output "blockers $($Report.blockers -join ',')"
     Write-Output "next_steps $($Report.next_steps -join ',')"
     Write-Output "machine_takeover_status $($Report.machine_takeover_status)"
+    Write-Output "install_first_run_system_proxy_ready $(Format-Bool -Value $Report.install_first_run.system_proxy_ready)"
+    Write-Output "install_first_run_tun_ready $(Format-Bool -Value $Report.install_first_run.tun_ready)"
+    Write-Output "install_first_run_blockers $($Report.install_first_run.blockers.code -join ',')"
+    Write-Output "install_dependency_action_entrypoints $($Report.install_first_run.dependency_action_entrypoints -join ',')"
     Write-Output "signing_status $($Report.signing.status)"
     Write-Output "signing_mode $($Report.signing.mode)"
     Write-Output "signing_can_sign $(Format-Bool -Value $Report.signing.can_sign)"
@@ -230,6 +263,7 @@ try {
         Write-Output "input $releaseEvidenceRelativePath"
         Write-Output 'read public_release_ready public_release_blockers public_release_next_steps'
         Write-Output 'read signing.status signing.mode signing.can_sign signing.signtool_available signing.signing_method signing.timestamp_url signing.store_certificate_candidates_count signing.certificate_subject_match_count signing.unsigned_artifacts signing.sign_verification_failures signing.sign_command_previews signing.release_commands'
+        Write-Output 'read smoke.install.first_run_system_proxy_ready smoke.install.first_run_tun_ready smoke.install.first_run_blockers smoke.install.dependency_action_entrypoints'
         Write-Output 'read smoke.machine.machine_takeover_status'
         Write-Output 'output desktop public release readiness report'
         Write-Output 'output json when -Json is provided'

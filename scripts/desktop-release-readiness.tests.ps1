@@ -22,6 +22,7 @@ $expectedPlan = @(
     'input target\desktop\keli-desktop-release-evidence.json',
     'read public_release_ready public_release_blockers public_release_next_steps',
     'read signing.status signing.mode signing.can_sign signing.signtool_available signing.signing_method signing.timestamp_url signing.store_certificate_candidates_count signing.certificate_subject_match_count signing.unsigned_artifacts signing.sign_verification_failures signing.sign_command_previews signing.release_commands',
+    'read smoke.install.first_run_system_proxy_ready smoke.install.first_run_tun_ready smoke.install.first_run_blockers smoke.install.dependency_action_entrypoints',
     'read smoke.machine.machine_takeover_status',
     'output desktop public release readiness report',
     'output json when -Json is provided'
@@ -66,6 +67,18 @@ $fixture = [ordered]@{
         }
     }
     smoke = [ordered]@{
+        install = [ordered]@{
+            first_run_system_proxy_ready = $true
+            first_run_tun_ready = $false
+            first_run_blockers = @(
+                [ordered]@{
+                    code = 'wintun-missing'
+                    message = 'Wintun library was not found'
+                    action = 'install-wintun'
+                }
+            )
+            dependency_action_entrypoints = @('install-wintun')
+        }
         machine = [ordered]@{
             machine_takeover_status = 'ready'
         }
@@ -118,6 +131,21 @@ if (($report.signing.unsigned_artifacts -join ',') -ne 'target\release\keli-desk
 if (($report.signing.sign_verification_failures -join ',') -ne 'target\release\keli-desktop-shell.exe') {
     throw "readiness signing verification failures mismatch: $($report.signing.sign_verification_failures -join ',')"
 }
+if ($report.install_first_run.system_proxy_ready -ne $true) {
+    throw 'readiness install first-run system proxy should be ready'
+}
+if ($report.install_first_run.tun_ready -ne $false) {
+    throw 'readiness install first-run TUN should be blocked'
+}
+if ($report.install_first_run.blockers.Count -ne 1) {
+    throw "readiness install first-run blocker count mismatch: $($report.install_first_run.blockers.Count)"
+}
+if ($report.install_first_run.blockers[0].code -ne 'wintun-missing') {
+    throw "readiness install first-run blocker code mismatch: $($report.install_first_run.blockers[0].code)"
+}
+if (($report.install_first_run.dependency_action_entrypoints -join ',') -ne 'install-wintun') {
+    throw "readiness install dependency action entrypoints mismatch: $($report.install_first_run.dependency_action_entrypoints -join ',')"
+}
 if ($report.signing.sign_command_previews.Count -ne 1) {
     throw "readiness signing command preview count mismatch: $($report.signing.sign_command_previews.Count)"
 }
@@ -136,6 +164,22 @@ if ($report.machine_takeover_status -ne 'ready') {
 }
 if ($report.commands.sign -ne 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-signing.ps1 -Sign') {
     throw "readiness sign command mismatch: $($report.commands.sign)"
+}
+
+$textOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $readinessScript -EvidencePath $fixturePath
+if ($LASTEXITCODE -ne 0) {
+    throw "desktop-release-readiness.ps1 text mode exited with $LASTEXITCODE"
+}
+$text = $textOutput -join "`n"
+foreach ($item in @(
+    'install_first_run_system_proxy_ready true',
+    'install_first_run_tun_ready false',
+    'install_first_run_blockers wintun-missing',
+    'install_dependency_action_entrypoints install-wintun'
+)) {
+    if (!$text.Contains($item)) {
+        throw "readiness text output missing: $item"
+    }
 }
 
 $emptyFixture = $fixture
