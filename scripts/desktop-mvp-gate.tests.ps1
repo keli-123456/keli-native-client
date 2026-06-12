@@ -30,6 +30,7 @@ $expected = @(
     'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-machine-smoke.ps1',
     'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-signing.ps1',
     'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-release-evidence.ps1',
+    'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-beta-rc.ps1',
     'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-mvp-status.ps1 -FailOnMvpBlocked',
     'target\release\keli-desktop-shell.exe',
     'target\desktop\keli-desktop-mvp-windows-x64.zip',
@@ -38,6 +39,8 @@ $expected = @(
     'target\desktop\keli-desktop-machine-smoke.json',
     'target\desktop\keli-desktop-signing.json',
     'target\desktop\keli-desktop-release-evidence.json',
+    'target\desktop\keli-desktop-unsigned-beta-manifest.json',
+    'target\desktop\keli-desktop-unsigned-beta-release-notes.md',
     'target\desktop-install-smoke\desktop-install-smoke.json'
 )
 

@@ -945,6 +945,19 @@ redacted support bundle.
 - Keep Keli-specific behavior in first-class models: panel state, node health,
   risk control, and support diagnostics.
 
+## Windows Unsigned Beta RC
+
+Unsigned Windows desktop Beta RC builds are tester builds. They include portable
+ZIP and MSI artifacts, SHA256 hashes, release evidence, and release notes, but
+they are not a signed public release; Windows may show SmartScreen or publisher
+warnings until a code-signing certificate is configured.
+
+Use `scripts\desktop-beta-rc.ps1` after `scripts\desktop-mvp-gate.ps1` to write
+`target\desktop\keli-desktop-unsigned-beta-manifest.json` and
+`target\desktop\keli-desktop-unsigned-beta-release-notes.md`. The Beta RC gate
+passes only when the desktop MVP is ready and the public-release blockers are
+limited to `artifact-signature-missing` and `signing-certificate-missing`.
+
 ## Verify
 
 ```powershell
@@ -976,4 +989,7 @@ cargo run -p keli-cli -- support-bundle --certification-default-core-release-gat
 cargo run -p keli-cli -- subscription-update --current-config active.yaml --new-config subscription.yaml --current-outbound proxy --format json
 cargo run -p keli-cli -- soak-mixed --connections 25 --format json
 cargo run -p keli-cli -- soak-mixed --connections 25 --min-duration-ms 60000 --format json
+scripts\desktop-mvp-gate.ps1
+scripts\desktop-public-release-gate.ps1 -SkipGate
+scripts\desktop-beta-rc.ps1
 ```
