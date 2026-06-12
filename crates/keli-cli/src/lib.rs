@@ -164,6 +164,7 @@ const TUN_RUNTIME_SMOKE_RELAY_PAYLOAD: &[u8] = b"keli-tun-runtime-relay";
 const TUN_RUNTIME_SMOKE_RELAY_RESPONSE: &[u8] = b"keli-tun-runtime-relay-pong";
 const TUN_RUNTIME_SMOKE_RELAY_USERNAME: &str = "keli-tun-runtime";
 const TUN_RUNTIME_SMOKE_RELAY_PASSWORD: &str = "relay-smoke";
+const TUN_RUNTIME_SMOKE_RELAY_SERVER_TIMEOUT: Duration = Duration::from_secs(5);
 const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_WARMUP: Duration = Duration::from_millis(100);
 const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_ATTEMPTS: usize = 3;
 const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_INTERVAL: Duration = Duration::from_millis(10);
@@ -58973,7 +58974,7 @@ fn spawn_tun_runtime_smoke_relay_server() -> Result<TunRuntimeSmokeRelayServer, 
     let relay = UdpSocket::bind("127.0.0.1:0")
         .map_err(|error| format!("bind TUN runtime relay UDP socket: {error}"))?;
     relay
-        .set_read_timeout(Some(TUN_RUNTIME_SMOKE_DNS_READ_TIMEOUT))
+        .set_read_timeout(Some(TUN_RUNTIME_SMOKE_RELAY_SERVER_TIMEOUT))
         .map_err(|error| format!("set TUN runtime relay UDP timeout: {error}"))?;
     let relay_port = relay
         .local_addr()
@@ -58990,7 +58991,7 @@ fn spawn_tun_runtime_smoke_relay_server() -> Result<TunRuntimeSmokeRelayServer, 
         .port();
     let handle = thread::spawn(
         move || -> Result<TunRuntimeSmokeRelayServerObservation, String> {
-            let deadline = Instant::now() + TUN_RUNTIME_SMOKE_DNS_READ_TIMEOUT;
+            let deadline = Instant::now() + TUN_RUNTIME_SMOKE_RELAY_SERVER_TIMEOUT;
             let (mut control, _) = loop {
                 match listener.accept() {
                     Ok(accepted) => break accepted,
@@ -59009,10 +59010,10 @@ fn spawn_tun_runtime_smoke_relay_server() -> Result<TunRuntimeSmokeRelayServer, 
                 .set_nonblocking(false)
                 .map_err(|error| format!("set TUN runtime relay control mode: {error}"))?;
             control
-                .set_read_timeout(Some(TUN_RUNTIME_SMOKE_DNS_READ_TIMEOUT))
+                .set_read_timeout(Some(TUN_RUNTIME_SMOKE_RELAY_SERVER_TIMEOUT))
                 .map_err(|error| format!("set TUN runtime relay control read timeout: {error}"))?;
             control
-                .set_write_timeout(Some(TUN_RUNTIME_SMOKE_DNS_READ_TIMEOUT))
+                .set_write_timeout(Some(TUN_RUNTIME_SMOKE_RELAY_SERVER_TIMEOUT))
                 .map_err(|error| format!("set TUN runtime relay control write timeout: {error}"))?;
 
             read_tun_runtime_smoke_relay_handshake(&mut control)?;
@@ -59602,6 +59603,33 @@ mod tun_runtime_smoke_tests {
             .expect("relay UDP datagram through registered SOCKS5 outbound");
         let observation = join_tun_runtime_smoke_relay_server(relay_server.handle)
             .expect("join TUN runtime relay server");
+
+        assert_eq!(response.source, TUN_RUNTIME_SMOKE_RELAY_TARGET);
+        assert_eq!(response.payload, TUN_RUNTIME_SMOKE_RELAY_RESPONSE);
+        assert!(observation.received_expected_payload);
+    }
+
+    #[test]
+    fn tun_runtime_smoke_relay_server_waits_for_pre_stimulus_diagnostics() {
+        let relay_server =
+            spawn_tun_runtime_smoke_relay_server().expect("start TUN runtime relay server");
+        thread::sleep(TUN_RUNTIME_SMOKE_DNS_READ_TIMEOUT + Duration::from_millis(100));
+        let runtime =
+            default_tun_runtime_smoke_runtime_with_relay_server(relay_server.control_port);
+        let response = runtime
+            .outbounds
+            .relay_udp_datagram(
+                TUN_RUNTIME_SMOKE_RELAY_OUTBOUND,
+                &OutboundTarget::new(
+                    TUN_RUNTIME_SMOKE_RELAY_TARGET.ip().to_string(),
+                    TUN_RUNTIME_SMOKE_RELAY_TARGET.port(),
+                ),
+                TUN_RUNTIME_SMOKE_RELAY_PAYLOAD,
+                TUN_RUNTIME_SMOKE_DNS_READ_TIMEOUT,
+            )
+            .expect("relay UDP datagram after pre-stimulus diagnostics delay");
+        let observation = join_tun_runtime_smoke_relay_server(relay_server.handle)
+            .expect("join delayed TUN runtime relay server");
 
         assert_eq!(response.source, TUN_RUNTIME_SMOKE_RELAY_TARGET);
         assert_eq!(response.payload, TUN_RUNTIME_SMOKE_RELAY_RESPONSE);
