@@ -490,6 +490,12 @@ fn managed_tun_packet_loop_with_runtime_relays_tagged_udp_via_registry() {
     assert_eq!(*controller.stops.borrow(), 1);
     assert_eq!(report.summary.processed_packets(), 1);
     assert_eq!(report.summary.udp_relay_responses_written, 1);
+    assert_eq!(report.summary.udp_relay_plans, 1);
+    assert_eq!(
+        report.summary.last_relay_route_action,
+        Some(RouteAction::Outbound("edge".to_string()))
+    );
+    assert!(report.summary.last_relay_matched_rule.is_none());
     let writes = writes.lock().expect("TUN writes lock");
     assert_eq!(writes.len(), 1);
     let response = parse_tun_udp_payload(&writes[0]).expect("parse TUN UDP response");
@@ -955,6 +961,8 @@ fn managed_mixed_session_records_tun_runtime_status_note_after_serve() {
     assert!(note.contains("tcp_post_close_markers_peak=0"));
     assert!(note.contains("tcp_relay_plans=0"));
     assert!(note.contains("udp_relay_plans=0"));
+    assert!(note.contains("last_relay_route_action=none"));
+    assert!(note.contains("last_relay_matched_rule=none"));
     assert!(note.contains("packet_errors=1"));
     assert!(note.contains("tcp_session_errors=0"));
     assert!(note.contains("last_packet_error=unsupported_TUN_packet_IP_version:_0"));

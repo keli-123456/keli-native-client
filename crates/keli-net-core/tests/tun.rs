@@ -4119,7 +4119,9 @@ fn tun_packet_loop_with_udp_relay_writes_direct_udp_response() {
     assert_eq!(summary.udp_relay_responses_written, 1);
     assert_eq!(summary.relay_packets, 0);
     assert_eq!(summary.tcp_relay_plans, 0);
-    assert_eq!(summary.udp_relay_plans, 0);
+    assert_eq!(summary.udp_relay_plans, 1);
+    assert_eq!(summary.last_relay_route_action, Some(RouteAction::Direct));
+    assert!(summary.last_relay_matched_rule.is_none());
     assert_eq!(summary.udp_relay_errors, 0);
     assert_eq!(
         relay.calls,
@@ -4163,6 +4165,12 @@ fn tun_packet_loop_with_udp_relay_writes_outbound_udp_response() {
 
     assert_eq!(summary.processed_packets(), 1);
     assert_eq!(summary.udp_relay_responses_written, 1);
+    assert_eq!(summary.udp_relay_plans, 1);
+    assert_eq!(
+        summary.last_relay_route_action,
+        Some(RouteAction::Outbound("edge".to_string()))
+    );
+    assert!(summary.last_relay_matched_rule.is_none());
     assert!(relay.calls.is_empty());
     assert_eq!(
         relay.outbound_calls,

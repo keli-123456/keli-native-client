@@ -567,12 +567,12 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(4);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 105;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 94;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 106;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 95;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 90;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 109;
-pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 5;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 91;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 110;
+pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 6;
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW: Duration = Duration::from_secs(60);
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS: usize = 25;
 const DEFAULT_CORE_RELEASE_GATE_PRESET_NAME: &str = "default-core-release-gate";
@@ -587,23 +587,23 @@ const ROUTE_RULE_CAPABILITIES: &str =
 const MANAGED_CONNECTION_METRIC_CAPABILITIES: &str =
     "total-connection-count,success-count,failure-count,connection-limit-rejection-count,error-kind-counts,route-action-counts,inbound-counts,total-upload-bytes,total-download-bytes,total-connect-ms,timed-connect-count,average-connect-ms,total-first-byte-ms,timed-first-byte-count,average-first-byte-ms,last-connection-timestamp,last-success-timestamp,last-failure-timestamp,recent-connection-reports,history-limit";
 const MANAGED_STATUS_SCHEMA_CAPABILITIES: &str =
-    "schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,runtime-tun-drop-history,runtime-tun-dns-hijack-history,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,node-health-udp-aware-recommendation,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state,subscription-url-update-status";
+    "schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,runtime-tun-drop-history,runtime-tun-dns-hijack-history,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,node-health-udp-aware-recommendation,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state,subscription-url-update-status,runtime-tun-relay-route-evidence";
 const SUBSCRIPTION_FETCH_CAPABILITIES: &str =
     "http,https,timeout,max-bytes,redacted-source,profile-check-summary";
 const SUBSCRIPTION_UPDATE_CAPABILITIES: &str =
     "current-config,new-config,current-outbound,tag-diff,selected-preservation,default-fallback,redacted-profile-summary,managed-reload-plan,managed-url-reload,managed-url-update-status";
 const TUN_PACKET_PIPELINE_CAPABILITIES: &str =
-    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic,packet-loop-drop-detail,packet-loop-drop-history,packet-loop-dns-hijack-history";
+    "ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic,packet-loop-drop-detail,packet-loop-drop-history,packet-loop-dns-hijack-history,packet-loop-relay-route-summary";
 const STABILITY_DIAGNOSTIC_CAPABILITIES: &str =
     "local-mixed-soak,loopback-echo,managed-metrics,worker-drain,socks5,http-connect,min-duration";
 const INTEROP_MATRIX_CAPABILITIES: &str =
     "protocol-summary,transport-coverage,tcp-relay,udp-relay,profile-source,profile-validation,registry-validation,support-bundle-export";
 const READINESS_CHECK_CAPABILITIES: &str =
-    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-smoke-mode,hy2-quic-udp-relay-smoke,tuic-quic-udp-relay-smoke,dns-policy-ipv6-hijack-smoke,route-rule-block-evidence,route-rule-direct-evidence,route-rule-outbound-evidence,tun-tcp-session-outbound-route-evidence";
+    "doctor-schema,interop-matrix,local-mixed-soak,resource-limits,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,tun-preflight,system-proxy,system-proxy-smoke,system-proxy-smoke-restore-evidence,panel-subscription-state,support-diagnostics,json-gates,blocker-summary,soak-min-duration,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-smoke-mode,hy2-quic-udp-relay-smoke,tuic-quic-udp-relay-smoke,dns-policy-ipv6-hijack-smoke,route-rule-block-evidence,route-rule-direct-evidence,route-rule-outbound-evidence,tun-tcp-session-outbound-route-evidence,tun-runtime-smoke-relay-route-evidence";
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode,default-core-release-gate,default-core-release-gate-stability-evidence,default-core-release-gate-stability-window,default-core-release-gate-stability-traffic-floor,default-core-release-gate-preset,default-core-release-gate-preset-evidence,default-core-release-gate-preset-minimums,default-core-release-gate-stability-summary,default-core-release-gate-preset-enforced,default-core-release-gate-preset-scope,default-core-release-gate-takeover-evidence,default-core-release-gate-next-actions,default-core-release-gate-actionable-error,default-core-release-gate-rerun-args,default-core-release-gate-canonical-rerun-args,default-core-release-gate-rerun-command,hy2-quic-udp-relay-smoke,tuic-quic-udp-relay-smoke,dns-policy-ipv6-hijack-smoke,route-rule-block-evidence,route-rule-direct-evidence,route-rule-outbound-evidence,tun-tcp-session-outbound-route-evidence";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode,default-core-release-gate,default-core-release-gate-stability-evidence,default-core-release-gate-stability-window,default-core-release-gate-stability-traffic-floor,default-core-release-gate-preset,default-core-release-gate-preset-evidence,default-core-release-gate-preset-minimums,default-core-release-gate-stability-summary,default-core-release-gate-preset-enforced,default-core-release-gate-preset-scope,default-core-release-gate-takeover-evidence,default-core-release-gate-next-actions,default-core-release-gate-actionable-error,default-core-release-gate-rerun-args,default-core-release-gate-canonical-rerun-args,default-core-release-gate-rerun-command,hy2-quic-udp-relay-smoke,tuic-quic-udp-relay-smoke,dns-policy-ipv6-hijack-smoke,route-rule-block-evidence,route-rule-direct-evidence,route-rule-outbound-evidence,tun-tcp-session-outbound-route-evidence,tun-runtime-smoke-relay-route-evidence";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -1409,13 +1409,25 @@ pub fn managed_tun_runtime_report_note(report: &ManagedTunPacketLoopReport) -> S
         .as_deref()
         .map(sanitize_runtime_note_value)
         .unwrap_or_else(|| "none".to_string());
+    let last_relay_route_action = report
+        .summary
+        .last_relay_route_action
+        .as_ref()
+        .map(route_action_note_value)
+        .unwrap_or_else(|| "none".to_string());
+    let last_relay_matched_rule = report
+        .summary
+        .last_relay_matched_rule
+        .as_deref()
+        .map(sanitize_runtime_note_value)
+        .unwrap_or_else(|| "none".to_string());
     let last_packet_error = tun_runtime_note_error_value(report.summary.last_packet_error.as_ref());
     let last_udp_relay_error =
         tun_runtime_note_error_value(report.summary.last_udp_relay_error.as_ref());
     let last_tcp_session_error =
         tun_runtime_note_error_value(report.summary.last_tcp_session_error.as_ref());
     format!(
-        "managed TUN runtime stopped interface={} owns_device={} processed={} idle={} exit_reason={} stop_requested={} packet_limit_reached={} dns_responses={} dns_hijacked_routes={} udp_responses={} tcp_resets={} tcp_session_events={} tcp_session_writes={} tcp_max_active_sessions={} tcp_session_limit_rejections={} tcp_sessions_pruned={} tcp_server_closed_pruned={} tcp_post_closed_pruned={} tcp_server_close_rst_cleared={} tcp_post_close_rst_cleared={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} tcp_sessions_peak={} tcp_server_close_markers_peak={} tcp_post_close_markers_peak={} relay_plans={} tcp_relay_plans={} udp_relay_plans={} drops={} last_dropped_flow={} last_dropped_route_action={} last_dropped_matched_rule={} unsupported={} packet_errors={} udp_relay_errors={} tcp_session_errors={} last_packet_error={} last_udp_relay_error={} last_tcp_session_error={}",
+        "managed TUN runtime stopped interface={} owns_device={} processed={} idle={} exit_reason={} stop_requested={} packet_limit_reached={} dns_responses={} dns_hijacked_routes={} udp_responses={} tcp_resets={} tcp_session_events={} tcp_session_writes={} tcp_max_active_sessions={} tcp_session_limit_rejections={} tcp_sessions_pruned={} tcp_server_closed_pruned={} tcp_post_closed_pruned={} tcp_server_close_rst_cleared={} tcp_post_close_rst_cleared={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} tcp_sessions_peak={} tcp_server_close_markers_peak={} tcp_post_close_markers_peak={} relay_plans={} tcp_relay_plans={} udp_relay_plans={} last_relay_route_action={} last_relay_matched_rule={} drops={} last_dropped_flow={} last_dropped_route_action={} last_dropped_matched_rule={} unsupported={} packet_errors={} udp_relay_errors={} tcp_session_errors={} last_packet_error={} last_udp_relay_error={} last_tcp_session_error={}",
         report.config.interface_name,
         report.owns_device,
         report.summary.processed_packets(),
@@ -1445,6 +1457,8 @@ pub fn managed_tun_runtime_report_note(report: &ManagedTunPacketLoopReport) -> S
         report.summary.relay_packets,
         report.summary.tcp_relay_plans,
         report.summary.udp_relay_plans,
+        last_relay_route_action,
+        last_relay_matched_rule,
         report.summary.dropped_packets,
         last_dropped_flow,
         last_dropped_route_action,
@@ -1491,6 +1505,16 @@ pub fn managed_tun_runtime_report_diagnostic(
         relay_packets: report.summary.relay_packets,
         tcp_relay_plans: report.summary.tcp_relay_plans,
         udp_relay_plans: report.summary.udp_relay_plans,
+        last_relay_route_action: report
+            .summary
+            .last_relay_route_action
+            .as_ref()
+            .map(route_action_note_value),
+        last_relay_matched_rule: report
+            .summary
+            .last_relay_matched_rule
+            .as_deref()
+            .map(sanitize_runtime_note_value),
         dropped_packets: report.summary.dropped_packets,
         recent_dropped_routes: report
             .summary
@@ -3155,6 +3179,14 @@ fn runtime_diagnostic_json_value(diagnostic: &RuntimeDiagnostic) -> serde_json::
             value.insert(
                 "udp_relay_plans".to_string(),
                 serde_json::json!(diagnostic.udp_relay_plans),
+            );
+            value.insert(
+                "last_relay_route_action".to_string(),
+                serde_json::json!(diagnostic.last_relay_route_action.as_deref()),
+            );
+            value.insert(
+                "last_relay_matched_rule".to_string(),
+                serde_json::json!(diagnostic.last_relay_matched_rule.as_deref()),
             );
             value.insert(
                 "dropped_packets".to_string(),
@@ -59144,6 +59176,40 @@ mod tun_runtime_smoke_tests {
             Some(TUN_RUNTIME_SMOKE_TRAFFIC_RULE)
         );
         assert!(!diagnostic.recent_dropped_routes[0].dns_hijacked);
+    }
+
+    #[test]
+    fn managed_tun_runtime_diagnostic_includes_last_relay_route_action() {
+        let mut summary = TunPacketLoopSummary {
+            udp_relay_responses_written: 1,
+            udp_relay_plans: 1,
+            last_relay_route_action: Some(RouteAction::Outbound("edge".to_string())),
+            last_relay_matched_rule: Some("proxy-dgram".to_string()),
+            ..TunPacketLoopSummary::default()
+        };
+        summary.stop_requested = true;
+
+        let report = ManagedTunPacketLoopReport {
+            config: default_tun_device_config(),
+            start_snapshot: snapshot(true),
+            stop_snapshot: snapshot(false),
+            owns_device: true,
+            summary,
+        };
+        let RuntimeDiagnostic::TunPacketLoop(diagnostic) =
+            managed_tun_runtime_report_diagnostic(&report)
+        else {
+            panic!("expected TUN packet loop diagnostic");
+        };
+
+        assert_eq!(
+            diagnostic.last_relay_route_action.as_deref(),
+            Some("outbound:edge")
+        );
+        assert_eq!(
+            diagnostic.last_relay_matched_rule.as_deref(),
+            Some("proxy-dgram")
+        );
     }
 
     #[test]

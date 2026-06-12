@@ -41,7 +41,7 @@ fn doctor_report_lists_supported_outbounds() {
         "route_rule_capabilities=domain-suffix,domain-keyword,ip-exact,ip-cidr,port-exact,port-range"
     ));
     assert!(output.contains(
-        "tun_packet_pipeline_capabilities=ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic,packet-loop-drop-detail,packet-loop-drop-history,packet-loop-dns-hijack-history"
+        "tun_packet_pipeline_capabilities=ipv4,ipv6,tcp,udp,udp-payload,icmp,route-decision,dns-hijack,dns-query-plan,dns-engine-response,packet-process-action,udp-response-packet,dns-response-packet,ipv4-fragment-guard,ipv6-extension-traversal,ipv6-extension-guard,packet-loop,packet-loop-summary,managed-packet-loop,direct-udp-relay,outbound-udp-relay,registry-udp-relay,managed-registry-udp-relay,listen-mixed-tun-runtime,concurrent-tun-runtime,background-runtime-report,tun-runtime-status-note,packet-io-readiness,tcp-segment-parse,tcp-response-packet,tcp-reset-response,tcp-syn-ack-response,tcp-syn-retransmit-guard,tcp-session-table,tcp-client-payload-ack,tcp-client-duplicate-ack,tcp-client-out-of-order-ack,tcp-client-overlap-ack,tcp-client-stale-server-ack,tcp-client-ack-keepalive,tcp-server-payload-packet,tcp-server-payload-retransmit,tcp-server-payload-ack-clear,tcp-server-mss-read-clamp,tcp-session-step-runner,tcp-session-device-loop,tcp-server-payload-poll,tcp-fin-close-ack,tcp-fin-payload-close,registry-tcp-fin-payload-close,tcp-client-fin-half-close,tcp-client-fin-stale-server-ack,tcp-client-fin-server-payload-retransmit,tcp-client-fin-server-payload-ack-clear,tcp-client-fin-duplicate-poll,tcp-client-fin-duplicate-payload-poll,tcp-client-fin-payload-duplicate-poll,tcp-client-fin-post-close-ack,tcp-client-fin-post-close-payload-ack,tcp-close-sequence-guard,tcp-close-latest-ack-guard,tcp-unknown-session-reset,tcp-server-eof-fin-ack,tcp-server-fin-retransmit,tcp-server-fin-final-ack,tcp-server-fin-client-fin-ack,tcp-server-fin-post-close-guard,tcp-session-idle-cleanup,tcp-close-marker-prune-summary,registry-tcp-session-relay,combined-tun-relay-loop,managed-registry-tcp-session-relay,tcp-relay-plan-summary,relay-plan,tun-runtime-last-error-note,tcp-close-marker-rst-clear,tcp-close-marker-rst-summary,tcp-session-state-summary,tcp-session-state-peak,tcp-session-limit,tcp-session-limit-config,tun-runtime-exit-reason,tun-runtime-exit-reason-label,tun-runtime-structured-diagnostic,packet-loop-drop-detail,packet-loop-drop-history,packet-loop-dns-hijack-history,packet-loop-relay-route-summary"
     ));
     assert!(output.contains(
         "stability_diagnostic_capabilities=local-mixed-soak,loopback-echo,managed-metrics,worker-drain,socks5,http-connect,min-duration"
@@ -82,7 +82,7 @@ fn doctor_report_lists_supported_outbounds() {
         "managed_connection_metric_capabilities=total-connection-count,success-count,failure-count,connection-limit-rejection-count,error-kind-counts,route-action-counts,inbound-counts,total-upload-bytes,total-download-bytes,total-connect-ms,timed-connect-count,average-connect-ms,total-first-byte-ms,timed-first-byte-count,average-first-byte-ms,last-connection-timestamp,last-success-timestamp,last-failure-timestamp,recent-connection-reports,history-limit"
     ));
     assert!(output.contains(
-        "managed_status_schema_capabilities=schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,runtime-tun-drop-history,runtime-tun-dns-hijack-history,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,node-health-udp-aware-recommendation,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state,subscription-url-update-status"
+        "managed_status_schema_capabilities=schema-version,runtime-status,listen-address,selected-outbound,generation,start-time,uptime,connection-metrics,event-count,event-retention,recent-events,runtime-event-diagnostics,runtime-tun-drop-history,runtime-tun-dns-hijack-history,last-error,system-proxy,subscription-status,node-health,node-health-coverage,node-health-switch-readiness,node-health-switch-reason,node-health-sweep-diagnostic,node-health-udp-probe,node-health-udp-aware-recommendation,dns-options,tun-tcp-session-limit,connection-worker-counts,panel-state,subscription-url-update-status,runtime-tun-relay-route-evidence"
     ));
     assert!(output.contains(&format!(
         "resource_limits runtime_event_history={} managed_status_recent_events={} managed_connection_report_history={} managed_connection_workers={} tun_tcp_max_active_sessions={}",
@@ -496,6 +496,10 @@ fn doctor_json_report_is_machine_readable() {
         report["tun_packet_pipeline_capabilities"][86],
         "packet-loop-dns-hijack-history"
     );
+    assert_eq!(
+        report["tun_packet_pipeline_capabilities"][87],
+        "packet-loop-relay-route-summary"
+    );
     assert_eq!(report["dns_engine"]["resolver"], "system_resolver");
     assert_eq!(report["dns_engine"]["cache_ttl_seconds"], 60);
     assert_eq!(
@@ -618,6 +622,10 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(
         report["managed_status_schema_capabilities"][28],
         "subscription-url-update-status"
+    );
+    assert_eq!(
+        report["managed_status_schema_capabilities"][29],
+        "runtime-tun-relay-route-evidence"
     );
     assert_eq!(
         report["stability_diagnostic_capabilities"][0],
@@ -1003,6 +1011,10 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(
         report["readiness_check_capabilities"][98],
         "tun-tcp-session-outbound-route-evidence"
+    );
+    assert_eq!(
+        report["readiness_check_capabilities"][99],
+        "tun-runtime-smoke-relay-route-evidence"
     );
     assert_eq!(report["tun_backend_check_capabilities"][0], "backend-kind");
     assert_eq!(
@@ -1477,6 +1489,10 @@ fn doctor_json_report_is_machine_readable() {
     assert_eq!(
         report["default_core_certification_capabilities"][116],
         "tun-tcp-session-outbound-route-evidence"
+    );
+    assert_eq!(
+        report["default_core_certification_capabilities"][117],
+        "tun-runtime-smoke-relay-route-evidence"
     );
     assert_eq!(
         report["resource_limits"]["runtime_event_history"],

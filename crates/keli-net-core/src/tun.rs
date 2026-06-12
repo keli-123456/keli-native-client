@@ -981,8 +981,17 @@ impl TunPacketLoopSummary {
                 self.dns_responses_written += 1;
                 self.record_dns_hijacked_route(&response.plan);
             }
-            TunPacketLoopEvent::WroteUdpRelayPacket { .. } => {
+            TunPacketLoopEvent::WroteUdpRelayPacket { response } => {
                 self.udp_relay_responses_written += 1;
+                self.last_relay_route_action = Some(response.plan.route.action.clone());
+                self.last_relay_matched_rule = response.plan.route.matched_rule.clone();
+                if matches!(
+                    response.plan.relay_action,
+                    TunPacketRelayAction::DirectUdp { .. }
+                        | TunPacketRelayAction::OutboundUdp { .. }
+                ) {
+                    self.udp_relay_plans += 1;
+                }
             }
             TunPacketLoopEvent::WroteTcpResetPacket { .. } => {
                 self.tcp_resets_written += 1;
@@ -4002,6 +4011,36 @@ mod tests {
         TunPacketLoopEvent::Relay(outbound_tcp_relay_plan())
     }
 
+    fn outbound_udp_relay_response_event() -> TunPacketLoopEvent {
+        let route = TunPacketRouteDecision {
+            flow: TunPacketFlow {
+                ip_version: TunIpVersion::Ipv4,
+                protocol: TunTransportProtocol::Udp,
+                source_ip: IpAddr::V4(Ipv4Addr::new(10, 7, 0, 2)),
+                destination_ip: IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)),
+                source_port: Some(49152),
+                destination_port: Some(443),
+            },
+            action: RouteAction::Outbound("edge-udp".to_string()),
+            matched_rule: Some("proxy-dgram".to_string()),
+            dns_hijacked: false,
+        };
+        TunPacketLoopEvent::WroteUdpRelayPacket {
+            response: TunUdpRelayResponse {
+                plan: TunPacketRelayPlan {
+                    relay_action: TunPacketRelayAction::OutboundUdp {
+                        tag: "edge-udp".to_string(),
+                        target: OutboundTarget::new("93.184.216.34", 443),
+                    },
+                    route,
+                },
+                relay_source: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)), 443),
+                relay_payload: b"pong".to_vec(),
+                packet: Vec::new(),
+            },
+        }
+    }
+
     fn outbound_tcp_session_event() -> TunPacketLoopEvent {
         TunPacketLoopEvent::TcpSession {
             plan: outbound_tcp_relay_plan(),
@@ -4135,6 +4174,22 @@ mod tests {
         assert_eq!(
             summary.last_relay_matched_rule,
             Some("proxy-https".to_string())
+        );
+    }
+
+    #[test]
+    fn packet_loop_summary_records_udp_relay_response_route_action() {
+        let summary = TunPacketLoopSummary::from_events(&[outbound_udp_relay_response_event()]);
+
+        assert_eq!(summary.udp_relay_responses_written, 1);
+        assert_eq!(summary.udp_relay_plans, 1);
+        assert_eq!(
+            summary.last_relay_route_action,
+            Some(RouteAction::Outbound("edge-udp".to_string()))
+        );
+        assert_eq!(
+            summary.last_relay_matched_rule,
+            Some("proxy-dgram".to_string())
         );
     }
 

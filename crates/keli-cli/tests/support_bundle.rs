@@ -250,6 +250,10 @@ proxies:
         "subscription-url-update-status"
     );
     assert_eq!(
+        report["doctor"]["managed_status_schema_capabilities"][29],
+        "runtime-tun-relay-route-evidence"
+    );
+    assert_eq!(
         report["doctor"]["stability_diagnostic_capabilities"][0],
         "local-mixed-soak"
     );
@@ -640,6 +644,10 @@ proxies:
     assert_eq!(
         report["doctor"]["readiness_check_capabilities"][98],
         "tun-tcp-session-outbound-route-evidence"
+    );
+    assert_eq!(
+        report["doctor"]["readiness_check_capabilities"][99],
+        "tun-runtime-smoke-relay-route-evidence"
     );
     assert_eq!(
         report["doctor"]["tun_backend_check_capabilities"][0],
@@ -1126,6 +1134,10 @@ proxies:
         "tun-tcp-session-outbound-route-evidence"
     );
     assert_eq!(
+        report["doctor"]["default_core_certification_capabilities"][117],
+        "tun-runtime-smoke-relay-route-evidence"
+    );
+    assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][8],
         "dns-query-plan"
     );
@@ -1441,6 +1453,10 @@ proxies:
     assert_eq!(
         report["doctor"]["tun_packet_pipeline_capabilities"][86],
         "packet-loop-dns-hijack-history"
+    );
+    assert_eq!(
+        report["doctor"]["tun_packet_pipeline_capabilities"][87],
+        "packet-loop-relay-route-summary"
     );
     assert_eq!(report["tun_preflight"]["status"], "lifecycle-unavailable");
     assert_eq!(report["tun_preflight"]["ready"], false);
