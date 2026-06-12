@@ -23,6 +23,7 @@ $expectedPlan = @(
     'config -FailOnMvpBlocked optional',
     'read native_core_default artifacts smoke.install smoke.msi smoke.machine signing public_release_blockers public_release_next_steps',
     'require workflow ids open-desktop-shell import-subscription select-node start-stop-system-proxy tun-preflight export-support-bundle',
+    'require support-bundle-export workflow evidence',
     'require install first_run dependency blockers have action entrypoints',
     'output desktop_mvp_ready and public_release_ready',
     'output json when -Json is provided'
@@ -116,7 +117,7 @@ $requirementStatuses = @{}
 foreach ($requirement in $report.requirements) {
     $requirementStatuses[[string]$requirement.id] = [string]$requirement.status
 }
-foreach ($id in @('native-core-default', 'package-artifacts', 'install-smoke-workflows', 'install-first-run-dependencies', 'msi-smoke-workflows', 'machine-takeover')) {
+foreach ($id in @('native-core-default', 'package-artifacts', 'install-smoke-workflows', 'support-bundle-export', 'install-first-run-dependencies', 'msi-smoke-workflows', 'machine-takeover')) {
     if ($requirementStatuses[$id] -ne 'ready') {
         throw "requirement $id should be ready but was $($requirementStatuses[$id])"
     }
