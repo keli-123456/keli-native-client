@@ -2,8 +2,9 @@ use std::time::Duration;
 
 use keli_cli::{
     fetch_subscription_url_config_text, managed_mixed_status_json_value, ManagedMixedController,
-    ManagedMixedOptions, ManagedSubscriptionUpdateOutcome,
-    ManagedSubscriptionUrlConfigFetchOutcome, ManagedSubscriptionUrlConfigUpdateOutcome,
+    ManagedMixedOptions, ManagedMixedStatusSnapshot, ManagedNodeProbeSweepOptions,
+    ManagedSubscriptionUpdateOutcome, ManagedSubscriptionUrlConfigFetchOutcome,
+    ManagedSubscriptionUrlConfigUpdateOutcome, SmokeInboundKind,
 };
 use keli_platform::{SystemProxyController, TunDeviceConfig, TunPacketIoController};
 
@@ -96,6 +97,11 @@ impl<'a, C: SystemProxyController + ?Sized> DesktopManagedCoreService<'a, C> {
 
     pub fn managed_status_json(&self) -> serde_json::Value {
         managed_mixed_status_json_value(&self.core.status())
+    }
+
+    pub fn refresh_node_health(&mut self) -> Result<ManagedMixedStatusSnapshot, String> {
+        self.core
+            .probe_all_node_health(default_desktop_node_probe_sweep_options())
     }
 
     pub fn start(
@@ -204,6 +210,18 @@ impl<'a, C: SystemProxyController + ?Sized> DesktopManagedCoreService<'a, C> {
     pub fn stop(&mut self) -> Result<DesktopStatusSnapshot, String> {
         self.core.stop()?;
         Ok(self.status())
+    }
+}
+
+fn default_desktop_node_probe_sweep_options() -> ManagedNodeProbeSweepOptions {
+    ManagedNodeProbeSweepOptions {
+        target: "example.com:443".to_string(),
+        payload: Vec::new(),
+        expect: Vec::new(),
+        inbound: SmokeInboundKind::Socks5,
+        first_byte_timeout: Duration::from_millis(750),
+        udp_available: None,
+        udp_probe: None,
     }
 }
 
@@ -354,6 +372,18 @@ proxies:
         assert!(!service.is_running());
         assert_eq!(status.run_state, DesktopRunState::Stopped);
         assert_eq!(status.traffic_mode, DesktopTrafficMode::MixedInboundOnly);
+    }
+
+    #[test]
+    fn service_rejects_node_health_refresh_when_stopped() {
+        let platform_controller = FakeSystemProxyController::new();
+        let mut service = DesktopManagedCoreService::new(&platform_controller);
+
+        let error = service
+            .refresh_node_health()
+            .expect_err("stopped core should reject health refresh");
+
+        assert!(error.contains("managed mixed core is not running"));
     }
 
     #[test]

@@ -262,6 +262,22 @@ where
         ))
     }
 
+    pub fn refresh_node_health(
+        &mut self,
+    ) -> Result<DesktopSubscriptionSummary, DesktopRuntimeError> {
+        let status = self.core.refresh_node_health()?;
+        self.selected_outbound = status.selected_outbound.clone();
+        status
+            .subscription
+            .as_ref()
+            .map(DesktopSubscriptionSummary::from_managed)
+            .ok_or_else(|| {
+                DesktopRuntimeError::Managed(
+                    "managed mixed core has no active subscription".to_string(),
+                )
+            })
+    }
+
     pub fn persisted_subscription(&self) -> Option<DesktopPersistedSubscription> {
         self.subscription_config
             .as_ref()
@@ -684,6 +700,33 @@ proxies:
         assert!(!service.is_running());
         assert_eq!(stopped.run_state, DesktopRunState::Stopped);
         assert_eq!(stopped.traffic_mode, DesktopTrafficMode::MixedInboundOnly);
+    }
+
+    #[test]
+    fn running_node_health_refresh_returns_checked_subscription_summary() {
+        let platform_controller = FakeSystemProxyController::new();
+        let mut service = DesktopRuntimeService::new(&platform_controller);
+        service
+            .import_subscription_config(ss_config("SS-READY"))
+            .expect("import subscription");
+        service.set_listen("127.0.0.1:0");
+        service.start().expect("start service");
+
+        let summary = service.refresh_node_health().expect("refresh node health");
+        let node = summary
+            .nodes
+            .iter()
+            .find(|node| node.tag == "SS-READY")
+            .expect("SS-READY node");
+
+        assert!(matches!(
+            node.health_state.as_deref(),
+            Some("healthy") | Some("unhealthy")
+        ));
+        assert!(node.tcp_available.is_some());
+        assert!(service.status().node_health.checked_count >= 1);
+
+        service.stop().expect("stop service");
     }
 
     #[test]

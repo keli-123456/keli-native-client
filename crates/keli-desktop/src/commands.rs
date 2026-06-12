@@ -130,6 +130,12 @@ impl DesktopNativeCommandService {
             .update_subscription_url(url, timeout, max_bytes)
     }
 
+    pub fn refresh_node_health(
+        &mut self,
+    ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
+        self.commands.refresh_node_health()
+    }
+
     pub fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode) {
         self.commands.set_traffic_mode(traffic_mode);
     }
@@ -233,6 +239,14 @@ where
         self.runtime
             .update_subscription_url(url, timeout, max_bytes)
             .map_err(|error| DesktopCommandError::runtime("update-subscription-url", error))
+    }
+
+    pub fn refresh_node_health(
+        &mut self,
+    ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
+        self.runtime
+            .refresh_node_health()
+            .map_err(|error| DesktopCommandError::runtime("refresh-node-health", error))
     }
 
     pub fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode) {
@@ -444,6 +458,21 @@ proxies:
         assert_eq!(error.operation, "select-node");
         assert_eq!(error.kind, "client");
         assert!(error.message.contains("OutboundNotFound"));
+    }
+
+    #[test]
+    fn command_service_maps_node_health_refresh_error() {
+        let platform_controller = FakeSystemProxyController::new();
+        let runtime = DesktopRuntimeService::new(&platform_controller);
+        let mut commands = DesktopCommandService::from_runtime(runtime);
+
+        let error = commands
+            .refresh_node_health()
+            .expect_err("stopped health refresh should fail");
+
+        assert_eq!(error.operation, "refresh-node-health");
+        assert_eq!(error.kind, "managed");
+        assert!(error.message.contains("managed mixed core is not running"));
     }
 
     #[test]
