@@ -26,6 +26,8 @@ $expected = @(
     'metadata upgrade_code {C49D6E5F-57E0-4D2C-A479-28F7C792E2E9}',
     'shortcut ProgramMenuFolder\Keli\Keli.lnk',
     'admin_extract target\desktop-msi-admin-smoke',
+    'admin_extract readme import-subscription-url-or-config',
+    'admin_extract manifest manual_smoke import-subscription',
     'smoke target\desktop\keli-desktop-msi-smoke.json'
 )
 

@@ -28,6 +28,35 @@ function Get-WorkspaceVersion {
     return $match.Groups[1].Value
 }
 
+function Require-FileContains {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Text
+    )
+
+    $content = Get-Content -Raw -LiteralPath $Path
+    if (!$content.Contains($Text)) {
+        throw "required MSI extracted file content is missing from $Path`: $Text"
+    }
+}
+
+function Require-ManifestSmokeCase {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Manifest,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if (!($Manifest.manual_smoke -contains $Name)) {
+        throw "MSI extracted manifest manual_smoke is missing: $Name"
+    }
+}
+
 function Escape-MsiSql {
     param(
         [AllowNull()]
@@ -448,6 +477,13 @@ function Write-MsiSmoke {
             throw "MSI administrative extraction missing file: $path"
         }
     }
+    $extractedReadme = Join-Path $AdminExtractDir 'Keli\README.txt'
+    $extractedManifestPath = Join-Path $AdminExtractDir 'Keli\keli-desktop-manifest.json'
+    Require-FileContains -Path $extractedReadme -Text 'Import a subscription URL or local subscription config.'
+    $extractedManifest = Get-Content -Raw -LiteralPath $extractedManifestPath | ConvertFrom-Json
+    foreach ($case in @('open-desktop-shell', 'import-subscription', 'select-node', 'start-stop-system-proxy', 'tun-preflight', 'export-support-bundle')) {
+        Require-ManifestSmokeCase -Manifest $extractedManifest -Name $case
+    }
 
     $result = [ordered]@{
         status = 'passed'
@@ -456,6 +492,8 @@ function Write-MsiSmoke {
         file_count = $fileCount
         shortcut = 'ProgramMenuFolder\Keli\Keli.lnk'
         admin_extract = 'target\desktop-msi-admin-smoke'
+        readme_subscription_import = 'subscription-url-or-config'
+        manual_smoke_cases = $extractedManifest.manual_smoke
     }
     $result | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $SmokePath -Encoding ASCII
 }
@@ -478,6 +516,8 @@ try {
         Write-Output "metadata upgrade_code $UpgradeCode"
         Write-Output 'shortcut ProgramMenuFolder\Keli\Keli.lnk'
         Write-Output 'admin_extract target\desktop-msi-admin-smoke'
+        Write-Output 'admin_extract readme import-subscription-url-or-config'
+        Write-Output 'admin_extract manifest manual_smoke import-subscription'
         Write-Output 'smoke target\desktop\keli-desktop-msi-smoke.json'
         return
     }
