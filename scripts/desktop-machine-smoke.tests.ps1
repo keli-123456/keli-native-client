@@ -30,6 +30,7 @@ $expected = @(
     'metadata machine_takeover_max_attempts',
     'metadata machine_takeover_retry_delay_seconds',
     'metadata machine_takeover_attempt_history',
+    'metadata machine_takeover_ready_evidence_preserved_on_safe_probe',
     'metadata public_release_blocker machine-takeover-smoke-not-run',
     'failure machine_takeover_not_ready exits_nonzero_when_requested',
     'output target\desktop\keli-desktop-machine-smoke.json'

@@ -352,6 +352,61 @@ function Get-MachineTakeoverStatus {
     }
 }
 
+function Read-ExistingMachineTakeoverEvidence {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$EvidencePath
+    )
+
+    if (!(Test-Path -LiteralPath $EvidencePath -PathType Leaf)) {
+        return $null
+    }
+
+    try {
+        $existing = Get-Content -Raw -LiteralPath $EvidencePath | ConvertFrom-Json
+    } catch {
+        return $null
+    }
+
+    if ($null -eq $existing.PSObject.Properties['machine_takeover']) {
+        return $null
+    }
+
+    if ([string]$existing.machine_takeover.status -ne 'ready') {
+        return $null
+    }
+
+    return $existing.machine_takeover
+}
+
+function Get-PreservedMachineTakeoverStatus {
+    param(
+        [AllowNull()]
+        [object]$ExistingMachineTakeover,
+
+        [Parameter(Mandatory = $true)]
+        [int]$MaxAttempts,
+
+        [Parameter(Mandatory = $true)]
+        [int]$RetryDelaySeconds
+    )
+
+    if ($null -eq $ExistingMachineTakeover) {
+        return Get-MachineTakeoverStatus `
+            -Requested:$false `
+            -MaxAttempts $MaxAttempts `
+            -RetryDelaySeconds $RetryDelaySeconds
+    }
+
+    $preserved = [ordered]@{}
+    foreach ($property in $ExistingMachineTakeover.PSObject.Properties) {
+        $preserved[$property.Name] = $property.Value
+    }
+    $preserved['preserved_from_previous_ready_evidence'] = $true
+    $preserved['preserved_by_mode'] = 'safe-probe'
+    return $preserved
+}
+
 $repoRoot = Resolve-RepoRoot
 $evidenceRelativePath = 'target\desktop\keli-desktop-machine-smoke.json'
 $evidencePath = Join-Path $repoRoot $evidenceRelativePath
@@ -371,10 +426,28 @@ try {
         Write-Output 'metadata machine_takeover_max_attempts'
         Write-Output 'metadata machine_takeover_retry_delay_seconds'
         Write-Output 'metadata machine_takeover_attempt_history'
+        Write-Output 'metadata machine_takeover_ready_evidence_preserved_on_safe_probe'
         Write-Output 'metadata public_release_blocker machine-takeover-smoke-not-run'
         Write-Output 'failure machine_takeover_not_ready exits_nonzero_when_requested'
         Write-Output "output $evidenceRelativePath"
         return
+    }
+
+    $existingMachineTakeover = if ($IncludeMachineTakeover) {
+        $null
+    } else {
+        Read-ExistingMachineTakeoverEvidence -EvidencePath $evidencePath
+    }
+    $machineTakeover = if ($IncludeMachineTakeover) {
+        Get-MachineTakeoverStatus `
+            -Requested:$true `
+            -MaxAttempts $MachineTakeoverAttempts `
+            -RetryDelaySeconds $MachineTakeoverRetryDelaySeconds
+    } else {
+        Get-PreservedMachineTakeoverStatus `
+            -ExistingMachineTakeover $existingMachineTakeover `
+            -MaxAttempts $MachineTakeoverAttempts `
+            -RetryDelaySeconds $MachineTakeoverRetryDelaySeconds
     }
 
     $report = [ordered]@{
@@ -384,7 +457,7 @@ try {
         system_proxy = Get-SystemProxySnapshot
         tun_backend = Get-TunBackendEvidence
         tun_preflight = Get-TunPreflightEvidence
-        machine_takeover = Get-MachineTakeoverStatus -Requested:$IncludeMachineTakeover -MaxAttempts $MachineTakeoverAttempts -RetryDelaySeconds $MachineTakeoverRetryDelaySeconds
+        machine_takeover = $machineTakeover
     }
 
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $evidencePath) | Out-Null
