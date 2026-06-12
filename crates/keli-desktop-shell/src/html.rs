@@ -336,6 +336,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="muted" id="subscription-config-status">No local subscription config imported</div>
         <div class="actions">
           <button id="import-subscription-button" class="primary" onclick="postImportSubscription()">Import</button>
+          <button onclick="postTrafficMode('mixed-inbound-only')">Local inbound</button>
           <button onclick="postTrafficMode('system-proxy')">System proxy</button>
           <button onclick="postTrafficMode('tun')">TUN</button>
         </div>
@@ -1387,6 +1388,14 @@ mod tests {
         assert!(html.contains("id=\"refresh-node-health-button\""));
         assert!(html.contains("postRefreshNodeHealth()"));
         assert!(html.contains("refresh-node-health"));
+    }
+
+    #[test]
+    fn subscription_mode_controls_include_local_inbound() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("postTrafficMode('mixed-inbound-only')"));
+        assert!(html.contains("Local inbound"));
     }
 
     #[test]

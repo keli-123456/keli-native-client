@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::dependencies::DesktopDependencyReport;
-use crate::status::{DesktopRunState, DesktopStatusSnapshot};
+use crate::status::{DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode};
 use crate::subscription::DesktopSubscriptionSummary;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,7 +75,7 @@ impl DesktopShellState {
             main_visible: false,
             diagnostics_visible: false,
         };
-        let can_start = can_start_from_dependencies(&dependencies);
+        let can_start = can_start_for_traffic_mode(&status, &dependencies);
         let primary_action = derive_primary_action(&status, &dependencies);
         let tray_menu = derive_tray_menu(&window, &primary_action);
         Self {
@@ -124,21 +124,28 @@ impl DesktopShellState {
     }
 
     fn rebuild_derived(&mut self) {
-        self.can_start = can_start_from_dependencies(&self.dependencies);
+        self.can_start = can_start_for_traffic_mode(&self.status, &self.dependencies);
         self.primary_action = derive_primary_action(&self.status, &self.dependencies);
         self.tray_menu = derive_tray_menu(&self.window, &self.primary_action);
     }
 }
 
-fn can_start_from_dependencies(dependencies: &DesktopDependencyReport) -> bool {
-    dependencies.first_run.can_start_system_proxy_mode || dependencies.first_run.can_start_tun_mode
+fn can_start_for_traffic_mode(
+    status: &DesktopStatusSnapshot,
+    dependencies: &DesktopDependencyReport,
+) -> bool {
+    match status.traffic_mode {
+        DesktopTrafficMode::MixedInboundOnly => true,
+        DesktopTrafficMode::SystemProxy => dependencies.first_run.can_start_system_proxy_mode,
+        DesktopTrafficMode::Tun => dependencies.first_run.can_start_tun_mode,
+    }
 }
 
 fn derive_primary_action(
     status: &DesktopStatusSnapshot,
     dependencies: &DesktopDependencyReport,
 ) -> DesktopShellPrimaryAction {
-    let can_start = can_start_from_dependencies(dependencies);
+    let can_start = can_start_for_traffic_mode(status, dependencies);
     match status.run_state {
         DesktopRunState::Stopped => {
             if can_start {
@@ -532,6 +539,36 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("System proxy control is unavailable"));
+    }
+
+    #[test]
+    fn local_inbound_mode_can_start_when_proxy_and_tun_are_blocked() {
+        let mut local = status(DesktopRunState::Stopped);
+        local.traffic_mode = DesktopTrafficMode::MixedInboundOnly;
+
+        let shell = DesktopShellState::new(local, blocked_dependencies());
+
+        assert_eq!(
+            shell.primary_action.command,
+            DesktopShellPrimaryCommand::Start
+        );
+        assert!(shell.primary_action.enabled);
+        assert!(shell.can_start);
+    }
+
+    #[test]
+    fn tun_mode_stays_blocked_when_tun_dependency_is_blocked() {
+        let mut tun = status(DesktopRunState::Stopped);
+        tun.traffic_mode = DesktopTrafficMode::Tun;
+
+        let shell = DesktopShellState::new(tun, blocked_dependencies());
+
+        assert_eq!(
+            shell.primary_action.command,
+            DesktopShellPrimaryCommand::Blocked
+        );
+        assert!(!shell.primary_action.enabled);
+        assert!(!shell.can_start);
     }
 
     #[test]
