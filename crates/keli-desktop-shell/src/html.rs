@@ -329,6 +329,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="actions">
           <button id="import-subscription-url-button" class="primary" onclick="postImportSubscriptionUrl()">Import URL</button>
           <button id="update-subscription-url-button" onclick="postUpdateSubscriptionUrl()">Update URL</button>
+          <button id="refresh-node-health-button" onclick="postRefreshNodeHealth()">Refresh health</button>
         </div>
         <div class="muted" id="subscription-url-status">No subscription URL imported</div>
         <textarea id="subscription-config" spellcheck="false"></textarea>
@@ -394,6 +395,11 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       postJson({{
         type: "update-subscription-url",
         subscriptionUrl: document.getElementById("subscription-url").value
+      }});
+    }}
+    function postRefreshNodeHealth() {{
+      postJson({{
+        type: "refresh-node-health"
       }});
     }}
     function postTrafficMode(trafficMode) {{
@@ -1372,6 +1378,15 @@ mod tests {
         assert!(html.contains("id=\"update-subscription-url-button\""));
         assert!(html.contains("update-subscription-url"));
         assert!(html.contains("window.keliSetSubscriptionUrlUpdate"));
+    }
+
+    #[test]
+    fn subscription_health_refresh_html_includes_button_and_ipc() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("id=\"refresh-node-health-button\""));
+        assert!(html.contains("postRefreshNodeHealth()"));
+        assert!(html.contains("refresh-node-health"));
     }
 
     #[test]

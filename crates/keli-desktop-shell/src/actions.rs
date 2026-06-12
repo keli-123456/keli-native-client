@@ -7,6 +7,7 @@ use serde::Deserialize;
 pub enum DesktopShellUiEvent {
     Action(DesktopShellAction),
     Refresh,
+    RefreshNodeHealth,
     ImportSubscriptionConfig(String),
     ImportSubscriptionUrl(String),
     UpdateSubscriptionUrl(String),
@@ -64,6 +65,7 @@ fn json_ipc_event(message: &str) -> Option<DesktopShellUiEvent> {
         "update-subscription-url" => command
             .subscription_url
             .map(DesktopShellUiEvent::UpdateSubscriptionUrl),
+        "refresh-node-health" => Some(DesktopShellUiEvent::RefreshNodeHealth),
         "select-node" => command.outbound_tag.map(DesktopShellUiEvent::SelectNode),
         "set-traffic-mode" => command
             .traffic_mode
@@ -271,6 +273,17 @@ mod tests {
                 &shell(DesktopRunState::Stopped, true),
             ),
             Some(DesktopShellUiEvent::SelectNode("SS-READY".to_string()))
+        );
+    }
+
+    #[test]
+    fn subscription_ipc_refresh_node_health_json_maps_to_refresh_event() {
+        assert_eq!(
+            ipc_event_for_message(
+                r#"{"type":"refresh-node-health"}"#,
+                &shell(DesktopRunState::Running, true),
+            ),
+            Some(DesktopShellUiEvent::RefreshNodeHealth)
         );
     }
 

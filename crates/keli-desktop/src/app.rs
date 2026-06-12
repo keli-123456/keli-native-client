@@ -41,6 +41,7 @@ pub trait DesktopShellCommandHost {
         &mut self,
         outbound_tag: String,
     ) -> Result<DesktopSubscriptionSummary, DesktopCommandError>;
+    fn refresh_node_health(&mut self) -> Result<DesktopSubscriptionSummary, DesktopCommandError>;
     fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode);
     fn persisted_subscription(&self) -> Option<DesktopPersistedSubscription>;
     fn export_support_bundle(&self) -> Result<DesktopSupportBundleExport, DesktopCommandError>;
@@ -97,6 +98,10 @@ impl DesktopShellCommandHost for DesktopNativeCommandService {
         outbound_tag: String,
     ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
         self.select_node(outbound_tag)
+    }
+
+    fn refresh_node_health(&mut self) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
+        self.refresh_node_health()
     }
 
     fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode) {
@@ -267,6 +272,15 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         Ok(self.shell.clone())
     }
 
+    pub fn refresh_node_health(
+        &mut self,
+    ) -> Result<DesktopShellState, DesktopShellControllerError> {
+        let subscription = self.host.refresh_node_health()?;
+        self.shell.refresh_subscription(Some(subscription));
+        self.shell.refresh_status(self.host.status());
+        Ok(self.shell.clone())
+    }
+
     pub fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode) -> DesktopShellState {
         self.host.set_traffic_mode(traffic_mode);
         self.shell.refresh_status(self.host.status());
@@ -395,7 +409,9 @@ mod tests {
     use crate::persistence::{DesktopPersistedSubscription, DesktopSubscriptionStore};
     use crate::readiness::{DesktopBlocker, DesktopFirstRunReport};
     use crate::shell::{DesktopShellAction, DesktopShellPrimaryCommand};
-    use crate::status::{DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode};
+    use crate::status::{
+        DesktopNodeHealthSummary, DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode,
+    };
     use crate::subscription::{
         DesktopNodeSummary, DesktopSubscriptionSummary, DesktopSubscriptionUpdateSummary,
         DesktopSubscriptionUrlFetchSummary, DesktopSubscriptionUrlImportSummary,
@@ -583,6 +599,35 @@ mod tests {
             inner.selects += 1;
             inner.subscription = subscription(&outbound_tag);
             inner.status.selected_outbound = Some(outbound_tag);
+            Ok(inner.subscription.clone())
+        }
+
+        fn refresh_node_health(
+            &mut self,
+        ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
+            let mut inner = self.inner.borrow_mut();
+            let tag = inner
+                .status
+                .selected_outbound
+                .clone()
+                .unwrap_or_else(|| "SS-READY".to_string());
+            let mut subscription = subscription(&tag);
+            if let Some(node) = subscription.nodes.first_mut() {
+                node.health_state = Some("healthy".to_string());
+                node.tcp_available = Some(true);
+                node.latency_ms = Some(42);
+            }
+            inner.subscription = subscription;
+            inner.status.node_health = DesktopNodeHealthSummary {
+                node_count: 1,
+                healthy_count: 1,
+                checked_count: 1,
+                selected_state: Some("healthy".to_string()),
+                recommended_state: Some("healthy".to_string()),
+                selected_outbound_healthy: true,
+                recommended_switch_ready: true,
+                ..DesktopNodeHealthSummary::default()
+            };
             Ok(inner.subscription.clone())
         }
 
@@ -1119,6 +1164,26 @@ mod tests {
                 .and_then(|subscription| subscription.selected_outbound.as_deref()),
             Some("SS-ALT")
         );
+    }
+
+    #[test]
+    fn shell_controller_refresh_node_health_updates_subscription_and_status() {
+        let host = FakeHost::new(status(DesktopRunState::Running), ready_dependencies());
+        let mut controller = DesktopShellController::new(host);
+
+        let shell = controller
+            .refresh_node_health()
+            .expect("refresh node health");
+        let node = shell
+            .subscription
+            .as_ref()
+            .and_then(|subscription| subscription.nodes.first())
+            .expect("refreshed node");
+
+        assert_eq!(node.health_state.as_deref(), Some("healthy"));
+        assert_eq!(node.tcp_available, Some(true));
+        assert_eq!(node.latency_ms, Some(42));
+        assert_eq!(shell.status.node_health.checked_count, 1);
     }
 
     #[test]

@@ -256,6 +256,7 @@ fn dispatch_ui_event(
     match event {
         DesktopShellUiEvent::Action(action) => controller.dispatch(action),
         DesktopShellUiEvent::Refresh => Ok(controller.refresh()),
+        DesktopShellUiEvent::RefreshNodeHealth => controller.refresh_node_health(),
         DesktopShellUiEvent::ImportSubscriptionConfig(config_text) => {
             controller.import_subscription_config(config_text)
         }
@@ -416,6 +417,7 @@ fn operation_success_message(event: &DesktopShellUiEvent) -> Option<String> {
             Some("Stop requested".to_string())
         }
         DesktopShellUiEvent::Refresh => Some("Status refreshed".to_string()),
+        DesktopShellUiEvent::RefreshNodeHealth => Some("Node health refreshed".to_string()),
         DesktopShellUiEvent::SelectNode(outbound_tag) => {
             Some(format!("Selected node {outbound_tag}"))
         }
@@ -701,6 +703,10 @@ mod tests {
         assert_eq!(
             operation_success_message(&DesktopShellUiEvent::Refresh).as_deref(),
             Some("Status refreshed")
+        );
+        assert_eq!(
+            operation_success_message(&DesktopShellUiEvent::RefreshNodeHealth).as_deref(),
+            Some("Node health refreshed")
         );
         assert_eq!(
             operation_success_message(&DesktopShellUiEvent::Action(
