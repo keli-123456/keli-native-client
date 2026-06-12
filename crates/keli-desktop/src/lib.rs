@@ -1,8 +1,10 @@
+pub mod managed;
 pub mod readiness;
 pub mod service;
 pub mod status;
 pub mod subscription;
 
+pub use managed::{DesktopManagedCoreService, DesktopManagedStartOptions};
 pub use readiness::{DesktopBlocker, DesktopFirstRunReport};
 pub use service::{DesktopRuntimeCommand, DesktopRuntimeService};
 pub use status::{DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode};
