@@ -33,6 +33,12 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let tun_dependency = tun_dependency(snapshot);
     let dependency_blockers = dependency_blockers(snapshot);
     let dependency_actions = dependency_action_buttons(snapshot);
+    let diagnostics_core_status = diagnostics_core_status(snapshot);
+    let diagnostics_runtime_events = diagnostics_runtime_events(snapshot);
+    let diagnostics_last_error = diagnostics_last_error(snapshot);
+    let diagnostics_system_proxy = diagnostics_system_proxy(snapshot);
+    let diagnostics_tun = diagnostics_tun(snapshot);
+    let diagnostics_default_core = diagnostics_default_core(snapshot);
 
     format!(
         r#"<!doctype html>
@@ -334,6 +340,12 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       </section>
       <section class="wide">
         <h2>Diagnostics</h2>
+        <div class="value" id="diagnostics-core-status">{diagnostics_core_status}</div>
+        <div class="muted" id="diagnostics-runtime-events">{diagnostics_runtime_events}</div>
+        <div class="muted" id="diagnostics-last-error">{diagnostics_last_error}</div>
+        <div class="muted" id="diagnostics-system-proxy">{diagnostics_system_proxy}</div>
+        <div class="muted" id="diagnostics-tun">{diagnostics_tun}</div>
+        <div class="muted" id="diagnostics-default-core">{diagnostics_default_core}</div>
         <div class="value">Support bundle</div>
         <div class="muted" id="support-export-status">No support bundle exported</div>
         <div class="actions">
@@ -591,6 +603,29 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         return `${{blocker.code}}: ${{blocker.message}}${{action}}`;
       }}).join("; ");
     }}
+    function diagnosticsCoreStatus(snapshot) {{
+      const status = snapshot.status;
+      const run = runStateLabels[status.run_state] || status.run_state;
+      const mode = trafficModeLabels[status.traffic_mode] || status.traffic_mode;
+      return `Core ${{run.toLowerCase()}} via ${{mode}}`;
+    }}
+    function diagnosticsRuntimeEvents(snapshot) {{
+      const status = snapshot.status;
+      return `Generation ${{status.generation}}, events ${{status.event_count}}`;
+    }}
+    function diagnosticsLastError(snapshot) {{
+      const lastError = snapshot.status.last_error || "none";
+      return `Last error: ${{lastError}}`;
+    }}
+    function diagnosticsSystemProxy(snapshot) {{
+      return `System proxy: ${{systemProxyDependency(snapshot)}}`;
+    }}
+    function diagnosticsTun(snapshot) {{
+      return `TUN: ${{tunDependency(snapshot)}}`;
+    }}
+    function diagnosticsDefaultCore(snapshot) {{
+      return snapshot ? "Native core default, support bundle includes certification evidence" : "Native core default";
+    }}
     window.keliSetShell = (snapshot) => {{
       const status = snapshot.status;
       const primary = snapshot.primary_action;
@@ -617,6 +652,12 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       renderDependencyActions(snapshot);
       document.getElementById("subscription-summary").textContent = subscriptionSummary(snapshot.subscription);
       renderNodeList(snapshot.subscription);
+      document.getElementById("diagnostics-core-status").textContent = diagnosticsCoreStatus(snapshot);
+      document.getElementById("diagnostics-runtime-events").textContent = diagnosticsRuntimeEvents(snapshot);
+      document.getElementById("diagnostics-last-error").textContent = diagnosticsLastError(snapshot);
+      document.getElementById("diagnostics-system-proxy").textContent = diagnosticsSystemProxy(snapshot);
+      document.getElementById("diagnostics-tun").textContent = diagnosticsTun(snapshot);
+      document.getElementById("diagnostics-default-core").textContent = diagnosticsDefaultCore(snapshot);
       document.getElementById("snapshot-json").textContent = JSON.stringify(snapshot, null, 2);
     }};
   </script>
@@ -642,6 +683,12 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         tun_dependency = escape_html(&tun_dependency),
         dependency_blockers = escape_html(&dependency_blockers),
         dependency_actions = dependency_actions,
+        diagnostics_core_status = escape_html(&diagnostics_core_status),
+        diagnostics_runtime_events = escape_html(&diagnostics_runtime_events),
+        diagnostics_last_error = escape_html(&diagnostics_last_error),
+        diagnostics_system_proxy = escape_html(&diagnostics_system_proxy),
+        diagnostics_tun = escape_html(&diagnostics_tun),
+        diagnostics_default_core = escape_html(&diagnostics_default_core),
         subscription_summary = escape_html(&subscription_summary),
         node_buttons = node_buttons,
         snapshot_json = escape_html(&snapshot_json),
@@ -856,6 +903,40 @@ fn dependency_blockers(snapshot: &DesktopShellState) -> String {
         })
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+fn diagnostics_core_status(snapshot: &DesktopShellState) -> String {
+    format!(
+        "Core {} via {}",
+        run_state_label(snapshot.status.run_state).to_ascii_lowercase(),
+        traffic_mode_label(snapshot.status.traffic_mode)
+    )
+}
+
+fn diagnostics_runtime_events(snapshot: &DesktopShellState) -> String {
+    format!(
+        "Generation {}, events {}",
+        snapshot.status.generation, snapshot.status.event_count
+    )
+}
+
+fn diagnostics_last_error(snapshot: &DesktopShellState) -> String {
+    format!(
+        "Last error: {}",
+        snapshot.status.last_error.as_deref().unwrap_or("none")
+    )
+}
+
+fn diagnostics_system_proxy(snapshot: &DesktopShellState) -> String {
+    format!("System proxy: {}", system_proxy_dependency(snapshot))
+}
+
+fn diagnostics_tun(snapshot: &DesktopShellState) -> String {
+    format!("TUN: {}", tun_dependency(snapshot))
+}
+
+fn diagnostics_default_core(_snapshot: &DesktopShellState) -> String {
+    "Native core default, support bundle includes certification evidence".to_string()
 }
 
 fn dependency_action_buttons(snapshot: &DesktopShellState) -> String {
@@ -1379,6 +1460,33 @@ mod tests {
         assert!(html.contains("export-support-bundle"));
         assert!(html.contains("id=\"support-export-status\""));
         assert!(html.contains("window.keliSetSupportExport"));
+    }
+
+    #[test]
+    fn diagnostics_html_includes_health_summary() {
+        let mut snapshot = snapshot();
+        snapshot.status.last_error = Some("Managed(\"bind failed\")".to_string());
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("id=\"diagnostics-core-status\""));
+        assert!(html.contains("Core stopped via System proxy"));
+        assert!(html.contains("id=\"diagnostics-runtime-events\""));
+        assert!(html.contains("Generation 3, events 5"));
+        assert!(html.contains("Last error: Managed(&quot;bind failed&quot;)"));
+        assert!(html.contains("id=\"diagnostics-system-proxy\""));
+        assert!(html.contains("id=\"diagnostics-tun\""));
+        assert!(html.contains("Native core default"));
+    }
+
+    #[test]
+    fn diagnostics_live_renderer_updates_health_summary() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("diagnosticsCoreStatus(snapshot)"));
+        assert!(html.contains("diagnosticsRuntimeEvents(snapshot)"));
+        assert!(html.contains("diagnosticsLastError(snapshot)"));
+        assert!(html.contains("diagnosticsDefaultCore(snapshot)"));
     }
 
     #[test]
