@@ -20,6 +20,7 @@ if ($LASTEXITCODE -ne 0) {
 $plan = $planOutput -join "`n"
 $expectedPlan = @(
     'input target\desktop\keli-desktop-release-evidence.json',
+    'config -FailOnMvpBlocked optional',
     'read native_core_default artifacts smoke.install smoke.msi smoke.machine signing public_release_blockers public_release_next_steps',
     'require workflow ids open-desktop-shell import-subscription select-node start-stop-system-proxy tun-preflight export-support-bundle',
     'output desktop_mvp_ready and public_release_ready',
@@ -111,6 +112,47 @@ foreach ($id in @('native-core-default', 'package-artifacts', 'install-smoke-wor
 }
 if ($requirementStatuses['public-release-signing'] -ne 'blocked') {
     throw "public-release-signing should be blocked but was $($requirementStatuses['public-release-signing'])"
+}
+
+& powershell -NoProfile -ExecutionPolicy Bypass -File $statusScript -EvidencePath $fixturePath -FailOnMvpBlocked
+if ($LASTEXITCODE -ne 0) {
+    throw 'desktop-mvp-status.ps1 -FailOnMvpBlocked should ignore signing-only public release blockers'
+}
+
+$blockedFixturePath = Join-Path $tempDir 'release-evidence-local-blocked.json'
+$blockedFixture = $fixture
+$blockedFixture.smoke.install.verified_ui_workflow_entrypoints = @(
+    'open-desktop-shell',
+    'import-subscription',
+    'select-node',
+    'start-stop-system-proxy',
+    'tun-preflight'
+)
+$blockedFixture | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $blockedFixturePath -Encoding ASCII
+
+$stdoutPath = Join-Path $tempDir 'status-blocked-stdout.txt'
+$stderrPath = Join-Path $tempDir 'status-blocked-stderr.txt'
+$process = Start-Process `
+    -FilePath 'powershell' `
+    -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $statusScript, '-EvidencePath', $blockedFixturePath, '-FailOnMvpBlocked') `
+    -NoNewWindow `
+    -Wait `
+    -PassThru `
+    -RedirectStandardOutput $stdoutPath `
+    -RedirectStandardError $stderrPath
+if ($process.ExitCode -eq 0) {
+    throw 'desktop-mvp-status.ps1 -FailOnMvpBlocked should fail local blocked fixture'
+}
+$failureText = @(
+    if (Test-Path -LiteralPath $stdoutPath) {
+        Get-Content -LiteralPath $stdoutPath
+    }
+    if (Test-Path -LiteralPath $stderrPath) {
+        Get-Content -LiteralPath $stderrPath
+    }
+) -join "`n"
+if (!$failureText.Contains('Desktop MVP status blocked: install-smoke-workflows')) {
+    throw "local blocked failure did not name install-smoke-workflows: $failureText"
 }
 
 Write-Output 'desktop MVP status tests passed'

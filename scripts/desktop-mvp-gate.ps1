@@ -58,7 +58,7 @@ function Get-DesktopMvpGateSteps {
         New-GateStep -Name 'Desktop machine smoke evidence' -Command (New-MachineSmokeCommand -IncludeMachineTakeover:$IncludeMachineTakeover)
         New-GateStep -Name 'Desktop signing evidence' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-signing.ps1')
         New-GateStep -Name 'Desktop release evidence' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-release-evidence.ps1')
-        New-GateStep -Name 'Desktop MVP status audit' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-mvp-status.ps1')
+        New-GateStep -Name 'Desktop MVP status audit' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-mvp-status.ps1', '-FailOnMvpBlocked')
     )
 }
 

@@ -2,7 +2,8 @@
 param(
     [string]$EvidencePath,
     [switch]$Json,
-    [switch]$PlanOnly
+    [switch]$PlanOnly,
+    [switch]$FailOnMvpBlocked
 )
 
 Set-StrictMode -Version Latest
@@ -219,6 +220,7 @@ Push-Location $repoRoot
 try {
     if ($PlanOnly) {
         Write-Output "input $releaseEvidenceRelativePath"
+        Write-Output 'config -FailOnMvpBlocked optional'
         Write-Output 'read native_core_default artifacts smoke.install smoke.msi smoke.machine signing public_release_blockers public_release_next_steps'
         Write-Output 'require workflow ids open-desktop-shell import-subscription select-node start-stop-system-proxy tun-preflight export-support-bundle'
         Write-Output 'output desktop_mvp_ready and public_release_ready'
@@ -229,6 +231,12 @@ try {
     Require-File -Path $EvidencePath
     $evidence = Get-Content -Raw -LiteralPath $EvidencePath | ConvertFrom-Json
     $report = New-DesktopMvpStatus -Evidence $evidence
+    if ($FailOnMvpBlocked -and !$report.desktop_mvp_ready) {
+        $blockedRequirements = @($report.requirements | Where-Object {
+                $_.id -ne 'public-release-signing' -and $_.status -ne 'ready'
+            } | ForEach-Object { [string]$_.id })
+        throw "Desktop MVP status blocked: $($blockedRequirements -join ',')"
+    }
 
     if ($Json) {
         $report | ConvertTo-Json -Depth 8
