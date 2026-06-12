@@ -1,3 +1,4 @@
+pub mod dependencies;
 pub mod managed;
 pub mod readiness;
 pub mod service;
@@ -5,6 +6,10 @@ pub mod status;
 pub mod subscription;
 pub mod support;
 
+pub use dependencies::{
+    DesktopDependencyError, DesktopDependencyReport, DesktopSystemProxyDependency,
+    DesktopTunBackendDependency, DesktopWintunInstallSummary,
+};
 pub use managed::{DesktopManagedCoreService, DesktopManagedStartOptions};
 pub use readiness::{DesktopBlocker, DesktopFirstRunReport};
 pub use service::{DesktopRuntimeCommand, DesktopRuntimeError, DesktopRuntimeService};
