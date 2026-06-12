@@ -6,6 +6,7 @@ members = [
     "crates/keli-platform",
     "crates/keli-protocol",
     "crates/keli-cli",
+    "crates/keli-desktop",
 ]
 
 [workspace.package]

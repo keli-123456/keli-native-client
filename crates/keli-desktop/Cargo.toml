@@ -1,0 +1,10 @@
+[package]
+name = "keli-desktop"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+keli-client-core.workspace = true
+keli-platform.workspace = true
+serde.workspace = true

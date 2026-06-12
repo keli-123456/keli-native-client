@@ -853,6 +853,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "keli-desktop"
+version = "0.1.425"
+dependencies = [
+ "keli-client-core",
+ "keli-platform",
+ "serde",
+]
+
+[[package]]
 name = "keli-net-core"
 version = "0.1.425"
 dependencies = [
