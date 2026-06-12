@@ -1,9 +1,10 @@
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use keli_client_core::ClientErrorKind;
 use keli_platform::{
-    NativeTunDeviceController, PlatformCapabilities, SystemProxyController, SystemProxyStatus,
-    TunBackendStatus, TunPacketIoController,
+    NativeSystemProxyController, NativeTunDeviceController, PlatformCapabilities,
+    SystemProxyController, SystemProxyStatus, TunBackendStatus, TunPacketIoController,
 };
 use serde::{Deserialize, Serialize};
 
@@ -50,6 +51,105 @@ pub struct DesktopCommandService<
     T: TunPacketIoController + ?Sized = NativeTunDeviceController,
 > {
     runtime: DesktopRuntimeService<'a, C, T>,
+}
+
+static NATIVE_SYSTEM_PROXY_CONTROLLER: OnceLock<NativeSystemProxyController> = OnceLock::new();
+static NATIVE_TUN_CONTROLLER: OnceLock<NativeTunDeviceController> = OnceLock::new();
+
+fn native_system_proxy_controller() -> &'static NativeSystemProxyController {
+    NATIVE_SYSTEM_PROXY_CONTROLLER.get_or_init(NativeSystemProxyController::new)
+}
+
+fn native_tun_controller() -> &'static NativeTunDeviceController {
+    NATIVE_TUN_CONTROLLER.get_or_init(NativeTunDeviceController::new)
+}
+
+pub struct DesktopNativeCommandService {
+    commands:
+        DesktopCommandService<'static, NativeSystemProxyController, NativeTunDeviceController>,
+}
+
+impl DesktopNativeCommandService {
+    pub fn new() -> Self {
+        let runtime = DesktopRuntimeService::new_with_tun_controller(
+            native_system_proxy_controller(),
+            native_tun_controller(),
+        );
+        Self {
+            commands: DesktopCommandService::from_runtime(runtime),
+        }
+    }
+
+    pub fn import_subscription_config(
+        &mut self,
+        config_text: impl Into<String>,
+    ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
+        self.commands.import_subscription_config(config_text)
+    }
+
+    pub fn import_subscription_url(
+        &mut self,
+        url: &str,
+        timeout: Duration,
+        max_bytes: usize,
+    ) -> Result<DesktopSubscriptionUrlImportSummary, DesktopCommandError> {
+        self.commands
+            .import_subscription_url(url, timeout, max_bytes)
+    }
+
+    pub fn select_node(
+        &mut self,
+        outbound_tag: impl Into<String>,
+    ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
+        self.commands.select_node(outbound_tag)
+    }
+
+    pub fn update_subscription_url(
+        &mut self,
+        url: &str,
+        timeout: Duration,
+        max_bytes: usize,
+    ) -> Result<DesktopSubscriptionUrlUpdateSummary, DesktopCommandError> {
+        self.commands
+            .update_subscription_url(url, timeout, max_bytes)
+    }
+
+    pub fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode) {
+        self.commands.set_traffic_mode(traffic_mode);
+    }
+
+    pub fn set_listen(&mut self, listen: impl Into<String>) {
+        self.commands.set_listen(listen);
+    }
+
+    pub fn start(&mut self) -> Result<DesktopStatusSnapshot, DesktopCommandError> {
+        self.commands.start()
+    }
+
+    pub fn stop(&mut self) -> Result<DesktopStatusSnapshot, DesktopCommandError> {
+        self.commands.stop()
+    }
+
+    pub fn status(&self) -> DesktopStatusSnapshot {
+        self.commands.status()
+    }
+
+    pub fn export_support_bundle(&self) -> Result<DesktopSupportBundleExport, DesktopCommandError> {
+        self.commands.export_support_bundle()
+    }
+
+    pub fn dependency_report() -> DesktopDependencyReport {
+        DesktopCommandService::<
+            NativeSystemProxyController,
+            NativeTunDeviceController,
+        >::dependency_report()
+    }
+}
+
+impl Default for DesktopNativeCommandService {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a, C, T> DesktopCommandService<'a, C, T>
@@ -323,5 +423,35 @@ proxies:
         assert!(report.first_run.can_start_tun_mode);
         assert_eq!(report.system_proxy.state, "ready");
         assert_eq!(report.tun_backend.state, "ready");
+    }
+
+    #[test]
+    fn native_command_service_starts_stopped() {
+        let commands = DesktopNativeCommandService::new();
+
+        assert_eq!(commands.status().run_state, DesktopRunState::Stopped);
+    }
+
+    #[test]
+    fn native_command_service_runs_mixed_only_lifecycle() {
+        let mut commands = DesktopNativeCommandService::new();
+        commands
+            .import_subscription_config(ss_config("SS-READY"))
+            .expect("import subscription");
+        commands.set_traffic_mode(DesktopTrafficMode::MixedInboundOnly);
+        commands.set_listen("127.0.0.1:0");
+
+        let running = commands.start().expect("start native host");
+
+        assert_eq!(running.run_state, DesktopRunState::Running);
+        assert_eq!(running.traffic_mode, DesktopTrafficMode::MixedInboundOnly);
+        assert_eq!(
+            commands.status().selected_outbound.as_deref(),
+            Some("SS-READY")
+        );
+
+        let stopped = commands.stop().expect("stop native host");
+
+        assert_eq!(stopped.run_state, DesktopRunState::Stopped);
     }
 }
