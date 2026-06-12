@@ -567,11 +567,11 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(4);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 107;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 96;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 108;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 97;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
 pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 92;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 111;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 112;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 6;
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW: Duration = Duration::from_secs(60);
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS: usize = 25;
@@ -603,7 +603,7 @@ const READINESS_CHECK_CAPABILITIES: &str =
 const TUN_BACKEND_CHECK_CAPABILITIES: &str =
     "backend-kind,driver-library-detection,driver-api-load,install-required,lifecycle-wiring,packet-io-wiring,route-takeover-wiring,searched-paths,readiness-blocker-detail,validated-runtime-install,package-dir-source,install-plan";
 const DEFAULT_CORE_CERTIFICATION_CAPABILITIES: &str =
-    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode,default-core-release-gate,default-core-release-gate-stability-evidence,default-core-release-gate-stability-window,default-core-release-gate-stability-traffic-floor,default-core-release-gate-preset,default-core-release-gate-preset-evidence,default-core-release-gate-preset-minimums,default-core-release-gate-stability-summary,default-core-release-gate-preset-enforced,default-core-release-gate-preset-scope,default-core-release-gate-takeover-evidence,default-core-release-gate-next-actions,default-core-release-gate-actionable-error,default-core-release-gate-rerun-args,default-core-release-gate-canonical-rerun-args,default-core-release-gate-rerun-command,hy2-quic-udp-relay-smoke,tuic-quic-udp-relay-smoke,dns-policy-ipv6-hijack-smoke,route-rule-block-evidence,route-rule-direct-evidence,route-rule-outbound-evidence,tun-tcp-session-outbound-route-evidence,tun-runtime-smoke-relay-route-evidence";
+    "schema-version,readiness-embed,resource-limit-smoke,route-rule-smoke,dns-policy-smoke,subscription-reload-smoke,runtime-recovery-smoke,system-proxy-smoke,system-proxy-smoke-restore-evidence,tun-backend-evidence,tun-preflight-evidence,tun-runtime-smoke,tun-runtime-smoke-min-duration,tun-runtime-smoke-clean-stop,tun-runtime-smoke-residual-state,tun-runtime-smoke-route-cleanup-evidence,tun-runtime-smoke-dns-hijack-evidence,tun-runtime-smoke-dns-hijack-route-evidence,tun-runtime-smoke-interface-address-evidence,tun-runtime-smoke-traffic-stimulus,tun-runtime-smoke-required-traffic,tun-runtime-smoke-icmp-stimulus,tun-runtime-smoke-dropped-route-evidence,tun-runtime-smoke-dropped-route-history,tun-runtime-smoke-route-takeover-snapshot,tun-runtime-smoke-route-selection-evidence,non-skipped-soak,soak-parameters,soak-min-duration,promotion-decision,promotion-blockers,json-artifact,text-summary,support-bundle-export,panel-subscription-smoke,udp-relay-smoke,socks5-udp-outbound-relay-smoke,tcp-relay-smoke,socks5-tcp-outbound-relay-smoke,http-connect-relay-smoke,http-connect-outbound-relay-smoke,http-proxy-relay-smoke,trojan-tls-tcp-relay-smoke,trojan-ws-tcp-relay-smoke,trojan-httpupgrade-tcp-relay-smoke,trojan-grpc-tcp-relay-smoke,trojan-h2-tcp-relay-smoke,trojan-quic-tcp-relay-smoke,trojan-quic-udp-relay-smoke,trojan-tls-udp-relay-smoke,anytls-tls-tcp-relay-smoke,anytls-tls-udp-relay-smoke,naive-h2-tcp-relay-smoke,naive-h3-quic-tcp-relay-smoke,hy2-quic-tcp-relay-smoke,tuic-quic-tcp-relay-smoke,vless-tcp-relay-smoke,vless-ws-tcp-relay-smoke,vless-ws-udp-relay-smoke,vless-httpupgrade-tcp-relay-smoke,vless-httpupgrade-udp-relay-smoke,vless-grpc-tcp-relay-smoke,vless-grpc-udp-relay-smoke,vless-h2-tcp-relay-smoke,vless-h2-udp-relay-smoke,vless-quic-tcp-relay-smoke,vless-quic-udp-relay-smoke,vless-tcp-udp-relay-smoke,vmess-tcp-relay-smoke,vmess-ws-tcp-relay-smoke,vmess-ws-udp-relay-smoke,vmess-httpupgrade-tcp-relay-smoke,vmess-httpupgrade-udp-relay-smoke,vmess-grpc-tcp-relay-smoke,vmess-grpc-udp-relay-smoke,vmess-h2-tcp-relay-smoke,vmess-h2-udp-relay-smoke,vmess-quic-tcp-relay-smoke,vmess-quic-udp-relay-smoke,vmess-tcp-udp-relay-smoke,mieru-tcp-relay-smoke,mieru-tcp-udp-relay-smoke,tun-tcp-session-smoke,tun-tcp-session-server-retransmit-smoke,tun-tcp-session-server-fin-retransmit-smoke,tun-tcp-session-post-close-guard-smoke,tun-tcp-unknown-session-reset-smoke,tun-tcp-session-limit-smoke,tun-tcp-session-idle-prune-smoke,tun-tcp-session-close-marker-prune-smoke,tun-tcp-session-close-marker-rst-clear-smoke,machine-takeover-coverage,default-core-promotion-verdict,machine-takeover-smoke-mode,default-core-release-gate,default-core-release-gate-stability-evidence,default-core-release-gate-stability-window,default-core-release-gate-stability-traffic-floor,default-core-release-gate-preset,default-core-release-gate-preset-evidence,default-core-release-gate-preset-minimums,default-core-release-gate-stability-summary,default-core-release-gate-preset-enforced,default-core-release-gate-preset-scope,default-core-release-gate-takeover-evidence,default-core-release-gate-next-actions,default-core-release-gate-actionable-error,default-core-release-gate-rerun-args,default-core-release-gate-canonical-rerun-args,default-core-release-gate-rerun-command,default-core-release-gate-tun-runtime-relay-route-evidence,hy2-quic-udp-relay-smoke,tuic-quic-udp-relay-smoke,dns-policy-ipv6-hijack-smoke,route-rule-block-evidence,route-rule-direct-evidence,route-rule-outbound-evidence,tun-tcp-session-outbound-route-evidence,tun-runtime-smoke-relay-route-evidence";
 const INTEROP_SAMPLE_UUID: &str = "00112233-4455-6677-8899-aabbccddeeff";
 const WINTUN_PACKAGE_PLACEHOLDER: &str = "<wintun-package>";
 const WINTUN_DLL_PLACEHOLDER: &str = "<path-to-wintun.dll>";
@@ -61393,7 +61393,21 @@ fn default_core_takeover_tun_runtime_passed(report: &DefaultCoreCertificationRep
         && report
             .tun_runtime_smoke
             .as_ref()
-            .is_some_and(|smoke| smoke.passed)
+            .is_some_and(|smoke| smoke.passed && smoke.relay_route_observed)
+}
+
+fn default_core_takeover_tun_runtime_relay_route_observed(
+    report: &DefaultCoreCertificationReport,
+) -> Option<bool> {
+    report
+        .include_tun_runtime_smoke
+        .then(|| {
+            report
+                .tun_runtime_smoke
+                .as_ref()
+                .map(|smoke| smoke.relay_route_observed)
+        })
+        .flatten()
 }
 
 fn default_core_takeover_coverage_missing_evidence(
@@ -61416,8 +61430,15 @@ fn default_core_takeover_coverage_failed_evidence(
     if report.include_system_proxy_smoke && !default_core_takeover_system_proxy_passed(report) {
         failed.push("system-proxy-smoke");
     }
-    if report.include_tun_runtime_smoke && !default_core_takeover_tun_runtime_passed(report) {
-        failed.push("tun-runtime-smoke");
+    if report.include_tun_runtime_smoke {
+        match report.tun_runtime_smoke.as_ref() {
+            Some(smoke) if !smoke.passed => failed.push("tun-runtime-smoke"),
+            Some(smoke) if !smoke.relay_route_observed => {
+                failed.push("tun-runtime-smoke-relay-route-evidence");
+            }
+            None => failed.push("tun-runtime-smoke"),
+            _ => {}
+        }
     }
     failed
 }
@@ -61759,6 +61780,9 @@ fn default_core_release_gate_next_actions(
             "system-proxy-smoke" | "tun-runtime-smoke" => {
                 push_unique_action(&mut actions, "fix-machine-takeover-smoke-failures");
             }
+            "tun-runtime-smoke-relay-route-evidence" => {
+                push_unique_action(&mut actions, "fix-tun-runtime-relay-route-evidence");
+            }
             "local-soak-stability-window-too-short" => {
                 push_unique_action(&mut actions, "run-with-default-release-stability-window");
                 push_unique_action(&mut actions, "fix-local-soak-stability-window");
@@ -61908,6 +61932,129 @@ fn bool_option_or_dash(value: Option<bool>) -> String {
         .unwrap_or_else(|| "-".to_string())
 }
 
+#[cfg(test)]
+mod default_core_release_gate_tests {
+    use super::*;
+
+    fn passed_system_proxy_smoke_report() -> SystemProxySmokeReport {
+        SystemProxySmokeReport {
+            passed: true,
+            detail: "ok".to_string(),
+            config: default_system_proxy_smoke_config(),
+            original_snapshot: None,
+            apply_returned_snapshot: None,
+            applied_snapshot: None,
+            restored_snapshot: None,
+            apply_returned_original_match: true,
+            applied_matches_config: true,
+            restore_attempted: true,
+            restore_succeeded: true,
+            restored_original_snapshot_match: true,
+            snapshot_error: None,
+            apply_error: None,
+            applied_snapshot_error: None,
+            restore_error: None,
+            restored_snapshot_error: None,
+        }
+    }
+
+    fn passed_tun_runtime_smoke_report(relay_route_observed: bool) -> TunRuntimeSmokeReport {
+        TunRuntimeSmokeReport {
+            passed: true,
+            detail: "ok".to_string(),
+            min_duration: DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION,
+            elapsed: DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION,
+            duration_target_met: true,
+            loop_activity_observed: true,
+            traffic_stimulus_required: false,
+            traffic_stimulus_observed: false,
+            traffic_packets_observed: false,
+            traffic_drop_observed: false,
+            traffic_stimulus_drop_observed: false,
+            dns_stimulus_required: false,
+            dns_stimulus_observed: false,
+            dns_hijack_route_observed: false,
+            relay_route_observed,
+            last_relay_route_action: relay_route_observed
+                .then(|| RouteAction::Outbound("edge".to_string())),
+            last_relay_matched_rule: relay_route_observed.then(|| "proxy-dgram".to_string()),
+            interface_snapshot: tun_runtime_smoke_interface_snapshot_not_attempted(),
+            traffic_stimulus: tun_runtime_smoke_traffic_stimulus_not_attempted(),
+            dns_stimulus: tun_runtime_smoke_dns_stimulus_not_attempted(),
+            route_takeover: tun_runtime_smoke_route_takeover_not_collected(),
+            route_cleanup: tun_runtime_smoke_route_cleanup_not_collected(),
+            route_cleanup_observed: true,
+            route_cleanup_expected_prefixes_absent: true,
+            clean_stop_observed: true,
+            residual_state_clean: true,
+            report: None,
+        }
+    }
+
+    fn report_with_machine_takeover_smokes(
+        relay_route_observed: bool,
+    ) -> DefaultCoreCertificationReport {
+        let mut report = collect_default_core_certification_report(
+            1,
+            Duration::from_secs(2),
+            1,
+            Duration::ZERO,
+            false,
+            false,
+            DEFAULT_TUN_RUNTIME_SMOKE_MIN_DURATION,
+            true,
+            None,
+            None,
+            None,
+        )
+        .expect("collect default core certification report");
+        report.ready_for_default_core = true;
+        report.require_machine_takeover_ready = true;
+        report.include_system_proxy_smoke = true;
+        report.system_proxy_smoke = Some(passed_system_proxy_smoke_report());
+        report.include_tun_runtime_smoke = true;
+        report.tun_runtime_smoke = Some(passed_tun_runtime_smoke_report(relay_route_observed));
+        report
+    }
+
+    #[test]
+    fn release_gate_requires_tun_runtime_relay_route_evidence_for_takeover() {
+        let missing_relay = report_with_machine_takeover_smokes(false);
+
+        assert!(default_core_takeover_system_proxy_passed(&missing_relay));
+        assert!(!default_core_takeover_tun_runtime_passed(&missing_relay));
+        assert_eq!(
+            default_core_takeover_coverage_failed_evidence(&missing_relay),
+            vec!["tun-runtime-smoke-relay-route-evidence"]
+        );
+        assert!(!default_core_takeover_coverage_complete(&missing_relay));
+        assert!(!default_core_promotion_machine_takeover_ready(
+            &missing_relay
+        ));
+        assert!(!default_core_release_gate_passed(&missing_relay));
+
+        let takeover_json = default_core_release_gate_takeover_json_value(&missing_relay);
+        assert_eq!(
+            takeover_json["tun_runtime_smoke_relay_route_observed"],
+            false
+        );
+        assert_eq!(
+            takeover_json["failed_evidence"],
+            serde_json::json!(["tun-runtime-smoke-relay-route-evidence"])
+        );
+
+        let relay_observed = report_with_machine_takeover_smokes(true);
+
+        assert!(default_core_takeover_tun_runtime_passed(&relay_observed));
+        assert!(default_core_takeover_coverage_complete(&relay_observed));
+        assert!(default_core_promotion_machine_takeover_ready(
+            &relay_observed
+        ));
+        assert!(default_core_release_gate_passed(&relay_observed));
+        assert!(default_core_takeover_coverage_failed_evidence(&relay_observed).is_empty());
+    }
+}
+
 fn default_core_takeover_coverage_json_value(
     report: &DefaultCoreCertificationReport,
 ) -> serde_json::Value {
@@ -61940,6 +62087,8 @@ fn default_core_takeover_coverage_json_value(
         } else {
             None
         },
+        "tun_runtime_smoke_relay_route_observed":
+            default_core_takeover_tun_runtime_relay_route_observed(report),
         "missing_evidence_count": missing_evidence.len(),
         "missing_evidence": missing_evidence,
         "failed_evidence_count": failed_evidence.len(),
@@ -62051,6 +62200,8 @@ fn default_core_release_gate_takeover_json_value(
         } else {
             None
         },
+        "tun_runtime_smoke_relay_route_observed":
+            default_core_takeover_tun_runtime_relay_route_observed(report),
         "missing_evidence_count": missing_evidence.len(),
         "missing_evidence": missing_evidence,
         "failed_evidence_count": failed_evidence.len(),

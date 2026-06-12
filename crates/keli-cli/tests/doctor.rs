@@ -1464,34 +1464,38 @@ fn doctor_json_report_is_machine_readable() {
     );
     assert_eq!(
         report["default_core_certification_capabilities"][110],
-        "hy2-quic-udp-relay-smoke"
+        "default-core-release-gate-tun-runtime-relay-route-evidence"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][111],
-        "tuic-quic-udp-relay-smoke"
+        "hy2-quic-udp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][112],
-        "dns-policy-ipv6-hijack-smoke"
+        "tuic-quic-udp-relay-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][113],
-        "route-rule-block-evidence"
+        "dns-policy-ipv6-hijack-smoke"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][114],
-        "route-rule-direct-evidence"
+        "route-rule-block-evidence"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][115],
-        "route-rule-outbound-evidence"
+        "route-rule-direct-evidence"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][116],
-        "tun-tcp-session-outbound-route-evidence"
+        "route-rule-outbound-evidence"
     );
     assert_eq!(
         report["default_core_certification_capabilities"][117],
+        "tun-tcp-session-outbound-route-evidence"
+    );
+    assert_eq!(
+        report["default_core_certification_capabilities"][118],
         "tun-runtime-smoke-relay-route-evidence"
     );
     assert_eq!(
