@@ -19,6 +19,7 @@ keli-client-core = { path = "crates/keli-client-core" }
 keli-net-core = { path = "crates/keli-net-core" }
 keli-platform = { path = "crates/keli-platform" }
 keli-protocol = { path = "crates/keli-protocol" }
+keli-cli = { path = "crates/keli-cli" }
 aes = "0.8"
 aes-gcm = "0.10"
 base64 = "0.22"

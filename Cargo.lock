@@ -856,6 +856,7 @@ dependencies = [
 name = "keli-desktop"
 version = "0.1.425"
 dependencies = [
+ "keli-cli",
  "keli-client-core",
  "keli-platform",
  "serde",

@@ -5,6 +5,7 @@ license.workspace = true
 version.workspace = true
 
 [dependencies]
+keli-cli.workspace = true
 keli-client-core.workspace = true
 keli-platform.workspace = true
 serde.workspace = true

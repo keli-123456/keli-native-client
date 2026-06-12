@@ -1,3 +1,4 @@
+use keli_cli::ManagedMixedStatusSnapshot;
 use keli_client_core::{ClientErrorKind, ClientRuntime, RuntimeStatus};
 use serde::{Deserialize, Serialize};
 
@@ -51,6 +52,21 @@ impl DesktopStatusSnapshot {
             last_error: runtime.last_error().map(error_label),
         }
     }
+
+    pub fn from_managed_mixed_status(
+        status: &ManagedMixedStatusSnapshot,
+        traffic_mode: DesktopTrafficMode,
+    ) -> Self {
+        Self {
+            run_state: run_state(&status.status),
+            traffic_mode,
+            selected_outbound: status.selected_outbound.clone(),
+            listen: status.listen_addr.map(|addr| addr.to_string()),
+            generation: status.generation,
+            event_count: status.event_count,
+            last_error: status.last_error.as_ref().map(error_label),
+        }
+    }
 }
 
 fn error_label(error: &ClientErrorKind) -> String {
@@ -71,7 +87,13 @@ fn run_state(status: &RuntimeStatus) -> DesktopRunState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+
+    use keli_cli::ManagedMixedController;
     use keli_client_core::RuntimeConfig;
+    use keli_platform::{
+        SystemProxyConfig, SystemProxyController, SystemProxyError, SystemProxySnapshot,
+    };
 
     fn ss_config(tag: &str) -> String {
         format!(
@@ -121,5 +143,60 @@ proxies:
         assert_eq!(status.listen.as_deref(), Some("127.0.0.1:7890"));
         assert_eq!(status.generation, 1);
         assert!(status.event_count >= 2);
+    }
+
+    #[derive(Debug)]
+    struct FakeSystemProxyController {
+        snapshot: SystemProxySnapshot,
+        applied: RefCell<Vec<SystemProxyConfig>>,
+        restored: RefCell<Vec<SystemProxySnapshot>>,
+    }
+
+    impl FakeSystemProxyController {
+        fn new() -> Self {
+            Self {
+                snapshot: SystemProxySnapshot::default(),
+                applied: RefCell::new(Vec::new()),
+                restored: RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl SystemProxyController for FakeSystemProxyController {
+        fn snapshot(&self) -> Result<SystemProxySnapshot, SystemProxyError> {
+            Ok(self.snapshot.clone())
+        }
+
+        fn apply(
+            &self,
+            config: &SystemProxyConfig,
+        ) -> Result<SystemProxySnapshot, SystemProxyError> {
+            self.applied.borrow_mut().push(config.clone());
+            Ok(self.snapshot.clone())
+        }
+
+        fn restore(&self, snapshot: &SystemProxySnapshot) -> Result<(), SystemProxyError> {
+            self.restored.borrow_mut().push(snapshot.clone());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn managed_mixed_status_maps_to_stopped_desktop_status() {
+        let platform_controller = FakeSystemProxyController::new();
+        let core = ManagedMixedController::new(&platform_controller);
+
+        let status = DesktopStatusSnapshot::from_managed_mixed_status(
+            &core.status(),
+            DesktopTrafficMode::MixedInboundOnly,
+        );
+
+        assert_eq!(status.run_state, DesktopRunState::Stopped);
+        assert_eq!(status.traffic_mode, DesktopTrafficMode::MixedInboundOnly);
+        assert_eq!(status.selected_outbound, None);
+        assert_eq!(status.listen, None);
+        assert_eq!(status.generation, 0);
+        assert_eq!(status.event_count, 0);
+        assert_eq!(status.last_error, None);
     }
 }
