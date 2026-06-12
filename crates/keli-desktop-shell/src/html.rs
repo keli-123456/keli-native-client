@@ -19,6 +19,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         .join(", ");
     let snapshot_json = serde_json::to_string_pretty(snapshot)
         .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}"));
+    let primary_disabled = if primary.enabled { "" } else { " disabled" };
 
     format!(
         r#"<!doctype html>
@@ -111,6 +112,33 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       font-size: 13px;
       overflow-wrap: anywhere;
     }}
+    .actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }}
+    button {{
+      min-width: 88px;
+      min-height: 34px;
+      border: 1px solid #b7c0ca;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #171a1f;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 650;
+    }}
+    button.primary {{
+      border-color: #277d56;
+      background: #277d56;
+      color: #ffffff;
+    }}
+    button:disabled {{
+      border-color: #d9dee5;
+      background: #edf0f3;
+      color: #8a95a3;
+    }}
     pre {{
       max-height: 160px;
       overflow: auto;
@@ -134,27 +162,63 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     <div class="grid">
       <section>
         <h2>Mode</h2>
-        <div class="value">{traffic_mode}</div>
-        <div class="muted">{listen}</div>
+        <div class="value" id="traffic-mode">{traffic_mode}</div>
+        <div class="muted" id="listen-address">{listen}</div>
       </section>
       <section>
         <h2>Node</h2>
-        <div class="value">{selected}</div>
-        <div class="muted">Generation {generation}, events {events}</div>
+        <div class="value" id="selected-outbound">{selected}</div>
+        <div class="muted" id="runtime-meta">Generation {generation}, events {events}</div>
       </section>
       <section>
         <h2>Primary</h2>
-        <div class="value">{primary_label}</div>
-        <div class="muted">{primary_state}</div>
+        <div class="value" id="primary-label">{primary_label}</div>
+        <div class="muted" id="primary-state">{primary_state}</div>
+        <div class="actions">
+          <button id="primary-button" class="primary" onclick="window.ipc.postMessage('primary')"{primary_disabled}>{primary_label}</button>
+          <button id="refresh-button" onclick="window.ipc.postMessage('refresh')">Refresh</button>
+        </div>
       </section>
       <section>
         <h2>Tray</h2>
-        <div class="value">{tray_ids}</div>
-        <div class="muted">Window visible: {window_visible}</div>
+        <div class="value" id="tray-ids">{tray_ids}</div>
+        <div class="muted" id="window-visible">Window visible: {window_visible}</div>
       </section>
     </div>
-    <pre>{snapshot_json}</pre>
+    <pre id="snapshot-json">{snapshot_json}</pre>
   </main>
+  <script>
+    const runStateLabels = {{
+      "stopped": "Stopped",
+      "starting": "Starting",
+      "running": "Running",
+      "reloading": "Reloading",
+      "stopping": "Stopping",
+      "failed": "Failed"
+    }};
+    const trafficModeLabels = {{
+      "system-proxy": "System proxy",
+      "tun": "TUN",
+      "mixed-inbound-only": "Local inbound"
+    }};
+    window.keliSetShell = (snapshot) => {{
+      const status = snapshot.status;
+      const primary = snapshot.primary_action;
+      document.getElementById("run-state").textContent = runStateLabels[status.run_state] || status.run_state;
+      document.getElementById("traffic-mode").textContent = trafficModeLabels[status.traffic_mode] || status.traffic_mode;
+      document.getElementById("listen-address").textContent = status.listen || "Not listening";
+      document.getElementById("selected-outbound").textContent = status.selected_outbound || "No node selected";
+      document.getElementById("runtime-meta").textContent = `Generation ${{status.generation}}, events ${{status.event_count}}`;
+      document.getElementById("primary-label").textContent = primary.label;
+      document.getElementById("primary-state").textContent = primary.enabled ? "Enabled" : "Disabled";
+      const primaryButton = document.getElementById("primary-button");
+      primaryButton.textContent = primary.label;
+      primaryButton.disabled = !primary.enabled;
+      document.getElementById("tray-ids").textContent = snapshot.tray_menu.items.map((item) => item.id).join(", ");
+      document.getElementById("window-visible").textContent = `Window visible: ${{snapshot.window.main_visible}}`;
+      document.getElementById("snapshot-json").textContent = JSON.stringify(snapshot, null, 2);
+    }};
+  </script>
 </body>
 </html>"#,
         run_state = escape_html(run_state),
@@ -169,10 +233,18 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         } else {
             "Disabled"
         },
+        primary_disabled = primary_disabled,
         tray_ids = escape_html(&tray_ids),
         window_visible = snapshot.window.main_visible,
         snapshot_json = escape_html(&snapshot_json),
     )
+}
+
+pub fn shell_snapshot_script(snapshot: &DesktopShellState) -> serde_json::Result<String> {
+    let snapshot_json = serde_json::to_string(snapshot)?;
+    Ok(format!(
+        "window.keliSetShell && window.keliSetShell({snapshot_json});"
+    ))
 }
 
 fn run_state_label(run_state: DesktopRunState) -> &'static str {
@@ -266,6 +338,7 @@ mod tests {
         let html = render_shell_html(&snapshot());
 
         assert!(html.contains("Keli"));
+        assert!(html.contains("window.ipc.postMessage('primary')"));
         assert!(html.contains("Stopped"));
         assert!(html.contains("SS-READY"));
         assert!(html.contains("show-main-window"));
@@ -283,5 +356,14 @@ mod tests {
 
         assert!(html.contains("&lt;node&gt;&amp;&quot;"));
         assert!(!html.contains("<node>&\""));
+    }
+
+    #[test]
+    fn shell_snapshot_script_updates_webview_snapshot() {
+        let script = shell_snapshot_script(&snapshot()).expect("snapshot script");
+
+        assert!(script.contains("window.keliSetShell"));
+        assert!(script.contains("SS-READY"));
+        assert!(script.contains("show-main-window"));
     }
 }
