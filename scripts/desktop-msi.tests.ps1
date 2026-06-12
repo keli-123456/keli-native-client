@@ -28,6 +28,9 @@ $expected = @(
     'admin_extract target\desktop-msi-admin-smoke',
     'admin_extract readme import-subscription-url-or-config',
     'admin_extract manifest manual_smoke import-subscription',
+    'admin_extract support_export_smoke target\desktop\keli-desktop-msi-support-export-smoke.json',
+    'admin_extract support_export_kind keli_desktop_support_bundle',
+    'admin_extract support_export_desktop_dependencies true',
     'smoke target\desktop\keli-desktop-msi-smoke.json'
 )
 

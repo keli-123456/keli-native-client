@@ -404,7 +404,13 @@ function Write-MsiSmoke {
         [string]$SmokePath,
 
         [Parameter(Mandatory = $true)]
-        [string]$AdminExtractDir
+        [string]$AdminExtractDir,
+
+        [Parameter(Mandatory = $true)]
+        [string]$SupportExportSmokePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$SupportExportDir
     )
 
     if (!(Test-Path -LiteralPath $MsiPath -PathType Leaf)) {
@@ -485,6 +491,24 @@ function Write-MsiSmoke {
         Require-ManifestSmokeCase -Manifest $extractedManifest -Name $case
     }
 
+    $extractedExe = Join-Path $AdminExtractDir 'Keli\keli-desktop-shell.exe'
+    New-Item -ItemType Directory -Force -Path $SupportExportDir | Out-Null
+    $supportExportOutput = & $extractedExe --support-export-smoke $SupportExportDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "MSI extracted support export smoke failed with exit code $LASTEXITCODE"
+    }
+    $supportExportOutput | Set-Content -LiteralPath $SupportExportSmokePath -Encoding ASCII
+    $supportExportSmoke = Get-Content -Raw -LiteralPath $SupportExportSmokePath | ConvertFrom-Json
+    if ($supportExportSmoke.status -ne 'passed') {
+        throw "MSI extracted support export smoke status mismatch: $($supportExportSmoke.status)"
+    }
+    if ($supportExportSmoke.kind -ne 'keli_desktop_support_bundle') {
+        throw "MSI extracted support export smoke kind mismatch: $($supportExportSmoke.kind)"
+    }
+    if ($supportExportSmoke.desktop_dependencies -ne $true) {
+        throw 'MSI extracted support export smoke desktop_dependencies must be true'
+    }
+
     $result = [ordered]@{
         status = 'passed'
         msi = 'target\desktop\keli-desktop-mvp-windows-x64.msi'
@@ -492,6 +516,10 @@ function Write-MsiSmoke {
         file_count = $fileCount
         shortcut = 'ProgramMenuFolder\Keli\Keli.lnk'
         admin_extract = 'target\desktop-msi-admin-smoke'
+        support_export_smoke = 'target\desktop\keli-desktop-msi-support-export-smoke.json'
+        support_export_path = [string]$supportExportSmoke.path
+        support_export_kind = [string]$supportExportSmoke.kind
+        support_export_desktop_dependencies = [bool]$supportExportSmoke.desktop_dependencies
         readme_subscription_import = 'subscription-url-or-config'
         manual_smoke_cases = $extractedManifest.manual_smoke
     }
@@ -503,6 +531,8 @@ $stageDir = Join-Path $repoRoot 'target\desktop\keli-desktop-mvp-windows-x64'
 $msiPath = Join-Path $repoRoot 'target\desktop\keli-desktop-mvp-windows-x64.msi'
 $smokePath = Join-Path $repoRoot 'target\desktop\keli-desktop-msi-smoke.json'
 $adminExtractDir = Join-Path $repoRoot 'target\desktop-msi-admin-smoke'
+$supportExportSmokePath = Join-Path $repoRoot 'target\desktop\keli-desktop-msi-support-export-smoke.json'
+$supportExportDir = Join-Path $repoRoot 'target\desktop-msi-support-export-smoke'
 $version = Get-WorkspaceVersion -CargoToml (Join-Path $repoRoot 'Cargo.toml')
 
 Push-Location $repoRoot
@@ -518,6 +548,9 @@ try {
         Write-Output 'admin_extract target\desktop-msi-admin-smoke'
         Write-Output 'admin_extract readme import-subscription-url-or-config'
         Write-Output 'admin_extract manifest manual_smoke import-subscription'
+        Write-Output 'admin_extract support_export_smoke target\desktop\keli-desktop-msi-support-export-smoke.json'
+        Write-Output 'admin_extract support_export_kind keli_desktop_support_bundle'
+        Write-Output 'admin_extract support_export_desktop_dependencies true'
         Write-Output 'smoke target\desktop\keli-desktop-msi-smoke.json'
         return
     }
@@ -526,7 +559,7 @@ try {
     [System.GC]::Collect()
     [System.GC]::WaitForPendingFinalizers()
     Start-Sleep -Milliseconds 200
-    Write-MsiSmoke -MsiPath $msiPath -SmokePath $smokePath -AdminExtractDir $adminExtractDir
+    Write-MsiSmoke -MsiPath $msiPath -SmokePath $smokePath -AdminExtractDir $adminExtractDir -SupportExportSmokePath $supportExportSmokePath -SupportExportDir $supportExportDir
     Write-Host "Desktop MSI created: $msiPath"
     Write-Host "Desktop MSI smoke passed: $smokePath"
 } finally {
