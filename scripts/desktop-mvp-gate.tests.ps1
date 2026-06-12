@@ -1,0 +1,36 @@
+[CmdletBinding()]
+param()
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$scriptDir = Split-Path -Parent $PSCommandPath
+$gateScript = Join-Path $scriptDir 'desktop-mvp-gate.ps1'
+
+if (!(Test-Path -LiteralPath $gateScript)) {
+    throw "desktop-mvp-gate.ps1 was not found"
+}
+
+$output = & powershell -NoProfile -ExecutionPolicy Bypass -File $gateScript -PlanOnly
+if ($LASTEXITCODE -ne 0) {
+    throw "desktop-mvp-gate.ps1 -PlanOnly exited with $LASTEXITCODE"
+}
+
+$plan = $output -join "`n"
+$expected = @(
+    'cargo fmt --check',
+    'git diff --check',
+    'cargo test -p keli-desktop -- --test-threads=1',
+    'cargo test -p keli-desktop-shell',
+    'cargo check -p keli-desktop-shell',
+    'cargo build --release -p keli-desktop-shell',
+    'target\release\keli-desktop-shell.exe'
+)
+
+foreach ($item in $expected) {
+    if (!$plan.Contains($item)) {
+        throw "desktop MVP gate plan is missing: $item"
+    }
+}
+
+Write-Output 'desktop MVP gate plan test passed'
