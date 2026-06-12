@@ -23,6 +23,7 @@ $expectedPlan = @(
     'read public_release_ready public_release_blockers public_release_next_steps',
     'read signing.status signing.mode signing.can_sign signing.signtool_available signing.signing_method signing.timestamp_url signing.store_certificate_candidates_count signing.certificate_subject_match_count signing.unsigned_artifacts signing.sign_verification_failures signing.sign_command_previews signing.release_commands',
     'read smoke.install.first_run_system_proxy_ready smoke.install.first_run_tun_ready smoke.install.first_run_blockers smoke.install.dependency_action_entrypoints',
+    'read smoke.install.support_export_smoke smoke.install.support_export_kind smoke.install.support_export_desktop_dependencies',
     'read smoke.machine.machine_takeover_status',
     'output desktop public release readiness report',
     'output json when -Json is provided'
@@ -78,6 +79,10 @@ $fixture = [ordered]@{
                 }
             )
             dependency_action_entrypoints = @('install-wintun')
+            support_export_smoke = 'target\desktop-install-smoke\desktop-support-export-smoke.json'
+            support_export_path = 'target\desktop-install-smoke\support-export\keli-support-1.json'
+            support_export_kind = 'keli_desktop_support_bundle'
+            support_export_desktop_dependencies = $true
         }
         machine = [ordered]@{
             machine_takeover_status = 'ready'
@@ -146,6 +151,15 @@ if ($report.install_first_run.blockers[0].code -ne 'wintun-missing') {
 if (($report.install_first_run.dependency_action_entrypoints -join ',') -ne 'install-wintun') {
     throw "readiness install dependency action entrypoints mismatch: $($report.install_first_run.dependency_action_entrypoints -join ',')"
 }
+if ($report.support_export.path -ne 'target\desktop-install-smoke\support-export\keli-support-1.json') {
+    throw "readiness support export path mismatch: $($report.support_export.path)"
+}
+if ($report.support_export.kind -ne 'keli_desktop_support_bundle') {
+    throw "readiness support export kind mismatch: $($report.support_export.kind)"
+}
+if ($report.support_export.desktop_dependencies -ne $true) {
+    throw 'readiness support export desktop dependency evidence must be true'
+}
 if ($report.signing.sign_command_previews.Count -ne 1) {
     throw "readiness signing command preview count mismatch: $($report.signing.sign_command_previews.Count)"
 }
@@ -175,7 +189,10 @@ foreach ($item in @(
     'install_first_run_system_proxy_ready true',
     'install_first_run_tun_ready false',
     'install_first_run_blockers wintun-missing',
-    'install_dependency_action_entrypoints install-wintun'
+    'install_dependency_action_entrypoints install-wintun',
+    'support_export_smoke target\desktop-install-smoke\desktop-support-export-smoke.json',
+    'support_export_kind keli_desktop_support_bundle',
+    'support_export_desktop_dependencies true'
 )) {
     if (!$text.Contains($item)) {
         throw "readiness text output missing: $item"

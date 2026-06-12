@@ -195,6 +195,12 @@ function New-ReadinessReport {
             blockers = @(Get-FirstRunBlockersProperty -InputObject $install -Name 'first_run_blockers')
             dependency_action_entrypoints = @(Get-StringArrayProperty -InputObject $install -Name 'dependency_action_entrypoints')
         }
+        support_export = [ordered]@{
+            smoke = Get-StringProperty -InputObject $install -Name 'support_export_smoke'
+            path = Get-StringProperty -InputObject $install -Name 'support_export_path'
+            kind = Get-StringProperty -InputObject $install -Name 'support_export_kind'
+            desktop_dependencies = Get-BoolProperty -InputObject $install -Name 'support_export_desktop_dependencies'
+        }
         signing = [ordered]@{
             status = Get-StringProperty -InputObject $signing -Name 'status'
             mode = Get-StringProperty -InputObject $signing -Name 'mode'
@@ -235,6 +241,9 @@ function Write-ReadinessText {
     Write-Output "install_first_run_tun_ready $(Format-Bool -Value $Report.install_first_run.tun_ready)"
     Write-Output "install_first_run_blockers $($Report.install_first_run.blockers.code -join ',')"
     Write-Output "install_dependency_action_entrypoints $($Report.install_first_run.dependency_action_entrypoints -join ',')"
+    Write-Output "support_export_smoke $($Report.support_export.smoke)"
+    Write-Output "support_export_kind $($Report.support_export.kind)"
+    Write-Output "support_export_desktop_dependencies $(Format-Bool -Value $Report.support_export.desktop_dependencies)"
     Write-Output "signing_status $($Report.signing.status)"
     Write-Output "signing_mode $($Report.signing.mode)"
     Write-Output "signing_can_sign $(Format-Bool -Value $Report.signing.can_sign)"
@@ -264,6 +273,7 @@ try {
         Write-Output 'read public_release_ready public_release_blockers public_release_next_steps'
         Write-Output 'read signing.status signing.mode signing.can_sign signing.signtool_available signing.signing_method signing.timestamp_url signing.store_certificate_candidates_count signing.certificate_subject_match_count signing.unsigned_artifacts signing.sign_verification_failures signing.sign_command_previews signing.release_commands'
         Write-Output 'read smoke.install.first_run_system_proxy_ready smoke.install.first_run_tun_ready smoke.install.first_run_blockers smoke.install.dependency_action_entrypoints'
+        Write-Output 'read smoke.install.support_export_smoke smoke.install.support_export_kind smoke.install.support_export_desktop_dependencies'
         Write-Output 'read smoke.machine.machine_takeover_status'
         Write-Output 'output desktop public release readiness report'
         Write-Output 'output json when -Json is provided'
