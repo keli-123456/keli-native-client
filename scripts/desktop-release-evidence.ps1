@@ -117,12 +117,63 @@ function Read-SmokeStatus {
     }
 }
 
+function Read-MachineSmokeStatus {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RelativePath
+    )
+
+    Require-File -Path $Path
+    $smoke = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
+    if ($smoke.status -ne 'passed') {
+        throw "machine smoke status mismatch: $($smoke.status)"
+    }
+    if ($smoke.native_core_default -ne $true) {
+        throw 'machine smoke native_core_default must be true'
+    }
+
+    $takeoverStatus = [string]$smoke.machine_takeover.status
+    $blockers = @()
+    if ($null -ne $smoke.machine_takeover.blockers) {
+        $blockers = @($smoke.machine_takeover.blockers | ForEach-Object { [string]$_ })
+    }
+
+    [ordered]@{
+        path = $RelativePath
+        status = [string]$smoke.status
+        mode = [string]$smoke.mode
+        native_core_default = $true
+        machine_takeover_status = $takeoverStatus
+        blockers = $blockers
+    }
+}
+
+function Add-UniqueBlocker {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [string[]]$Blockers,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Blocker
+    )
+
+    if ($Blockers -notcontains $Blocker) {
+        return @($Blockers + $Blocker)
+    }
+    return $Blockers
+}
+
 $repoRoot = Resolve-RepoRoot
 $exeRelativePath = 'target\release\keli-desktop-shell.exe'
 $zipRelativePath = 'target\desktop\keli-desktop-mvp-windows-x64.zip'
 $msiRelativePath = 'target\desktop\keli-desktop-mvp-windows-x64.msi'
 $installSmokeRelativePath = 'target\desktop-install-smoke\desktop-install-smoke.json'
 $msiSmokeRelativePath = 'target\desktop\keli-desktop-msi-smoke.json'
+$machineSmokeRelativePath = 'target\desktop\keli-desktop-machine-smoke.json'
 $evidenceRelativePath = 'target\desktop\keli-desktop-release-evidence.json'
 
 $exePath = Join-Path $repoRoot $exeRelativePath
@@ -130,6 +181,7 @@ $zipPath = Join-Path $repoRoot $zipRelativePath
 $msiPath = Join-Path $repoRoot $msiRelativePath
 $installSmokePath = Join-Path $repoRoot $installSmokeRelativePath
 $msiSmokePath = Join-Path $repoRoot $msiSmokeRelativePath
+$machineSmokePath = Join-Path $repoRoot $machineSmokeRelativePath
 $evidencePath = Join-Path $repoRoot $evidenceRelativePath
 
 Push-Location $repoRoot
@@ -140,10 +192,12 @@ try {
         Write-Output "input $msiRelativePath"
         Write-Output "input $installSmokeRelativePath"
         Write-Output "input $msiSmokeRelativePath"
+        Write-Output "input $machineSmokeRelativePath"
         Write-Output 'hash sha256 exe zip msi'
         Write-Output 'signature authenticode exe msi'
         Write-Output 'metadata native_core_default true'
         Write-Output 'metadata public_release_ready false_when_unsigned'
+        Write-Output 'metadata public_release_ready false_when_machine_takeover_missing'
         Write-Output "output $evidenceRelativePath"
         return
     }
@@ -155,15 +209,25 @@ try {
     )
     $installSmoke = Read-SmokeStatus -Name 'install' -Path $installSmokePath -RelativePath $installSmokeRelativePath
     $msiSmoke = Read-SmokeStatus -Name 'msi' -Path $msiSmokePath -RelativePath $msiSmokeRelativePath
+    $machineSmoke = Read-MachineSmokeStatus -Path $machineSmokePath -RelativePath $machineSmokeRelativePath
 
     $unsignedArtifacts = @($artifacts | Where-Object {
         $_.Contains('signature') -and !$_.signature.signed
     })
-    $publicReleaseReady = ($unsignedArtifacts.Count -eq 0)
     $blockers = @()
-    if (!$publicReleaseReady) {
-        $blockers += 'artifact-signature-missing'
+    if ($unsignedArtifacts.Count -gt 0) {
+        $blockers = Add-UniqueBlocker -Blockers $blockers -Blocker 'artifact-signature-missing'
     }
+    if ($machineSmoke.machine_takeover_status -ne 'ready') {
+        if ($machineSmoke.blockers.Count -gt 0) {
+            foreach ($blocker in $machineSmoke.blockers) {
+                $blockers = Add-UniqueBlocker -Blockers $blockers -Blocker $blocker
+            }
+        } else {
+            $blockers = Add-UniqueBlocker -Blockers $blockers -Blocker 'machine-takeover-smoke-not-ready'
+        }
+    }
+    $publicReleaseReady = ($blockers.Count -eq 0)
 
     $evidence = [ordered]@{
         status = 'passed'
@@ -175,6 +239,7 @@ try {
         smoke = [ordered]@{
             install = $installSmoke
             msi = $msiSmoke
+            machine = $machineSmoke
         }
     }
 
