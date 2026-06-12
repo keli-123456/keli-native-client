@@ -39,6 +39,7 @@ $expected = @(
     'metadata signing_operator_next_steps',
     'metadata signing_release_commands',
     'metadata signing_status',
+    'metadata signing_mode',
     'metadata signing_method',
     'metadata signing_timestamp_url',
     'metadata signing_unsigned_artifacts',
@@ -86,6 +87,9 @@ try {
     $releaseEvidence = Get-Content -Raw -LiteralPath $releaseEvidencePath | ConvertFrom-Json
     if ($releaseEvidence.signing.status -ne 'failed') {
         throw "release evidence signing status mismatch: $($releaseEvidence.signing.status)"
+    }
+    if ($releaseEvidence.signing.mode -ne 'sign') {
+        throw "release evidence signing mode mismatch: $($releaseEvidence.signing.mode)"
     }
     if ($releaseEvidence.signing.sign_verification_failures.Count -ne 2) {
         throw "release evidence signing verification failure count mismatch: $($releaseEvidence.signing.sign_verification_failures.Count)"

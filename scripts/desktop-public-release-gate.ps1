@@ -110,6 +110,9 @@ function Get-OptionalSigningDiagnostics {
     if (Test-JsonProperty -InputObject $signing -Name 'status') {
         $parts += "signing_status=$([string]$signing.status)"
     }
+    if (Test-JsonProperty -InputObject $signing -Name 'mode') {
+        $parts += "signing_mode=$([string]$signing.mode)"
+    }
     if (Test-JsonProperty -InputObject $signing -Name 'signtool_available') {
         $parts += "signing_signtool_available=$(([bool]$signing.signtool_available).ToString().ToLowerInvariant())"
     }

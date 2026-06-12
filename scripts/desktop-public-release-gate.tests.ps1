@@ -62,6 +62,7 @@ $fixture = [ordered]@{
     public_release_next_steps = @('configure-code-signing-certificate', 'run-desktop-signing-sign', 'run-public-release-gate')
     signing = [ordered]@{
         status = 'failed'
+        mode = 'sign'
         can_sign = $false
         signtool_available = $true
         signing_method = ''
@@ -119,6 +120,7 @@ foreach ($item in @(
     'Desktop public release gate blocked: artifact-signature-missing,signing-certificate-missing',
     'next_steps=configure-code-signing-certificate,run-desktop-signing-sign,run-public-release-gate',
     'signing_status=failed',
+    'signing_mode=sign',
     'signing_signtool_available=true',
     'signing_method=none',
     'signing_certificate_subject_matches=0',

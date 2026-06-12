@@ -21,7 +21,7 @@ $plan = $planOutput -join "`n"
 $expectedPlan = @(
     'input target\desktop\keli-desktop-release-evidence.json',
     'read public_release_ready public_release_blockers public_release_next_steps',
-    'read signing.status signing.can_sign signing.signtool_available signing.signing_method signing.timestamp_url signing.store_certificate_candidates_count signing.certificate_subject_match_count signing.unsigned_artifacts signing.sign_verification_failures signing.sign_command_previews signing.release_commands',
+    'read signing.status signing.mode signing.can_sign signing.signtool_available signing.signing_method signing.timestamp_url signing.store_certificate_candidates_count signing.certificate_subject_match_count signing.unsigned_artifacts signing.sign_verification_failures signing.sign_command_previews signing.release_commands',
     'read smoke.machine.machine_takeover_status',
     'output desktop public release readiness report',
     'output json when -Json is provided'
@@ -43,6 +43,7 @@ $fixture = [ordered]@{
     public_release_next_steps = @('configure-code-signing-certificate', 'run-desktop-signing-sign', 'run-public-release-gate')
     signing = [ordered]@{
         status = 'failed'
+        mode = 'sign'
         can_sign = $false
         signtool_available = $true
         signing_method = ''
@@ -92,6 +93,9 @@ if ($report.signing.can_sign -ne $false) {
 }
 if ($report.signing.status -ne 'failed') {
     throw "readiness signing status mismatch: $($report.signing.status)"
+}
+if ($report.signing.mode -ne 'sign') {
+    throw "readiness signing mode mismatch: $($report.signing.mode)"
 }
 if ($report.signing.signtool_available -ne $true) {
     throw 'readiness signing signtool_available should be true'

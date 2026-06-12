@@ -375,6 +375,7 @@ try {
         Write-Output 'metadata signing_operator_next_steps'
         Write-Output 'metadata signing_release_commands'
         Write-Output 'metadata signing_status'
+        Write-Output 'metadata signing_mode'
         Write-Output 'metadata signing_method'
         Write-Output 'metadata signing_timestamp_url'
         Write-Output 'metadata signing_unsigned_artifacts'
