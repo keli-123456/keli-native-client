@@ -112,6 +112,8 @@ try {
         Write-Output 'launch_smoke ui_workflow_entrypoint start-stop-system-proxy'
         Write-Output 'launch_smoke ui_workflow_entrypoint tun-preflight'
         Write-Output 'launch_smoke ui_workflow_entrypoint export-support-bundle'
+        Write-Output 'launch_smoke first_run_dependency_blockers'
+        Write-Output 'launch_smoke dependency_action_entrypoint install-wintun'
         Write-Output 'result target\desktop-install-smoke\desktop-shell-launch-smoke.json'
         Write-Output 'result target\desktop-install-smoke\desktop-install-smoke.json'
         return
@@ -156,6 +158,12 @@ try {
     if ($launchSmoke.snapshot_script_ready -ne $true) {
         throw 'desktop shell launch smoke snapshot_script_ready must be true'
     }
+    if ($null -eq $launchSmoke.PSObject.Properties['first_run_blockers']) {
+        throw 'desktop shell launch smoke first_run_blockers is missing'
+    }
+    if ($null -eq $launchSmoke.PSObject.Properties['dependency_action_entrypoints']) {
+        throw 'desktop shell launch smoke dependency_action_entrypoints is missing'
+    }
 
     $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
     if ($manifest.executable -ne 'keli-desktop-shell.exe') {
@@ -182,6 +190,10 @@ try {
         readme_subscription_import = 'subscription-url-or-config'
         manual_smoke_cases = $manifest.manual_smoke
         verified_ui_workflow_entrypoints = $launchSmoke.ui_workflow_entrypoints
+        first_run_system_proxy_ready = [bool]$launchSmoke.first_run_system_proxy_ready
+        first_run_tun_ready = [bool]$launchSmoke.first_run_tun_ready
+        first_run_blockers = @($launchSmoke.first_run_blockers)
+        dependency_action_entrypoints = @($launchSmoke.dependency_action_entrypoints | ForEach-Object { [string]$_ })
     }
     $result | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $resultPath -Encoding ASCII
 

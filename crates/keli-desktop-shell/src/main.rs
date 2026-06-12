@@ -556,6 +556,13 @@ fn app_icon() -> Result<Icon, Box<dyn Error>> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct DesktopShellSmokeBlocker {
+    code: String,
+    message: String,
+    action: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct DesktopShellSmokeReport {
     status: String,
     native_core_default: bool,
@@ -564,6 +571,10 @@ struct DesktopShellSmokeReport {
     primary_action_id: String,
     can_start: bool,
     dependency_blocker_count: usize,
+    first_run_system_proxy_ready: bool,
+    first_run_tun_ready: bool,
+    first_run_blockers: Vec<DesktopShellSmokeBlocker>,
+    dependency_action_entrypoints: Vec<String>,
     html_ready: bool,
     snapshot_script_ready: bool,
     ui_workflow_entrypoints: Vec<String>,
@@ -610,6 +621,8 @@ fn build_smoke_report(
     let snapshot_script_ready =
         snapshot_script.contains("window.keliSetShell") && snapshot_script.contains("\"status\"");
     let ui_workflow_entrypoints = smoke_workflow_entrypoints(html, snapshot_script);
+    let first_run_blockers = smoke_first_run_blockers(snapshot);
+    let dependency_action_entrypoints = smoke_dependency_action_entrypoints(snapshot, html);
     let workflows_ready = expected_smoke_workflows().iter().all(|workflow| {
         ui_workflow_entrypoints
             .iter()
@@ -629,6 +642,10 @@ fn build_smoke_report(
         primary_action_id: snapshot.primary_action.id.clone(),
         can_start: snapshot.can_start,
         dependency_blocker_count: snapshot.dependencies.first_run.blockers.len(),
+        first_run_system_proxy_ready: snapshot.dependencies.first_run.system_proxy_ready,
+        first_run_tun_ready: snapshot.dependencies.first_run.tun_ready,
+        first_run_blockers,
+        dependency_action_entrypoints,
         html_ready,
         snapshot_script_ready,
         ui_workflow_entrypoints,
@@ -679,6 +696,49 @@ fn smoke_workflow_entrypoints(html: &str, snapshot_script: &str) -> Vec<String> 
         entrypoints.push("export-support-bundle".to_string());
     }
     entrypoints
+}
+
+fn smoke_first_run_blockers(snapshot: &DesktopShellState) -> Vec<DesktopShellSmokeBlocker> {
+    snapshot
+        .dependencies
+        .first_run
+        .blockers
+        .iter()
+        .map(|blocker| DesktopShellSmokeBlocker {
+            code: blocker.code.clone(),
+            message: blocker.message.clone(),
+            action: blocker.action.clone(),
+        })
+        .collect()
+}
+
+fn smoke_dependency_action_entrypoints(snapshot: &DesktopShellState, html: &str) -> Vec<String> {
+    let mut actions = Vec::new();
+    add_smoke_dependency_action(
+        &mut actions,
+        snapshot.dependencies.system_proxy.action.as_deref(),
+    );
+    add_smoke_dependency_action(
+        &mut actions,
+        snapshot.dependencies.tun_backend.action.as_deref(),
+    );
+    for blocker in &snapshot.dependencies.first_run.blockers {
+        add_smoke_dependency_action(&mut actions, blocker.action.as_deref());
+    }
+    actions
+        .into_iter()
+        .filter(|action| html.contains(&format!("data-dependency-action=\"{action}\"")))
+        .collect()
+}
+
+fn add_smoke_dependency_action(actions: &mut Vec<String>, action: Option<&str>) {
+    let Some(action) = action else {
+        return;
+    };
+    if action.trim().is_empty() || actions.iter().any(|existing| existing == action) {
+        return;
+    }
+    actions.push(action.to_string());
 }
 
 #[cfg(test)]
@@ -804,6 +864,36 @@ mod tests {
 
         assert_eq!(report.status, "failed");
         assert!(!report.html_ready);
+    }
+
+    #[test]
+    fn smoke_report_records_first_run_dependency_blockers_and_actions() {
+        let mut snapshot = smoke_snapshot();
+        snapshot.dependencies.first_run.tun_ready = false;
+        snapshot.dependencies.first_run.can_start_tun_mode = false;
+        snapshot.dependencies.first_run.blockers = vec![keli_desktop::DesktopBlocker {
+            code: "wintun-missing".to_string(),
+            message: "Wintun library was not found".to_string(),
+            action: Some("install-wintun".to_string()),
+        }];
+        snapshot.dependencies.tun_backend.action = Some("install-wintun".to_string());
+
+        let html = render_shell_html(&snapshot);
+        let script = shell_snapshot_script(&snapshot).expect("snapshot script");
+        let report = build_smoke_report(&snapshot, &html, &script);
+
+        assert!(!report.first_run_tun_ready);
+        assert!(report.first_run_system_proxy_ready);
+        assert_eq!(report.first_run_blockers.len(), 1);
+        assert_eq!(report.first_run_blockers[0].code, "wintun-missing");
+        assert_eq!(
+            report.first_run_blockers[0].action.as_deref(),
+            Some("install-wintun")
+        );
+        assert!(report
+            .dependency_action_entrypoints
+            .iter()
+            .any(|action| action == "install-wintun"));
     }
 
     #[test]

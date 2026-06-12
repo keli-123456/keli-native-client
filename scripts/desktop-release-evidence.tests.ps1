@@ -29,6 +29,7 @@ $expected = @(
     'signature authenticode exe msi',
     'metadata native_core_default true',
     'metadata install_smoke_ui_workflow_entrypoints',
+    'metadata install_smoke_first_run_dependency_actions',
     'metadata install_smoke_readme_subscription_import',
     'metadata msi_smoke_manual_smoke_cases',
     'metadata msi_smoke_readme_subscription_import',
@@ -57,10 +58,46 @@ foreach ($item in $expected) {
 }
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $scriptDir '..')).Path
+$installSmokePath = Join-Path $repoRoot 'target\desktop-install-smoke\desktop-install-smoke.json'
+$backupInstallSmokePath = Join-Path $repoRoot 'target\desktop-release-evidence-tests\desktop-install-smoke.backup.json'
 $signingPath = Join-Path $repoRoot 'target\desktop\keli-desktop-signing.json'
 $backupSigningPath = Join-Path $repoRoot 'target\desktop-release-evidence-tests\keli-desktop-signing.backup.json'
 $backupDir = Split-Path -Parent $backupSigningPath
 New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
+Copy-Item -LiteralPath $installSmokePath -Destination $backupInstallSmokePath -Force
+try {
+    $installSmoke = Get-Content -Raw -LiteralPath $installSmokePath | ConvertFrom-Json
+    $installSmoke | Add-Member -NotePropertyName first_run_system_proxy_ready -NotePropertyValue $true -Force
+    $installSmoke | Add-Member -NotePropertyName first_run_tun_ready -NotePropertyValue $false -Force
+    $installSmoke | Add-Member -NotePropertyName first_run_blockers -NotePropertyValue @(
+        [ordered]@{
+            code = 'wintun-missing'
+            message = 'Wintun library was not found'
+            action = 'install-wintun'
+        }
+    ) -Force
+    $installSmoke | Add-Member -NotePropertyName dependency_action_entrypoints -NotePropertyValue @('install-wintun') -Force
+    $installSmoke | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $installSmokePath -Encoding ASCII
+
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $releaseScript
+    if ($LASTEXITCODE -ne 0) {
+        throw "desktop-release-evidence.ps1 dependency fixture exited with $LASTEXITCODE"
+    }
+
+    $dependencyReleaseEvidencePath = Join-Path $repoRoot 'target\desktop\keli-desktop-release-evidence.json'
+    $dependencyReleaseEvidence = Get-Content -Raw -LiteralPath $dependencyReleaseEvidencePath | ConvertFrom-Json
+    if ($dependencyReleaseEvidence.smoke.install.first_run_blockers.Count -ne 1) {
+        throw "release evidence install first-run blocker count mismatch: $($dependencyReleaseEvidence.smoke.install.first_run_blockers.Count)"
+    }
+    if ($dependencyReleaseEvidence.smoke.install.first_run_blockers[0].code -ne 'wintun-missing') {
+        throw "release evidence install first-run blocker code mismatch: $($dependencyReleaseEvidence.smoke.install.first_run_blockers[0].code)"
+    }
+    if (($dependencyReleaseEvidence.smoke.install.dependency_action_entrypoints -join ',') -ne 'install-wintun') {
+        throw "release evidence install dependency action entrypoints mismatch: $($dependencyReleaseEvidence.smoke.install.dependency_action_entrypoints -join ',')"
+    }
+} finally {
+    Copy-Item -LiteralPath $backupInstallSmokePath -Destination $installSmokePath -Force
+}
 if (!(Test-Path -LiteralPath $signingPath)) {
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptDir 'desktop-signing.ps1')
     if ($LASTEXITCODE -ne 0) {

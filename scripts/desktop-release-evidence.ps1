@@ -125,6 +125,16 @@ function Read-SmokeStatus {
         $verifiedUiWorkflowEntrypoints = @($smoke.verified_ui_workflow_entrypoints | ForEach-Object { [string]$_ })
     }
 
+    $firstRunBlockers = @()
+    if ($null -ne $smoke.PSObject.Properties['first_run_blockers']) {
+        $firstRunBlockers = @($smoke.first_run_blockers)
+    }
+
+    $dependencyActionEntrypoints = @()
+    if ($null -ne $smoke.PSObject.Properties['dependency_action_entrypoints']) {
+        $dependencyActionEntrypoints = @($smoke.dependency_action_entrypoints | ForEach-Object { [string]$_ })
+    }
+
     $status = [ordered]@{
         path = $RelativePath
         status = [string]$smoke.status
@@ -138,6 +148,18 @@ function Read-SmokeStatus {
     }
     if ($verifiedUiWorkflowEntrypoints.Count -gt 0) {
         $status['verified_ui_workflow_entrypoints'] = $verifiedUiWorkflowEntrypoints
+    }
+    if ($null -ne $smoke.PSObject.Properties['first_run_system_proxy_ready']) {
+        $status['first_run_system_proxy_ready'] = [bool]$smoke.first_run_system_proxy_ready
+    }
+    if ($null -ne $smoke.PSObject.Properties['first_run_tun_ready']) {
+        $status['first_run_tun_ready'] = [bool]$smoke.first_run_tun_ready
+    }
+    if ($firstRunBlockers.Count -gt 0) {
+        $status['first_run_blockers'] = $firstRunBlockers
+    }
+    if ($dependencyActionEntrypoints.Count -gt 0) {
+        $status['dependency_action_entrypoints'] = $dependencyActionEntrypoints
     }
     return $status
 }
@@ -365,6 +387,7 @@ try {
         Write-Output 'signature authenticode exe msi'
         Write-Output 'metadata native_core_default true'
         Write-Output 'metadata install_smoke_ui_workflow_entrypoints'
+        Write-Output 'metadata install_smoke_first_run_dependency_actions'
         Write-Output 'metadata install_smoke_readme_subscription_import'
         Write-Output 'metadata msi_smoke_manual_smoke_cases'
         Write-Output 'metadata msi_smoke_readme_subscription_import'

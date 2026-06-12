@@ -33,6 +33,8 @@ $expected = @(
     'launch_smoke ui_workflow_entrypoint start-stop-system-proxy',
     'launch_smoke ui_workflow_entrypoint tun-preflight',
     'launch_smoke ui_workflow_entrypoint export-support-bundle',
+    'launch_smoke first_run_dependency_blockers',
+    'launch_smoke dependency_action_entrypoint install-wintun',
     'result target\desktop-install-smoke\desktop-shell-launch-smoke.json',
     'result target\desktop-install-smoke\desktop-install-smoke.json'
 )
