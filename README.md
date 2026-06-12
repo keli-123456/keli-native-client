@@ -958,6 +958,11 @@ Use `scripts\desktop-beta-rc.ps1` after `scripts\desktop-mvp-gate.ps1` to write
 passes only when the desktop MVP is ready and the public-release blockers are
 limited to `artifact-signature-missing` and `signing-certificate-missing`.
 
+Pushing a `v*` tag runs `.github\workflows\windows-unsigned-beta-release.yml`.
+The workflow runs the desktop MVP gate, regenerates the unsigned Beta manifest
+and release notes, writes `target\desktop\SHA256SUMS`, uploads the payload as a
+workflow artifact, and publishes a GitHub prerelease for tag runs.
+
 ## Verify
 
 ```powershell
@@ -992,4 +997,5 @@ cargo run -p keli-cli -- soak-mixed --connections 25 --min-duration-ms 60000 --f
 scripts\desktop-mvp-gate.ps1
 scripts\desktop-public-release-gate.ps1 -SkipGate
 scripts\desktop-beta-rc.ps1
+powershell -ExecutionPolicy Bypass -File scripts\desktop-github-release-workflow.tests.ps1
 ```
