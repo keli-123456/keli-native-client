@@ -50,6 +50,12 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let diagnostics_system_proxy = diagnostics_system_proxy(snapshot);
     let diagnostics_tun = diagnostics_tun(snapshot);
     let diagnostics_default_core = diagnostics_default_core(snapshot);
+    let activity_summary = format!("{diagnostics_runtime_events}; {diagnostics_recent_event}");
+    let local_inbound_pressed =
+        aria_pressed(snapshot.status.traffic_mode == DesktopTrafficMode::MixedInboundOnly);
+    let system_proxy_pressed =
+        aria_pressed(snapshot.status.traffic_mode == DesktopTrafficMode::SystemProxy);
+    let tun_pressed = aria_pressed(snapshot.status.traffic_mode == DesktopTrafficMode::Tun);
 
     format!(
         r#"<!doctype html>
@@ -75,7 +81,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       background: #f6f7f8;
     }}
     main {{
-      width: min(760px, 100vw);
+      width: min(960px, 100vw);
       min-height: 100vh;
       margin: 0 auto;
       padding: 20px;
@@ -90,6 +96,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       gap: 16px;
       padding-bottom: 14px;
       border-bottom: 1px solid #d9dee5;
+    }}
+    .app-shell {{
+      align-content: start;
     }}
     h1 {{
       margin: 0;
@@ -108,6 +117,69 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       font-size: 13px;
       font-weight: 600;
       white-space: nowrap;
+    }}
+    .command-panel {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px 18px;
+      align-items: start;
+      min-height: 0;
+    }}
+    .command-title {{
+      margin: 0;
+      color: #171a1f;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: 0;
+      overflow-wrap: anywhere;
+    }}
+    .quick-status {{
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px 14px;
+      grid-column: 1 / -1;
+      padding-top: 4px;
+    }}
+    .quick-status-item {{
+      min-width: 0;
+    }}
+    .quick-label {{
+      color: #657386;
+      font-size: 12px;
+      font-weight: 650;
+      text-transform: uppercase;
+    }}
+    .quick-value {{
+      margin-top: 3px;
+      color: #171a1f;
+      font-size: 14px;
+      font-weight: 650;
+      overflow-wrap: anywhere;
+    }}
+    .segmented-control {{
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      grid-column: 1 / -1;
+    }}
+    .segmented-control button {{
+      min-width: 116px;
+    }}
+    .segmented-control button[aria-pressed="true"] {{
+      border-color: #277d56;
+      background: #e6f4ec;
+      color: #145a32;
+    }}
+    .activity-strip {{
+      grid-column: 1 / -1;
+      min-height: 30px;
+      display: flex;
+      align-items: center;
+      border-top: 1px solid #d9dee5;
+      padding-top: 10px;
+      color: #4d5968;
+      font-size: 13px;
+      overflow-wrap: anywhere;
     }}
     .operation-status {{
       min-height: 34px;
@@ -284,15 +356,69 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       font-size: 12px;
       line-height: 1.45;
     }}
+    @media (max-width: 720px) {{
+      main {{
+        padding: 14px;
+      }}
+      .grid,
+      .quick-status {{
+        grid-template-columns: 1fr;
+      }}
+      .command-panel {{
+        grid-template-columns: 1fr;
+      }}
+      .command-actions {{
+        width: 100%;
+      }}
+      .command-actions button,
+      .segmented-control button {{
+        flex: 1 1 130px;
+      }}
+    }}
   </style>
 </head>
 <body>
-  <main>
+  <main class="app-shell">
     <header>
       <h1>Keli</h1>
       <span class="pill" id="run-state">{run_state}</span>
     </header>
     <div class="operation-status" id="operation-status" data-kind="info">Ready</div>
+    <section class="command-panel" id="core-command-panel">
+      <div>
+        <h2>Core</h2>
+        <div class="command-title"><span id="quick-run-state">{run_state}</span> via <span id="quick-traffic-mode">{traffic_mode}</span></div>
+        <div class="muted" id="quick-primary-state">{primary_state}</div>
+      </div>
+      <div class="actions command-actions">
+        <button id="quick-primary-button" class="primary" onclick="window.ipc.postMessage('primary')"{primary_disabled}>{primary_label}</button>
+        <button id="quick-refresh-button" onclick="window.ipc.postMessage('refresh')">Refresh</button>
+      </div>
+      <div class="quick-status" aria-label="Core status">
+        <div class="quick-status-item">
+          <div class="quick-label">Node</div>
+          <div class="quick-value" id="quick-selected-node">{selected}</div>
+        </div>
+        <div class="quick-status-item">
+          <div class="quick-label">Listen</div>
+          <div class="quick-value" id="quick-listen-address">{listen}</div>
+        </div>
+        <div class="quick-status-item">
+          <div class="quick-label">Dependencies</div>
+          <div class="quick-value" id="quick-dependency-summary">{dependency_summary}</div>
+        </div>
+        <div class="quick-status-item">
+          <div class="quick-label">Subscription</div>
+          <div class="quick-value" id="quick-subscription-summary">{subscription_summary}</div>
+        </div>
+      </div>
+      <div class="segmented-control" id="mode-segmented-control" role="group" aria-label="Traffic mode">
+        <button data-traffic-mode-button="mixed-inbound-only" aria-pressed="{local_inbound_pressed}" onclick="postTrafficMode('mixed-inbound-only')">Local inbound</button>
+        <button data-traffic-mode-button="system-proxy" aria-pressed="{system_proxy_pressed}" onclick="postTrafficMode('system-proxy')">System proxy</button>
+        <button data-traffic-mode-button="tun" aria-pressed="{tun_pressed}" onclick="postTrafficMode('tun')">TUN</button>
+      </div>
+      <div class="activity-strip" id="activity-summary">{activity_summary}</div>
+    </section>
     <div class="grid">
       <section>
         <h2>Mode</h2>
@@ -682,9 +808,42 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     function diagnosticsDefaultCore(snapshot) {{
       return snapshot ? "Native core default, support bundle includes certification evidence" : "Native core default";
     }}
+    function setText(id, value) {{
+      const element = document.getElementById(id);
+      if (element) element.textContent = value;
+    }}
+    function syncPrimaryButton(id, primary) {{
+      const button = document.getElementById(id);
+      if (!button) return;
+      button.textContent = primary.label;
+      button.disabled = !primary.enabled;
+    }}
+    function syncTrafficModeButtons(trafficMode) {{
+      document.querySelectorAll("[data-traffic-mode-button]").forEach((button) => {{
+        button.setAttribute("aria-pressed", button.dataset.trafficModeButton === trafficMode ? "true" : "false");
+      }});
+    }}
+    function overviewActivity(snapshot) {{
+      return `${{diagnosticsRuntimeEvents(snapshot)}}; ${{diagnosticsRecentEvent(snapshot)}}`;
+    }}
+    window.keliSyncOverview = (snapshot) => {{
+      const status = snapshot.status;
+      const primary = snapshot.primary_action;
+      setText("quick-run-state", runStateLabels[status.run_state] || status.run_state);
+      setText("quick-traffic-mode", trafficModeLabels[status.traffic_mode] || status.traffic_mode);
+      setText("quick-selected-node", status.selected_outbound || "No node selected");
+      setText("quick-listen-address", status.listen || "Not listening");
+      setText("quick-primary-state", primary.reason || (primary.enabled ? "Enabled" : "Disabled"));
+      setText("quick-dependency-summary", dependencySummary(snapshot));
+      setText("quick-subscription-summary", subscriptionSummary(snapshot.subscription));
+      setText("activity-summary", overviewActivity(snapshot));
+      syncPrimaryButton("quick-primary-button", primary);
+      syncTrafficModeButtons(status.traffic_mode);
+    }};
     window.keliSetShell = (snapshot) => {{
       const status = snapshot.status;
       const primary = snapshot.primary_action;
+      window.keliSyncOverview(snapshot);
       document.getElementById("run-state").textContent = runStateLabels[status.run_state] || status.run_state;
       document.getElementById("traffic-mode").textContent = trafficModeLabels[status.traffic_mode] || status.traffic_mode;
       document.getElementById("listen-address").textContent = status.listen || "Not listening";
@@ -749,6 +908,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         diagnostics_system_proxy = escape_html(&diagnostics_system_proxy),
         diagnostics_tun = escape_html(&diagnostics_tun),
         diagnostics_default_core = escape_html(&diagnostics_default_core),
+        activity_summary = escape_html(&activity_summary),
+        local_inbound_pressed = local_inbound_pressed,
+        system_proxy_pressed = system_proxy_pressed,
+        tun_pressed = tun_pressed,
         subscription_summary = escape_html(&subscription_summary),
         node_buttons = node_buttons,
         snapshot_json = escape_html(&snapshot_json),
@@ -937,6 +1100,14 @@ fn traffic_mode_label(traffic_mode: DesktopTrafficMode) -> &'static str {
         DesktopTrafficMode::SystemProxy => "System proxy",
         DesktopTrafficMode::Tun => "TUN",
         DesktopTrafficMode::MixedInboundOnly => "Local inbound",
+    }
+}
+
+fn aria_pressed(pressed: bool) -> &'static str {
+    if pressed {
+        "true"
+    } else {
+        "false"
     }
 }
 
@@ -1324,6 +1495,26 @@ mod tests {
         assert!(html.contains("toggle-service"));
         assert!(html.contains("open-diagnostics"));
         assert!(html.contains("quit"));
+    }
+
+    #[test]
+    fn ui_mvp_first_screen_surfaces_core_controls() {
+        let mut snapshot = snapshot();
+        snapshot.refresh_subscription(Some(subscription("SS-READY")));
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("class=\"app-shell\""));
+        assert!(html.contains("id=\"core-command-panel\""));
+        assert!(html.contains("id=\"quick-run-state\""));
+        assert!(html.contains("id=\"quick-traffic-mode\""));
+        assert!(html.contains("id=\"quick-selected-node\""));
+        assert!(html.contains("id=\"quick-listen-address\""));
+        assert!(html.contains("id=\"quick-primary-button\""));
+        assert!(html.contains("id=\"mode-segmented-control\""));
+        assert!(html.contains("data-traffic-mode-button=\"system-proxy\""));
+        assert!(html.contains("id=\"activity-summary\""));
+        assert!(html.contains("window.keliSyncOverview"));
     }
 
     #[test]
