@@ -54,7 +54,7 @@ fn managed_mixed_status_exposes_runtime_evidence_summary() {
     assert!(status
         .recent_events
         .iter()
-        .any(|event| event.note.as_deref() == Some("runtime started")));
+        .any(|event| event.note.as_deref() == Some("runtime running")));
 }
 
 #[test]
@@ -169,11 +169,11 @@ snapshot.status.node_health.checked_count = 2;
 snapshot.status.node_health.selected_state = Some("healthy".to_string());
 snapshot.status.recent_events = vec![keli_desktop::DesktopRecentRuntimeEvent {
     status: DesktopRunState::Running,
-    note: Some("runtime started".to_string()),
+    note: Some("runtime running".to_string()),
 }];
 assert!(html.contains("Connections 3 total, 2 ok, 1 failed, avg connect 25 ms"));
 assert!(html.contains("Node health 1 healthy, 1 unhealthy, 0 unknown, checked 2/2, selected healthy"));
-assert!(html.contains("Recent event: Running - runtime started"));
+assert!(html.contains("Recent event: Running - runtime running"));
 ```
 
 Also extend `diagnostics_live_renderer_updates_health_summary` to expect the new JavaScript renderers and DOM ids.
