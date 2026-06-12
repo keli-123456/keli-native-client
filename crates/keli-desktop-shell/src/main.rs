@@ -6,7 +6,8 @@ use std::error::Error;
 
 use actions::{ipc_event_for_message, tray_event_for_id, DesktopShellUiEvent};
 use html::{
-    render_shell_html, shell_snapshot_script, subscription_url_import_status_script,
+    render_shell_html, shell_snapshot_script, subscription_config_import_failure_status_script,
+    subscription_config_import_status_script, subscription_url_import_status_script,
     subscription_url_update_status_script, support_export_status_script,
     wintun_install_failure_status_script, wintun_install_status_script,
 };
@@ -114,6 +115,24 @@ fn handle_ui_event(
     window: &tao::window::Window,
     control_flow: &mut ControlFlow,
 ) {
+    if let DesktopShellUiEvent::ImportSubscriptionConfig(config_text) = &event {
+        match import_subscription_config(controller, config_text.clone(), webview) {
+            Ok(shell) => {
+                window.set_visible(shell.window.main_visible);
+                sync_webview(webview, &shell);
+                if shell.quit_requested {
+                    *control_flow = ControlFlow::Exit;
+                }
+            }
+            Err(message) => {
+                eprintln!("desktop shell subscription config import failed: {message}");
+                sync_subscription_config_import_failure(webview, &message);
+                sync_webview(webview, controller.snapshot());
+            }
+        }
+        return;
+    }
+
     if let DesktopShellUiEvent::ImportSubscriptionUrl(url) = &event {
         match import_subscription_url(controller, url.clone(), webview) {
             Ok(shell) => {
@@ -233,6 +252,38 @@ fn dispatch_ui_event(
         DesktopShellUiEvent::ExportSupportBundle => Ok(controller.refresh()),
         DesktopShellUiEvent::DependencyAction(_) => Ok(controller.refresh()),
         DesktopShellUiEvent::InstallWintunPath(_) => Ok(controller.refresh()),
+    }
+}
+
+fn import_subscription_config(
+    controller: &mut DesktopShellController<keli_desktop::DesktopNativeCommandService>,
+    config_text: String,
+    webview: &WebView,
+) -> Result<DesktopShellState, String> {
+    let shell = controller
+        .import_subscription_config(config_text)
+        .map_err(|error| format!("{} {} {}", error.operation, error.kind, error.message))?;
+    if let Some(subscription) = shell.subscription.as_ref() {
+        let script = subscription_config_import_status_script(subscription).map_err(|error| {
+            format!("subscription config import status serialization failed: {error}")
+        })?;
+        webview
+            .evaluate_script(&script)
+            .map_err(|error| format!("subscription config import status sync failed: {error}"))?;
+    }
+    Ok(shell)
+}
+
+fn sync_subscription_config_import_failure(webview: &WebView, message: &str) {
+    match subscription_config_import_failure_status_script(message) {
+        Ok(script) => {
+            if let Err(error) = webview.evaluate_script(&script) {
+                eprintln!("subscription config import failure status sync failed: {error}");
+            }
+        }
+        Err(error) => {
+            eprintln!("subscription config import failure status serialization failed: {error}");
+        }
     }
 }
 
@@ -592,6 +643,16 @@ mod tests {
 
         assert!(script.contains("missing-wintun.dll"));
         assert!(script.contains("Wintun source DLL was not found"));
+    }
+
+    #[test]
+    fn subscription_config_import_failure_script_preserves_error() {
+        let script = subscription_config_import_failure_status_script(
+            "import-subscription client InvalidSubscription",
+        )
+        .expect("failure script");
+
+        assert!(script.contains("InvalidSubscription"));
     }
 
     #[test]

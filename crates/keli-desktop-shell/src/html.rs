@@ -256,6 +256,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         </div>
         <div class="muted" id="subscription-url-status">No subscription URL imported</div>
         <textarea id="subscription-config" spellcheck="false"></textarea>
+        <div class="muted" id="subscription-config-status">No local subscription config imported</div>
         <div class="actions">
           <button id="import-subscription-button" class="primary" onclick="postImportSubscription()">Import</button>
           <button onclick="postTrafficMode('system-proxy')">System proxy</button>
@@ -426,6 +427,12 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
           : `Update not applied from ${{source}}: ${{fetch.error_kind || "unknown"}}`;
       document.getElementById("subscription-url-status").textContent = label;
     }};
+    window.keliSetSubscriptionConfigImport = (summary) => {{
+      const label = summary.error
+        ? `Import failed: ${{summary.error}}`
+        : `Imported ${{summary.supported_count || 0}} nodes, skipped ${{summary.skipped_count || 0}}`;
+      document.getElementById("subscription-config-status").textContent = label;
+    }};
     function dependencySummary(snapshot) {{
       const firstRun = snapshot.dependencies.first_run;
       const system = firstRun.system_proxy_ready ? "System proxy ready" : "System proxy blocked";
@@ -562,6 +569,48 @@ pub fn wintun_install_failure_status_script(
     let status_json = serde_json::to_string(&status)?;
     Ok(format!(
         "window.keliSetWintunInstall && window.keliSetWintunInstall({status_json});"
+    ))
+}
+
+#[derive(serde::Serialize)]
+struct SubscriptionConfigImportStatus<'a> {
+    status: &'static str,
+    supported_count: usize,
+    skipped_count: usize,
+    default_outbound: Option<&'a str>,
+    selected_outbound: Option<&'a str>,
+}
+
+#[derive(serde::Serialize)]
+struct SubscriptionConfigImportFailureStatus<'a> {
+    status: &'static str,
+    error: &'a str,
+}
+
+pub fn subscription_config_import_status_script(
+    summary: &DesktopSubscriptionSummary,
+) -> serde_json::Result<String> {
+    let status = SubscriptionConfigImportStatus {
+        status: "imported",
+        supported_count: summary.supported_count,
+        skipped_count: summary.skipped_count,
+        default_outbound: summary.default_outbound.as_deref(),
+        selected_outbound: summary.selected_outbound.as_deref(),
+    };
+    let status_json = serde_json::to_string(&status)?;
+    Ok(format!(
+        "window.keliSetSubscriptionConfigImport && window.keliSetSubscriptionConfigImport({status_json});"
+    ))
+}
+
+pub fn subscription_config_import_failure_status_script(error: &str) -> serde_json::Result<String> {
+    let status = SubscriptionConfigImportFailureStatus {
+        status: "failed",
+        error,
+    };
+    let status_json = serde_json::to_string(&status)?;
+    Ok(format!(
+        "window.keliSetSubscriptionConfigImport && window.keliSetSubscriptionConfigImport({status_json});"
     ))
 }
 
@@ -883,6 +932,36 @@ mod tests {
         assert!(html.contains("import-subscription-config"));
         assert!(html.contains("set-traffic-mode"));
         assert!(html.contains("select-node"));
+    }
+
+    #[test]
+    fn subscription_config_import_html_includes_local_status_target() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("id=\"subscription-config-status\""));
+        assert!(html.contains("window.keliSetSubscriptionConfigImport"));
+    }
+
+    #[test]
+    fn subscription_config_import_status_script_reports_success_counts() {
+        let script = subscription_config_import_status_script(&subscription("SS-READY"))
+            .expect("subscription config import status script");
+
+        assert!(script.contains("window.keliSetSubscriptionConfigImport"));
+        assert!(script.contains("\"status\":\"imported\""));
+        assert!(script.contains("\"supported_count\":1"));
+    }
+
+    #[test]
+    fn subscription_config_import_failure_status_script_reports_error() {
+        let script = subscription_config_import_failure_status_script(
+            "import-subscription client InvalidSubscription",
+        )
+        .expect("subscription config import failure script");
+
+        assert!(script.contains("window.keliSetSubscriptionConfigImport"));
+        assert!(script.contains("\"status\":\"failed\""));
+        assert!(script.contains("InvalidSubscription"));
     }
 
     #[test]
