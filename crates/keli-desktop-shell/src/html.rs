@@ -26,6 +26,11 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let snapshot_json = serde_json::to_string_pretty(snapshot)
         .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}"));
     let primary_disabled = if primary.enabled { "" } else { " disabled" };
+    let primary_state = primary.reason.as_deref().unwrap_or(if primary.enabled {
+        "Enabled"
+    } else {
+        "Disabled"
+    });
     let subscription_summary = subscription_summary(snapshot.subscription.as_ref());
     let node_buttons = node_buttons(snapshot.subscription.as_ref());
     let dependency_summary = dependency_summary(snapshot);
@@ -683,7 +688,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       document.getElementById("selected-outbound").textContent = status.selected_outbound || "No node selected";
       document.getElementById("runtime-meta").textContent = `Generation ${{status.generation}}, events ${{status.event_count}}`;
       document.getElementById("primary-label").textContent = primary.label;
-      document.getElementById("primary-state").textContent = primary.enabled ? "Enabled" : "Disabled";
+      document.getElementById("primary-state").textContent = primary.reason || (primary.enabled ? "Enabled" : "Disabled");
       const primaryButton = document.getElementById("primary-button");
       primaryButton.textContent = primary.label;
       primaryButton.disabled = !primary.enabled;
@@ -721,11 +726,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         generation = snapshot.status.generation,
         events = snapshot.status.event_count,
         primary_label = escape_html(&primary.label),
-        primary_state = if primary.enabled {
-            "Enabled"
-        } else {
-            "Disabled"
-        },
+        primary_state = escape_html(primary_state),
         primary_disabled = primary_disabled,
         tray_ids = escape_html(&tray_ids),
         window_visible = snapshot.window.main_visible,
@@ -1273,6 +1274,23 @@ mod tests {
         assert!(html.contains("toggle-service"));
         assert!(html.contains("open-diagnostics"));
         assert!(html.contains("quit"));
+    }
+
+    #[test]
+    fn shell_html_shows_primary_blocked_reason_before_subscription() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(
+            html.contains("id=\"primary-state\">Import a subscription before starting Keli</div>")
+        );
+        assert!(html.contains("id=\"primary-button\" class=\"primary\" onclick=\"window.ipc.postMessage('primary')\" disabled>Start Blocked</button>"));
+    }
+
+    #[test]
+    fn shell_html_live_update_prefers_primary_reason() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("primary.reason || (primary.enabled ? \"Enabled\" : \"Disabled\")"));
     }
 
     #[test]
