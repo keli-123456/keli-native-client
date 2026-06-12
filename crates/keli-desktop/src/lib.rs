@@ -3,6 +3,7 @@ pub mod dependencies;
 pub mod managed;
 pub mod readiness;
 pub mod service;
+pub mod shell;
 pub mod status;
 pub mod subscription;
 pub mod support;
@@ -15,6 +16,10 @@ pub use dependencies::{
 pub use managed::{DesktopManagedCoreService, DesktopManagedStartOptions};
 pub use readiness::{DesktopBlocker, DesktopFirstRunReport};
 pub use service::{DesktopRuntimeCommand, DesktopRuntimeError, DesktopRuntimeService};
+pub use shell::{
+    DesktopShellAction, DesktopShellPrimaryAction, DesktopShellPrimaryCommand, DesktopShellState,
+    DesktopShellTrayItem, DesktopShellTrayMenu, DesktopShellWindowState,
+};
 pub use status::{DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode};
 pub use subscription::{
     DesktopNodeSummary, DesktopSubscriptionSummary, DesktopSubscriptionUpdateSummary,
