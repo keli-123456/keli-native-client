@@ -566,6 +566,7 @@ struct DesktopShellSmokeReport {
     dependency_blocker_count: usize,
     html_ready: bool,
     snapshot_script_ready: bool,
+    ui_workflow_entrypoints: Vec<String>,
 }
 
 fn is_smoke_mode<I, S>(args: I) -> bool
@@ -608,7 +609,13 @@ fn build_smoke_report(
         && html.contains("id=\"wintun-source-path\"");
     let snapshot_script_ready =
         snapshot_script.contains("window.keliSetShell") && snapshot_script.contains("\"status\"");
-    let status = if html_ready && snapshot_script_ready {
+    let ui_workflow_entrypoints = smoke_workflow_entrypoints(html, snapshot_script);
+    let workflows_ready = expected_smoke_workflows().iter().all(|workflow| {
+        ui_workflow_entrypoints
+            .iter()
+            .any(|entry| entry == workflow)
+    });
+    let status = if html_ready && snapshot_script_ready && workflows_ready {
         "passed"
     } else {
         "failed"
@@ -624,7 +631,54 @@ fn build_smoke_report(
         dependency_blocker_count: snapshot.dependencies.first_run.blockers.len(),
         html_ready,
         snapshot_script_ready,
+        ui_workflow_entrypoints,
     }
+}
+
+fn expected_smoke_workflows() -> [&'static str; 6] {
+    [
+        "open-desktop-shell",
+        "import-subscription",
+        "select-node",
+        "start-stop-system-proxy",
+        "tun-preflight",
+        "export-support-bundle",
+    ]
+}
+
+fn smoke_workflow_entrypoints(html: &str, snapshot_script: &str) -> Vec<String> {
+    let mut entrypoints = Vec::new();
+    if html.contains("id=\"run-state\"") && html.contains("id=\"primary-button\"") {
+        entrypoints.push("open-desktop-shell".to_string());
+    }
+    if html.contains("id=\"subscription-url\"")
+        && html.contains("import-subscription-url")
+        && html.contains("import-subscription-config")
+    {
+        entrypoints.push("import-subscription".to_string());
+    }
+    if html.contains("id=\"node-list\"")
+        && html.contains("select-node")
+        && snapshot_script.contains("window.keliSetShell")
+    {
+        entrypoints.push("select-node".to_string());
+    }
+    if html.contains("postTrafficMode('system-proxy')")
+        && html.contains("id=\"primary-button\"")
+        && html.contains("id=\"system-proxy-dependency\"")
+    {
+        entrypoints.push("start-stop-system-proxy".to_string());
+    }
+    if html.contains("postTrafficMode('tun')")
+        && html.contains("id=\"tun-dependency\"")
+        && html.contains("id=\"wintun-source-path\"")
+    {
+        entrypoints.push("tun-preflight".to_string());
+    }
+    if html.contains("export-support-bundle") && html.contains("id=\"support-export-status\"") {
+        entrypoints.push("export-support-bundle".to_string());
+    }
+    entrypoints
 }
 
 #[cfg(test)]
@@ -707,6 +761,17 @@ mod tests {
         assert!(report.native_core_default);
         assert!(report.html_ready);
         assert!(report.snapshot_script_ready);
+        assert_eq!(
+            report.ui_workflow_entrypoints,
+            vec![
+                "open-desktop-shell",
+                "import-subscription",
+                "select-node",
+                "start-stop-system-proxy",
+                "tun-preflight",
+                "export-support-bundle",
+            ]
+        );
         assert!(html.contains("id=\"dependency-actions\""));
         assert!(html.contains("id=\"wintun-source-path\""));
     }

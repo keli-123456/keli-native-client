@@ -26,6 +26,12 @@ $expected = @(
     'run target\desktop-install-smoke\Keli\keli-desktop-shell.exe --smoke',
     'manifest native_core_default true',
     'manifest manual_smoke import-subscription',
+    'launch_smoke ui_workflow_entrypoint open-desktop-shell',
+    'launch_smoke ui_workflow_entrypoint import-subscription',
+    'launch_smoke ui_workflow_entrypoint select-node',
+    'launch_smoke ui_workflow_entrypoint start-stop-system-proxy',
+    'launch_smoke ui_workflow_entrypoint tun-preflight',
+    'launch_smoke ui_workflow_entrypoint export-support-bundle',
     'result target\desktop-install-smoke\desktop-shell-launch-smoke.json',
     'result target\desktop-install-smoke\desktop-install-smoke.json'
 )

@@ -52,6 +52,23 @@ function Require-SmokeCase {
     }
 }
 
+function Require-LaunchSmokeEntrypoint {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$LaunchSmoke,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if ($null -eq $LaunchSmoke.PSObject.Properties['ui_workflow_entrypoints']) {
+        throw 'desktop shell launch smoke ui_workflow_entrypoints is missing'
+    }
+    if (!($LaunchSmoke.ui_workflow_entrypoints -contains $Name)) {
+        throw "desktop shell launch smoke ui_workflow_entrypoints is missing: $Name"
+    }
+}
+
 $repoRoot = Resolve-RepoRoot
 $zipPath = Join-Path $repoRoot 'target\desktop\keli-desktop-mvp-windows-x64.zip'
 $smokeRoot = Join-Path $repoRoot 'target\desktop-install-smoke'
@@ -73,6 +90,12 @@ try {
         Write-Output 'run target\desktop-install-smoke\Keli\keli-desktop-shell.exe --smoke'
         Write-Output 'manifest native_core_default true'
         Write-Output 'manifest manual_smoke import-subscription'
+        Write-Output 'launch_smoke ui_workflow_entrypoint open-desktop-shell'
+        Write-Output 'launch_smoke ui_workflow_entrypoint import-subscription'
+        Write-Output 'launch_smoke ui_workflow_entrypoint select-node'
+        Write-Output 'launch_smoke ui_workflow_entrypoint start-stop-system-proxy'
+        Write-Output 'launch_smoke ui_workflow_entrypoint tun-preflight'
+        Write-Output 'launch_smoke ui_workflow_entrypoint export-support-bundle'
         Write-Output 'result target\desktop-install-smoke\desktop-shell-launch-smoke.json'
         Write-Output 'result target\desktop-install-smoke\desktop-install-smoke.json'
         return
@@ -129,6 +152,7 @@ try {
     }
     foreach ($case in @('open-desktop-shell', 'import-subscription', 'select-node', 'start-stop-system-proxy', 'tun-preflight', 'export-support-bundle')) {
         Require-SmokeCase -Manifest $manifest -Name $case
+        Require-LaunchSmokeEntrypoint -LaunchSmoke $launchSmoke -Name $case
     }
 
     $result = [ordered]@{
@@ -139,6 +163,7 @@ try {
         native_core_default = $true
         launch_smoke = 'target\desktop-install-smoke\desktop-shell-launch-smoke.json'
         manual_smoke_cases = $manifest.manual_smoke
+        verified_ui_workflow_entrypoints = $launchSmoke.ui_workflow_entrypoints
     }
     $result | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $resultPath -Encoding ASCII
 
