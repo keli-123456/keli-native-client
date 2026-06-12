@@ -51,6 +51,79 @@ function Read-ReleaseEvidence {
     return Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
 }
 
+function Add-UniqueBlocker {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [string[]]$Blockers,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Blocker
+    )
+
+    if ($Blockers -notcontains $Blocker) {
+        return @($Blockers + $Blocker)
+    }
+    return $Blockers
+}
+
+function Test-StringArrayContainsAll {
+    param(
+        [AllowNull()]
+        [object]$Values,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$Expected
+    )
+
+    if ($null -eq $Values) {
+        return $false
+    }
+    $actual = @($Values | ForEach-Object { [string]$_ })
+    foreach ($item in $Expected) {
+        if ($actual -notcontains $item) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Add-WorkflowEvidenceBlockers {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [string[]]$Blockers,
+
+        [Parameter(Mandatory = $true)]
+        [object]$Evidence
+    )
+
+    $expectedWorkflows = @(
+        'open-desktop-shell',
+        'import-subscription',
+        'select-node',
+        'start-stop-system-proxy',
+        'tun-preflight',
+        'export-support-bundle'
+    )
+    if ($Evidence.smoke.install.readme_subscription_import -ne 'subscription-url-or-config') {
+        $Blockers = Add-UniqueBlocker -Blockers $Blockers -Blocker 'install-readme-subscription-evidence-missing'
+    }
+    if (!(Test-StringArrayContainsAll -Values $Evidence.smoke.install.manual_smoke_cases -Expected $expectedWorkflows)) {
+        $Blockers = Add-UniqueBlocker -Blockers $Blockers -Blocker 'install-manual-smoke-cases-missing'
+    }
+    if (!(Test-StringArrayContainsAll -Values $Evidence.smoke.install.verified_ui_workflow_entrypoints -Expected $expectedWorkflows)) {
+        $Blockers = Add-UniqueBlocker -Blockers $Blockers -Blocker 'install-ui-workflow-entrypoints-missing'
+    }
+    if ($Evidence.smoke.msi.readme_subscription_import -ne 'subscription-url-or-config') {
+        $Blockers = Add-UniqueBlocker -Blockers $Blockers -Blocker 'msi-readme-subscription-evidence-missing'
+    }
+    if (!(Test-StringArrayContainsAll -Values $Evidence.smoke.msi.manual_smoke_cases -Expected $expectedWorkflows)) {
+        $Blockers = Add-UniqueBlocker -Blockers $Blockers -Blocker 'msi-manual-smoke-cases-missing'
+    }
+    return $Blockers
+}
+
 function Get-ReleaseBlockers {
     param(
         [Parameter(Mandatory = $true)]
@@ -67,16 +140,15 @@ function Get-ReleaseBlockers {
         }
     }
     if ($Evidence.smoke.machine.machine_takeover_status -ne 'ready') {
-        $blockers += 'machine-takeover-not-ready'
+        $blockers = Add-UniqueBlocker -Blockers $blockers -Blocker 'machine-takeover-not-ready'
     }
+    $blockers = Add-WorkflowEvidenceBlockers -Blockers $blockers -Evidence $Evidence
     if ($Evidence.signing.can_sign -ne $true) {
-        $blockers += 'signing-certificate-missing'
+        $blockers = Add-UniqueBlocker -Blockers $blockers -Blocker 'signing-certificate-missing'
     }
     if ($null -ne $Evidence.public_release_blockers -and @($Evidence.public_release_blockers).Count -gt 0) {
         foreach ($blocker in $Evidence.public_release_blockers) {
-            if ($blockers -notcontains [string]$blocker) {
-                $blockers += [string]$blocker
-            }
+            $blockers = Add-UniqueBlocker -Blockers $blockers -Blocker ([string]$blocker)
         }
     }
     return @($blockers | Select-Object -Unique)
@@ -109,6 +181,10 @@ try {
         Write-Output "input $releaseEvidenceRelativePath"
         Write-Output 'require public_release_ready true'
         Write-Output 'require smoke.machine.machine_takeover_status ready'
+        Write-Output 'require smoke.install.verified_ui_workflow_entrypoints all_manual_smoke'
+        Write-Output 'require smoke.install.readme_subscription_import subscription-url-or-config'
+        Write-Output 'require smoke.msi.manual_smoke_cases all_manual_smoke'
+        Write-Output 'require smoke.msi.readme_subscription_import subscription-url-or-config'
         Write-Output 'require signing.can_sign true'
         Write-Output 'require public_release_blockers empty'
         Write-Output 'failure print blockers and exit nonzero'
