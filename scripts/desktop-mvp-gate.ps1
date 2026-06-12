@@ -35,6 +35,7 @@ function New-MachineSmokeCommand {
     $command = @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-machine-smoke.ps1')
     if ($IncludeMachineTakeover) {
         $command += '-IncludeMachineTakeover'
+        $command += @('-MachineTakeoverAttempts', '2')
     }
     return $command
 }

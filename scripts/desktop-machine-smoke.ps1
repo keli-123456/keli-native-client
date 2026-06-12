@@ -1,11 +1,20 @@
 [CmdletBinding()]
 param(
     [switch]$PlanOnly,
-    [switch]$IncludeMachineTakeover
+    [switch]$IncludeMachineTakeover,
+    [int]$MachineTakeoverAttempts = 1,
+    [int]$MachineTakeoverRetryDelaySeconds = 1
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ($MachineTakeoverAttempts -lt 1) {
+    throw 'MachineTakeoverAttempts must be at least 1'
+}
+if ($MachineTakeoverRetryDelaySeconds -lt 0) {
+    throw 'MachineTakeoverRetryDelaySeconds must be at least 0'
+}
 
 function Resolve-RepoRoot {
     $scriptDir = Split-Path -Parent $PSCommandPath
@@ -152,76 +161,190 @@ function Get-TunPreflightEvidence {
     }
 }
 
-function Get-MachineTakeoverStatus {
+function Invoke-MachineTakeoverCertificationAttempt {
     param(
-        [switch]$Requested
+        [Parameter(Mandatory = $true)]
+        [int]$Attempt
     )
 
-    $rerunCommand = 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-machine-smoke.ps1 -IncludeMachineTakeover'
+    $command = @('cargo', 'run', '-q', '-p', 'keli-cli', '--', 'default-core-certify', '--format', 'json', '--machine-takeover-gate')
+    $result = Invoke-TextCommand -Command $command
+    $certification = $null
+    $parseError = $null
+    $outputEmpty = [string]::IsNullOrWhiteSpace($result.Output)
+
+    if (!$outputEmpty) {
+        try {
+            $certification = Convert-JsonCommandOutput -Output $result.Output -Command $result.Command
+        } catch {
+            $parseError = $_.Exception.Message
+        }
+    }
+
+    [ordered]@{
+        attempt = $Attempt
+        exit_code = $result.ExitCode
+        command = $result.Command
+        output_empty = $outputEmpty
+        parse_error = $parseError
+        certification = $certification
+    }
+}
+
+function Get-MachineTakeoverAttemptReleaseGate {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Attempt
+    )
+
+    $certification = $Attempt['certification']
+    if ($null -eq $certification) {
+        return $null
+    }
+    return Get-ObjectPropertyValue -Object $certification -Name 'release_gate'
+}
+
+function Get-MachineTakeoverAttemptReady {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Attempt
+    )
+
+    if ($Attempt['exit_code'] -ne 0) {
+        return $false
+    }
+    $releaseGate = Get-MachineTakeoverAttemptReleaseGate -Attempt $Attempt
+    if ($null -eq $releaseGate) {
+        return $false
+    }
+    $gateReady = Get-ObjectPropertyValue -Object $releaseGate -Name 'machine_takeover_ready'
+    $takeover = Get-ObjectPropertyValue -Object $releaseGate -Name 'takeover'
+    $takeoverReady = if ($null -ne $takeover) { Get-ObjectPropertyValue -Object $takeover -Name 'ready' } else { $null }
+    return ($gateReady -eq $true -or $takeoverReady -eq $true)
+}
+
+function Get-MachineTakeoverAttemptBlockers {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Attempt
+    )
+
+    $blockers = @()
+    if ($Attempt['output_empty']) {
+        $blockers += 'machine-takeover-certification-output-empty'
+    }
+    if (![string]::IsNullOrWhiteSpace([string]$Attempt['parse_error'])) {
+        $blockers += 'machine-takeover-certification-json-invalid'
+    }
+    if ($Attempt['exit_code'] -ne 0) {
+        $blockers += 'machine-takeover-certification-failed'
+    }
+
+    $releaseGate = Get-MachineTakeoverAttemptReleaseGate -Attempt $Attempt
+    if ($null -ne $releaseGate) {
+        $releaseGateBlockers = Get-ObjectPropertyValue -Object $releaseGate -Name 'blockers'
+        if ($null -ne $releaseGateBlockers) {
+            foreach ($blocker in $releaseGateBlockers) {
+                $blockers += [string]$blocker
+            }
+        }
+    }
+
+    if (!(Get-MachineTakeoverAttemptReady -Attempt $Attempt) -and $blockers.Count -eq 0) {
+        $blockers += 'machine-takeover-not-ready'
+    }
+
+    return @($blockers | Select-Object -Unique)
+}
+
+function Convert-MachineTakeoverAttemptEvidence {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Attempt
+    )
+
+    $releaseGate = Get-MachineTakeoverAttemptReleaseGate -Attempt $Attempt
+    $ready = Get-MachineTakeoverAttemptReady -Attempt $Attempt
+    $blockers = Get-MachineTakeoverAttemptBlockers -Attempt $Attempt
+
+    [ordered]@{
+        attempt = [int]$Attempt['attempt']
+        exit_code = [int]$Attempt['exit_code']
+        ready = [bool]$ready
+        status = if ($ready) { 'ready' } else { 'failed' }
+        blockers = $blockers
+        release_gate_status = if ($null -ne $releaseGate) { [string](Get-ObjectPropertyValue -Object $releaseGate -Name 'status') } else { $null }
+    }
+}
+
+function Get-MachineTakeoverStatus {
+    param(
+        [switch]$Requested,
+        [Parameter(Mandatory = $true)]
+        [int]$MaxAttempts,
+        [Parameter(Mandatory = $true)]
+        [int]$RetryDelaySeconds
+    )
+
+    $rerunCommand = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-machine-smoke.ps1 -IncludeMachineTakeover -MachineTakeoverAttempts $MaxAttempts"
     if (!$Requested) {
         return [ordered]@{
             requested = $false
             status = 'not-run'
+            attempts = 0
+            max_attempts = $MaxAttempts
+            retry_delay_seconds = $RetryDelaySeconds
+            attempt_history = @()
             blockers = @('machine-takeover-smoke-not-run')
             rerun_command = $rerunCommand
             certification = $null
         }
     }
 
-    $command = @('cargo', 'run', '-q', '-p', 'keli-cli', '--', 'default-core-certify', '--format', 'json', '--machine-takeover-gate')
-    $result = Invoke-TextCommand -Command $command
-    $certification = $null
-    $blockers = @()
-    $status = 'failed'
-    $verdict = $null
-
-    if (![string]::IsNullOrWhiteSpace($result.Output)) {
-        try {
-            $certification = Convert-JsonCommandOutput -Output $result.Output -Command $result.Command
-        } catch {
-            $blockers += 'machine-takeover-certification-json-invalid'
+    $attempts = @()
+    for ($attemptNumber = 1; $attemptNumber -le $MaxAttempts; $attemptNumber++) {
+        $attempt = Invoke-MachineTakeoverCertificationAttempt -Attempt $attemptNumber
+        $attempts += $attempt
+        if (Get-MachineTakeoverAttemptReady -Attempt $attempt) {
+            break
         }
-    } else {
-        $blockers += 'machine-takeover-certification-output-empty'
+        if ($attemptNumber -lt $MaxAttempts -and $RetryDelaySeconds -gt 0) {
+            Start-Sleep -Seconds $RetryDelaySeconds
+        }
     }
 
-    if ($result.ExitCode -eq 0 -and $null -ne $certification) {
+    $readyAttempts = @($attempts | Where-Object { Get-MachineTakeoverAttemptReady -Attempt $_ })
+    $selectedAttempt = if ($readyAttempts.Count -gt 0) { $readyAttempts[0] } else { $attempts[-1] }
+    $certification = $selectedAttempt['certification']
+    $blockers = if ($readyAttempts.Count -gt 0) { @() } else { Get-MachineTakeoverAttemptBlockers -Attempt $selectedAttempt }
+    $status = if ($readyAttempts.Count -gt 0) { 'ready' } else { 'failed' }
+    $verdict = $null
+
+    if ($status -eq 'ready' -and $null -ne $certification) {
         $verdict = Get-ObjectPropertyValue -Object $certification -Name 'default_core_promotion_verdict'
-        $releaseGate = Get-ObjectPropertyValue -Object $certification -Name 'release_gate'
-        $machineTakeoverReady = $false
-        if ($null -ne $releaseGate) {
-            $gateReady = Get-ObjectPropertyValue -Object $releaseGate -Name 'machine_takeover_ready'
-            $takeover = Get-ObjectPropertyValue -Object $releaseGate -Name 'takeover'
-            $takeoverReady = if ($null -ne $takeover) { Get-ObjectPropertyValue -Object $takeover -Name 'ready' } else { $null }
-            $machineTakeoverReady = ($gateReady -eq $true -or $takeoverReady -eq $true)
+        if ($null -eq $verdict) {
+            $verdict = 'machine-takeover-ready'
         }
-        if ($machineTakeoverReady) {
-            $status = 'ready'
-            if ($null -eq $verdict) {
-                $verdict = 'machine-takeover-ready'
-            }
-        } else {
-            $status = 'failed'
-            $blockers += 'machine-takeover-not-ready'
-        }
-    } elseif ($result.ExitCode -ne 0) {
-        $blockers += 'machine-takeover-certification-failed'
     }
 
     [ordered]@{
         requested = $true
         status = $status
+        attempts = $attempts.Count
+        max_attempts = $MaxAttempts
+        retry_delay_seconds = $RetryDelaySeconds
+        attempt_history = @($attempts | ForEach-Object { Convert-MachineTakeoverAttemptEvidence -Attempt $_ })
         blockers = $blockers
         rerun_command = $rerunCommand
         certification = if ($null -ne $certification) {
             [ordered]@{
-                exit_code = $result.ExitCode
+                exit_code = $selectedAttempt['exit_code']
                 default_core_promotion_verdict = $verdict
                 release_gate = Get-ObjectPropertyValue -Object $certification -Name 'release_gate'
             }
         } else {
             [ordered]@{
-                exit_code = $result.ExitCode
+                exit_code = $selectedAttempt['exit_code']
                 default_core_promotion_verdict = $null
                 release_gate = $null
             }
@@ -240,8 +363,14 @@ try {
         Write-Output 'command cargo run -q -p keli-cli -- tun-backend-check --format json'
         Write-Output 'command cargo run -q -p keli-cli -- tun-preflight --format json'
         Write-Output 'optional command cargo run -q -p keli-cli -- default-core-certify --format json --machine-takeover-gate'
+        Write-Output 'config MachineTakeoverAttempts default 1'
+        Write-Output 'config MachineTakeoverRetryDelaySeconds default 1'
         Write-Output 'metadata native_core_default true'
         Write-Output 'metadata machine_takeover_requested false_by_default'
+        Write-Output 'metadata machine_takeover_attempts'
+        Write-Output 'metadata machine_takeover_max_attempts'
+        Write-Output 'metadata machine_takeover_retry_delay_seconds'
+        Write-Output 'metadata machine_takeover_attempt_history'
         Write-Output 'metadata public_release_blocker machine-takeover-smoke-not-run'
         Write-Output 'failure machine_takeover_not_ready exits_nonzero_when_requested'
         Write-Output "output $evidenceRelativePath"
@@ -255,7 +384,7 @@ try {
         system_proxy = Get-SystemProxySnapshot
         tun_backend = Get-TunBackendEvidence
         tun_preflight = Get-TunPreflightEvidence
-        machine_takeover = Get-MachineTakeoverStatus -Requested:$IncludeMachineTakeover
+        machine_takeover = Get-MachineTakeoverStatus -Requested:$IncludeMachineTakeover -MaxAttempts $MachineTakeoverAttempts -RetryDelaySeconds $MachineTakeoverRetryDelaySeconds
     }
 
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $evidencePath) | Out-Null

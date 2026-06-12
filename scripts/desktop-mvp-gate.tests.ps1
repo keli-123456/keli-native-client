@@ -56,5 +56,9 @@ $takeoverExpected = 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts
 if (!$takeoverPlan.Contains($takeoverExpected)) {
     throw "desktop MVP gate takeover plan is missing: $takeoverExpected"
 }
+$takeoverRetryExpected = 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-machine-smoke.ps1 -IncludeMachineTakeover -MachineTakeoverAttempts 2'
+if (!$takeoverPlan.Contains($takeoverRetryExpected)) {
+    throw "desktop MVP gate takeover retry plan is missing: $takeoverRetryExpected"
+}
 
 Write-Output 'desktop MVP gate plan test passed'
