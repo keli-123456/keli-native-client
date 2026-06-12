@@ -46,8 +46,8 @@ use keli_net_core::{
     DnsLocalResolutionPolicy, DnsQuestionType, DnsResolver, LocalInbound, OutboundConnection,
     OutboundRegistry, OutboundTarget, RegistryTunTcpSessionRelay, RegistryTunUdpRelay,
     RelayOptions, RouteAction, RouteEngine, RouteIpCidr, RouteMatcher, RouteRule,
-    ShadowsocksTcpOutbound, Socks5Address, Socks5Command, Socks5ReplyCode, SystemDnsResolver,
-    TunPacketDevice, TunPacketFlow, TunPacketLoopEvent, TunPacketLoopSummary,
+    ShadowsocksTcpOutbound, Socks5Address, Socks5Command, Socks5ReplyCode, Socks5TcpOutbound,
+    SystemDnsResolver, TunPacketDevice, TunPacketFlow, TunPacketLoopEvent, TunPacketLoopSummary,
     TunPacketRouteDecision, TunTcpClientPayloadFrame, TunTcpCloseMarkerResetKind, TunTcpSegment,
     TunTcpServerRead, TunTcpSessionRecord, TunTcpSessionRelay, TunTcpSessionStep,
     TunTcpSessionTable, TunTransportProtocol, TunUdpRelay, DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
@@ -156,6 +156,14 @@ const TUN_RUNTIME_SMOKE_TRAFFIC_SOURCE: SocketAddr =
     SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
 const TUN_RUNTIME_SMOKE_TRAFFIC_TARGET: SocketAddr =
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(198, 18, 0, 1)), 9);
+const TUN_RUNTIME_SMOKE_RELAY_RULE: &str = "tun-runtime-smoke-relay-stimulus";
+const TUN_RUNTIME_SMOKE_RELAY_OUTBOUND: &str = "TUN-RUNTIME-SMOKE-RELAY";
+const TUN_RUNTIME_SMOKE_RELAY_TARGET: SocketAddr =
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(198, 18, 0, 2)), 1053);
+const TUN_RUNTIME_SMOKE_RELAY_PAYLOAD: &[u8] = b"keli-tun-runtime-relay";
+const TUN_RUNTIME_SMOKE_RELAY_RESPONSE: &[u8] = b"keli-tun-runtime-relay-pong";
+const TUN_RUNTIME_SMOKE_RELAY_USERNAME: &str = "keli-tun-runtime";
+const TUN_RUNTIME_SMOKE_RELAY_PASSWORD: &str = "relay-smoke";
 const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_WARMUP: Duration = Duration::from_millis(100);
 const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_ATTEMPTS: usize = 3;
 const TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_INTERVAL: Duration = Duration::from_millis(10);
@@ -8645,6 +8653,16 @@ struct TunRuntimeSmokeRunEvidence {
     traffic_stimulus: TunRuntimeSmokeTrafficStimulusReport,
     dns_stimulus: TunRuntimeSmokeDnsStimulusReport,
     route_takeover: TunRouteTakeoverSnapshot,
+}
+
+struct TunRuntimeSmokeRelayServer {
+    control_port: u16,
+    handle: thread::JoinHandle<Result<TunRuntimeSmokeRelayServerObservation, String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TunRuntimeSmokeRelayServerObservation {
+    received_expected_payload: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58497,17 +58515,31 @@ fn run_default_tun_runtime_smoke(
     String,
 > {
     let controller = NativeTunDeviceController::new();
-    let runtime = default_tun_runtime_smoke_runtime();
+    let relay_server = spawn_tun_runtime_smoke_relay_server()?;
+    let runtime = default_tun_runtime_smoke_runtime_with_relay_server(relay_server.control_port);
     let started_at = Instant::now();
-    let (evidence, report) = run_with_optional_tun_runtime_background_report(
+    let run_result = run_with_optional_tun_runtime_background_report(
         &controller,
         Some(default_tun_device_config()),
         &runtime,
         DEFAULT_TUN_DNS_TTL_SECONDS,
         DEFAULT_TUN_PACKET_LOOP_MAX_PACKETS,
         || Ok(collect_tun_runtime_smoke_evidence(min_duration)),
-    )?;
+    );
+    let relay_server_result = join_tun_runtime_smoke_relay_server(relay_server.handle);
+    let (mut evidence, report) = run_result?;
     let elapsed = started_at.elapsed();
+    match relay_server_result {
+        Ok(observation) if observation.received_expected_payload => {}
+        Ok(_) => evidence
+            .traffic_stimulus
+            .errors
+            .push("relay stimulus server did not observe expected payload".to_string()),
+        Err(error) => evidence
+            .traffic_stimulus
+            .errors
+            .push(format!("relay stimulus server: {error}")),
+    }
     let report =
         report.ok_or_else(|| "managed TUN runtime smoke did not produce a report".to_string())?;
     let route_cleanup = snapshot_tun_route_takeover(&default_tun_device_config());
@@ -58530,7 +58562,9 @@ fn collect_tun_runtime_smoke_evidence(min_duration: Duration) -> TunRuntimeSmoke
     }
 }
 
-fn default_tun_runtime_smoke_runtime() -> MixedProxyRuntime {
+fn default_tun_runtime_smoke_runtime_with_relay_server(
+    relay_control_port: u16,
+) -> MixedProxyRuntime {
     let mut routes = RouteEngine::new(RouteAction::Block);
     routes.add_rule(RouteRule {
         name: TUN_RUNTIME_SMOKE_TRAFFIC_RULE.to_string(),
@@ -58542,7 +58576,35 @@ fn default_tun_runtime_smoke_runtime() -> MixedProxyRuntime {
         matcher: RouteMatcher::PortExact(TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.port()),
         action: RouteAction::Block,
     });
-    MixedProxyRuntime::with_routes(routes)
+    routes.add_rule(RouteRule {
+        name: TUN_RUNTIME_SMOKE_RELAY_RULE.to_string(),
+        matcher: RouteMatcher::IpExact(TUN_RUNTIME_SMOKE_RELAY_TARGET.ip()),
+        action: RouteAction::Outbound(TUN_RUNTIME_SMOKE_RELAY_OUTBOUND.to_string()),
+    });
+
+    let mut outbounds = OutboundRegistry::new();
+    outbounds.add_socks5_tcp(
+        TUN_RUNTIME_SMOKE_RELAY_OUTBOUND,
+        Socks5TcpOutbound::new(
+            Endpoint::new("127.0.0.1", relay_control_port),
+            format!("{TUN_RUNTIME_SMOKE_RELAY_USERNAME}:{TUN_RUNTIME_SMOKE_RELAY_PASSWORD}"),
+        ),
+    );
+
+    MixedProxyRuntime {
+        routes,
+        relay_options: RelayOptions {
+            first_byte_timeout: Some(TUN_RUNTIME_SMOKE_DNS_READ_TIMEOUT),
+            idle_timeout: Some(TUN_RUNTIME_SMOKE_DNS_READ_TIMEOUT),
+        },
+        outbounds,
+        dns_options: MixedDnsOptions::default(),
+        tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
+        connection_metrics: ConnectionMetrics::default(),
+        max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+        connection_worker_gauge: ConnectionWorkerGauge::default(),
+        active_connection_registry: ActiveConnectionRegistry::default(),
+    }
 }
 
 fn hold_tun_runtime_smoke_until(started_at: Instant, min_duration: Duration) {
@@ -58685,6 +58747,22 @@ fn send_tun_runtime_smoke_traffic_stimulus() -> TunRuntimeSmokeTrafficStimulusRe
                         .push(format!("UDP send attempt={}: {error}", attempt + 1)),
                 }
                 thread::sleep(TUN_RUNTIME_SMOKE_TRAFFIC_STIMULUS_INTERVAL);
+            }
+            match socket.send_to(
+                TUN_RUNTIME_SMOKE_RELAY_PAYLOAD,
+                TUN_RUNTIME_SMOKE_RELAY_TARGET,
+            ) {
+                Ok(sent) if sent == TUN_RUNTIME_SMOKE_RELAY_PAYLOAD.len() => {
+                    report.sent_packets += 1;
+                }
+                Ok(sent) => report.errors.push(format!(
+                    "short UDP relay stimulus send bytes={} expected={}",
+                    sent,
+                    TUN_RUNTIME_SMOKE_RELAY_PAYLOAD.len()
+                )),
+                Err(error) => report
+                    .errors
+                    .push(format!("UDP relay stimulus send: {error}")),
             }
         }
         Err(error) => {
@@ -58888,6 +58966,191 @@ fn run_tun_runtime_smoke_ping_stimulus(report: &mut TunRuntimeSmokeTrafficStimul
         Err(error) => {
             report.ping_error = Some(format!("run ping stimulus: {error}"));
         }
+    }
+}
+
+fn spawn_tun_runtime_smoke_relay_server() -> Result<TunRuntimeSmokeRelayServer, String> {
+    let relay = UdpSocket::bind("127.0.0.1:0")
+        .map_err(|error| format!("bind TUN runtime relay UDP socket: {error}"))?;
+    relay
+        .set_read_timeout(Some(TUN_RUNTIME_SMOKE_DNS_READ_TIMEOUT))
+        .map_err(|error| format!("set TUN runtime relay UDP timeout: {error}"))?;
+    let relay_port = relay
+        .local_addr()
+        .map_err(|error| format!("read TUN runtime relay UDP address: {error}"))?
+        .port();
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|error| format!("bind TUN runtime relay control server: {error}"))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| format!("set TUN runtime relay control accept mode: {error}"))?;
+    let control_port = listener
+        .local_addr()
+        .map_err(|error| format!("read TUN runtime relay control address: {error}"))?
+        .port();
+    let handle = thread::spawn(
+        move || -> Result<TunRuntimeSmokeRelayServerObservation, String> {
+            let deadline = Instant::now() + TUN_RUNTIME_SMOKE_DNS_READ_TIMEOUT;
+            let (mut control, _) = loop {
+                match listener.accept() {
+                    Ok(accepted) => break accepted,
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        if Instant::now() >= deadline {
+                            return Err("TUN runtime relay control accept timed out".to_string());
+                        }
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => {
+                        return Err(format!("accept TUN runtime relay control server: {error}"));
+                    }
+                }
+            };
+            control
+                .set_nonblocking(false)
+                .map_err(|error| format!("set TUN runtime relay control mode: {error}"))?;
+            control
+                .set_read_timeout(Some(TUN_RUNTIME_SMOKE_DNS_READ_TIMEOUT))
+                .map_err(|error| format!("set TUN runtime relay control read timeout: {error}"))?;
+            control
+                .set_write_timeout(Some(TUN_RUNTIME_SMOKE_DNS_READ_TIMEOUT))
+                .map_err(|error| format!("set TUN runtime relay control write timeout: {error}"))?;
+
+            read_tun_runtime_smoke_relay_handshake(&mut control)?;
+            read_tun_runtime_smoke_relay_associate(&mut control)?;
+            let mut response = vec![0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1];
+            response.extend_from_slice(&relay_port.to_be_bytes());
+            control
+                .write_all(&response)
+                .map_err(|error| format!("write TUN runtime relay associate reply: {error}"))?;
+
+            let mut packet = [0; 1500];
+            let (size, from) = relay
+                .recv_from(&mut packet)
+                .map_err(|error| format!("read TUN runtime relay UDP packet: {error}"))?;
+            let datagram = parse_socks5_udp_datagram(&packet[..size])
+                .map_err(|error| format!("parse TUN runtime relay UDP packet: {error}"))?;
+            let expected_address = Socks5Address::Ipv4(match TUN_RUNTIME_SMOKE_RELAY_TARGET.ip() {
+                IpAddr::V4(ip) => ip,
+                IpAddr::V6(_) => return Err("TUN runtime relay target must be IPv4".to_string()),
+            });
+            if datagram.address != expected_address.clone()
+                || datagram.port != TUN_RUNTIME_SMOKE_RELAY_TARGET.port()
+            {
+                return Err(format!(
+                    "unexpected TUN runtime relay target: {}:{}",
+                    udp_relay_smoke_socks5_address_label(&datagram.address),
+                    datagram.port
+                ));
+            }
+            if datagram.payload != TUN_RUNTIME_SMOKE_RELAY_PAYLOAD {
+                return Err(format!(
+                    "unexpected TUN runtime relay payload: expected {:?}, got {:?}",
+                    TUN_RUNTIME_SMOKE_RELAY_PAYLOAD, datagram.payload
+                ));
+            }
+            let response = encode_socks5_udp_datagram(
+                &expected_address,
+                TUN_RUNTIME_SMOKE_RELAY_TARGET.port(),
+                TUN_RUNTIME_SMOKE_RELAY_RESPONSE,
+            )
+            .map_err(|error| format!("encode TUN runtime relay UDP response: {error}"))?;
+            relay
+                .send_to(&response, from)
+                .map_err(|error| format!("write TUN runtime relay UDP response: {error}"))?;
+            tcp_relay_smoke_wait_for_client_close(&mut control);
+            Ok(TunRuntimeSmokeRelayServerObservation {
+                received_expected_payload: true,
+            })
+        },
+    );
+    Ok(TunRuntimeSmokeRelayServer {
+        control_port,
+        handle,
+    })
+}
+
+fn join_tun_runtime_smoke_relay_server(
+    handle: thread::JoinHandle<Result<TunRuntimeSmokeRelayServerObservation, String>>,
+) -> Result<TunRuntimeSmokeRelayServerObservation, String> {
+    handle
+        .join()
+        .map_err(|_| "TUN runtime relay server thread panicked".to_string())?
+}
+
+fn read_tun_runtime_smoke_relay_handshake(stream: &mut TcpStream) -> Result<(), String> {
+    let mut greeting = [0; 2];
+    stream
+        .read_exact(&mut greeting)
+        .map_err(|error| format!("read TUN runtime relay SOCKS greeting: {error}"))?;
+    if greeting[0] != 0x05 {
+        return Err(format!(
+            "unexpected TUN runtime relay SOCKS version: {}",
+            greeting[0]
+        ));
+    }
+    let mut methods = vec![0; greeting[1] as usize];
+    stream
+        .read_exact(&mut methods)
+        .map_err(|error| format!("read TUN runtime relay SOCKS methods: {error}"))?;
+    if !methods.contains(&0x02) {
+        return Err(format!(
+            "TUN runtime relay SOCKS client did not offer username/password auth: {methods:?}"
+        ));
+    }
+    stream
+        .write_all(&[0x05, 0x02])
+        .map_err(|error| format!("write TUN runtime relay SOCKS auth method: {error}"))?;
+
+    let mut auth_header = [0; 2];
+    stream
+        .read_exact(&mut auth_header)
+        .map_err(|error| format!("read TUN runtime relay SOCKS auth header: {error}"))?;
+    if auth_header[0] != 0x01 {
+        return Err(format!(
+            "unexpected TUN runtime relay SOCKS auth version: {}",
+            auth_header[0]
+        ));
+    }
+    let mut username = vec![0; auth_header[1] as usize];
+    stream
+        .read_exact(&mut username)
+        .map_err(|error| format!("read TUN runtime relay SOCKS username: {error}"))?;
+    let mut password_len = [0; 1];
+    stream
+        .read_exact(&mut password_len)
+        .map_err(|error| format!("read TUN runtime relay SOCKS password length: {error}"))?;
+    let mut password = vec![0; password_len[0] as usize];
+    stream
+        .read_exact(&mut password)
+        .map_err(|error| format!("read TUN runtime relay SOCKS password: {error}"))?;
+    let credentials_ok = username == TUN_RUNTIME_SMOKE_RELAY_USERNAME.as_bytes()
+        && password == TUN_RUNTIME_SMOKE_RELAY_PASSWORD.as_bytes();
+    stream
+        .write_all(&[0x01, if credentials_ok { 0x00 } else { 0x01 }])
+        .map_err(|error| format!("write TUN runtime relay SOCKS auth response: {error}"))?;
+    if credentials_ok {
+        Ok(())
+    } else {
+        Err(format!(
+            "unexpected TUN runtime relay SOCKS credentials: username={:?} password={:?}",
+            String::from_utf8_lossy(&username),
+            String::from_utf8_lossy(&password)
+        ))
+    }
+}
+
+fn read_tun_runtime_smoke_relay_associate(stream: &mut TcpStream) -> Result<(), String> {
+    let mut request = [0; 10];
+    stream
+        .read_exact(&mut request)
+        .map_err(|error| format!("read TUN runtime relay UDP associate request: {error}"))?;
+    let expected = [0x05, 0x03, 0x00, 0x01, 0, 0, 0, 0, 0, 0];
+    if request == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "unexpected TUN runtime relay UDP associate request: {request:?}"
+        ))
     }
 }
 
@@ -59268,7 +59531,7 @@ mod tun_runtime_smoke_tests {
 
     #[test]
     fn default_tun_runtime_smoke_runtime_blocks_stimulus_ip_and_port() {
-        let runtime = default_tun_runtime_smoke_runtime();
+        let runtime = default_tun_runtime_smoke_runtime_with_relay_server(0);
         let target_decision = runtime.routes.decide_destination(&RouteDestination::new(
             RouteTarget::Ip(TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.ip()),
             TUN_RUNTIME_SMOKE_TRAFFIC_TARGET.port(),
@@ -59298,6 +59561,51 @@ mod tun_runtime_smoke_tests {
 
         assert_eq!(ambient_decision.action, RouteAction::Block);
         assert_eq!(ambient_decision.matched_rule, None);
+    }
+
+    #[test]
+    fn default_tun_runtime_smoke_runtime_routes_dedicated_relay_stimulus_through_outbound() {
+        let runtime = default_tun_runtime_smoke_runtime_with_relay_server(0);
+        let relay_target: SocketAddr = "198.18.0.2:1053".parse().expect("valid relay target");
+        let relay_decision = runtime.routes.decide_destination(&RouteDestination::new(
+            RouteTarget::Ip(relay_target.ip()),
+            relay_target.port(),
+        ));
+
+        assert_eq!(
+            relay_decision.action,
+            RouteAction::Outbound("TUN-RUNTIME-SMOKE-RELAY".to_string())
+        );
+        assert_eq!(
+            relay_decision.matched_rule.as_deref(),
+            Some("tun-runtime-smoke-relay-stimulus")
+        );
+    }
+
+    #[test]
+    fn tun_runtime_smoke_relay_server_round_trips_registered_socks5_outbound() {
+        let relay_server =
+            spawn_tun_runtime_smoke_relay_server().expect("start TUN runtime relay server");
+        let runtime =
+            default_tun_runtime_smoke_runtime_with_relay_server(relay_server.control_port);
+        let response = runtime
+            .outbounds
+            .relay_udp_datagram(
+                TUN_RUNTIME_SMOKE_RELAY_OUTBOUND,
+                &OutboundTarget::new(
+                    TUN_RUNTIME_SMOKE_RELAY_TARGET.ip().to_string(),
+                    TUN_RUNTIME_SMOKE_RELAY_TARGET.port(),
+                ),
+                TUN_RUNTIME_SMOKE_RELAY_PAYLOAD,
+                TUN_RUNTIME_SMOKE_DNS_READ_TIMEOUT,
+            )
+            .expect("relay UDP datagram through registered SOCKS5 outbound");
+        let observation = join_tun_runtime_smoke_relay_server(relay_server.handle)
+            .expect("join TUN runtime relay server");
+
+        assert_eq!(response.source, TUN_RUNTIME_SMOKE_RELAY_TARGET);
+        assert_eq!(response.payload, TUN_RUNTIME_SMOKE_RELAY_RESPONSE);
+        assert!(observation.received_expected_payload);
     }
 
     #[test]
