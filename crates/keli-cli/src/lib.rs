@@ -59752,8 +59752,10 @@ mod tun_runtime_smoke_tests {
         let mut summary = TunPacketLoopSummary {
             udp_relay_responses_written: 1,
             udp_relay_plans: 1,
-            last_relay_route_action: Some(RouteAction::Outbound("edge".to_string())),
-            last_relay_matched_rule: Some("proxy-dgram".to_string()),
+            last_relay_route_action: Some(RouteAction::Outbound(
+                TUN_RUNTIME_SMOKE_RELAY_OUTBOUND.to_string(),
+            )),
+            last_relay_matched_rule: Some(TUN_RUNTIME_SMOKE_RELAY_RULE.to_string()),
             ..TunPacketLoopSummary::default()
         };
         summary.stop_requested = true;
@@ -59780,9 +59782,11 @@ mod tun_runtime_smoke_tests {
             dns_stimulus_required: false,
             dns_stimulus_observed: false,
             dns_hijack_route_observed: false,
-            relay_route_observed: true,
-            last_relay_route_action: Some(RouteAction::Outbound("edge".to_string())),
-            last_relay_matched_rule: Some("proxy-dgram".to_string()),
+            relay_route_observed: tun_runtime_smoke_relay_route_observed(&runtime_report),
+            last_relay_route_action: Some(RouteAction::Outbound(
+                TUN_RUNTIME_SMOKE_RELAY_OUTBOUND.to_string(),
+            )),
+            last_relay_matched_rule: Some(TUN_RUNTIME_SMOKE_RELAY_RULE.to_string()),
             interface_snapshot: tun_runtime_smoke_interface_snapshot_not_attempted(),
             traffic_stimulus: tun_runtime_smoke_traffic_stimulus_not_attempted(),
             dns_stimulus: tun_runtime_smoke_dns_stimulus_not_attempted(),
@@ -59803,10 +59807,54 @@ mod tun_runtime_smoke_tests {
             value["last_relay_route_action"],
             serde_json::json!({
                 "kind": "outbound",
-                "tag": "edge",
+                "tag": TUN_RUNTIME_SMOKE_RELAY_OUTBOUND,
             })
         );
-        assert_eq!(value["last_relay_matched_rule"], "proxy-dgram");
+        assert_eq!(
+            value["last_relay_matched_rule"],
+            TUN_RUNTIME_SMOKE_RELAY_RULE
+        );
+    }
+
+    #[test]
+    fn relay_route_observed_requires_dedicated_tun_runtime_relay_stimulus() {
+        let mut ambient_summary = TunPacketLoopSummary {
+            udp_relay_responses_written: 1,
+            udp_relay_plans: 1,
+            last_relay_route_action: Some(RouteAction::Outbound("edge".to_string())),
+            last_relay_matched_rule: Some("proxy-dgram".to_string()),
+            ..TunPacketLoopSummary::default()
+        };
+        ambient_summary.stop_requested = true;
+        let ambient_report = ManagedTunPacketLoopReport {
+            config: default_tun_device_config(),
+            start_snapshot: snapshot(true),
+            stop_snapshot: snapshot(false),
+            owns_device: true,
+            summary: ambient_summary,
+        };
+
+        assert!(!tun_runtime_smoke_relay_route_observed(&ambient_report));
+
+        let mut dedicated_summary = TunPacketLoopSummary {
+            udp_relay_responses_written: 1,
+            udp_relay_plans: 1,
+            last_relay_route_action: Some(RouteAction::Outbound(
+                TUN_RUNTIME_SMOKE_RELAY_OUTBOUND.to_string(),
+            )),
+            last_relay_matched_rule: Some(TUN_RUNTIME_SMOKE_RELAY_RULE.to_string()),
+            ..TunPacketLoopSummary::default()
+        };
+        dedicated_summary.stop_requested = true;
+        let dedicated_report = ManagedTunPacketLoopReport {
+            config: default_tun_device_config(),
+            start_snapshot: snapshot(true),
+            stop_snapshot: snapshot(false),
+            owns_device: true,
+            summary: dedicated_summary,
+        };
+
+        assert!(tun_runtime_smoke_relay_route_observed(&dedicated_report));
     }
 }
 
@@ -59867,10 +59915,13 @@ fn tun_runtime_smoke_dns_hijack_route_observed(report: &ManagedTunPacketLoopRepo
 }
 
 fn tun_runtime_smoke_relay_route_observed(report: &ManagedTunPacketLoopReport) -> bool {
-    report.summary.last_relay_route_action.is_some()
-        && (report.summary.relay_packets > 0
-            || report.summary.tcp_relay_plans > 0
-            || report.summary.udp_relay_plans > 0)
+    report.summary.udp_relay_responses_written > 0
+        && report.summary.udp_relay_plans > 0
+        && report.summary.last_relay_route_action.as_ref()
+            == Some(&RouteAction::Outbound(
+                TUN_RUNTIME_SMOKE_RELAY_OUTBOUND.to_string(),
+            ))
+        && report.summary.last_relay_matched_rule.as_deref() == Some(TUN_RUNTIME_SMOKE_RELAY_RULE)
 }
 
 fn tun_runtime_smoke_dns_stimulus_observed(
