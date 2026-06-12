@@ -3,13 +3,23 @@ use serde::{Deserialize, Serialize};
 use crate::commands::{DesktopCommandError, DesktopNativeCommandService};
 use crate::dependencies::DesktopDependencyReport;
 use crate::shell::{DesktopShellAction, DesktopShellPrimaryCommand, DesktopShellState};
-use crate::status::DesktopStatusSnapshot;
+use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
+use crate::subscription::DesktopSubscriptionSummary;
 
 pub trait DesktopShellCommandHost {
     fn status(&self) -> DesktopStatusSnapshot;
     fn dependency_report(&self) -> DesktopDependencyReport;
     fn start(&mut self) -> Result<DesktopStatusSnapshot, DesktopCommandError>;
     fn stop(&mut self) -> Result<DesktopStatusSnapshot, DesktopCommandError>;
+    fn import_subscription_config(
+        &mut self,
+        config_text: String,
+    ) -> Result<DesktopSubscriptionSummary, DesktopCommandError>;
+    fn select_node(
+        &mut self,
+        outbound_tag: String,
+    ) -> Result<DesktopSubscriptionSummary, DesktopCommandError>;
+    fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode);
 }
 
 impl DesktopShellCommandHost for DesktopNativeCommandService {
@@ -27,6 +37,24 @@ impl DesktopShellCommandHost for DesktopNativeCommandService {
 
     fn stop(&mut self) -> Result<DesktopStatusSnapshot, DesktopCommandError> {
         self.stop()
+    }
+
+    fn import_subscription_config(
+        &mut self,
+        config_text: String,
+    ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
+        self.import_subscription_config(config_text)
+    }
+
+    fn select_node(
+        &mut self,
+        outbound_tag: String,
+    ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
+        self.select_node(outbound_tag)
+    }
+
+    fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode) {
+        self.set_traffic_mode(traffic_mode);
     }
 }
 
@@ -104,6 +132,32 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         }
     }
 
+    pub fn import_subscription_config(
+        &mut self,
+        config_text: impl Into<String>,
+    ) -> Result<DesktopShellState, DesktopShellControllerError> {
+        let subscription = self.host.import_subscription_config(config_text.into())?;
+        self.shell.refresh_subscription(Some(subscription));
+        self.shell.refresh_status(self.host.status());
+        Ok(self.shell.clone())
+    }
+
+    pub fn select_node(
+        &mut self,
+        outbound_tag: impl Into<String>,
+    ) -> Result<DesktopShellState, DesktopShellControllerError> {
+        let subscription = self.host.select_node(outbound_tag.into())?;
+        self.shell.refresh_subscription(Some(subscription));
+        self.shell.refresh_status(self.host.status());
+        Ok(self.shell.clone())
+    }
+
+    pub fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode) -> DesktopShellState {
+        self.host.set_traffic_mode(traffic_mode);
+        self.shell.refresh_status(self.host.status());
+        self.shell.clone()
+    }
+
     fn request_start(&mut self) -> Result<DesktopShellState, DesktopShellControllerError> {
         if !self.shell.primary_action.enabled
             || !matches!(
@@ -152,6 +206,7 @@ mod tests {
     use crate::readiness::{DesktopBlocker, DesktopFirstRunReport};
     use crate::shell::{DesktopShellAction, DesktopShellPrimaryCommand};
     use crate::status::{DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode};
+    use crate::subscription::{DesktopNodeSummary, DesktopSubscriptionSummary};
 
     #[derive(Debug, Clone)]
     struct FakeHost {
@@ -164,6 +219,10 @@ mod tests {
         dependencies: DesktopDependencyReport,
         starts: usize,
         stops: usize,
+        imports: usize,
+        selects: usize,
+        modes: Vec<DesktopTrafficMode>,
+        subscription: DesktopSubscriptionSummary,
     }
 
     impl FakeHost {
@@ -174,6 +233,10 @@ mod tests {
                     dependencies,
                     starts: 0,
                     stops: 0,
+                    imports: 0,
+                    selects: 0,
+                    modes: Vec::new(),
+                    subscription: subscription("SS-READY"),
                 })),
             }
         }
@@ -184,6 +247,18 @@ mod tests {
 
         fn stops(&self) -> usize {
             self.inner.borrow().stops
+        }
+
+        fn imports(&self) -> usize {
+            self.inner.borrow().imports
+        }
+
+        fn selects(&self) -> usize {
+            self.inner.borrow().selects
+        }
+
+        fn modes(&self) -> Vec<DesktopTrafficMode> {
+            self.inner.borrow().modes.clone()
         }
 
         fn set_status(&self, status: DesktopStatusSnapshot) {
@@ -216,6 +291,33 @@ mod tests {
             inner.stops += 1;
             inner.status = status(DesktopRunState::Stopped);
             Ok(inner.status.clone())
+        }
+
+        fn import_subscription_config(
+            &mut self,
+            _config_text: String,
+        ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
+            let mut inner = self.inner.borrow_mut();
+            inner.imports += 1;
+            inner.subscription = subscription("SS-READY");
+            Ok(inner.subscription.clone())
+        }
+
+        fn select_node(
+            &mut self,
+            outbound_tag: String,
+        ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
+            let mut inner = self.inner.borrow_mut();
+            inner.selects += 1;
+            inner.subscription = subscription(&outbound_tag);
+            inner.status.selected_outbound = Some(outbound_tag);
+            Ok(inner.subscription.clone())
+        }
+
+        fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode) {
+            let mut inner = self.inner.borrow_mut();
+            inner.modes.push(traffic_mode);
+            inner.status.traffic_mode = traffic_mode;
         }
     }
 
@@ -289,6 +391,27 @@ mod tests {
         dependencies.tun_backend.driver_api_available = false;
         dependencies.tun_backend.install_required = true;
         dependencies
+    }
+
+    fn subscription(tag: &str) -> DesktopSubscriptionSummary {
+        DesktopSubscriptionSummary {
+            usable: true,
+            supported_count: 1,
+            skipped_count: 0,
+            default_outbound: Some(tag.to_string()),
+            selected_outbound: Some(tag.to_string()),
+            recommended_outbound: Some(tag.to_string()),
+            nodes: vec![DesktopNodeSummary {
+                tag: tag.to_string(),
+                protocol: "ss".to_string(),
+                transport: "tcp".to_string(),
+                security: "none".to_string(),
+                udp_supported: true,
+                selected: true,
+                recommended: true,
+            }],
+            skipped: Vec::new(),
+        }
     }
 
     #[test]
@@ -396,5 +519,59 @@ mod tests {
             shell.primary_action.command,
             DesktopShellPrimaryCommand::Stop
         );
+    }
+
+    #[test]
+    fn shell_subscription_import_updates_shell_snapshot() {
+        let host = FakeHost::new(status(DesktopRunState::Stopped), ready_dependencies());
+        let observed = host.clone();
+        let mut controller = DesktopShellController::new(host);
+
+        let shell = controller
+            .import_subscription_config("proxies: []")
+            .expect("import subscription");
+
+        assert_eq!(observed.imports(), 1);
+        assert_eq!(
+            shell
+                .subscription
+                .as_ref()
+                .and_then(|subscription| subscription.selected_outbound.as_deref()),
+            Some("SS-READY")
+        );
+    }
+
+    #[test]
+    fn shell_subscription_select_node_updates_shell_snapshot() {
+        let host = FakeHost::new(status(DesktopRunState::Running), ready_dependencies());
+        let observed = host.clone();
+        let mut controller = DesktopShellController::new(host);
+        controller
+            .import_subscription_config("proxies: []")
+            .expect("import subscription");
+
+        let shell = controller.select_node("SS-ALT").expect("select node");
+
+        assert_eq!(observed.selects(), 1);
+        assert_eq!(shell.status.selected_outbound.as_deref(), Some("SS-ALT"));
+        assert_eq!(
+            shell
+                .subscription
+                .as_ref()
+                .and_then(|subscription| subscription.selected_outbound.as_deref()),
+            Some("SS-ALT")
+        );
+    }
+
+    #[test]
+    fn shell_subscription_traffic_mode_setter_refreshes_status() {
+        let host = FakeHost::new(status(DesktopRunState::Stopped), ready_dependencies());
+        let observed = host.clone();
+        let mut controller = DesktopShellController::new(host);
+
+        let shell = controller.set_traffic_mode(DesktopTrafficMode::Tun);
+
+        assert_eq!(observed.modes(), vec![DesktopTrafficMode::Tun]);
+        assert_eq!(shell.status.traffic_mode, DesktopTrafficMode::Tun);
     }
 }

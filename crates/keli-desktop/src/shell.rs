@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::dependencies::DesktopDependencyReport;
 use crate::status::{DesktopRunState, DesktopStatusSnapshot};
+use crate::subscription::DesktopSubscriptionSummary;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -61,6 +62,7 @@ pub struct DesktopShellState {
     pub window: DesktopShellWindowState,
     pub status: DesktopStatusSnapshot,
     pub dependencies: DesktopDependencyReport,
+    pub subscription: Option<DesktopSubscriptionSummary>,
     pub primary_action: DesktopShellPrimaryAction,
     pub tray_menu: DesktopShellTrayMenu,
     pub can_start: bool,
@@ -80,6 +82,7 @@ impl DesktopShellState {
             window,
             status,
             dependencies,
+            subscription: None,
             primary_action,
             tray_menu,
             can_start,
@@ -114,6 +117,10 @@ impl DesktopShellState {
     pub fn refresh_dependencies(&mut self, dependencies: DesktopDependencyReport) {
         self.dependencies = dependencies;
         self.rebuild_derived();
+    }
+
+    pub fn refresh_subscription(&mut self, subscription: Option<DesktopSubscriptionSummary>) {
+        self.subscription = subscription;
     }
 
     fn rebuild_derived(&mut self) {
@@ -284,6 +291,7 @@ mod tests {
     };
     use crate::readiness::{DesktopBlocker, DesktopFirstRunReport};
     use crate::status::{DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode};
+    use crate::subscription::{DesktopNodeSummary, DesktopSubscriptionSummary};
 
     fn status(run_state: DesktopRunState) -> DesktopStatusSnapshot {
         DesktopStatusSnapshot {
@@ -386,6 +394,27 @@ mod tests {
         }
     }
 
+    fn subscription(tag: &str) -> DesktopSubscriptionSummary {
+        DesktopSubscriptionSummary {
+            usable: true,
+            supported_count: 1,
+            skipped_count: 0,
+            default_outbound: Some(tag.to_string()),
+            selected_outbound: Some(tag.to_string()),
+            recommended_outbound: Some(tag.to_string()),
+            nodes: vec![DesktopNodeSummary {
+                tag: tag.to_string(),
+                protocol: "ss".to_string(),
+                transport: "tcp".to_string(),
+                security: "none".to_string(),
+                udp_supported: true,
+                selected: true,
+                recommended: true,
+            }],
+            skipped: Vec::new(),
+        }
+    }
+
     #[test]
     fn default_shell_starts_hidden_stopped_with_start_primary_action() {
         let shell = DesktopShellState::new(status(DesktopRunState::Stopped), ready_dependencies());
@@ -393,6 +422,7 @@ mod tests {
         assert!(!shell.window.main_visible);
         assert!(!shell.window.diagnostics_visible);
         assert!(!shell.quit_requested);
+        assert_eq!(shell.subscription, None);
         assert_eq!(shell.status.run_state, DesktopRunState::Stopped);
         assert_eq!(
             shell.primary_action.command,
@@ -529,6 +559,22 @@ mod tests {
         assert_eq!(
             shell.primary_action.command,
             DesktopShellPrimaryCommand::Stop
+        );
+    }
+
+    #[test]
+    fn shell_subscription_refresh_stores_latest_summary() {
+        let mut shell =
+            DesktopShellState::new(status(DesktopRunState::Stopped), ready_dependencies());
+
+        shell.refresh_subscription(Some(subscription("SS-READY")));
+
+        assert_eq!(
+            shell
+                .subscription
+                .as_ref()
+                .and_then(|subscription| subscription.selected_outbound.as_deref()),
+            Some("SS-READY")
         );
     }
 }
