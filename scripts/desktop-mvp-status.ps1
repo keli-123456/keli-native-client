@@ -134,6 +134,25 @@ function Test-InstallFirstRunDependencyEvidence {
     return $true
 }
 
+function Test-SupportExportEvidence {
+    param(
+        [AllowNull()]
+        [object]$InstallSmoke
+    )
+
+    if ($null -eq $InstallSmoke) {
+        return $false
+    }
+
+    return (
+        (Test-StringArrayContainsAll -Values $InstallSmoke.manual_smoke_cases -Expected @('export-support-bundle')) -and
+        (Test-StringArrayContainsAll -Values $InstallSmoke.verified_ui_workflow_entrypoints -Expected @('export-support-bundle')) -and
+        ([string]$InstallSmoke.support_export_smoke -eq 'target\desktop-install-smoke\desktop-support-export-smoke.json') -and
+        ([string]$InstallSmoke.support_export_kind -eq 'keli_desktop_support_bundle') -and
+        (Get-BoolProperty -InputObject $InstallSmoke -Name 'support_export_desktop_dependencies')
+    )
+}
+
 function New-Requirement {
     param(
         [Parameter(Mandatory = $true)]
@@ -197,10 +216,7 @@ function New-DesktopMvpStatus {
         (Test-StringArrayContainsAll -Values $installSmoke.manual_smoke_cases -Expected $expectedWorkflows) -and
         (Test-StringArrayContainsAll -Values $installSmoke.verified_ui_workflow_entrypoints -Expected $expectedWorkflows)
     )
-    $supportBundleReady = (
-        (Test-StringArrayContainsAll -Values $installSmoke.manual_smoke_cases -Expected @('export-support-bundle')) -and
-        (Test-StringArrayContainsAll -Values $installSmoke.verified_ui_workflow_entrypoints -Expected @('export-support-bundle'))
-    )
+    $supportBundleReady = Test-SupportExportEvidence -InstallSmoke $installSmoke
     $installFirstRunDependencyReady = Test-InstallFirstRunDependencyEvidence -InstallSmoke $installSmoke
     $msiWorkflowReady = (
         (Get-BoolProperty -InputObject $msiSmoke -Name 'native_core_default') -and
@@ -217,7 +233,7 @@ function New-DesktopMvpStatus {
         (New-Requirement -Id 'native-core-default' -Ready $nativeCoreReady -Evidence 'release.native_core_default'),
         (New-Requirement -Id 'package-artifacts' -Ready $artifactReady -Evidence 'release.artifacts'),
         (New-Requirement -Id 'install-smoke-workflows' -Ready $installWorkflowReady -Evidence 'release.smoke.install'),
-        (New-Requirement -Id 'support-bundle-export' -Ready $supportBundleReady -Evidence 'release.smoke.install.verified_ui_workflow_entrypoints.export-support-bundle'),
+        (New-Requirement -Id 'support-bundle-export' -Ready $supportBundleReady -Evidence 'release.smoke.install.support_export_smoke'),
         (New-Requirement -Id 'install-first-run-dependencies' -Ready $installFirstRunDependencyReady -Evidence 'release.smoke.install.first_run_blockers'),
         (New-Requirement -Id 'msi-smoke-workflows' -Ready $msiWorkflowReady -Evidence 'release.smoke.msi'),
         (New-Requirement -Id 'machine-takeover' -Ready $machineReady -Evidence 'release.smoke.machine')
@@ -273,7 +289,7 @@ try {
         Write-Output 'config -FailOnMvpBlocked optional'
         Write-Output 'read native_core_default artifacts smoke.install smoke.msi smoke.machine signing public_release_blockers public_release_next_steps'
         Write-Output 'require workflow ids open-desktop-shell import-subscription select-node start-stop-system-proxy tun-preflight export-support-bundle'
-        Write-Output 'require support-bundle-export workflow evidence'
+        Write-Output 'require support-bundle-export workflow and export smoke evidence'
         Write-Output 'require install first_run dependency blockers have action entrypoints'
         Write-Output 'output desktop_mvp_ready and public_release_ready'
         Write-Output 'output json when -Json is provided'

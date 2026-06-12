@@ -31,6 +31,7 @@ $expected = @(
     'metadata install_smoke_ui_workflow_entrypoints',
     'metadata install_smoke_first_run_dependency_actions',
     'metadata install_smoke_readme_subscription_import',
+    'metadata install_smoke_support_export_smoke',
     'metadata msi_smoke_manual_smoke_cases',
     'metadata msi_smoke_readme_subscription_import',
     'metadata public_release_ready false_when_unsigned',
@@ -77,6 +78,9 @@ try {
         }
     ) -Force
     $installSmoke | Add-Member -NotePropertyName dependency_action_entrypoints -NotePropertyValue @('install-wintun') -Force
+    $installSmoke | Add-Member -NotePropertyName support_export_smoke -NotePropertyValue 'target\desktop-install-smoke\desktop-support-export-smoke.json' -Force
+    $installSmoke | Add-Member -NotePropertyName support_export_kind -NotePropertyValue 'keli_desktop_support_bundle' -Force
+    $installSmoke | Add-Member -NotePropertyName support_export_desktop_dependencies -NotePropertyValue $true -Force
     $installSmoke | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $installSmokePath -Encoding ASCII
 
     & powershell -NoProfile -ExecutionPolicy Bypass -File $releaseScript
@@ -94,6 +98,12 @@ try {
     }
     if (($dependencyReleaseEvidence.smoke.install.dependency_action_entrypoints -join ',') -ne 'install-wintun') {
         throw "release evidence install dependency action entrypoints mismatch: $($dependencyReleaseEvidence.smoke.install.dependency_action_entrypoints -join ',')"
+    }
+    if ($dependencyReleaseEvidence.smoke.install.support_export_kind -ne 'keli_desktop_support_bundle') {
+        throw "release evidence support export kind mismatch: $($dependencyReleaseEvidence.smoke.install.support_export_kind)"
+    }
+    if ($dependencyReleaseEvidence.smoke.install.support_export_desktop_dependencies -ne $true) {
+        throw 'release evidence support export desktop dependency evidence must be true'
     }
 } finally {
     Copy-Item -LiteralPath $backupInstallSmokePath -Destination $installSmokePath -Force

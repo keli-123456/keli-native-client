@@ -135,6 +135,26 @@ function Read-SmokeStatus {
         $dependencyActionEntrypoints = @($smoke.dependency_action_entrypoints | ForEach-Object { [string]$_ })
     }
 
+    $supportExportSmoke = $null
+    if ($null -ne $smoke.PSObject.Properties['support_export_smoke']) {
+        $supportExportSmoke = [string]$smoke.support_export_smoke
+    }
+
+    $supportExportPath = $null
+    if ($null -ne $smoke.PSObject.Properties['support_export_path']) {
+        $supportExportPath = [string]$smoke.support_export_path
+    }
+
+    $supportExportKind = $null
+    if ($null -ne $smoke.PSObject.Properties['support_export_kind']) {
+        $supportExportKind = [string]$smoke.support_export_kind
+    }
+
+    $supportExportDesktopDependencies = $null
+    if ($null -ne $smoke.PSObject.Properties['support_export_desktop_dependencies']) {
+        $supportExportDesktopDependencies = [bool]$smoke.support_export_desktop_dependencies
+    }
+
     $status = [ordered]@{
         path = $RelativePath
         status = [string]$smoke.status
@@ -160,6 +180,18 @@ function Read-SmokeStatus {
     }
     if ($dependencyActionEntrypoints.Count -gt 0) {
         $status['dependency_action_entrypoints'] = $dependencyActionEntrypoints
+    }
+    if (![string]::IsNullOrWhiteSpace($supportExportSmoke)) {
+        $status['support_export_smoke'] = $supportExportSmoke
+    }
+    if (![string]::IsNullOrWhiteSpace($supportExportPath)) {
+        $status['support_export_path'] = $supportExportPath
+    }
+    if (![string]::IsNullOrWhiteSpace($supportExportKind)) {
+        $status['support_export_kind'] = $supportExportKind
+    }
+    if ($null -ne $supportExportDesktopDependencies) {
+        $status['support_export_desktop_dependencies'] = $supportExportDesktopDependencies
     }
     return $status
 }
@@ -389,6 +421,7 @@ try {
         Write-Output 'metadata install_smoke_ui_workflow_entrypoints'
         Write-Output 'metadata install_smoke_first_run_dependency_actions'
         Write-Output 'metadata install_smoke_readme_subscription_import'
+        Write-Output 'metadata install_smoke_support_export_smoke'
         Write-Output 'metadata msi_smoke_manual_smoke_cases'
         Write-Output 'metadata msi_smoke_readme_subscription_import'
         Write-Output 'metadata public_release_ready false_when_unsigned'

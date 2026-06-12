@@ -23,7 +23,7 @@ $expectedPlan = @(
     'config -FailOnMvpBlocked optional',
     'read native_core_default artifacts smoke.install smoke.msi smoke.machine signing public_release_blockers public_release_next_steps',
     'require workflow ids open-desktop-shell import-subscription select-node start-stop-system-proxy tun-preflight export-support-bundle',
-    'require support-bundle-export workflow evidence',
+    'require support-bundle-export workflow and export smoke evidence',
     'require install first_run dependency blockers have action entrypoints',
     'output desktop_mvp_ready and public_release_ready',
     'output json when -Json is provided'
@@ -69,6 +69,9 @@ $fixture = [ordered]@{
             readme_subscription_import = 'subscription-url-or-config'
             manual_smoke_cases = $workflowIds
             verified_ui_workflow_entrypoints = $workflowIds
+            support_export_smoke = 'target\desktop-install-smoke\desktop-support-export-smoke.json'
+            support_export_kind = 'keli_desktop_support_bundle'
+            support_export_desktop_dependencies = $true
             first_run_system_proxy_ready = $true
             first_run_tun_ready = $false
             first_run_blockers = @(
@@ -195,6 +198,36 @@ $dependencyFailureText = @(
 ) -join "`n"
 if (!$dependencyFailureText.Contains('Desktop MVP status blocked: install-first-run-dependencies')) {
     throw "dependency blocked failure did not name install-first-run-dependencies: $dependencyFailureText"
+}
+
+$supportExportBlockedFixturePath = Join-Path $tempDir 'release-evidence-support-export-blocked.json'
+$supportExportBlockedFixture = Get-Content -Raw -LiteralPath $fixturePath | ConvertFrom-Json
+$supportExportBlockedFixture.smoke.install.support_export_desktop_dependencies = $false
+$supportExportBlockedFixture | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $supportExportBlockedFixturePath -Encoding ASCII
+
+$supportExportStdoutPath = Join-Path $tempDir 'status-support-export-blocked-stdout.txt'
+$supportExportStderrPath = Join-Path $tempDir 'status-support-export-blocked-stderr.txt'
+$supportExportProcess = Start-Process `
+    -FilePath 'powershell' `
+    -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $statusScript, '-EvidencePath', $supportExportBlockedFixturePath, '-FailOnMvpBlocked') `
+    -NoNewWindow `
+    -Wait `
+    -PassThru `
+    -RedirectStandardOutput $supportExportStdoutPath `
+    -RedirectStandardError $supportExportStderrPath
+if ($supportExportProcess.ExitCode -eq 0) {
+    throw 'desktop-mvp-status.ps1 -FailOnMvpBlocked should fail missing support export smoke evidence'
+}
+$supportExportFailureText = @(
+    if (Test-Path -LiteralPath $supportExportStdoutPath) {
+        Get-Content -LiteralPath $supportExportStdoutPath
+    }
+    if (Test-Path -LiteralPath $supportExportStderrPath) {
+        Get-Content -LiteralPath $supportExportStderrPath
+    }
+) -join "`n"
+if (!$supportExportFailureText.Contains('Desktop MVP status blocked: support-bundle-export')) {
+    throw "support export blocked failure did not name support-bundle-export: $supportExportFailureText"
 }
 
 Write-Output 'desktop MVP status tests passed'
