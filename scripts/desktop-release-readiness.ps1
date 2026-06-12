@@ -103,6 +103,28 @@ function Get-StringProperty {
     return [string]$InputObject.$Name
 }
 
+function Get-SignCommandPreviewsProperty {
+    param(
+        [AllowNull()]
+        [object]$InputObject,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if (!(Test-JsonProperty -InputObject $InputObject -Name $Name)) {
+        return @()
+    }
+
+    return @($InputObject.$Name | ForEach-Object {
+        [ordered]@{
+            artifact = Get-StringProperty -InputObject $_ -Name 'artifact'
+            signing_method = Get-StringProperty -InputObject $_ -Name 'signing_method'
+            command = Get-StringProperty -InputObject $_ -Name 'command'
+        }
+    })
+}
+
 function Get-ReleaseCommands {
     param(
         [AllowNull()]
@@ -151,6 +173,7 @@ function New-ReadinessReport {
             timestamp_url = Get-StringProperty -InputObject $signing -Name 'timestamp_url'
             store_certificate_candidates_count = Get-IntProperty -InputObject $signing -Name 'store_certificate_candidates_count'
             unsigned_artifacts = Get-StringArrayProperty -InputObject $signing -Name 'unsigned_artifacts'
+            sign_command_previews = @(Get-SignCommandPreviewsProperty -InputObject $signing -Name 'sign_command_previews')
         }
         commands = $commands
     }
@@ -181,6 +204,7 @@ function Write-ReadinessText {
     Write-Output "signing_timestamp_url $($Report.signing.timestamp_url)"
     Write-Output "signing_certificate_candidates $($Report.signing.store_certificate_candidates_count)"
     Write-Output "signing_unsigned_artifacts $($Report.signing.unsigned_artifacts -join ',')"
+    Write-Output "signing_command_previews_count $(@($Report.signing.sign_command_previews).Count)"
     Write-Output "command.inspect $($Report.commands.inspect)"
     Write-Output "command.sign $($Report.commands.sign)"
     Write-Output "command.public_release_gate $($Report.commands.public_release_gate)"
@@ -197,7 +221,7 @@ try {
     if ($PlanOnly) {
         Write-Output "input $releaseEvidenceRelativePath"
         Write-Output 'read public_release_ready public_release_blockers public_release_next_steps'
-        Write-Output 'read signing.can_sign signing.signtool_available signing.signing_method signing.timestamp_url signing.store_certificate_candidates_count signing.unsigned_artifacts signing.release_commands'
+        Write-Output 'read signing.can_sign signing.signtool_available signing.signing_method signing.timestamp_url signing.store_certificate_candidates_count signing.unsigned_artifacts signing.sign_command_previews signing.release_commands'
         Write-Output 'read smoke.machine.machine_takeover_status'
         Write-Output 'output desktop public release readiness report'
         Write-Output 'output json when -Json is provided'

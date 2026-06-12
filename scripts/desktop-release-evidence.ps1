@@ -228,6 +228,17 @@ function Read-SigningStatus {
         $releaseCommands = $signing.release_commands
     }
 
+    $signCommandPreviews = @()
+    if ($null -ne $signing.PSObject.Properties['sign_command_previews']) {
+        $signCommandPreviews = @($signing.sign_command_previews | ForEach-Object {
+            [ordered]@{
+                artifact = [string]$_.artifact
+                signing_method = [string]$_.signing_method
+                command = [string]$_.command
+            }
+        })
+    }
+
     [ordered]@{
         path = $RelativePath
         status = [string]$signing.status
@@ -240,6 +251,7 @@ function Read-SigningStatus {
         unsigned_artifacts = $unsignedArtifacts
         operator_next_steps = $operatorNextSteps
         release_commands = $releaseCommands
+        sign_command_previews = @($signCommandPreviews)
         blockers = $blockers
     }
 }
@@ -351,6 +363,7 @@ try {
         Write-Output 'metadata signing_method'
         Write-Output 'metadata signing_timestamp_url'
         Write-Output 'metadata signing_unsigned_artifacts'
+        Write-Output 'metadata signing_command_previews'
         Write-Output 'metadata public_release_next_steps'
         Write-Output "output $evidenceRelativePath"
         return
