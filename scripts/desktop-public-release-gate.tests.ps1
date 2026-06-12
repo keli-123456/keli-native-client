@@ -25,6 +25,7 @@ $expected = @(
     'require signing.can_sign true',
     'require public_release_blockers empty',
     'failure print blockers and exit nonzero',
+    'failure print blockers next_steps and exit nonzero',
     'output public release gate passed'
 )
 

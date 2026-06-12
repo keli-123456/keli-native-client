@@ -82,6 +82,21 @@ function Get-ReleaseBlockers {
     return @($blockers | Select-Object -Unique)
 }
 
+function Get-ReleaseNextSteps {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Evidence
+    )
+
+    if ($null -ne $Evidence.PSObject.Properties['public_release_next_steps']) {
+        return @($Evidence.public_release_next_steps | ForEach-Object { [string]$_ })
+    }
+    if ($null -ne $Evidence.signing -and $null -ne $Evidence.signing.PSObject.Properties['operator_next_steps']) {
+        return @($Evidence.signing.operator_next_steps | ForEach-Object { [string]$_ })
+    }
+    return @()
+}
+
 $repoRoot = Resolve-RepoRoot
 $releaseEvidenceRelativePath = 'target\desktop\keli-desktop-release-evidence.json'
 $releaseEvidencePath = Join-Path $repoRoot $releaseEvidenceRelativePath
@@ -97,6 +112,7 @@ try {
         Write-Output 'require signing.can_sign true'
         Write-Output 'require public_release_blockers empty'
         Write-Output 'failure print blockers and exit nonzero'
+        Write-Output 'failure print blockers next_steps and exit nonzero'
         Write-Output 'output public release gate passed'
         return
     }
@@ -112,6 +128,10 @@ try {
 
     $blockers = Get-ReleaseBlockers -Evidence $evidence
     if ($blockers.Count -gt 0) {
+        $nextSteps = Get-ReleaseNextSteps -Evidence $evidence
+        if ($nextSteps.Count -gt 0) {
+            throw "Desktop public release gate blocked: $($blockers -join ',') next_steps=$($nextSteps -join ',')"
+        }
         throw "Desktop public release gate blocked: $($blockers -join ',')"
     }
 

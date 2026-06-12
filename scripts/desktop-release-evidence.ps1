@@ -215,6 +215,52 @@ function Add-UniqueBlocker {
     return $Blockers
 }
 
+function Add-UniqueString {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [string[]]$Values,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Value
+    )
+
+    if ($Values -notcontains $Value) {
+        return @($Values + $Value)
+    }
+    return $Values
+}
+
+function Get-PublicReleaseNextSteps {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$SigningStatus,
+
+        [Parameter(Mandatory = $true)]
+        [object]$MachineSmoke
+    )
+
+    $steps = @()
+    foreach ($step in $SigningStatus.operator_next_steps) {
+        $steps = Add-UniqueString -Values $steps -Value $step
+    }
+    if ($MachineSmoke.machine_takeover_status -ne 'ready') {
+        $steps = Add-UniqueString -Values $steps -Value 'run-machine-takeover-smoke'
+        foreach ($blocker in $MachineSmoke.blockers) {
+            if ($blocker -eq 'machine-takeover-certification-failed') {
+                $steps = Add-UniqueString -Values $steps -Value 'inspect-machine-takeover-certification'
+            }
+            if ($blocker -eq 'machine-takeover-smoke-not-run') {
+                $steps = Add-UniqueString -Values $steps -Value 'rerun-public-release-gate'
+            }
+        }
+    }
+    if ($steps.Count -eq 0) {
+        $steps = Add-UniqueString -Values $steps -Value 'rerun-public-release-gate'
+    }
+    return $steps
+}
+
 $repoRoot = Resolve-RepoRoot
 $exeRelativePath = 'target\release\keli-desktop-shell.exe'
 $zipRelativePath = 'target\desktop\keli-desktop-mvp-windows-x64.zip'
@@ -253,6 +299,7 @@ try {
         Write-Output 'metadata signing_store_certificate_candidates_count'
         Write-Output 'metadata signing_operator_next_steps'
         Write-Output 'metadata signing_release_commands'
+        Write-Output 'metadata public_release_next_steps'
         Write-Output "output $evidenceRelativePath"
         return
     }
@@ -287,6 +334,7 @@ try {
         }
     }
     $publicReleaseReady = ($blockers.Count -eq 0)
+    $publicReleaseNextSteps = Get-PublicReleaseNextSteps -SigningStatus $signingStatus -MachineSmoke $machineSmoke
 
     $evidence = [ordered]@{
         status = 'passed'
@@ -294,6 +342,7 @@ try {
         native_core_default = $true
         public_release_ready = $publicReleaseReady
         public_release_blockers = $blockers
+        public_release_next_steps = $publicReleaseNextSteps
         artifacts = $artifacts
         signing = $signingStatus
         smoke = [ordered]@{
