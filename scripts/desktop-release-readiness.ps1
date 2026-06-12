@@ -167,6 +167,7 @@ function New-ReadinessReport {
         next_steps = Get-StringArrayProperty -InputObject $Evidence -Name 'public_release_next_steps'
         machine_takeover_status = Get-StringProperty -InputObject $machine -Name 'machine_takeover_status' -Default 'unknown'
         signing = [ordered]@{
+            status = Get-StringProperty -InputObject $signing -Name 'status'
             can_sign = Get-BoolProperty -InputObject $signing -Name 'can_sign'
             signtool_available = Get-BoolProperty -InputObject $signing -Name 'signtool_available'
             signing_method = Get-StringProperty -InputObject $signing -Name 'signing_method'
@@ -174,6 +175,7 @@ function New-ReadinessReport {
             store_certificate_candidates_count = Get-IntProperty -InputObject $signing -Name 'store_certificate_candidates_count'
             certificate_subject_match_count = Get-IntProperty -InputObject $signing -Name 'certificate_subject_match_count'
             unsigned_artifacts = Get-StringArrayProperty -InputObject $signing -Name 'unsigned_artifacts'
+            sign_verification_failures = @(Get-StringArrayProperty -InputObject $signing -Name 'sign_verification_failures')
             sign_command_previews = @(Get-SignCommandPreviewsProperty -InputObject $signing -Name 'sign_command_previews')
         }
         commands = $commands
@@ -199,6 +201,7 @@ function Write-ReadinessText {
     Write-Output "blockers $($Report.blockers -join ',')"
     Write-Output "next_steps $($Report.next_steps -join ',')"
     Write-Output "machine_takeover_status $($Report.machine_takeover_status)"
+    Write-Output "signing_status $($Report.signing.status)"
     Write-Output "signing_can_sign $(Format-Bool -Value $Report.signing.can_sign)"
     Write-Output "signing_signtool_available $(Format-Bool -Value $Report.signing.signtool_available)"
     Write-Output "signing_method $($Report.signing.signing_method)"
@@ -206,6 +209,7 @@ function Write-ReadinessText {
     Write-Output "signing_certificate_candidates $($Report.signing.store_certificate_candidates_count)"
     Write-Output "signing_certificate_subject_matches $($Report.signing.certificate_subject_match_count)"
     Write-Output "signing_unsigned_artifacts $($Report.signing.unsigned_artifacts -join ',')"
+    Write-Output "signing_verification_failures $($Report.signing.sign_verification_failures -join ',')"
     Write-Output "signing_command_previews_count $(@($Report.signing.sign_command_previews).Count)"
     Write-Output "command.inspect $($Report.commands.inspect)"
     Write-Output "command.sign $($Report.commands.sign)"
@@ -223,7 +227,7 @@ try {
     if ($PlanOnly) {
         Write-Output "input $releaseEvidenceRelativePath"
         Write-Output 'read public_release_ready public_release_blockers public_release_next_steps'
-        Write-Output 'read signing.can_sign signing.signtool_available signing.signing_method signing.timestamp_url signing.store_certificate_candidates_count signing.certificate_subject_match_count signing.unsigned_artifacts signing.sign_command_previews signing.release_commands'
+        Write-Output 'read signing.status signing.can_sign signing.signtool_available signing.signing_method signing.timestamp_url signing.store_certificate_candidates_count signing.certificate_subject_match_count signing.unsigned_artifacts signing.sign_verification_failures signing.sign_command_previews signing.release_commands'
         Write-Output 'read smoke.machine.machine_takeover_status'
         Write-Output 'output desktop public release readiness report'
         Write-Output 'output json when -Json is provided'

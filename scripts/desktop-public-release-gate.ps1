@@ -107,6 +107,9 @@ function Get-OptionalSigningDiagnostics {
 
     $signing = $Evidence.signing
     $parts = @()
+    if (Test-JsonProperty -InputObject $signing -Name 'status') {
+        $parts += "signing_status=$([string]$signing.status)"
+    }
     if (Test-JsonProperty -InputObject $signing -Name 'signtool_available') {
         $parts += "signing_signtool_available=$(([bool]$signing.signtool_available).ToString().ToLowerInvariant())"
     }
@@ -121,9 +124,14 @@ function Get-OptionalSigningDiagnostics {
         $parts += "signing_certificate_subject_matches=$([int]$signing.certificate_subject_match_count)"
     }
 
-    $unsignedArtifacts = Get-StringArrayProperty -InputObject $signing -Name 'unsigned_artifacts'
+    $unsignedArtifacts = @(Get-StringArrayProperty -InputObject $signing -Name 'unsigned_artifacts')
     if ($unsignedArtifacts.Count -gt 0) {
         $parts += "signing_unsigned_artifacts=$($unsignedArtifacts -join ',')"
+    }
+
+    $verificationFailures = @(Get-StringArrayProperty -InputObject $signing -Name 'sign_verification_failures')
+    if ($verificationFailures.Count -gt 0) {
+        $parts += "signing_verification_failures=$($verificationFailures -join ',')"
     }
 
     if (Test-JsonProperty -InputObject $signing -Name 'sign_command_previews') {

@@ -187,7 +187,7 @@ function Read-SigningStatus {
 
     Require-File -Path $Path
     $signing = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
-    if ($signing.status -ne 'passed') {
+    if ($signing.status -notin @('passed', 'failed')) {
         throw "signing status mismatch: $($signing.status)"
     }
 
@@ -223,6 +223,13 @@ function Read-SigningStatus {
             ForEach-Object { [string]$_.path })
     }
 
+    $signVerificationFailures = @()
+    if ($null -ne $signing.PSObject.Properties['sign_verification_failures']) {
+        $signVerificationFailures = @($signing.sign_verification_failures |
+            ForEach-Object { [string]$_ } |
+            Where-Object { ![string]::IsNullOrWhiteSpace($_) })
+    }
+
     $operatorNextSteps = @()
     if ($null -ne $signing.PSObject.Properties['operator_next_steps']) {
         $operatorNextSteps = @($signing.operator_next_steps | ForEach-Object { [string]$_.id })
@@ -255,6 +262,7 @@ function Read-SigningStatus {
         store_certificate_candidates_count = $storeCertificateCandidatesCount
         certificate_subject_match_count = $certificateSubjectMatchCount
         unsigned_artifacts = $unsignedArtifacts
+        sign_verification_failures = $signVerificationFailures
         operator_next_steps = $operatorNextSteps
         release_commands = $releaseCommands
         sign_command_previews = @($signCommandPreviews)
@@ -366,9 +374,11 @@ try {
         Write-Output 'metadata signing_store_certificate_candidates_count'
         Write-Output 'metadata signing_operator_next_steps'
         Write-Output 'metadata signing_release_commands'
+        Write-Output 'metadata signing_status'
         Write-Output 'metadata signing_method'
         Write-Output 'metadata signing_timestamp_url'
         Write-Output 'metadata signing_unsigned_artifacts'
+        Write-Output 'metadata signing_verification_failures'
         Write-Output 'metadata signing_certificate_subject_match_count'
         Write-Output 'metadata signing_command_previews'
         Write-Output 'metadata public_release_next_steps'
@@ -395,6 +405,9 @@ try {
     }
     foreach ($blocker in $signingStatus.blockers) {
         $blockers = Add-UniqueBlocker -Blockers $blockers -Blocker $blocker
+    }
+    if ($signingStatus.status -eq 'failed' -or $signingStatus.sign_verification_failures.Count -gt 0) {
+        $blockers = Add-UniqueBlocker -Blockers $blockers -Blocker 'sign-verification-failed'
     }
     if ($machineSmoke.machine_takeover_status -ne 'ready') {
         if ($machineSmoke.blockers.Count -gt 0) {

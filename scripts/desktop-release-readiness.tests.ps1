@@ -21,7 +21,7 @@ $plan = $planOutput -join "`n"
 $expectedPlan = @(
     'input target\desktop\keli-desktop-release-evidence.json',
     'read public_release_ready public_release_blockers public_release_next_steps',
-    'read signing.can_sign signing.signtool_available signing.signing_method signing.timestamp_url signing.store_certificate_candidates_count signing.certificate_subject_match_count signing.unsigned_artifacts signing.sign_command_previews signing.release_commands',
+    'read signing.status signing.can_sign signing.signtool_available signing.signing_method signing.timestamp_url signing.store_certificate_candidates_count signing.certificate_subject_match_count signing.unsigned_artifacts signing.sign_verification_failures signing.sign_command_previews signing.release_commands',
     'read smoke.machine.machine_takeover_status',
     'output desktop public release readiness report',
     'output json when -Json is provided'
@@ -42,6 +42,7 @@ $fixture = [ordered]@{
     public_release_blockers = @('artifact-signature-missing', 'signing-certificate-missing')
     public_release_next_steps = @('configure-code-signing-certificate', 'run-desktop-signing-sign', 'run-public-release-gate')
     signing = [ordered]@{
+        status = 'failed'
         can_sign = $false
         signtool_available = $true
         signing_method = ''
@@ -49,6 +50,7 @@ $fixture = [ordered]@{
         store_certificate_candidates_count = 0
         certificate_subject_match_count = 0
         unsigned_artifacts = @('target\release\keli-desktop-shell.exe', 'target\desktop\keli-desktop-mvp-windows-x64.msi')
+        sign_verification_failures = @('target\release\keli-desktop-shell.exe')
         sign_command_previews = @(
             [ordered]@{
                 artifact = 'target\release\keli-desktop-shell.exe'
@@ -88,6 +90,9 @@ if (($report.next_steps -join ',') -ne 'configure-code-signing-certificate,run-d
 if ($report.signing.can_sign -ne $false) {
     throw 'readiness signing can_sign should be false'
 }
+if ($report.signing.status -ne 'failed') {
+    throw "readiness signing status mismatch: $($report.signing.status)"
+}
 if ($report.signing.signtool_available -ne $true) {
     throw 'readiness signing signtool_available should be true'
 }
@@ -105,6 +110,9 @@ if ($report.signing.certificate_subject_match_count -ne 0) {
 }
 if (($report.signing.unsigned_artifacts -join ',') -ne 'target\release\keli-desktop-shell.exe,target\desktop\keli-desktop-mvp-windows-x64.msi') {
     throw "readiness unsigned artifacts mismatch: $($report.signing.unsigned_artifacts -join ',')"
+}
+if (($report.signing.sign_verification_failures -join ',') -ne 'target\release\keli-desktop-shell.exe') {
+    throw "readiness signing verification failures mismatch: $($report.signing.sign_verification_failures -join ',')"
 }
 if ($report.signing.sign_command_previews.Count -ne 1) {
     throw "readiness signing command preview count mismatch: $($report.signing.sign_command_previews.Count)"
@@ -124,6 +132,19 @@ if ($report.machine_takeover_status -ne 'ready') {
 }
 if ($report.commands.sign -ne 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-signing.ps1 -Sign') {
     throw "readiness sign command mismatch: $($report.commands.sign)"
+}
+
+$emptyFixture = $fixture
+$emptyFixture.signing.sign_verification_failures = @()
+$emptyFixture | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $fixturePath -Encoding ASCII
+
+$emptyJsonOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $readinessScript -EvidencePath $fixturePath -Json
+if ($LASTEXITCODE -ne 0) {
+    throw "desktop-release-readiness.ps1 empty verification failures -Json exited with $LASTEXITCODE"
+}
+$emptyReport = $emptyJsonOutput -join "`n" | ConvertFrom-Json
+if ($emptyReport.signing.sign_verification_failures.Count -ne 0) {
+    throw "readiness empty verification failures should be an empty array, got $($emptyReport.signing.sign_verification_failures)"
 }
 
 Write-Output 'desktop release readiness tests passed'

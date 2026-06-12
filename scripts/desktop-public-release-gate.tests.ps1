@@ -61,11 +61,13 @@ $fixture = [ordered]@{
     public_release_blockers = @('artifact-signature-missing', 'signing-certificate-missing')
     public_release_next_steps = @('configure-code-signing-certificate', 'run-desktop-signing-sign', 'run-public-release-gate')
     signing = [ordered]@{
+        status = 'failed'
         can_sign = $false
         signtool_available = $true
         signing_method = ''
         certificate_subject_match_count = 0
         unsigned_artifacts = @('target\release\keli-desktop-shell.exe', 'target\desktop\keli-desktop-mvp-windows-x64.msi')
+        sign_verification_failures = @('target\release\keli-desktop-shell.exe')
         sign_command_previews = @(
             [ordered]@{
                 artifact = 'target\release\keli-desktop-shell.exe'
@@ -116,10 +118,12 @@ $normalizedFailureText = $failureText -replace "(`r`n|`n|`r)", ''
 foreach ($item in @(
     'Desktop public release gate blocked: artifact-signature-missing,signing-certificate-missing',
     'next_steps=configure-code-signing-certificate,run-desktop-signing-sign,run-public-release-gate',
+    'signing_status=failed',
     'signing_signtool_available=true',
     'signing_method=none',
     'signing_certificate_subject_matches=0',
     'signing_unsigned_artifacts=target\release\keli-desktop-shell.exe,target\desktop\keli-desktop-mvp-windows-x64.msi',
+    'signing_verification_failures=target\release\keli-desktop-shell.exe',
     'signing_command_previews_count=1',
     'signing_command_preview_artifacts=target\release\keli-desktop-shell.exe'
 )) {
