@@ -1123,10 +1123,10 @@ fn escape_html(value: &str) -> String {
 mod tests {
     use super::*;
     use keli_desktop::{
-        DesktopDependencyReport, DesktopFirstRunReport, DesktopNodeSummary, DesktopShellState,
-        DesktopRecentRuntimeEvent, DesktopStatusSnapshot, DesktopSubscriptionSummary,
-        DesktopSubscriptionUpdateSummary, DesktopSubscriptionUrlFetchSummary,
-        DesktopSubscriptionUrlImportSummary,
+        DesktopDependencyReport, DesktopFirstRunReport, DesktopNodeSummary,
+        DesktopRecentRuntimeEvent, DesktopShellState, DesktopStatusSnapshot,
+        DesktopSubscriptionSummary, DesktopSubscriptionUpdateSummary,
+        DesktopSubscriptionUrlFetchSummary, DesktopSubscriptionUrlImportSummary,
         DesktopSubscriptionUrlUpdateSummary, DesktopSystemProxyDependency, DesktopTrafficMode,
         DesktopTunBackendDependency,
     };

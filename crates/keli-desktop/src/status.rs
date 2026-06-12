@@ -361,10 +361,7 @@ proxies:
         let platform_controller = FakeSystemProxyController::new();
         let mut core = ManagedMixedController::new(&platform_controller);
         let status = core
-            .start_from_subscription_config_text(
-                &ss_config("SS-READY"),
-                managed_options(),
-            )
+            .start_from_subscription_config_text(&ss_config("SS-READY"), managed_options())
             .expect("start managed core");
 
         let status = DesktopStatusSnapshot::from_managed_mixed_status(
@@ -379,7 +376,10 @@ proxies:
         assert_eq!(status.node_health.node_count, 1);
         assert_eq!(status.node_health.unknown_count, 1);
         assert_eq!(status.node_health.checked_count, 0);
-        assert_eq!(status.node_health.selected_state.as_deref(), Some("unknown"));
+        assert_eq!(
+            status.node_health.selected_state.as_deref(),
+            Some("unknown")
+        );
         assert_eq!(
             status.node_health.recommended_state.as_deref(),
             Some("unknown")
@@ -400,11 +400,8 @@ proxies:
     fn managed_mixed_status_exposes_recorded_node_health_summary() {
         let platform_controller = FakeSystemProxyController::new();
         let mut core = ManagedMixedController::new(&platform_controller);
-        core.start_from_subscription_config_text(
-            &ss_config("SS-READY"),
-            managed_options(),
-        )
-        .expect("start managed core");
+        core.start_from_subscription_config_text(&ss_config("SS-READY"), managed_options())
+            .expect("start managed core");
 
         let status = core
             .record_node_health(keli_cli::ManagedNodeHealthStatus::healthy(
@@ -424,7 +421,10 @@ proxies:
         assert_eq!(status.node_health.healthy_count, 1);
         assert_eq!(status.node_health.checked_count, 1);
         assert_eq!(status.node_health.udp_available_count, 1);
-        assert_eq!(status.node_health.selected_state.as_deref(), Some("healthy"));
+        assert_eq!(
+            status.node_health.selected_state.as_deref(),
+            Some("healthy")
+        );
         assert_eq!(
             status.node_health.recommended_state.as_deref(),
             Some("healthy")
