@@ -27,6 +27,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let primary_disabled = if primary.enabled { "" } else { " disabled" };
     let subscription_summary = subscription_summary(snapshot.subscription.as_ref());
     let node_buttons = node_buttons(snapshot.subscription.as_ref());
+    let dependency_summary = dependency_summary(snapshot);
+    let system_proxy_dependency = system_proxy_dependency(snapshot);
+    let tun_dependency = tun_dependency(snapshot);
+    let dependency_blockers = dependency_blockers(snapshot);
 
     format!(
         r#"<!doctype html>
@@ -229,6 +233,13 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="muted" id="window-visible">Window visible: {window_visible}</div>
       </section>
       <section class="wide">
+        <h2>Dependencies</h2>
+        <div class="value" id="dependency-summary">{dependency_summary}</div>
+        <div class="muted" id="system-proxy-dependency">{system_proxy_dependency}</div>
+        <div class="muted" id="tun-dependency">{tun_dependency}</div>
+        <div class="muted" id="dependency-blockers">{dependency_blockers}</div>
+      </section>
+      <section class="wide">
         <h2>Subscription</h2>
         <input id="subscription-url" type="url" placeholder="https://example.com/subscription" />
         <div class="actions">
@@ -335,6 +346,41 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         : `Imported ${{summary.subscription ? summary.subscription.supported_count : 0}} nodes from ${{source}}`;
       document.getElementById("subscription-url-status").textContent = label;
     }};
+    function dependencySummary(snapshot) {{
+      const firstRun = snapshot.dependencies.first_run;
+      const system = firstRun.system_proxy_ready ? "System proxy ready" : "System proxy blocked";
+      const tun = firstRun.tun_ready ? "TUN ready" : "TUN blocked";
+      return `${{system}}, ${{tun}}`;
+    }}
+    function systemProxyDependency(snapshot) {{
+      const proxy = snapshot.dependencies.system_proxy;
+      const parts = [`System proxy ${{proxy.state}}`];
+      if (proxy.enabled !== null && proxy.enabled !== undefined) parts.push(`enabled=${{proxy.enabled}}`);
+      if (proxy.server) parts.push(`server=${{proxy.server}}`);
+      if (proxy.error) parts.push(proxy.error);
+      if (proxy.action) parts.push(`action=${{proxy.action}}`);
+      return parts.join(", ");
+    }}
+    function tunDependency(snapshot) {{
+      const tun = snapshot.dependencies.tun_backend;
+      const parts = [
+        `Wintun ${{tun.state}}`,
+        `driver_present=${{tun.driver_library_present}}`,
+        `api_available=${{tun.driver_api_available}}`
+      ];
+      if (tun.driver_library_path) parts.push(`path=${{tun.driver_library_path}}`);
+      if (tun.reason) parts.push(tun.reason);
+      if (tun.action) parts.push(`action=${{tun.action}}`);
+      return parts.join(", ");
+    }}
+    function dependencyBlockers(snapshot) {{
+      const blockers = snapshot.dependencies.first_run.blockers || [];
+      if (!blockers.length) return "No dependency blockers";
+      return blockers.map((blocker) => {{
+        const action = blocker.action ? ` action=${{blocker.action}}` : "";
+        return `${{blocker.code}}: ${{blocker.message}}${{action}}`;
+      }}).join("; ");
+    }}
     window.keliSetShell = (snapshot) => {{
       const status = snapshot.status;
       const primary = snapshot.primary_action;
@@ -350,6 +396,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       primaryButton.disabled = !primary.enabled;
       document.getElementById("tray-ids").textContent = snapshot.tray_menu.items.map((item) => item.id).join(", ");
       document.getElementById("window-visible").textContent = `Window visible: ${{snapshot.window.main_visible}}`;
+      document.getElementById("dependency-summary").textContent = dependencySummary(snapshot);
+      document.getElementById("system-proxy-dependency").textContent = systemProxyDependency(snapshot);
+      document.getElementById("tun-dependency").textContent = tunDependency(snapshot);
+      document.getElementById("dependency-blockers").textContent = dependencyBlockers(snapshot);
       document.getElementById("subscription-summary").textContent = subscriptionSummary(snapshot.subscription);
       renderNodeList(snapshot.subscription);
       document.getElementById("snapshot-json").textContent = JSON.stringify(snapshot, null, 2);
@@ -372,6 +422,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         primary_disabled = primary_disabled,
         tray_ids = escape_html(&tray_ids),
         window_visible = snapshot.window.main_visible,
+        dependency_summary = escape_html(&dependency_summary),
+        system_proxy_dependency = escape_html(&system_proxy_dependency),
+        tun_dependency = escape_html(&tun_dependency),
+        dependency_blockers = escape_html(&dependency_blockers),
         subscription_summary = escape_html(&subscription_summary),
         node_buttons = node_buttons,
         snapshot_json = escape_html(&snapshot_json),
@@ -420,6 +474,76 @@ fn traffic_mode_label(traffic_mode: DesktopTrafficMode) -> &'static str {
         DesktopTrafficMode::Tun => "TUN",
         DesktopTrafficMode::MixedInboundOnly => "Local inbound",
     }
+}
+
+fn dependency_summary(snapshot: &DesktopShellState) -> String {
+    let system = if snapshot.dependencies.first_run.system_proxy_ready {
+        "System proxy ready"
+    } else {
+        "System proxy blocked"
+    };
+    let tun = if snapshot.dependencies.first_run.tun_ready {
+        "TUN ready"
+    } else {
+        "TUN blocked"
+    };
+    format!("{system}, {tun}")
+}
+
+fn system_proxy_dependency(snapshot: &DesktopShellState) -> String {
+    let proxy = &snapshot.dependencies.system_proxy;
+    let mut parts = vec![format!("System proxy {}", proxy.state)];
+    if let Some(enabled) = proxy.enabled {
+        parts.push(format!("enabled={enabled}"));
+    }
+    if let Some(server) = proxy.server.as_deref() {
+        parts.push(format!("server={server}"));
+    }
+    if let Some(error) = proxy.error.as_deref() {
+        parts.push(error.to_string());
+    }
+    if let Some(action) = proxy.action.as_deref() {
+        parts.push(format!("action={action}"));
+    }
+    parts.join(", ")
+}
+
+fn tun_dependency(snapshot: &DesktopShellState) -> String {
+    let tun = &snapshot.dependencies.tun_backend;
+    let mut parts = vec![format!("Wintun {}", tun.state)];
+    parts.push(format!("driver_present={}", tun.driver_library_present));
+    parts.push(format!("api_available={}", tun.driver_api_available));
+    if let Some(path) = tun.driver_library_path.as_deref() {
+        parts.push(format!("path={path}"));
+    }
+    if let Some(reason) = tun.reason.as_deref() {
+        parts.push(reason.to_string());
+    }
+    if let Some(action) = tun.action.as_deref() {
+        parts.push(format!("action={action}"));
+    }
+    parts.join(", ")
+}
+
+fn dependency_blockers(snapshot: &DesktopShellState) -> String {
+    if snapshot.dependencies.first_run.blockers.is_empty() {
+        return "No dependency blockers".to_string();
+    }
+    snapshot
+        .dependencies
+        .first_run
+        .blockers
+        .iter()
+        .map(|blocker| {
+            let action = blocker
+                .action
+                .as_deref()
+                .map(|action| format!(" action={action}"))
+                .unwrap_or_default();
+            format!("{}: {}{}", blocker.code, blocker.message, action)
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 fn subscription_summary(subscription: Option<&DesktopSubscriptionSummary>) -> String {
@@ -625,6 +749,51 @@ mod tests {
         assert!(script.contains("window.keliSetSubscriptionUrlImport"));
         assert!(script.contains("sub.example.com"));
         assert!(!script.contains("token=secret"));
+    }
+
+    #[test]
+    fn dependency_html_includes_readiness_targets() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("id=\"dependency-summary\""));
+        assert!(html.contains("id=\"system-proxy-dependency\""));
+        assert!(html.contains("id=\"tun-dependency\""));
+        assert!(html.contains("id=\"dependency-blockers\""));
+        assert!(html.contains("System proxy ready"));
+        assert!(html.contains("TUN ready"));
+    }
+
+    #[test]
+    fn dependency_html_renders_missing_wintun_action() {
+        let mut snapshot = snapshot();
+        snapshot.dependencies.first_run.tun_ready = false;
+        snapshot.dependencies.first_run.can_start_tun_mode = false;
+        snapshot.dependencies.first_run.blockers = vec![keli_desktop::DesktopBlocker {
+            code: "wintun-missing".to_string(),
+            message: "Wintun library was not found".to_string(),
+            action: Some("install-wintun".to_string()),
+        }];
+        snapshot.dependencies.tun_backend.state = "install-required".to_string();
+        snapshot.dependencies.tun_backend.driver_library_present = false;
+        snapshot.dependencies.tun_backend.driver_api_available = false;
+        snapshot.dependencies.tun_backend.install_required = true;
+        snapshot.dependencies.tun_backend.reason = Some("Wintun library was not found".to_string());
+        snapshot.dependencies.tun_backend.action = Some("install-wintun".to_string());
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("Wintun install-required"));
+        assert!(html.contains("Wintun library was not found"));
+        assert!(html.contains("install-wintun"));
+        assert!(html.contains("System proxy ready"));
+    }
+
+    #[test]
+    fn shell_snapshot_script_carries_dependency_updates() {
+        let script = shell_snapshot_script(&snapshot()).expect("snapshot script");
+
+        assert!(script.contains("dependencies"));
+        assert!(script.contains("window.keliSetShell"));
     }
 
     #[test]
