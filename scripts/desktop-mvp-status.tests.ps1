@@ -23,6 +23,7 @@ $expectedPlan = @(
     'config -FailOnMvpBlocked optional',
     'read native_core_default artifacts smoke.install smoke.msi smoke.machine signing public_release_blockers public_release_next_steps',
     'require workflow ids open-desktop-shell import-subscription select-node start-stop-system-proxy tun-preflight export-support-bundle',
+    'require install first_run dependency blockers have action entrypoints',
     'output desktop_mvp_ready and public_release_ready',
     'output json when -Json is provided'
 )
@@ -67,6 +68,16 @@ $fixture = [ordered]@{
             readme_subscription_import = 'subscription-url-or-config'
             manual_smoke_cases = $workflowIds
             verified_ui_workflow_entrypoints = $workflowIds
+            first_run_system_proxy_ready = $true
+            first_run_tun_ready = $false
+            first_run_blockers = @(
+                [ordered]@{
+                    code = 'wintun-missing'
+                    message = 'Wintun library was not found'
+                    action = 'install-wintun'
+                }
+            )
+            dependency_action_entrypoints = @('install-wintun')
         }
         msi = [ordered]@{
             status = 'passed'
@@ -105,7 +116,7 @@ $requirementStatuses = @{}
 foreach ($requirement in $report.requirements) {
     $requirementStatuses[[string]$requirement.id] = [string]$requirement.status
 }
-foreach ($id in @('native-core-default', 'package-artifacts', 'install-smoke-workflows', 'msi-smoke-workflows', 'machine-takeover')) {
+foreach ($id in @('native-core-default', 'package-artifacts', 'install-smoke-workflows', 'install-first-run-dependencies', 'msi-smoke-workflows', 'machine-takeover')) {
     if ($requirementStatuses[$id] -ne 'ready') {
         throw "requirement $id should be ready but was $($requirementStatuses[$id])"
     }
@@ -153,6 +164,36 @@ $failureText = @(
 ) -join "`n"
 if (!$failureText.Contains('Desktop MVP status blocked: install-smoke-workflows')) {
     throw "local blocked failure did not name install-smoke-workflows: $failureText"
+}
+
+$dependencyBlockedFixturePath = Join-Path $tempDir 'release-evidence-dependency-blocked.json'
+$dependencyBlockedFixture = Get-Content -Raw -LiteralPath $fixturePath | ConvertFrom-Json
+$dependencyBlockedFixture.smoke.install.dependency_action_entrypoints = @()
+$dependencyBlockedFixture | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $dependencyBlockedFixturePath -Encoding ASCII
+
+$dependencyStdoutPath = Join-Path $tempDir 'status-dependency-blocked-stdout.txt'
+$dependencyStderrPath = Join-Path $tempDir 'status-dependency-blocked-stderr.txt'
+$dependencyProcess = Start-Process `
+    -FilePath 'powershell' `
+    -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $statusScript, '-EvidencePath', $dependencyBlockedFixturePath, '-FailOnMvpBlocked') `
+    -NoNewWindow `
+    -Wait `
+    -PassThru `
+    -RedirectStandardOutput $dependencyStdoutPath `
+    -RedirectStandardError $dependencyStderrPath
+if ($dependencyProcess.ExitCode -eq 0) {
+    throw 'desktop-mvp-status.ps1 -FailOnMvpBlocked should fail missing dependency action evidence'
+}
+$dependencyFailureText = @(
+    if (Test-Path -LiteralPath $dependencyStdoutPath) {
+        Get-Content -LiteralPath $dependencyStdoutPath
+    }
+    if (Test-Path -LiteralPath $dependencyStderrPath) {
+        Get-Content -LiteralPath $dependencyStderrPath
+    }
+) -join "`n"
+if (!$dependencyFailureText.Contains('Desktop MVP status blocked: install-first-run-dependencies')) {
+    throw "dependency blocked failure did not name install-first-run-dependencies: $dependencyFailureText"
 }
 
 Write-Output 'desktop MVP status tests passed'
