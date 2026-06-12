@@ -207,10 +207,53 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       gap: 8px;
       margin-top: 10px;
     }}
+    .node-list button {{
+      min-width: 172px;
+      display: grid;
+      justify-items: start;
+      gap: 3px;
+      text-align: left;
+    }}
     .node-list button[aria-pressed="true"] {{
       border-color: #277d56;
       color: #145a32;
       background: #e6f4ec;
+    }}
+    .node-tag {{
+      font-weight: 700;
+    }}
+    .node-meta {{
+      color: #657386;
+      font-size: 12px;
+      font-weight: 500;
+    }}
+    .node-badges {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }}
+    .node-badge {{
+      display: inline-flex;
+      align-items: center;
+      min-height: 20px;
+      padding: 0 6px;
+      border: 1px solid #d9dee5;
+      border-radius: 6px;
+      background: #edf0f3;
+      color: #4d5968;
+      font-size: 11px;
+      font-weight: 700;
+    }}
+    .node-skipped {{
+      min-width: 172px;
+      display: grid;
+      gap: 4px;
+      padding: 8px 10px;
+      border: 1px dashed #d9dee5;
+      border-radius: 6px;
+      color: #657386;
+      font-size: 12px;
+      overflow-wrap: anywhere;
     }}
     pre {{
       max-height: 160px;
@@ -394,20 +437,60 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     function renderNodeList(subscription) {{
       const nodeList = document.getElementById("node-list");
       nodeList.replaceChildren();
-      if (!subscription || !subscription.nodes.length) {{
+      if (!subscription || (!subscription.nodes.length && !(subscription.skipped || []).length)) {{
         const empty = document.createElement("span");
         empty.className = "muted";
         empty.textContent = "No nodes";
         nodeList.appendChild(empty);
         return;
       }}
+      if (!subscription.nodes.length) {{
+        const empty = document.createElement("span");
+        empty.className = "muted";
+        empty.textContent = "No nodes";
+        nodeList.appendChild(empty);
+      }}
       for (const node of subscription.nodes) {{
         const button = document.createElement("button");
+        const tag = document.createElement("span");
+        const meta = document.createElement("span");
+        const udp = document.createElement("span");
+        const badges = document.createElement("span");
         button.dataset.nodeTag = node.tag;
-        button.textContent = node.tag;
         button.setAttribute("aria-pressed", node.selected ? "true" : "false");
         button.onclick = () => postSelectNode(node.tag);
+        tag.className = "node-tag";
+        tag.textContent = node.tag;
+        meta.className = "node-meta";
+        meta.textContent = `${{node.protocol || "unknown"}} / ${{node.transport || "unknown"}} / ${{node.security || "unknown"}}`;
+        udp.className = "node-meta";
+        udp.textContent = node.udp_supported ? "UDP ready" : "UDP unavailable";
+        badges.className = "node-badges";
+        if (node.selected) {{
+          const badge = document.createElement("span");
+          badge.className = "node-badge";
+          badge.textContent = "Selected";
+          badges.appendChild(badge);
+        }}
+        if (node.recommended) {{
+          const badge = document.createElement("span");
+          badge.className = "node-badge";
+          badge.textContent = "Recommended";
+          badges.appendChild(badge);
+        }}
+        button.append(tag, meta, udp, badges);
         nodeList.appendChild(button);
+      }}
+      for (const skipped of subscription.skipped || []) {{
+        const item = document.createElement("div");
+        const badge = document.createElement("span");
+        const detail = document.createElement("span");
+        item.className = "node-skipped";
+        badge.className = "node-badge";
+        badge.textContent = "Skipped";
+        detail.textContent = skipped;
+        item.append(badge, detail);
+        nodeList.appendChild(item);
       }}
     }}
     window.keliSetOperationStatus = (summary) => {{
@@ -835,21 +918,41 @@ fn node_buttons(subscription: Option<&DesktopSubscriptionSummary>) -> String {
     let Some(subscription) = subscription else {
         return r#"<span class="muted">No nodes</span>"#.to_string();
     };
+    let mut nodes = Vec::new();
     if subscription.nodes.is_empty() {
-        return r#"<span class="muted">No nodes</span>"#.to_string();
+        nodes.push(r#"<span class="muted">No nodes</span>"#.to_string());
     }
-    subscription
-        .nodes
-        .iter()
-        .map(|node| {
-            let selected = if node.selected { "true" } else { "false" };
-            let tag = escape_html(&node.tag);
-            format!(
-                r#"<button data-node-tag="{tag}" aria-pressed="{selected}" onclick="postSelectNode(this.dataset.nodeTag)">{tag}</button>"#
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("")
+    nodes.extend(subscription.nodes.iter().map(|node| {
+        let selected = if node.selected { "true" } else { "false" };
+        let tag = escape_html(&node.tag);
+        let meta = escape_html(&format!(
+            "{} / {} / {}",
+            node.protocol, node.transport, node.security
+        ));
+        let udp = if node.udp_supported {
+            "UDP ready"
+        } else {
+            "UDP unavailable"
+        };
+        let mut badges = Vec::new();
+        if node.selected {
+            badges.push(r#"<span class="node-badge">Selected</span>"#.to_string());
+        }
+        if node.recommended {
+            badges.push(r#"<span class="node-badge">Recommended</span>"#.to_string());
+        }
+        let badges = badges.join("");
+        format!(
+            r#"<button data-node-tag="{tag}" aria-pressed="{selected}" onclick="postSelectNode(this.dataset.nodeTag)"><span class="node-tag">{tag}</span><span class="node-meta">{meta}</span><span class="node-meta">{udp}</span><span class="node-badges">{badges}</span></button>"#
+        )
+    }));
+    nodes.extend(subscription.skipped.iter().map(|skipped| {
+        let skipped = escape_html(skipped);
+        format!(
+            r#"<div class="node-skipped"><span class="node-badge">Skipped</span><span>{skipped}</span></div>"#
+        )
+    }));
+    nodes.join("")
 }
 
 fn escape_html(value: &str) -> String {
@@ -1230,6 +1333,43 @@ mod tests {
         assert!(html.contains("Supported 1"));
         assert!(html.contains("SS-READY"));
         assert!(html.contains("data-node-tag=\"SS-READY\""));
+    }
+
+    #[test]
+    fn subscription_node_list_renders_protocol_transport_security_and_badges() {
+        let mut snapshot = snapshot();
+        snapshot.refresh_subscription(Some(subscription("SS-READY")));
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("SS-READY"));
+        assert!(html.contains("ss / tcp / none"));
+        assert!(html.contains("UDP ready"));
+        assert!(html.contains("Selected"));
+        assert!(html.contains("Recommended"));
+    }
+
+    #[test]
+    fn subscription_node_list_renders_skipped_reasons() {
+        let mut snapshot = snapshot();
+        let mut summary = subscription("SS-READY");
+        summary.skipped_count = 1;
+        summary.skipped = vec!["BROKEN: unsupported protocol".to_string()];
+        snapshot.refresh_subscription(Some(summary));
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("Skipped"));
+        assert!(html.contains("BROKEN: unsupported protocol"));
+    }
+
+    #[test]
+    fn subscription_node_list_live_renderer_includes_detail_fields() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("node-meta"));
+        assert!(html.contains("node-badge"));
+        assert!(html.contains("subscription.skipped"));
     }
 
     #[test]
