@@ -826,6 +826,12 @@ struct SubscriptionConfigImportFailureStatus<'a> {
     error: &'a str,
 }
 
+#[derive(serde::Serialize)]
+struct SubscriptionUrlFailureStatus<'a> {
+    status: &'static str,
+    error: &'a str,
+}
+
 pub fn subscription_config_import_status_script(
     summary: &DesktopSubscriptionSummary,
 ) -> serde_json::Result<String> {
@@ -862,12 +868,34 @@ pub fn subscription_url_import_status_script(
     ))
 }
 
+pub fn subscription_url_import_failure_status_script(error: &str) -> serde_json::Result<String> {
+    let status = SubscriptionUrlFailureStatus {
+        status: "failed",
+        error,
+    };
+    let status_json = serde_json::to_string(&status)?;
+    Ok(format!(
+        "window.keliSetSubscriptionUrlImport && window.keliSetSubscriptionUrlImport({status_json});"
+    ))
+}
+
 pub fn subscription_url_update_status_script(
     summary: &DesktopSubscriptionUrlUpdateSummary,
 ) -> serde_json::Result<String> {
     let summary_json = serde_json::to_string(summary)?;
     Ok(format!(
         "window.keliSetSubscriptionUrlUpdate && window.keliSetSubscriptionUrlUpdate({summary_json});"
+    ))
+}
+
+pub fn subscription_url_update_failure_status_script(error: &str) -> serde_json::Result<String> {
+    let status = SubscriptionUrlFailureStatus {
+        status: "failed",
+        error,
+    };
+    let status_json = serde_json::to_string(&status)?;
+    Ok(format!(
+        "window.keliSetSubscriptionUrlUpdate && window.keliSetSubscriptionUrlUpdate({status_json});"
     ))
 }
 
@@ -1446,6 +1474,17 @@ mod tests {
     }
 
     #[test]
+    fn subscription_url_import_failure_status_script_reports_error() {
+        let script =
+            subscription_url_import_failure_status_script("import-subscription-url fetch Timeout")
+                .expect("subscription URL import failure script");
+
+        assert!(script.contains("window.keliSetSubscriptionUrlImport"));
+        assert!(script.contains("\"status\":\"failed\""));
+        assert!(script.contains("fetch Timeout"));
+    }
+
+    #[test]
     fn subscription_url_update_status_script_updates_redacted_runtime_status() {
         let subscription = subscription("URL-STAY");
         let summary = DesktopSubscriptionUrlUpdateSummary {
@@ -1501,6 +1540,18 @@ mod tests {
         assert!(script.contains("window.keliSetSubscriptionUrlUpdate"));
         assert!(script.contains("selected-outbound-preserved"));
         assert!(!script.contains("token=secret"));
+    }
+
+    #[test]
+    fn subscription_url_update_failure_status_script_reports_error() {
+        let script = subscription_url_update_failure_status_script(
+            "update-subscription-url fetch InvalidStatus",
+        )
+        .expect("subscription URL update failure script");
+
+        assert!(script.contains("window.keliSetSubscriptionUrlUpdate"));
+        assert!(script.contains("\"status\":\"failed\""));
+        assert!(script.contains("fetch InvalidStatus"));
     }
 
     #[test]

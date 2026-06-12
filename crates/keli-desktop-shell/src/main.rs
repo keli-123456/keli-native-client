@@ -8,7 +8,8 @@ use actions::{ipc_event_for_message, tray_event_for_id, DesktopShellUiEvent};
 use html::{
     operation_status_script, render_shell_html, shell_snapshot_script,
     subscription_config_import_failure_status_script, subscription_config_import_status_script,
-    subscription_url_import_status_script, subscription_url_update_status_script,
+    subscription_url_import_failure_status_script, subscription_url_import_status_script,
+    subscription_url_update_failure_status_script, subscription_url_update_status_script,
     support_export_status_script, wintun_install_failure_status_script,
     wintun_install_status_script,
 };
@@ -145,6 +146,7 @@ fn handle_ui_event(
             }
             Err(message) => {
                 eprintln!("desktop shell subscription URL import failed: {message}");
+                sync_subscription_url_import_failure(webview, &message);
                 sync_webview(webview, controller.snapshot());
                 sync_operation_status(webview, "error", &message);
             }
@@ -163,6 +165,7 @@ fn handle_ui_event(
             }
             Err(message) => {
                 eprintln!("desktop shell subscription URL update failed: {message}");
+                sync_subscription_url_update_failure(webview, &message);
                 sync_webview(webview, controller.snapshot());
                 sync_operation_status(webview, "error", &message);
             }
@@ -300,6 +303,32 @@ fn sync_subscription_config_import_failure(webview: &WebView, message: &str) {
         }
         Err(error) => {
             eprintln!("subscription config import failure status serialization failed: {error}");
+        }
+    }
+}
+
+fn sync_subscription_url_import_failure(webview: &WebView, message: &str) {
+    match subscription_url_import_failure_status_script(message) {
+        Ok(script) => {
+            if let Err(error) = webview.evaluate_script(&script) {
+                eprintln!("subscription URL import failure status sync failed: {error}");
+            }
+        }
+        Err(error) => {
+            eprintln!("subscription URL import failure status serialization failed: {error}");
+        }
+    }
+}
+
+fn sync_subscription_url_update_failure(webview: &WebView, message: &str) {
+    match subscription_url_update_failure_status_script(message) {
+        Ok(script) => {
+            if let Err(error) = webview.evaluate_script(&script) {
+                eprintln!("subscription URL update failure status sync failed: {error}");
+            }
+        }
+        Err(error) => {
+            eprintln!("subscription URL update failure status serialization failed: {error}");
         }
     }
 }
