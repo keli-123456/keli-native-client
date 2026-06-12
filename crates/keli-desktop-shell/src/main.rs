@@ -1,14 +1,16 @@
 mod actions;
 mod html;
+mod support;
 
 use std::error::Error;
 
 use actions::{ipc_event_for_message, tray_event_for_id, DesktopShellUiEvent};
-use html::{render_shell_html, shell_snapshot_script};
+use html::{render_shell_html, shell_snapshot_script, support_export_status_script};
 use keli_desktop::{
     DesktopShellAction, DesktopShellController, DesktopShellControllerError, DesktopShellState,
 };
 use single_instance::SingleInstance;
+use support::{default_support_export_dir, write_support_bundle_export};
 use tao::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -103,6 +105,23 @@ fn handle_ui_event(
     window: &tao::window::Window,
     control_flow: &mut ControlFlow,
 ) {
+    if matches!(event, DesktopShellUiEvent::ExportSupportBundle) {
+        match export_support_bundle(controller, webview) {
+            Ok(shell) => {
+                window.set_visible(shell.window.main_visible);
+                sync_webview(webview, &shell);
+                if shell.quit_requested {
+                    *control_flow = ControlFlow::Exit;
+                }
+            }
+            Err(message) => {
+                eprintln!("desktop shell support export failed: {message}");
+                sync_webview(webview, controller.snapshot());
+            }
+        }
+        return;
+    }
+
     match dispatch_ui_event(controller, event) {
         Ok(shell) => {
             window.set_visible(shell.window.main_visible);
@@ -135,7 +154,25 @@ fn dispatch_ui_event(
         DesktopShellUiEvent::SetTrafficMode(traffic_mode) => {
             Ok(controller.set_traffic_mode(traffic_mode))
         }
+        DesktopShellUiEvent::ExportSupportBundle => Ok(controller.refresh()),
     }
+}
+
+fn export_support_bundle(
+    controller: &mut DesktopShellController<keli_desktop::DesktopNativeCommandService>,
+    webview: &WebView,
+) -> Result<DesktopShellState, String> {
+    let export = controller
+        .export_support_bundle()
+        .map_err(|error| format!("{} {} {}", error.operation, error.kind, error.message))?;
+    let summary = write_support_bundle_export(&export, default_support_export_dir())
+        .map_err(|error| format!("write support bundle failed: {error}"))?;
+    let script = support_export_status_script(&summary)
+        .map_err(|error| format!("support export status serialization failed: {error}"))?;
+    webview
+        .evaluate_script(&script)
+        .map_err(|error| format!("support export status sync failed: {error}"))?;
+    Ok(controller.refresh())
 }
 
 fn sync_webview(webview: &WebView, shell: &DesktopShellState) {

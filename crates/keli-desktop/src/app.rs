@@ -5,6 +5,7 @@ use crate::dependencies::DesktopDependencyReport;
 use crate::shell::{DesktopShellAction, DesktopShellPrimaryCommand, DesktopShellState};
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
 use crate::subscription::DesktopSubscriptionSummary;
+use crate::support::DesktopSupportBundleExport;
 
 pub trait DesktopShellCommandHost {
     fn status(&self) -> DesktopStatusSnapshot;
@@ -20,6 +21,7 @@ pub trait DesktopShellCommandHost {
         outbound_tag: String,
     ) -> Result<DesktopSubscriptionSummary, DesktopCommandError>;
     fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode);
+    fn export_support_bundle(&self) -> Result<DesktopSupportBundleExport, DesktopCommandError>;
 }
 
 impl DesktopShellCommandHost for DesktopNativeCommandService {
@@ -55,6 +57,10 @@ impl DesktopShellCommandHost for DesktopNativeCommandService {
 
     fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode) {
         self.set_traffic_mode(traffic_mode);
+    }
+
+    fn export_support_bundle(&self) -> Result<DesktopSupportBundleExport, DesktopCommandError> {
+        self.export_support_bundle()
     }
 }
 
@@ -158,6 +164,12 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         self.shell.clone()
     }
 
+    pub fn export_support_bundle(
+        &self,
+    ) -> Result<DesktopSupportBundleExport, DesktopShellControllerError> {
+        self.host.export_support_bundle().map_err(Into::into)
+    }
+
     fn request_start(&mut self) -> Result<DesktopShellState, DesktopShellControllerError> {
         if !self.shell.primary_action.enabled
             || !matches!(
@@ -207,6 +219,7 @@ mod tests {
     use crate::shell::{DesktopShellAction, DesktopShellPrimaryCommand};
     use crate::status::{DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode};
     use crate::subscription::{DesktopNodeSummary, DesktopSubscriptionSummary};
+    use crate::support::DesktopSupportBundleExport;
 
     #[derive(Debug, Clone)]
     struct FakeHost {
@@ -223,6 +236,7 @@ mod tests {
         selects: usize,
         modes: Vec<DesktopTrafficMode>,
         subscription: DesktopSubscriptionSummary,
+        exports: usize,
     }
 
     impl FakeHost {
@@ -237,6 +251,7 @@ mod tests {
                     selects: 0,
                     modes: Vec::new(),
                     subscription: subscription("SS-READY"),
+                    exports: 0,
                 })),
             }
         }
@@ -259,6 +274,10 @@ mod tests {
 
         fn modes(&self) -> Vec<DesktopTrafficMode> {
             self.inner.borrow().modes.clone()
+        }
+
+        fn exports(&self) -> usize {
+            self.inner.borrow().exports
         }
 
         fn set_status(&self, status: DesktopStatusSnapshot) {
@@ -318,6 +337,15 @@ mod tests {
             let mut inner = self.inner.borrow_mut();
             inner.modes.push(traffic_mode);
             inner.status.traffic_mode = traffic_mode;
+        }
+
+        fn export_support_bundle(&self) -> Result<DesktopSupportBundleExport, DesktopCommandError> {
+            self.inner.borrow_mut().exports += 1;
+            Ok(DesktopSupportBundleExport {
+                format: "json".to_string(),
+                byte_count: 18,
+                bytes: br#"{"status":"ok"}"#.to_vec(),
+            })
         }
     }
 
@@ -573,5 +601,20 @@ mod tests {
 
         assert_eq!(observed.modes(), vec![DesktopTrafficMode::Tun]);
         assert_eq!(shell.status.traffic_mode, DesktopTrafficMode::Tun);
+    }
+
+    #[test]
+    fn shell_support_export_calls_host_and_returns_bundle() {
+        let host = FakeHost::new(status(DesktopRunState::Stopped), ready_dependencies());
+        let observed = host.clone();
+        let controller = DesktopShellController::new(host);
+
+        let export = controller
+            .export_support_bundle()
+            .expect("export support bundle");
+
+        assert_eq!(observed.exports(), 1);
+        assert_eq!(export.format, "json");
+        assert_eq!(export.bytes, br#"{"status":"ok"}"#.to_vec());
     }
 }

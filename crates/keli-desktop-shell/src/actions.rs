@@ -10,6 +10,7 @@ pub enum DesktopShellUiEvent {
     ImportSubscriptionConfig(String),
     SelectNode(String),
     SetTrafficMode(DesktopTrafficMode),
+    ExportSupportBundle,
 }
 
 #[derive(Debug, Deserialize)]
@@ -38,6 +39,7 @@ pub fn ipc_event_for_message(
         "open-diagnostics" => Some(DesktopShellUiEvent::Action(
             DesktopShellAction::OpenDiagnostics,
         )),
+        "export-support-bundle" => Some(DesktopShellUiEvent::ExportSupportBundle),
         "quit" => Some(DesktopShellUiEvent::Action(DesktopShellAction::RequestQuit)),
         _ => json_ipc_event(message),
     }
@@ -234,6 +236,17 @@ mod tests {
                 &shell(DesktopRunState::Stopped, true),
             ),
             Some(DesktopShellUiEvent::SetTrafficMode(DesktopTrafficMode::Tun))
+        );
+    }
+
+    #[test]
+    fn support_export_ipc_maps_to_export_event() {
+        assert_eq!(
+            ipc_event_for_message(
+                "export-support-bundle",
+                &shell(DesktopRunState::Stopped, true)
+            ),
+            Some(DesktopShellUiEvent::ExportSupportBundle)
         );
     }
 }

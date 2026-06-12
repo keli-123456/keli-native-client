@@ -2,6 +2,8 @@ use keli_desktop::{
     DesktopRunState, DesktopShellState, DesktopSubscriptionSummary, DesktopTrafficMode,
 };
 
+use crate::support::SupportBundleSaveSummary;
+
 pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let run_state = run_state_label(snapshot.status.run_state);
     let traffic_mode = traffic_mode_label(snapshot.status.traffic_mode);
@@ -187,7 +189,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
   <main>
     <header>
       <h1>Keli</h1>
-      <span class="pill">{run_state}</span>
+      <span class="pill" id="run-state">{run_state}</span>
     </header>
     <div class="grid">
       <section>
@@ -224,6 +226,14 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         </div>
         <div class="muted" id="subscription-summary">{subscription_summary}</div>
         <div class="node-list" id="node-list">{node_buttons}</div>
+      </section>
+      <section class="wide">
+        <h2>Diagnostics</h2>
+        <div class="value">Support bundle</div>
+        <div class="muted" id="support-export-status">No support bundle exported</div>
+        <div class="actions">
+          <button id="export-support-button" onclick="window.ipc.postMessage('export-support-bundle')">Export support bundle</button>
+        </div>
       </section>
     </div>
     <pre id="snapshot-json">{snapshot_json}</pre>
@@ -286,6 +296,12 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         nodeList.appendChild(button);
       }}
     }}
+    window.keliSetSupportExport = (summary) => {{
+      const label = summary.status === "saved"
+        ? `Saved ${{summary.byte_count}} bytes to ${{summary.path}}`
+        : `${{summary.status}}: ${{summary.path || ""}}`;
+      document.getElementById("support-export-status").textContent = label;
+    }};
     window.keliSetShell = (snapshot) => {{
       const status = snapshot.status;
       const primary = snapshot.primary_action;
@@ -333,6 +349,15 @@ pub fn shell_snapshot_script(snapshot: &DesktopShellState) -> serde_json::Result
     let snapshot_json = serde_json::to_string(snapshot)?;
     Ok(format!(
         "window.keliSetShell && window.keliSetShell({snapshot_json});"
+    ))
+}
+
+pub fn support_export_status_script(
+    summary: &SupportBundleSaveSummary,
+) -> serde_json::Result<String> {
+    let summary_json = serde_json::to_string(summary)?;
+    Ok(format!(
+        "window.keliSetSupportExport && window.keliSetSupportExport({summary_json});"
     ))
 }
 
@@ -481,6 +506,7 @@ mod tests {
 
         assert!(html.contains("Keli"));
         assert!(html.contains("window.ipc.postMessage('primary')"));
+        assert!(html.contains("id=\"run-state\""));
         assert!(html.contains("Stopped"));
         assert!(html.contains("SS-READY"));
         assert!(html.contains("show-main-window"));
@@ -529,5 +555,29 @@ mod tests {
         assert!(html.contains("Supported 1"));
         assert!(html.contains("SS-READY"));
         assert!(html.contains("data-node-tag=\"SS-READY\""));
+    }
+
+    #[test]
+    fn support_export_html_includes_export_button_and_status() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("export-support-bundle"));
+        assert!(html.contains("id=\"support-export-status\""));
+        assert!(html.contains("window.keliSetSupportExport"));
+    }
+
+    #[test]
+    fn support_export_status_script_updates_export_status() {
+        let summary = crate::support::SupportBundleSaveSummary {
+            status: "saved".to_string(),
+            path: "C:\\Users\\Administrator\\Documents\\Keli\\Support\\keli-support.json"
+                .to_string(),
+            byte_count: 15,
+        };
+
+        let script = support_export_status_script(&summary).expect("support export script");
+
+        assert!(script.contains("window.keliSetSupportExport"));
+        assert!(script.contains("keli-support.json"));
     }
 }
