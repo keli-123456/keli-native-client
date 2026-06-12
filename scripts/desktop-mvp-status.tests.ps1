@@ -24,6 +24,7 @@ $expectedPlan = @(
     'read native_core_default artifacts smoke.install smoke.msi smoke.machine signing public_release_blockers public_release_next_steps',
     'require workflow ids open-desktop-shell import-subscription select-node start-stop-system-proxy tun-preflight export-support-bundle',
     'require support-bundle-export workflow and export smoke evidence',
+    'require msi-support-bundle-export smoke evidence',
     'require install first_run dependency blockers have action entrypoints',
     'output desktop_mvp_ready and public_release_ready',
     'output json when -Json is provided'
@@ -88,6 +89,9 @@ $fixture = [ordered]@{
             native_core_default = $true
             readme_subscription_import = 'subscription-url-or-config'
             manual_smoke_cases = $workflowIds
+            support_export_smoke = 'target\desktop\keli-desktop-msi-support-export-smoke.json'
+            support_export_kind = 'keli_desktop_support_bundle'
+            support_export_desktop_dependencies = $true
         }
         machine = [ordered]@{
             status = 'passed'
@@ -120,7 +124,7 @@ $requirementStatuses = @{}
 foreach ($requirement in $report.requirements) {
     $requirementStatuses[[string]$requirement.id] = [string]$requirement.status
 }
-foreach ($id in @('native-core-default', 'package-artifacts', 'install-smoke-workflows', 'support-bundle-export', 'install-first-run-dependencies', 'msi-smoke-workflows', 'machine-takeover')) {
+foreach ($id in @('native-core-default', 'package-artifacts', 'install-smoke-workflows', 'support-bundle-export', 'install-first-run-dependencies', 'msi-smoke-workflows', 'msi-support-bundle-export', 'machine-takeover')) {
     if ($requirementStatuses[$id] -ne 'ready') {
         throw "requirement $id should be ready but was $($requirementStatuses[$id])"
     }
@@ -228,6 +232,36 @@ $supportExportFailureText = @(
 ) -join "`n"
 if (!$supportExportFailureText.Contains('Desktop MVP status blocked: support-bundle-export')) {
     throw "support export blocked failure did not name support-bundle-export: $supportExportFailureText"
+}
+
+$msiSupportExportBlockedFixturePath = Join-Path $tempDir 'release-evidence-msi-support-export-blocked.json'
+$msiSupportExportBlockedFixture = Get-Content -Raw -LiteralPath $fixturePath | ConvertFrom-Json
+$msiSupportExportBlockedFixture.smoke.msi.support_export_desktop_dependencies = $false
+$msiSupportExportBlockedFixture | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $msiSupportExportBlockedFixturePath -Encoding ASCII
+
+$msiSupportExportStdoutPath = Join-Path $tempDir 'status-msi-support-export-blocked-stdout.txt'
+$msiSupportExportStderrPath = Join-Path $tempDir 'status-msi-support-export-blocked-stderr.txt'
+$msiSupportExportProcess = Start-Process `
+    -FilePath 'powershell' `
+    -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $statusScript, '-EvidencePath', $msiSupportExportBlockedFixturePath, '-FailOnMvpBlocked') `
+    -NoNewWindow `
+    -Wait `
+    -PassThru `
+    -RedirectStandardOutput $msiSupportExportStdoutPath `
+    -RedirectStandardError $msiSupportExportStderrPath
+if ($msiSupportExportProcess.ExitCode -eq 0) {
+    throw 'desktop-mvp-status.ps1 -FailOnMvpBlocked should fail missing MSI support export smoke evidence'
+}
+$msiSupportExportFailureText = @(
+    if (Test-Path -LiteralPath $msiSupportExportStdoutPath) {
+        Get-Content -LiteralPath $msiSupportExportStdoutPath
+    }
+    if (Test-Path -LiteralPath $msiSupportExportStderrPath) {
+        Get-Content -LiteralPath $msiSupportExportStderrPath
+    }
+) -join "`n"
+if (!$msiSupportExportFailureText.Contains('Desktop MVP status blocked: msi-support-bundle-export')) {
+    throw "MSI support export blocked failure did not name msi-support-bundle-export: $msiSupportExportFailureText"
 }
 
 Write-Output 'desktop MVP status tests passed'

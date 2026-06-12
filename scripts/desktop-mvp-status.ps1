@@ -153,6 +153,23 @@ function Test-SupportExportEvidence {
     )
 }
 
+function Test-MsiSupportExportEvidence {
+    param(
+        [AllowNull()]
+        [object]$MsiSmoke
+    )
+
+    if ($null -eq $MsiSmoke) {
+        return $false
+    }
+
+    return (
+        ([string]$MsiSmoke.support_export_smoke -eq 'target\desktop\keli-desktop-msi-support-export-smoke.json') -and
+        ([string]$MsiSmoke.support_export_kind -eq 'keli_desktop_support_bundle') -and
+        (Get-BoolProperty -InputObject $MsiSmoke -Name 'support_export_desktop_dependencies')
+    )
+}
+
 function New-Requirement {
     param(
         [Parameter(Mandatory = $true)]
@@ -223,6 +240,7 @@ function New-DesktopMvpStatus {
         ([string]$msiSmoke.readme_subscription_import -eq 'subscription-url-or-config') -and
         (Test-StringArrayContainsAll -Values $msiSmoke.manual_smoke_cases -Expected $expectedWorkflows)
     )
+    $msiSupportBundleReady = Test-MsiSupportExportEvidence -MsiSmoke $msiSmoke
     $machineReady = ([string]$machineSmoke.machine_takeover_status -eq 'ready')
     $nativeCoreReady = Get-BoolProperty -InputObject $Evidence -Name 'native_core_default'
 
@@ -236,6 +254,7 @@ function New-DesktopMvpStatus {
         (New-Requirement -Id 'support-bundle-export' -Ready $supportBundleReady -Evidence 'release.smoke.install.support_export_smoke'),
         (New-Requirement -Id 'install-first-run-dependencies' -Ready $installFirstRunDependencyReady -Evidence 'release.smoke.install.first_run_blockers'),
         (New-Requirement -Id 'msi-smoke-workflows' -Ready $msiWorkflowReady -Evidence 'release.smoke.msi'),
+        (New-Requirement -Id 'msi-support-bundle-export' -Ready $msiSupportBundleReady -Evidence 'release.smoke.msi.support_export_smoke'),
         (New-Requirement -Id 'machine-takeover' -Ready $machineReady -Evidence 'release.smoke.machine')
     )
     $requirements = @($localRequirements + (New-Requirement -Id 'public-release-signing' -Ready $publicReleaseReady -Evidence 'release.public_release_ready' -Blockers $publicReleaseBlockers))
@@ -290,6 +309,7 @@ try {
         Write-Output 'read native_core_default artifacts smoke.install smoke.msi smoke.machine signing public_release_blockers public_release_next_steps'
         Write-Output 'require workflow ids open-desktop-shell import-subscription select-node start-stop-system-proxy tun-preflight export-support-bundle'
         Write-Output 'require support-bundle-export workflow and export smoke evidence'
+        Write-Output 'require msi-support-bundle-export smoke evidence'
         Write-Output 'require install first_run dependency blockers have action entrypoints'
         Write-Output 'output desktop_mvp_ready and public_release_ready'
         Write-Output 'output json when -Json is provided'
