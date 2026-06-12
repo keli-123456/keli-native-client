@@ -7,7 +7,7 @@ use std::error::Error;
 use actions::{ipc_event_for_message, tray_event_for_id, DesktopShellUiEvent};
 use html::{
     render_shell_html, shell_snapshot_script, subscription_url_import_status_script,
-    support_export_status_script,
+    subscription_url_update_status_script, support_export_status_script,
 };
 use keli_desktop::{
     DesktopShellAction, DesktopShellController, DesktopShellControllerError, DesktopShellState,
@@ -125,6 +125,23 @@ fn handle_ui_event(
         return;
     }
 
+    if let DesktopShellUiEvent::UpdateSubscriptionUrl(url) = &event {
+        match update_subscription_url(controller, url.clone(), webview) {
+            Ok(shell) => {
+                window.set_visible(shell.window.main_visible);
+                sync_webview(webview, &shell);
+                if shell.quit_requested {
+                    *control_flow = ControlFlow::Exit;
+                }
+            }
+            Err(message) => {
+                eprintln!("desktop shell subscription URL update failed: {message}");
+                sync_webview(webview, controller.snapshot());
+            }
+        }
+        return;
+    }
+
     if matches!(event, DesktopShellUiEvent::ExportSupportBundle) {
         match export_support_bundle(controller, webview) {
             Ok(shell) => {
@@ -171,6 +188,7 @@ fn dispatch_ui_event(
             controller.import_subscription_config(config_text)
         }
         DesktopShellUiEvent::ImportSubscriptionUrl(_) => Ok(controller.refresh()),
+        DesktopShellUiEvent::UpdateSubscriptionUrl(_) => Ok(controller.refresh()),
         DesktopShellUiEvent::SelectNode(outbound_tag) => controller.select_node(outbound_tag),
         DesktopShellUiEvent::SetTrafficMode(traffic_mode) => {
             Ok(controller.set_traffic_mode(traffic_mode))
@@ -192,6 +210,22 @@ fn import_subscription_url(
     webview
         .evaluate_script(&script)
         .map_err(|error| format!("subscription URL import status sync failed: {error}"))?;
+    Ok(controller.refresh())
+}
+
+fn update_subscription_url(
+    controller: &mut DesktopShellController<keli_desktop::DesktopNativeCommandService>,
+    url: String,
+    webview: &WebView,
+) -> Result<DesktopShellState, String> {
+    let updated = controller
+        .update_subscription_url(url)
+        .map_err(|error| format!("{} {} {}", error.operation, error.kind, error.message))?;
+    let script = subscription_url_update_status_script(&updated)
+        .map_err(|error| format!("subscription URL update status serialization failed: {error}"))?;
+    webview
+        .evaluate_script(&script)
+        .map_err(|error| format!("subscription URL update status sync failed: {error}"))?;
     Ok(controller.refresh())
 }
 

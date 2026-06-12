@@ -1,6 +1,6 @@
 use keli_desktop::{
     DesktopRunState, DesktopShellState, DesktopSubscriptionSummary,
-    DesktopSubscriptionUrlImportSummary, DesktopTrafficMode,
+    DesktopSubscriptionUrlImportSummary, DesktopSubscriptionUrlUpdateSummary, DesktopTrafficMode,
 };
 
 use crate::support::SupportBundleSaveSummary;
@@ -244,6 +244,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <input id="subscription-url" type="url" placeholder="https://example.com/subscription" />
         <div class="actions">
           <button id="import-subscription-url-button" class="primary" onclick="postImportSubscriptionUrl()">Import URL</button>
+          <button id="update-subscription-url-button" onclick="postUpdateSubscriptionUrl()">Update URL</button>
         </div>
         <div class="muted" id="subscription-url-status">No subscription URL imported</div>
         <textarea id="subscription-config" spellcheck="false"></textarea>
@@ -295,6 +296,12 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         subscriptionUrl: document.getElementById("subscription-url").value
       }});
     }}
+    function postUpdateSubscriptionUrl() {{
+      postJson({{
+        type: "update-subscription-url",
+        subscriptionUrl: document.getElementById("subscription-url").value
+      }});
+    }}
     function postTrafficMode(trafficMode) {{
       postJson({{
         type: "set-traffic-mode",
@@ -336,14 +343,33 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         : `${{summary.status}}: ${{summary.path || ""}}`;
       document.getElementById("support-export-status").textContent = label;
     }};
-    window.keliSetSubscriptionUrlImport = (summary) => {{
-      const fetch = summary.fetch || {{}};
+    function subscriptionSource(fetch) {{
       const source = fetch.host
         ? `${{fetch.scheme || "url"}}://${{fetch.host}}`
         : "subscription URL";
+      return source;
+    }}
+    window.keliSetSubscriptionUrlImport = (summary) => {{
+      const fetch = summary.fetch || {{}};
+      const source = subscriptionSource(fetch);
       const label = summary.error
         ? `Import failed from ${{source}}: ${{summary.error}}`
         : `Imported ${{summary.subscription ? summary.subscription.supported_count : 0}} nodes from ${{source}}`;
+      document.getElementById("subscription-url-status").textContent = label;
+    }};
+    window.keliSetSubscriptionUrlUpdate = (summary) => {{
+      const fetch = summary.fetch || {{}};
+      const source = subscriptionSource(fetch);
+      const update = summary.update || {{}};
+      const reason = update.reason ? `, ${{update.reason}}` : "";
+      const selected = summary.runtime_status && summary.runtime_status.selected_outbound
+        ? `, selected ${{summary.runtime_status.selected_outbound}}`
+        : "";
+      const label = summary.error
+        ? `Update failed from ${{source}}: ${{summary.error}}`
+        : summary.applied
+          ? `Updated from ${{source}}${{reason}}${{selected}}`
+          : `Update not applied from ${{source}}: ${{fetch.error_kind || "unknown"}}`;
       document.getElementById("subscription-url-status").textContent = label;
     }};
     function dependencySummary(snapshot) {{
@@ -394,6 +420,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const primaryButton = document.getElementById("primary-button");
       primaryButton.textContent = primary.label;
       primaryButton.disabled = !primary.enabled;
+      const importUrlButton = document.getElementById("import-subscription-url-button");
+      const updateUrlButton = document.getElementById("update-subscription-url-button");
+      importUrlButton.disabled = status.run_state === "running";
+      updateUrlButton.disabled = status.run_state !== "running";
       document.getElementById("tray-ids").textContent = snapshot.tray_menu.items.map((item) => item.id).join(", ");
       document.getElementById("window-visible").textContent = `Window visible: ${{snapshot.window.main_visible}}`;
       document.getElementById("dependency-summary").textContent = dependencySummary(snapshot);
@@ -454,6 +484,15 @@ pub fn subscription_url_import_status_script(
     let summary_json = serde_json::to_string(summary)?;
     Ok(format!(
         "window.keliSetSubscriptionUrlImport && window.keliSetSubscriptionUrlImport({summary_json});"
+    ))
+}
+
+pub fn subscription_url_update_status_script(
+    summary: &DesktopSubscriptionUrlUpdateSummary,
+) -> serde_json::Result<String> {
+    let summary_json = serde_json::to_string(summary)?;
+    Ok(format!(
+        "window.keliSetSubscriptionUrlUpdate && window.keliSetSubscriptionUrlUpdate({summary_json});"
     ))
 }
 
@@ -591,8 +630,9 @@ mod tests {
     use super::*;
     use keli_desktop::{
         DesktopDependencyReport, DesktopFirstRunReport, DesktopNodeSummary, DesktopShellState,
-        DesktopStatusSnapshot, DesktopSubscriptionSummary, DesktopSubscriptionUrlFetchSummary,
-        DesktopSubscriptionUrlImportSummary, DesktopSystemProxyDependency, DesktopTrafficMode,
+        DesktopStatusSnapshot, DesktopSubscriptionSummary, DesktopSubscriptionUpdateSummary,
+        DesktopSubscriptionUrlFetchSummary, DesktopSubscriptionUrlImportSummary,
+        DesktopSubscriptionUrlUpdateSummary, DesktopSystemProxyDependency, DesktopTrafficMode,
         DesktopTunBackendDependency,
     };
 
@@ -723,6 +763,15 @@ mod tests {
     }
 
     #[test]
+    fn subscription_url_html_includes_running_update_controls() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("id=\"update-subscription-url-button\""));
+        assert!(html.contains("update-subscription-url"));
+        assert!(html.contains("window.keliSetSubscriptionUrlUpdate"));
+    }
+
+    #[test]
     fn subscription_url_status_script_updates_redacted_fetch_status() {
         let summary = DesktopSubscriptionUrlImportSummary {
             fetch: DesktopSubscriptionUrlFetchSummary {
@@ -748,6 +797,61 @@ mod tests {
 
         assert!(script.contains("window.keliSetSubscriptionUrlImport"));
         assert!(script.contains("sub.example.com"));
+        assert!(!script.contains("token=secret"));
+    }
+
+    #[test]
+    fn subscription_url_update_status_script_updates_redacted_runtime_status() {
+        let subscription = subscription("URL-STAY");
+        let summary = DesktopSubscriptionUrlUpdateSummary {
+            applied: true,
+            error: None,
+            fetch: DesktopSubscriptionUrlFetchSummary {
+                ok: true,
+                scheme: Some("https".to_string()),
+                host: Some("sub.example.com".to_string()),
+                port: None,
+                default_port: Some(true),
+                path_present: Some(true),
+                query_present: Some(true),
+                http_status: Some(200),
+                body_bytes: Some(256),
+                elapsed_ms: Some(12),
+                error_kind: None,
+                error_detail: None,
+            },
+            update: Some(DesktopSubscriptionUpdateSummary {
+                applied: true,
+                error: None,
+                reason: "selected-outbound-preserved".to_string(),
+                current_supported_count: 1,
+                new_supported_count: 1,
+                new_skipped_count: 0,
+                current_selected_outbound: Some("URL-STAY".to_string()),
+                planned_selected_outbound: Some("URL-STAY".to_string()),
+                selected_outbound_preserved: true,
+                selected_outbound_changed: false,
+                added_tags: Vec::new(),
+                removed_tags: Vec::new(),
+                retained_tags: vec!["URL-STAY".to_string()],
+                subscription,
+            }),
+            runtime_status: DesktopStatusSnapshot {
+                run_state: DesktopRunState::Running,
+                traffic_mode: DesktopTrafficMode::SystemProxy,
+                selected_outbound: Some("URL-STAY".to_string()),
+                listen: Some("127.0.0.1:7890".to_string()),
+                generation: 8,
+                event_count: 6,
+                last_error: None,
+            },
+        };
+
+        let script = subscription_url_update_status_script(&summary)
+            .expect("subscription URL update script");
+
+        assert!(script.contains("window.keliSetSubscriptionUrlUpdate"));
+        assert!(script.contains("selected-outbound-preserved"));
         assert!(!script.contains("token=secret"));
     }
 

@@ -9,6 +9,7 @@ pub enum DesktopShellUiEvent {
     Refresh,
     ImportSubscriptionConfig(String),
     ImportSubscriptionUrl(String),
+    UpdateSubscriptionUrl(String),
     SelectNode(String),
     SetTrafficMode(DesktopTrafficMode),
     ExportSupportBundle,
@@ -56,6 +57,9 @@ fn json_ipc_event(message: &str) -> Option<DesktopShellUiEvent> {
         "import-subscription-url" => command
             .subscription_url
             .map(DesktopShellUiEvent::ImportSubscriptionUrl),
+        "update-subscription-url" => command
+            .subscription_url
+            .map(DesktopShellUiEvent::UpdateSubscriptionUrl),
         "select-node" => command.outbound_tag.map(DesktopShellUiEvent::SelectNode),
         "set-traffic-mode" => command
             .traffic_mode
@@ -230,6 +234,19 @@ mod tests {
                 &shell(DesktopRunState::Stopped, true),
             ),
             Some(DesktopShellUiEvent::ImportSubscriptionUrl(
+                "https://sub.example.com/panel?token=secret".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn subscription_ipc_update_url_json_maps_to_update_url_event() {
+        assert_eq!(
+            ipc_event_for_message(
+                r#"{"type":"update-subscription-url","subscriptionUrl":"https://sub.example.com/panel?token=secret"}"#,
+                &shell(DesktopRunState::Running, true),
+            ),
+            Some(DesktopShellUiEvent::UpdateSubscriptionUrl(
                 "https://sub.example.com/panel?token=secret".to_string()
             ))
         );

@@ -6,7 +6,10 @@ use crate::commands::{DesktopCommandError, DesktopNativeCommandService};
 use crate::dependencies::DesktopDependencyReport;
 use crate::shell::{DesktopShellAction, DesktopShellPrimaryCommand, DesktopShellState};
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
-use crate::subscription::{DesktopSubscriptionSummary, DesktopSubscriptionUrlImportSummary};
+use crate::subscription::{
+    DesktopSubscriptionSummary, DesktopSubscriptionUrlImportSummary,
+    DesktopSubscriptionUrlUpdateSummary,
+};
 use crate::support::DesktopSupportBundleExport;
 
 const DEFAULT_SUBSCRIPTION_URL_TIMEOUT: Duration = Duration::from_secs(15);
@@ -27,6 +30,12 @@ pub trait DesktopShellCommandHost {
         timeout: Duration,
         max_bytes: usize,
     ) -> Result<DesktopSubscriptionUrlImportSummary, DesktopCommandError>;
+    fn update_subscription_url(
+        &mut self,
+        url: String,
+        timeout: Duration,
+        max_bytes: usize,
+    ) -> Result<DesktopSubscriptionUrlUpdateSummary, DesktopCommandError>;
     fn select_node(
         &mut self,
         outbound_tag: String,
@@ -66,6 +75,15 @@ impl DesktopShellCommandHost for DesktopNativeCommandService {
         max_bytes: usize,
     ) -> Result<DesktopSubscriptionUrlImportSummary, DesktopCommandError> {
         self.import_subscription_url(&url, timeout, max_bytes)
+    }
+
+    fn update_subscription_url(
+        &mut self,
+        url: String,
+        timeout: Duration,
+        max_bytes: usize,
+    ) -> Result<DesktopSubscriptionUrlUpdateSummary, DesktopCommandError> {
+        self.update_subscription_url(&url, timeout, max_bytes)
     }
 
     fn select_node(
@@ -184,6 +202,25 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         Ok(imported)
     }
 
+    pub fn update_subscription_url(
+        &mut self,
+        url: impl Into<String>,
+    ) -> Result<DesktopSubscriptionUrlUpdateSummary, DesktopShellControllerError> {
+        let updated = self.host.update_subscription_url(
+            url.into(),
+            DEFAULT_SUBSCRIPTION_URL_TIMEOUT,
+            DEFAULT_SUBSCRIPTION_URL_MAX_BYTES,
+        )?;
+        if updated.applied {
+            if let Some(update) = updated.update.as_ref() {
+                self.shell
+                    .refresh_subscription(Some(update.subscription.clone()));
+            }
+        }
+        self.shell.refresh_status(updated.runtime_status.clone());
+        Ok(updated)
+    }
+
     pub fn select_node(
         &mut self,
         outbound_tag: impl Into<String>,
@@ -255,8 +292,9 @@ mod tests {
     use crate::shell::{DesktopShellAction, DesktopShellPrimaryCommand};
     use crate::status::{DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode};
     use crate::subscription::{
-        DesktopNodeSummary, DesktopSubscriptionSummary, DesktopSubscriptionUrlFetchSummary,
-        DesktopSubscriptionUrlImportSummary,
+        DesktopNodeSummary, DesktopSubscriptionSummary, DesktopSubscriptionUpdateSummary,
+        DesktopSubscriptionUrlFetchSummary, DesktopSubscriptionUrlImportSummary,
+        DesktopSubscriptionUrlUpdateSummary,
     };
     use crate::support::DesktopSupportBundleExport;
 
@@ -276,6 +314,7 @@ mod tests {
         modes: Vec<DesktopTrafficMode>,
         subscription: DesktopSubscriptionSummary,
         url_imports: Vec<String>,
+        url_updates: Vec<String>,
         exports: usize,
     }
 
@@ -292,6 +331,7 @@ mod tests {
                     modes: Vec::new(),
                     subscription: subscription("SS-READY"),
                     url_imports: Vec::new(),
+                    url_updates: Vec::new(),
                     exports: 0,
                 })),
             }
@@ -323,6 +363,10 @@ mod tests {
 
         fn url_imports(&self) -> Vec<String> {
             self.inner.borrow().url_imports.clone()
+        }
+
+        fn url_updates(&self) -> Vec<String> {
+            self.inner.borrow().url_updates.clone()
         }
 
         fn set_status(&self, status: DesktopStatusSnapshot) {
@@ -395,6 +439,24 @@ mod tests {
                 subscription: Some(inner.subscription.clone()),
                 error: None,
             })
+        }
+
+        fn update_subscription_url(
+            &mut self,
+            url: String,
+            _timeout: std::time::Duration,
+            _max_bytes: usize,
+        ) -> Result<DesktopSubscriptionUrlUpdateSummary, DesktopCommandError> {
+            let mut inner = self.inner.borrow_mut();
+            inner.url_updates.push(url);
+            let updated = url_update_summary("URL-STAY");
+            inner.subscription = updated
+                .update
+                .as_ref()
+                .map(|update| update.subscription.clone())
+                .unwrap_or_else(|| subscription("URL-STAY"));
+            inner.status = updated.runtime_status.clone();
+            Ok(updated)
         }
 
         fn select_node(
@@ -514,6 +576,53 @@ mod tests {
                 recommended: true,
             }],
             skipped: Vec::new(),
+        }
+    }
+
+    fn url_update_summary(tag: &str) -> DesktopSubscriptionUrlUpdateSummary {
+        let subscription = subscription(tag);
+        DesktopSubscriptionUrlUpdateSummary {
+            applied: true,
+            error: None,
+            fetch: DesktopSubscriptionUrlFetchSummary {
+                ok: true,
+                scheme: Some("https".to_string()),
+                host: Some("sub.example.com".to_string()),
+                port: None,
+                default_port: Some(true),
+                path_present: Some(true),
+                query_present: Some(true),
+                http_status: Some(200),
+                body_bytes: Some(256),
+                elapsed_ms: Some(12),
+                error_kind: None,
+                error_detail: None,
+            },
+            update: Some(DesktopSubscriptionUpdateSummary {
+                applied: true,
+                error: None,
+                reason: "selected-outbound-preserved".to_string(),
+                current_supported_count: 1,
+                new_supported_count: 1,
+                new_skipped_count: 0,
+                current_selected_outbound: Some(tag.to_string()),
+                planned_selected_outbound: Some(tag.to_string()),
+                selected_outbound_preserved: true,
+                selected_outbound_changed: false,
+                added_tags: Vec::new(),
+                removed_tags: Vec::new(),
+                retained_tags: vec![tag.to_string()],
+                subscription,
+            }),
+            runtime_status: DesktopStatusSnapshot {
+                run_state: DesktopRunState::Running,
+                traffic_mode: DesktopTrafficMode::SystemProxy,
+                selected_outbound: Some(tag.to_string()),
+                listen: Some("127.0.0.1:7890".to_string()),
+                generation: 10,
+                event_count: 5,
+                last_error: None,
+            },
         }
     }
 
@@ -671,6 +780,35 @@ mod tests {
         assert_eq!(
             controller.snapshot().status.selected_outbound.as_deref(),
             Some("URL-READY")
+        );
+    }
+
+    #[test]
+    fn shell_subscription_url_update_calls_host_and_updates_shell_snapshot() {
+        let host = FakeHost::new(status(DesktopRunState::Running), ready_dependencies());
+        let observed = host.clone();
+        let mut controller = DesktopShellController::new(host);
+
+        let updated = controller
+            .update_subscription_url("https://sub.example.com/panel?token=secret")
+            .expect("update subscription URL");
+
+        assert_eq!(
+            observed.url_updates(),
+            vec!["https://sub.example.com/panel?token=secret".to_string()]
+        );
+        assert!(updated.applied);
+        assert_eq!(
+            controller.snapshot().status.selected_outbound.as_deref(),
+            Some("URL-STAY")
+        );
+        assert_eq!(
+            controller
+                .snapshot()
+                .subscription
+                .as_ref()
+                .and_then(|subscription| subscription.selected_outbound.as_deref()),
+            Some("URL-STAY")
         );
     }
 
