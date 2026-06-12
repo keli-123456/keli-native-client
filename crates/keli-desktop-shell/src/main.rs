@@ -8,6 +8,7 @@ use actions::{ipc_event_for_message, tray_event_for_id, DesktopShellUiEvent};
 use html::{
     render_shell_html, shell_snapshot_script, subscription_url_import_status_script,
     subscription_url_update_status_script, support_export_status_script,
+    wintun_install_status_script,
 };
 use keli_desktop::{
     DesktopRunState, DesktopShellAction, DesktopShellController, DesktopShellControllerError,
@@ -164,6 +165,23 @@ fn handle_ui_event(
         return;
     }
 
+    if let DesktopShellUiEvent::InstallWintunPath(path) = &event {
+        match install_wintun_path(controller, path.clone(), webview) {
+            Ok(shell) => {
+                window.set_visible(shell.window.main_visible);
+                sync_webview(webview, &shell);
+                if shell.quit_requested {
+                    *control_flow = ControlFlow::Exit;
+                }
+            }
+            Err(message) => {
+                eprintln!("desktop shell Wintun install failed: {message}");
+                sync_webview(webview, controller.snapshot());
+            }
+        }
+        return;
+    }
+
     if let DesktopShellUiEvent::DependencyAction(action) = &event {
         if let Err(message) = open_dependency_action(action) {
             eprintln!("desktop shell dependency action failed: {message}");
@@ -213,6 +231,7 @@ fn dispatch_ui_event(
         }
         DesktopShellUiEvent::ExportSupportBundle => Ok(controller.refresh()),
         DesktopShellUiEvent::DependencyAction(_) => Ok(controller.refresh()),
+        DesktopShellUiEvent::InstallWintunPath(_) => Ok(controller.refresh()),
     }
 }
 
@@ -262,6 +281,22 @@ fn export_support_bundle(
     webview
         .evaluate_script(&script)
         .map_err(|error| format!("support export status sync failed: {error}"))?;
+    Ok(controller.refresh())
+}
+
+fn install_wintun_path(
+    controller: &mut DesktopShellController<keli_desktop::DesktopNativeCommandService>,
+    source_path: String,
+    webview: &WebView,
+) -> Result<DesktopShellState, String> {
+    let installed = controller
+        .install_wintun_from_path(source_path)
+        .map_err(|error| format!("{} {} {}", error.operation, error.kind, error.message))?;
+    let script = wintun_install_status_script(&installed)
+        .map_err(|error| format!("Wintun install status serialization failed: {error}"))?;
+    webview
+        .evaluate_script(&script)
+        .map_err(|error| format!("Wintun install status sync failed: {error}"))?;
     Ok(controller.refresh())
 }
 
@@ -399,7 +434,8 @@ fn build_smoke_report(
         && html.contains("id=\"primary-button\"")
         && html.contains("id=\"subscription-url\"")
         && html.contains("id=\"dependency-summary\"")
-        && html.contains("id=\"dependency-actions\"");
+        && html.contains("id=\"dependency-actions\"")
+        && html.contains("id=\"wintun-source-path\"");
     let snapshot_script_ready =
         snapshot_script.contains("window.keliSetShell") && snapshot_script.contains("\"status\"");
     let status = if html_ready && snapshot_script_ready {
@@ -499,6 +535,7 @@ mod tests {
         assert!(report.html_ready);
         assert!(report.snapshot_script_ready);
         assert!(html.contains("id=\"dependency-actions\""));
+        assert!(html.contains("id=\"wintun-source-path\""));
     }
 
     #[test]
@@ -507,6 +544,21 @@ mod tests {
         let html = render_shell_html(&snapshot).replace(
             "id=\"dependency-actions\"",
             "id=\"missing-dependency-actions\"",
+        );
+        let script = shell_snapshot_script(&snapshot).expect("snapshot script");
+
+        let report = build_smoke_report(&snapshot, &html, &script);
+
+        assert_eq!(report.status, "failed");
+        assert!(!report.html_ready);
+    }
+
+    #[test]
+    fn smoke_report_requires_wintun_install_controls() {
+        let snapshot = smoke_snapshot();
+        let html = render_shell_html(&snapshot).replace(
+            "id=\"wintun-source-path\"",
+            "id=\"missing-wintun-source-path\"",
         );
         let script = shell_snapshot_script(&snapshot).expect("snapshot script");
 

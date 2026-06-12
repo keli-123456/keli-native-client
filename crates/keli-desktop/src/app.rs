@@ -3,7 +3,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::commands::{DesktopCommandError, DesktopNativeCommandService};
-use crate::dependencies::DesktopDependencyReport;
+use crate::dependencies::{DesktopDependencyReport, DesktopWintunInstallSummary};
 use crate::shell::{DesktopShellAction, DesktopShellPrimaryCommand, DesktopShellState};
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
 use crate::subscription::{
@@ -42,6 +42,10 @@ pub trait DesktopShellCommandHost {
     ) -> Result<DesktopSubscriptionSummary, DesktopCommandError>;
     fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode);
     fn export_support_bundle(&self) -> Result<DesktopSupportBundleExport, DesktopCommandError>;
+    fn install_wintun_from_path(
+        &mut self,
+        source_path: String,
+    ) -> Result<DesktopWintunInstallSummary, DesktopCommandError>;
 }
 
 impl DesktopShellCommandHost for DesktopNativeCommandService {
@@ -99,6 +103,13 @@ impl DesktopShellCommandHost for DesktopNativeCommandService {
 
     fn export_support_bundle(&self) -> Result<DesktopSupportBundleExport, DesktopCommandError> {
         self.export_support_bundle()
+    }
+
+    fn install_wintun_from_path(
+        &mut self,
+        source_path: String,
+    ) -> Result<DesktopWintunInstallSummary, DesktopCommandError> {
+        self.install_wintun_from_path(source_path)
     }
 }
 
@@ -243,6 +254,17 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         self.host.export_support_bundle().map_err(Into::into)
     }
 
+    pub fn install_wintun_from_path(
+        &mut self,
+        source_path: impl Into<String>,
+    ) -> Result<DesktopWintunInstallSummary, DesktopShellControllerError> {
+        let summary = self.host.install_wintun_from_path(source_path.into())?;
+        self.shell.refresh_status(self.host.status());
+        self.shell
+            .refresh_dependencies(self.host.dependency_report());
+        Ok(summary)
+    }
+
     fn request_start(&mut self) -> Result<DesktopShellState, DesktopShellControllerError> {
         if !self.shell.primary_action.enabled
             || !matches!(
@@ -316,6 +338,7 @@ mod tests {
         url_imports: Vec<String>,
         url_updates: Vec<String>,
         exports: usize,
+        wintun_installs: Vec<String>,
     }
 
     impl FakeHost {
@@ -333,6 +356,7 @@ mod tests {
                     url_imports: Vec::new(),
                     url_updates: Vec::new(),
                     exports: 0,
+                    wintun_installs: Vec::new(),
                 })),
             }
         }
@@ -359,6 +383,10 @@ mod tests {
 
         fn exports(&self) -> usize {
             self.inner.borrow().exports
+        }
+
+        fn wintun_installs(&self) -> Vec<String> {
+            self.inner.borrow().wintun_installs.clone()
         }
 
         fn url_imports(&self) -> Vec<String> {
@@ -482,6 +510,33 @@ mod tests {
                 format: "json".to_string(),
                 byte_count: 18,
                 bytes: br#"{"status":"ok"}"#.to_vec(),
+            })
+        }
+
+        fn install_wintun_from_path(
+            &mut self,
+            source_path: String,
+        ) -> Result<crate::dependencies::DesktopWintunInstallSummary, DesktopCommandError> {
+            let mut inner = self.inner.borrow_mut();
+            inner.wintun_installs.push(source_path.clone());
+            inner.dependencies.first_run.tun_ready = true;
+            inner.dependencies.first_run.can_start_tun_mode = true;
+            inner.dependencies.first_run.blockers.clear();
+            inner.dependencies.tun_backend.state = "ready".to_string();
+            inner.dependencies.tun_backend.driver_library_present = true;
+            inner.dependencies.tun_backend.driver_api_available = true;
+            inner.dependencies.tun_backend.install_required = false;
+            inner.dependencies.tun_backend.action = None;
+            Ok(crate::dependencies::DesktopWintunInstallSummary {
+                status: "ready".to_string(),
+                source_kind: "directory".to_string(),
+                source_path,
+                source_candidates: Vec::new(),
+                target_path: "C:\\Program Files\\Keli\\wintun.dll".to_string(),
+                copied_bytes: 12345,
+                previous_target_present: false,
+                driver_api_available: true,
+                ready_after_install: true,
             })
         }
     }
@@ -859,5 +914,27 @@ mod tests {
         assert_eq!(observed.exports(), 1);
         assert_eq!(export.format, "json");
         assert_eq!(export.bytes, br#"{"status":"ok"}"#.to_vec());
+    }
+
+    #[test]
+    fn shell_controller_install_wintun_path_calls_host_and_refreshes_dependencies() {
+        let host = FakeHost::new(status(DesktopRunState::Stopped), blocked_dependencies());
+        let observed = host.clone();
+        let mut controller = DesktopShellController::new(host);
+
+        let summary = controller
+            .install_wintun_from_path("C:\\Downloads\\wintun")
+            .expect("install Wintun");
+
+        assert_eq!(
+            observed.wintun_installs(),
+            vec!["C:\\Downloads\\wintun".to_string()]
+        );
+        assert_eq!(summary.status, "ready");
+        assert!(controller.snapshot().dependencies.first_run.tun_ready);
+        assert_eq!(
+            controller.snapshot().dependencies.tun_backend.state,
+            "ready"
+        );
     }
 }

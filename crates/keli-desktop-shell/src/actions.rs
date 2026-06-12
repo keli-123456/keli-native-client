@@ -14,6 +14,7 @@ pub enum DesktopShellUiEvent {
     SetTrafficMode(DesktopTrafficMode),
     ExportSupportBundle,
     DependencyAction(String),
+    InstallWintunPath(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -26,6 +27,7 @@ struct IpcCommand {
     outbound_tag: Option<String>,
     traffic_mode: Option<DesktopTrafficMode>,
     action: Option<String>,
+    source_path: Option<String>,
 }
 
 pub fn ipc_event_for_message(
@@ -67,6 +69,9 @@ fn json_ipc_event(message: &str) -> Option<DesktopShellUiEvent> {
             .traffic_mode
             .map(DesktopShellUiEvent::SetTrafficMode),
         "dependency-action" => command.action.map(DesktopShellUiEvent::DependencyAction),
+        "install-wintun-path" => command
+            .source_path
+            .map(DesktopShellUiEvent::InstallWintunPath),
         _ => None,
     }
 }
@@ -297,6 +302,19 @@ mod tests {
             ),
             Some(DesktopShellUiEvent::DependencyAction(
                 "install-wintun".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn install_wintun_path_ipc_maps_to_install_event() {
+        assert_eq!(
+            ipc_event_for_message(
+                r#"{"type":"install-wintun-path","sourcePath":"C:\\Downloads\\wintun"}"#,
+                &shell(DesktopRunState::Stopped, true),
+            ),
+            Some(DesktopShellUiEvent::InstallWintunPath(
+                "C:\\Downloads\\wintun".to_string()
             ))
         );
     }

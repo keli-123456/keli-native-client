@@ -1,6 +1,7 @@
 use keli_desktop::{
     DesktopRunState, DesktopShellState, DesktopSubscriptionSummary,
     DesktopSubscriptionUrlImportSummary, DesktopSubscriptionUrlUpdateSummary, DesktopTrafficMode,
+    DesktopWintunInstallSummary,
 };
 
 use crate::support::SupportBundleSaveSummary;
@@ -240,6 +241,11 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="muted" id="tun-dependency">{tun_dependency}</div>
         <div class="muted" id="dependency-blockers">{dependency_blockers}</div>
         <div class="actions" id="dependency-actions">{dependency_actions}</div>
+        <input id="wintun-source-path" type="text" placeholder="C:\Downloads\wintun or C:\Downloads\wintun.dll" />
+        <div class="actions">
+          <button id="install-wintun-path-button" onclick="postInstallWintunPath()">Install Wintun from path</button>
+        </div>
+        <div class="muted" id="wintun-install-status">No local Wintun install attempted</div>
       </section>
       <section class="wide">
         <h2>Subscription</h2>
@@ -327,6 +333,12 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         action
       }});
     }}
+    function postInstallWintunPath() {{
+      postJson({{
+        type: "install-wintun-path",
+        sourcePath: document.getElementById("wintun-source-path").value
+      }});
+    }}
     function collectDependencyActions(snapshot) {{
       const actions = [];
       const add = (action) => {{
@@ -378,6 +390,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         ? `Saved ${{summary.byte_count}} bytes to ${{summary.path}}`
         : `${{summary.status}}: ${{summary.path || ""}}`;
       document.getElementById("support-export-status").textContent = label;
+    }};
+    window.keliSetWintunInstall = (summary) => {{
+      const label = `${{summary.status}}: ${{summary.target_path || ""}} (${{summary.copied_bytes || 0}} bytes)`;
+      document.getElementById("wintun-install-status").textContent = label;
     }};
     function subscriptionSource(fetch) {{
       const source = fetch.host
@@ -513,6 +529,15 @@ pub fn support_export_status_script(
     let summary_json = serde_json::to_string(summary)?;
     Ok(format!(
         "window.keliSetSupportExport && window.keliSetSupportExport({summary_json});"
+    ))
+}
+
+pub fn wintun_install_status_script(
+    summary: &DesktopWintunInstallSummary,
+) -> serde_json::Result<String> {
+    let summary_json = serde_json::to_string(summary)?;
+    Ok(format!(
+        "window.keliSetWintunInstall && window.keliSetWintunInstall({summary_json});"
     ))
 }
 
@@ -1045,5 +1070,36 @@ mod tests {
 
         assert!(script.contains("window.keliSetSupportExport"));
         assert!(script.contains("keli-support.json"));
+    }
+
+    #[test]
+    fn wintun_install_html_includes_local_path_controls() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("id=\"wintun-source-path\""));
+        assert!(html.contains("install-wintun-path"));
+        assert!(html.contains("id=\"wintun-install-status\""));
+        assert!(html.contains("window.keliSetWintunInstall"));
+    }
+
+    #[test]
+    fn wintun_install_status_script_updates_install_status() {
+        let summary = keli_desktop::DesktopWintunInstallSummary {
+            status: "ready".to_string(),
+            source_kind: "directory".to_string(),
+            source_path: "C:\\Downloads\\wintun".to_string(),
+            source_candidates: Vec::new(),
+            target_path: "C:\\Program Files\\Keli\\wintun.dll".to_string(),
+            copied_bytes: 12345,
+            previous_target_present: false,
+            driver_api_available: true,
+            ready_after_install: true,
+        };
+
+        let script = wintun_install_status_script(&summary).expect("Wintun install script");
+
+        assert!(script.contains("window.keliSetWintunInstall"));
+        assert!(script.contains("ready"));
+        assert!(script.contains("wintun.dll"));
     }
 }

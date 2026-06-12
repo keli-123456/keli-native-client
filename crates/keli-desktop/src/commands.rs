@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -8,7 +9,10 @@ use keli_platform::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::dependencies::DesktopDependencyReport;
+use crate::dependencies::{
+    install_wintun_from_directory, install_wintun_from_file, DesktopDependencyReport,
+    DesktopWintunInstallSummary,
+};
 use crate::service::{DesktopRuntimeError, DesktopRuntimeService};
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
 use crate::subscription::{
@@ -37,6 +41,17 @@ impl DesktopCommandError {
                 kind: "managed".to_string(),
                 message: error,
             },
+        }
+    }
+
+    fn dependency(
+        operation: &'static str,
+        error: crate::dependencies::DesktopDependencyError,
+    ) -> Self {
+        Self {
+            operation: operation.to_string(),
+            kind: "dependency".to_string(),
+            message: format!("{error:?}"),
         }
     }
 }
@@ -136,6 +151,19 @@ impl DesktopNativeCommandService {
 
     pub fn export_support_bundle(&self) -> Result<DesktopSupportBundleExport, DesktopCommandError> {
         self.commands.export_support_bundle()
+    }
+
+    pub fn install_wintun_from_path(
+        &mut self,
+        source_path: impl AsRef<Path>,
+    ) -> Result<DesktopWintunInstallSummary, DesktopCommandError> {
+        let source_path = source_path.as_ref();
+        if source_path.is_dir() {
+            install_wintun_from_directory(source_path, None)
+        } else {
+            install_wintun_from_file(source_path, None)
+        }
+        .map_err(|error| DesktopCommandError::dependency("install-wintun", error))
     }
 
     pub fn dependency_report() -> DesktopDependencyReport {
@@ -453,5 +481,18 @@ proxies:
         let stopped = commands.stop().expect("stop native host");
 
         assert_eq!(stopped.run_state, DesktopRunState::Stopped);
+    }
+
+    #[test]
+    fn native_command_service_maps_missing_wintun_source_to_install_error() {
+        let mut commands = DesktopNativeCommandService::new();
+
+        let error = commands
+            .install_wintun_from_path("C:\\definitely-missing-keli-wintun.dll")
+            .expect_err("missing Wintun source should fail");
+
+        assert_eq!(error.operation, "install-wintun");
+        assert_eq!(error.kind, "dependency");
+        assert!(error.message.contains("Wintun source DLL was not found"));
     }
 }
