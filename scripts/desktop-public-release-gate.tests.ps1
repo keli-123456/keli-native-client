@@ -32,6 +32,7 @@ $expected = @(
     'failure print blockers and exit nonzero',
     'failure print blockers next_steps and exit nonzero',
     'failure print signing diagnostics when available',
+    'failure print signing command preview diagnostics when available',
     'output public release gate passed'
 )
 
@@ -64,6 +65,13 @@ $fixture = [ordered]@{
         signtool_available = $true
         signing_method = ''
         unsigned_artifacts = @('target\release\keli-desktop-shell.exe', 'target\desktop\keli-desktop-mvp-windows-x64.msi')
+        sign_command_previews = @(
+            [ordered]@{
+                artifact = 'target\release\keli-desktop-shell.exe'
+                signing_method = 'pfx'
+                command = 'signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f <KELI_SIGN_CERT_PATH> /p <redacted> target\release\keli-desktop-shell.exe'
+            }
+        )
     }
     smoke = [ordered]@{
         install = [ordered]@{
@@ -108,7 +116,9 @@ foreach ($item in @(
     'next_steps=configure-code-signing-certificate,run-desktop-signing-sign,run-public-release-gate',
     'signing_signtool_available=true',
     'signing_method=none',
-    'signing_unsigned_artifacts=target\release\keli-desktop-shell.exe,target\desktop\keli-desktop-mvp-windows-x64.msi'
+    'signing_unsigned_artifacts=target\release\keli-desktop-shell.exe,target\desktop\keli-desktop-mvp-windows-x64.msi',
+    'signing_command_previews_count=1',
+    'signing_command_preview_artifacts=target\release\keli-desktop-shell.exe'
 )) {
     if (!$failureText.Contains($item)) {
         throw "desktop public release gate fixture output is missing: $item"

@@ -123,6 +123,16 @@ function Get-OptionalSigningDiagnostics {
         $parts += "signing_unsigned_artifacts=$($unsignedArtifacts -join ',')"
     }
 
+    if (Test-JsonProperty -InputObject $signing -Name 'sign_command_previews') {
+        $previewArtifacts = @($signing.sign_command_previews |
+            ForEach-Object { [string]$_.artifact } |
+            Where-Object { ![string]::IsNullOrWhiteSpace($_) })
+        if ($previewArtifacts.Count -gt 0) {
+            $parts += "signing_command_previews_count=$($previewArtifacts.Count)"
+            $parts += "signing_command_preview_artifacts=$($previewArtifacts -join ',')"
+        }
+    }
+
     if ($parts.Count -eq 0) {
         return ''
     }
@@ -255,6 +265,7 @@ try {
         Write-Output 'failure print blockers and exit nonzero'
         Write-Output 'failure print blockers next_steps and exit nonzero'
         Write-Output 'failure print signing diagnostics when available'
+        Write-Output 'failure print signing command preview diagnostics when available'
         Write-Output 'output public release gate passed'
         return
     }
