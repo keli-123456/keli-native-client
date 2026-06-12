@@ -570,7 +570,7 @@ try {
         -ReleaseCommands $releaseCommands
 
     $evidence = [ordered]@{
-        status = 'passed'
+        status = if ($signVerificationFailures.Count -gt 0) { 'failed' } else { 'passed' }
         mode = if ($Sign) { 'sign' } else { 'inspect' }
         signtool = $signTool
         configuration = $configuration

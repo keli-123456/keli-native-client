@@ -175,6 +175,9 @@ if (!$signFailureText.Contains('desktop signing -Sign did not produce valid sign
     throw "sign failure output did not explain unsigned artifacts: $signFailureText"
 }
 $failedSignEvidence = Get-Content -Raw -LiteralPath $evidencePath | ConvertFrom-Json
+if ($failedSignEvidence.status -ne 'failed') {
+    throw "failed sign evidence status mismatch: $($failedSignEvidence.status)"
+}
 if ($failedSignEvidence.sign_verification_failures.Count -ne 2) {
     throw "expected two sign verification failures, got $($failedSignEvidence.sign_verification_failures.Count)"
 }
