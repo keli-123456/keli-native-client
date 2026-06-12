@@ -333,6 +333,83 @@ function Get-OperatorNextSteps {
     return $steps
 }
 
+function Get-SignToolPreviewArguments {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Configuration,
+
+        [AllowNull()]
+        [string]$ConfiguredCertificatePassword,
+
+        [AllowNull()]
+        [string]$ConfiguredCertificateSubject,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ArtifactRelativePath
+    )
+
+    $arguments = @('sign', '/fd', 'SHA256', '/td', 'SHA256', '/tr', $Configuration.timestamp_url)
+    if ($Configuration.signing_method -eq 'pfx') {
+        $arguments += @('/f', '<KELI_SIGN_CERT_PATH>')
+        if (![string]::IsNullOrWhiteSpace($ConfiguredCertificatePassword)) {
+            $arguments += @('/p', '<redacted>')
+        }
+    } elseif ($Configuration.signing_method -eq 'store-subject') {
+        $arguments += @('/n', $ConfiguredCertificateSubject)
+    } else {
+        return @()
+    }
+    $arguments += $ArtifactRelativePath
+    return $arguments
+}
+
+function Format-PreviewCommand {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    $parts = @('signtool')
+    foreach ($argument in $Arguments) {
+        if ($argument -match '\s') {
+            $parts += '"' + ($argument -replace '"', '\"') + '"'
+        } else {
+            $parts += $argument
+        }
+    }
+    return $parts -join ' '
+}
+
+function Get-SignCommandPreviews {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Configuration,
+
+        [Parameter(Mandatory = $true)]
+        [object[]]$Artifacts,
+
+        [AllowNull()]
+        [string]$ConfiguredCertificatePassword,
+
+        [AllowNull()]
+        [string]$ConfiguredCertificateSubject
+    )
+
+    $previews = @()
+    foreach ($artifact in $Artifacts) {
+        $arguments = @(Get-SignToolPreviewArguments -Configuration $Configuration -ConfiguredCertificatePassword $ConfiguredCertificatePassword -ConfiguredCertificateSubject $ConfiguredCertificateSubject -ArtifactRelativePath ([string]$artifact.path))
+        if ($arguments.Count -eq 0) {
+            continue
+        }
+        $previews += [ordered]@{
+            artifact = [string]$artifact.path
+            signing_method = [string]$Configuration.signing_method
+            command = Format-PreviewCommand -Arguments $arguments
+        }
+    }
+    return $previews
+}
+
 function Invoke-SignToolSign {
     param(
         [Parameter(Mandatory = $true)]
@@ -398,6 +475,7 @@ try {
         Write-Output 'mode sign requires -Sign'
         Write-Output 'metadata public_release_blocker artifact-signature-missing'
         Write-Output 'metadata public_release_blocker signing-certificate-missing'
+        Write-Output 'metadata sign_command_previews redacted'
         Write-Output 'metadata operator_next_steps'
         Write-Output 'metadata release_commands'
         Write-Output "output $evidenceRelativePath"
@@ -432,6 +510,7 @@ try {
         (Get-SignableArtifactEvidence -Kind 'desktop-shell-exe' -Path $exePath -RelativePath $exeRelativePath),
         (Get-SignableArtifactEvidence -Kind 'desktop-msi' -Path $msiPath -RelativePath $msiRelativePath)
     )
+    $signCommandPreviews = @(Get-SignCommandPreviews -Configuration $configuration -Artifacts $artifacts -ConfiguredCertificatePassword $CertificatePassword -ConfiguredCertificateSubject $CertificateSubject)
 
     $blockers = @()
     if (@($artifacts | Where-Object { !$_.signature.signed }).Count -gt 0) {
@@ -449,7 +528,7 @@ try {
         -SignTool $signTool `
         -Configuration $configuration `
         -Artifacts $artifacts `
-        -Blockers $blockers `
+        -Blockers @($blockers) `
         -ReleaseCommands $releaseCommands
 
     $evidence = [ordered]@{
@@ -458,10 +537,11 @@ try {
         signtool = $signTool
         configuration = $configuration
         artifacts = $artifacts
+        sign_command_previews = @($signCommandPreviews)
         operator_next_steps = $operatorNextSteps
         release_commands = $releaseCommands
-        public_release_ready = ($blockers.Count -eq 0)
-        public_release_blockers = $blockers
+        public_release_ready = (@($blockers).Count -eq 0)
+        public_release_blockers = @($blockers)
     }
 
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $evidencePath) | Out-Null
