@@ -8,7 +8,7 @@ use actions::{ipc_event_for_message, tray_event_for_id, DesktopShellUiEvent};
 use html::{
     render_shell_html, shell_snapshot_script, subscription_url_import_status_script,
     subscription_url_update_status_script, support_export_status_script,
-    wintun_install_status_script,
+    wintun_install_failure_status_script, wintun_install_status_script,
 };
 use keli_desktop::{
     DesktopRunState, DesktopShellAction, DesktopShellController, DesktopShellControllerError,
@@ -176,6 +176,7 @@ fn handle_ui_event(
             }
             Err(message) => {
                 eprintln!("desktop shell Wintun install failed: {message}");
+                sync_wintun_install_failure(webview, path, &message);
                 sync_webview(webview, controller.snapshot());
             }
         }
@@ -298,6 +299,19 @@ fn install_wintun_path(
         .evaluate_script(&script)
         .map_err(|error| format!("Wintun install status sync failed: {error}"))?;
     Ok(controller.refresh())
+}
+
+fn sync_wintun_install_failure(webview: &WebView, source_path: &str, message: &str) {
+    match wintun_install_failure_status_script(source_path, message) {
+        Ok(script) => {
+            if let Err(error) = webview.evaluate_script(&script) {
+                eprintln!("Wintun install failure status sync failed: {error}");
+            }
+        }
+        Err(error) => {
+            eprintln!("Wintun install failure status serialization failed: {error}");
+        }
+    }
 }
 
 fn sync_webview(webview: &WebView, shell: &DesktopShellState) {
@@ -566,6 +580,18 @@ mod tests {
 
         assert_eq!(report.status, "failed");
         assert!(!report.html_ready);
+    }
+
+    #[test]
+    fn wintun_install_failure_script_preserves_source_path_and_error() {
+        let script = wintun_install_failure_status_script(
+            "C:\\Downloads\\missing-wintun.dll",
+            "install-wintun dependency Platform(\"Wintun source DLL was not found\")",
+        )
+        .expect("failure script");
+
+        assert!(script.contains("missing-wintun.dll"));
+        assert!(script.contains("Wintun source DLL was not found"));
     }
 
     #[test]

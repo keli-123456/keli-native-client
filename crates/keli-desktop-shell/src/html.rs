@@ -392,7 +392,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       document.getElementById("support-export-status").textContent = label;
     }};
     window.keliSetWintunInstall = (summary) => {{
-      const label = `${{summary.status}}: ${{summary.target_path || ""}} (${{summary.copied_bytes || 0}} bytes)`;
+      const label = summary.error
+        ? `${{summary.status}}: ${{summary.error}}`
+        : `${{summary.status}}: ${{summary.target_path || ""}} (${{summary.copied_bytes || 0}} bytes)`;
       document.getElementById("wintun-install-status").textContent = label;
     }};
     function subscriptionSource(fetch) {{
@@ -538,6 +540,28 @@ pub fn wintun_install_status_script(
     let summary_json = serde_json::to_string(summary)?;
     Ok(format!(
         "window.keliSetWintunInstall && window.keliSetWintunInstall({summary_json});"
+    ))
+}
+
+#[derive(serde::Serialize)]
+struct WintunInstallFailureStatus<'a> {
+    status: &'static str,
+    source_path: &'a str,
+    error: &'a str,
+}
+
+pub fn wintun_install_failure_status_script(
+    source_path: &str,
+    error: &str,
+) -> serde_json::Result<String> {
+    let status = WintunInstallFailureStatus {
+        status: "failed",
+        source_path,
+        error,
+    };
+    let status_json = serde_json::to_string(&status)?;
+    Ok(format!(
+        "window.keliSetWintunInstall && window.keliSetWintunInstall({status_json});"
     ))
 }
 
@@ -1101,5 +1125,19 @@ mod tests {
         assert!(script.contains("window.keliSetWintunInstall"));
         assert!(script.contains("ready"));
         assert!(script.contains("wintun.dll"));
+    }
+
+    #[test]
+    fn wintun_install_failure_status_script_updates_install_status() {
+        let script = wintun_install_failure_status_script(
+            "C:\\Downloads\\missing-wintun.dll",
+            "install-wintun dependency Platform(\"Wintun source DLL was not found\")",
+        )
+        .expect("Wintun install failure script");
+
+        assert!(script.contains("window.keliSetWintunInstall"));
+        assert!(script.contains("\"status\":\"failed\""));
+        assert!(script.contains("missing-wintun.dll"));
+        assert!(script.contains("Wintun source DLL was not found"));
     }
 }
