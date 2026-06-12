@@ -1,5 +1,8 @@
+use keli_cli::{ManagedSubscriptionUrlFetchOutcome, ManagedSubscriptionUrlUpdateOutcome};
 use keli_client_core::{SubscriptionPreflightReport, SubscriptionUpdateReport};
 use serde::{Deserialize, Serialize};
+
+use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DesktopNodeSummary {
@@ -40,6 +43,93 @@ pub struct DesktopSubscriptionUpdateSummary {
     pub removed_tags: Vec<String>,
     pub retained_tags: Vec<String>,
     pub subscription: DesktopSubscriptionSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopSubscriptionUrlFetchSummary {
+    pub ok: bool,
+    pub scheme: Option<String>,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub default_port: Option<bool>,
+    pub path_present: Option<bool>,
+    pub query_present: Option<bool>,
+    pub http_status: Option<u16>,
+    pub body_bytes: Option<usize>,
+    pub elapsed_ms: Option<u64>,
+    pub error_kind: Option<String>,
+    pub error_detail: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopSubscriptionUrlImportSummary {
+    pub fetch: DesktopSubscriptionUrlFetchSummary,
+    pub subscription: Option<DesktopSubscriptionSummary>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopSubscriptionUrlUpdateSummary {
+    pub applied: bool,
+    pub error: Option<String>,
+    pub fetch: DesktopSubscriptionUrlFetchSummary,
+    pub update: Option<DesktopSubscriptionUpdateSummary>,
+    pub runtime_status: DesktopStatusSnapshot,
+}
+
+impl DesktopSubscriptionUrlFetchSummary {
+    pub fn from_managed(fetch: &ManagedSubscriptionUrlFetchOutcome) -> Self {
+        let source = fetch.source.as_ref();
+        Self {
+            ok: fetch.ok,
+            scheme: source.map(|source| source.scheme.clone()),
+            host: source.map(|source| source.host.clone()),
+            port: source.map(|source| source.port),
+            default_port: source.map(|source| source.default_port),
+            path_present: source.map(|source| source.path_present),
+            query_present: source.map(|source| source.query_present),
+            http_status: fetch.http_status,
+            body_bytes: fetch.body_bytes,
+            elapsed_ms: fetch
+                .elapsed
+                .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64),
+            error_kind: fetch.error_kind.clone(),
+            error_detail: fetch.error_detail.clone(),
+        }
+    }
+}
+
+impl DesktopSubscriptionUrlImportSummary {
+    pub fn fetch_error(fetch: DesktopSubscriptionUrlFetchSummary) -> Self {
+        let error = Some(format!(
+            "subscription URL fetch failed: {}",
+            fetch.error_kind.as_deref().unwrap_or("unknown")
+        ));
+        Self {
+            fetch,
+            subscription: None,
+            error,
+        }
+    }
+}
+
+impl DesktopSubscriptionUrlUpdateSummary {
+    pub fn from_managed(
+        outcome: &ManagedSubscriptionUrlUpdateOutcome,
+        update: Option<DesktopSubscriptionUpdateSummary>,
+        traffic_mode: DesktopTrafficMode,
+    ) -> Self {
+        Self {
+            applied: outcome.applied,
+            error: outcome.error.clone(),
+            fetch: DesktopSubscriptionUrlFetchSummary::from_managed(&outcome.fetch),
+            update,
+            runtime_status: DesktopStatusSnapshot::from_managed_mixed_status(
+                &outcome.status,
+                traffic_mode,
+            ),
+        }
+    }
 }
 
 impl DesktopSubscriptionUpdateSummary {

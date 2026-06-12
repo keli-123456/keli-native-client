@@ -1,10 +1,16 @@
+use std::time::Duration;
+
 use keli_client_core::{plan_subscription_update, preflight_subscription_config, ClientErrorKind};
 use keli_platform::SystemProxyController;
 use serde::{Deserialize, Serialize};
 
 use crate::managed::{DesktopManagedCoreService, DesktopManagedStartOptions};
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
-use crate::subscription::{DesktopSubscriptionSummary, DesktopSubscriptionUpdateSummary};
+use crate::subscription::{
+    DesktopSubscriptionSummary, DesktopSubscriptionUpdateSummary,
+    DesktopSubscriptionUrlFetchSummary, DesktopSubscriptionUrlImportSummary,
+    DesktopSubscriptionUrlUpdateSummary,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -67,6 +73,34 @@ impl<'a, C: SystemProxyController + ?Sized> DesktopRuntimeService<'a, C> {
             selected.as_deref(),
             selected.as_deref(),
         ))
+    }
+
+    pub fn import_subscription_url(
+        &mut self,
+        url: &str,
+        timeout: Duration,
+        max_bytes: usize,
+    ) -> Result<DesktopSubscriptionUrlImportSummary, DesktopRuntimeError> {
+        if self.core.is_running() {
+            return Err(DesktopRuntimeError::Managed(
+                "desktop subscription URL import requires stopped core".to_string(),
+            ));
+        }
+        let fetched =
+            DesktopManagedCoreService::<C>::fetch_subscription_url_config(url, timeout, max_bytes);
+        let (fetch, config_text) = fetched.into_parts();
+        let fetch_summary = DesktopSubscriptionUrlFetchSummary::from_managed(&fetch);
+        let Some(config_text) = config_text else {
+            return Ok(DesktopSubscriptionUrlImportSummary::fetch_error(
+                fetch_summary,
+            ));
+        };
+        let subscription = self.import_subscription_config(config_text)?;
+        Ok(DesktopSubscriptionUrlImportSummary {
+            fetch: fetch_summary,
+            subscription: Some(subscription),
+            error: None,
+        })
     }
 
     pub fn select_node(
@@ -142,6 +176,52 @@ impl<'a, C: SystemProxyController + ?Sized> DesktopRuntimeService<'a, C> {
         ))
     }
 
+    pub fn update_subscription_url(
+        &mut self,
+        url: &str,
+        timeout: Duration,
+        max_bytes: usize,
+    ) -> Result<DesktopSubscriptionUrlUpdateSummary, DesktopRuntimeError> {
+        if !self.core.is_running() {
+            return Err(DesktopRuntimeError::Managed(
+                "desktop subscription URL update requires running core".to_string(),
+            ));
+        }
+        let result = self
+            .core
+            .reload_subscription_url_with_update_plan_and_config_text(url, timeout, max_bytes)?;
+        let (outcome, fetched_config_text, applied_config_text) = result.into_parts();
+        let update = match (outcome.update.as_ref(), fetched_config_text.as_deref()) {
+            (Some(report), Some(config_text)) => {
+                let preflight = preflight_subscription_config(config_text)?;
+                let planned_selected = report.planned_selected_outbound.clone();
+                let subscription = DesktopSubscriptionSummary::from_preflight(
+                    &preflight,
+                    planned_selected.as_deref(),
+                    planned_selected.as_deref(),
+                );
+                Some(DesktopSubscriptionUpdateSummary::from_report(
+                    report,
+                    outcome.applied,
+                    outcome.error.clone(),
+                    subscription,
+                ))
+            }
+            _ => None,
+        };
+        if outcome.applied {
+            if let Some(config_text) = applied_config_text {
+                self.subscription_config = Some(config_text);
+            }
+            self.selected_outbound = outcome.status.selected_outbound.clone();
+        }
+        Ok(DesktopSubscriptionUrlUpdateSummary::from_managed(
+            &outcome,
+            update,
+            self.traffic_mode,
+        ))
+    }
+
     pub fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode) {
         self.traffic_mode = traffic_mode;
     }
@@ -196,6 +276,10 @@ impl<'a, C: SystemProxyController + ?Sized> DesktopRuntimeService<'a, C> {
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+    use std::time::Duration;
 
     use super::*;
     use crate::status::DesktopRunState;
@@ -242,6 +326,42 @@ proxies:
     port: 51820
     password: ignored
 "#
+    }
+
+    fn spawn_subscription_http_server(
+        status_code: u16,
+        reason: &str,
+        body: String,
+    ) -> (String, thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind subscription HTTP server");
+        let port = listener
+            .local_addr()
+            .expect("subscription server addr")
+            .port();
+        let url = format!("http://127.0.0.1:{port}/panel/private/sub?token=super-secret-token");
+        let reason = reason.to_string();
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept subscription fetch");
+            let mut request = Vec::new();
+            let mut byte = [0; 1];
+            while stream.read(&mut byte).expect("read subscription request") != 0 {
+                request.push(byte[0]);
+                if request.ends_with(b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8(request).expect("subscription request utf8");
+            let response = format!(
+                "HTTP/1.1 {status_code} {reason}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("write subscription response");
+            request.lines().next().unwrap_or_default().to_string()
+        });
+        (url, handle)
     }
 
     #[derive(Debug)]
@@ -293,6 +413,36 @@ proxies:
         assert_eq!(summary.selected_outbound.as_deref(), Some("SS-READY"));
         assert_eq!(summary.nodes[0].tag, "SS-READY");
         assert!(summary.nodes[0].selected);
+    }
+
+    #[test]
+    fn import_subscription_url_fetches_config_and_redacts_source() {
+        let platform_controller = FakeSystemProxyController::new();
+        let mut service = DesktopRuntimeService::new(&platform_controller);
+        let (url, request_thread) =
+            spawn_subscription_http_server(200, "OK", ss_config("SS-READY"));
+
+        let imported = service
+            .import_subscription_url(&url, Duration::from_secs(2), 4096)
+            .expect("import subscription URL");
+        let request_line = request_thread.join().expect("subscription request");
+
+        assert_eq!(
+            request_line,
+            "GET /panel/private/sub?token=super-secret-token HTTP/1.1"
+        );
+        assert!(imported.fetch.ok);
+        assert_eq!(imported.fetch.host.as_deref(), Some("127.0.0.1"));
+        assert_eq!(imported.fetch.path_present, Some(true));
+        assert_eq!(imported.fetch.query_present, Some(true));
+        assert_eq!(
+            imported
+                .subscription
+                .as_ref()
+                .and_then(|summary| summary.selected_outbound.as_deref()),
+            Some("SS-READY")
+        );
+        assert!(!format!("{imported:?}").contains("super-secret-token"));
     }
 
     #[test]
@@ -411,6 +561,76 @@ proxies:
         assert!(!update.selected_outbound_preserved);
         assert!(update.selected_outbound_changed);
         assert_eq!(service.status().selected_outbound.as_deref(), Some("SS-C"));
+
+        service.stop().expect("stop service");
+    }
+
+    #[test]
+    fn running_subscription_url_update_syncs_config_for_next_node_selection() {
+        let platform_controller = FakeSystemProxyController::new();
+        let mut service = DesktopRuntimeService::new(&platform_controller);
+        service
+            .import_subscription_config(ss_config_with_tags(&["SS-OLD", "SS-STAY"]))
+            .expect("import subscription");
+        service.select_node("SS-STAY").expect("select node");
+        service.set_listen("127.0.0.1:0");
+        service.start().expect("start service");
+        let (url, request_thread) =
+            spawn_subscription_http_server(200, "OK", ss_config_with_tags(&["SS-STAY", "SS-NEW"]));
+
+        let update = service
+            .update_subscription_url(&url, Duration::from_secs(2), 4096)
+            .expect("update subscription URL");
+        request_thread.join().expect("subscription request");
+
+        assert!(update.applied);
+        assert_eq!(update.error, None);
+        assert_eq!(update.fetch.host.as_deref(), Some("127.0.0.1"));
+        assert_eq!(
+            update
+                .update
+                .as_ref()
+                .map(|summary| summary.reason.as_str()),
+            Some("selected-outbound-preserved")
+        );
+
+        service.select_node("SS-NEW").expect("select new node");
+
+        assert_eq!(
+            service.status().selected_outbound.as_deref(),
+            Some("SS-NEW")
+        );
+        service.stop().expect("stop service");
+    }
+
+    #[test]
+    fn failed_subscription_url_update_keeps_runtime_and_old_config() {
+        let platform_controller = FakeSystemProxyController::new();
+        let mut service = DesktopRuntimeService::new(&platform_controller);
+        service
+            .import_subscription_config(ss_config("SS-READY"))
+            .expect("import subscription");
+        service.set_listen("127.0.0.1:0");
+        service.start().expect("start service");
+        let (url, request_thread) =
+            spawn_subscription_http_server(500, "Panel Error", "panel failed".to_string());
+
+        let update = service
+            .update_subscription_url(&url, Duration::from_secs(2), 4096)
+            .expect("update subscription URL");
+        request_thread.join().expect("subscription request");
+
+        assert!(!update.applied);
+        assert_eq!(
+            update.error.as_deref(),
+            Some("subscription URL fetch failed: http-status")
+        );
+        assert_eq!(update.fetch.error_kind.as_deref(), Some("http-status"));
+        assert_eq!(
+            service.status().selected_outbound.as_deref(),
+            Some("SS-READY")
+        );
+        assert_eq!(service.status().run_state, DesktopRunState::Running);
 
         service.stop().expect("stop service");
     }

@@ -1,4 +1,10 @@
-use keli_cli::{ManagedMixedController, ManagedMixedOptions, ManagedSubscriptionUpdateOutcome};
+use std::time::Duration;
+
+use keli_cli::{
+    fetch_subscription_url_config_text, ManagedMixedController, ManagedMixedOptions,
+    ManagedSubscriptionUpdateOutcome, ManagedSubscriptionUrlConfigFetchOutcome,
+    ManagedSubscriptionUrlConfigUpdateOutcome,
+};
 use keli_platform::SystemProxyController;
 
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
@@ -55,6 +61,14 @@ impl<'a, C: SystemProxyController + ?Sized> DesktopManagedCoreService<'a, C> {
         }
     }
 
+    pub fn fetch_subscription_url_config(
+        url: &str,
+        timeout: Duration,
+        max_bytes: usize,
+    ) -> ManagedSubscriptionUrlConfigFetchOutcome {
+        fetch_subscription_url_config_text(url, timeout, max_bytes)
+    }
+
     pub fn is_running(&self) -> bool {
         self.core.is_running()
     }
@@ -108,6 +122,16 @@ impl<'a, C: SystemProxyController + ?Sized> DesktopManagedCoreService<'a, C> {
     ) -> Result<ManagedSubscriptionUpdateOutcome, String> {
         self.core
             .reload_from_subscription_config_text_with_update_plan(config_text)
+    }
+
+    pub fn reload_subscription_url_with_update_plan_and_config_text(
+        &mut self,
+        url: &str,
+        timeout: Duration,
+        max_bytes: usize,
+    ) -> Result<ManagedSubscriptionUrlConfigUpdateOutcome, String> {
+        self.core
+            .reload_from_subscription_url_with_update_plan_and_config_text(url, timeout, max_bytes)
     }
 
     pub fn stop(&mut self) -> Result<DesktopStatusSnapshot, String> {

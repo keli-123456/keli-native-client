@@ -10,6 +10,8 @@ pub use service::{DesktopRuntimeCommand, DesktopRuntimeError, DesktopRuntimeServ
 pub use status::{DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode};
 pub use subscription::{
     DesktopNodeSummary, DesktopSubscriptionSummary, DesktopSubscriptionUpdateSummary,
+    DesktopSubscriptionUrlFetchSummary, DesktopSubscriptionUrlImportSummary,
+    DesktopSubscriptionUrlUpdateSummary,
 };
 
 #[cfg(test)]
