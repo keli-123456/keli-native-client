@@ -64,6 +64,7 @@ $fixture = [ordered]@{
         can_sign = $false
         signtool_available = $true
         signing_method = ''
+        certificate_subject_match_count = 0
         unsigned_artifacts = @('target\release\keli-desktop-shell.exe', 'target\desktop\keli-desktop-mvp-windows-x64.msi')
         sign_command_previews = @(
             [ordered]@{
@@ -111,16 +112,18 @@ $failureText = @(
         Get-Content -LiteralPath $stderrPath
     }
 ) -join "`n"
+$normalizedFailureText = $failureText -replace "(`r`n|`n|`r)", ''
 foreach ($item in @(
     'Desktop public release gate blocked: artifact-signature-missing,signing-certificate-missing',
     'next_steps=configure-code-signing-certificate,run-desktop-signing-sign,run-public-release-gate',
     'signing_signtool_available=true',
     'signing_method=none',
+    'signing_certificate_subject_matches=0',
     'signing_unsigned_artifacts=target\release\keli-desktop-shell.exe,target\desktop\keli-desktop-mvp-windows-x64.msi',
     'signing_command_previews_count=1',
     'signing_command_preview_artifacts=target\release\keli-desktop-shell.exe'
 )) {
-    if (!$failureText.Contains($item)) {
+    if (!$normalizedFailureText.Contains($item)) {
         throw "desktop public release gate fixture output is missing: $item"
     }
 }

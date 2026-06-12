@@ -21,7 +21,7 @@ $plan = $planOutput -join "`n"
 $expectedPlan = @(
     'input target\desktop\keli-desktop-release-evidence.json',
     'read public_release_ready public_release_blockers public_release_next_steps',
-    'read signing.can_sign signing.signtool_available signing.signing_method signing.timestamp_url signing.store_certificate_candidates_count signing.unsigned_artifacts signing.sign_command_previews signing.release_commands',
+    'read signing.can_sign signing.signtool_available signing.signing_method signing.timestamp_url signing.store_certificate_candidates_count signing.certificate_subject_match_count signing.unsigned_artifacts signing.sign_command_previews signing.release_commands',
     'read smoke.machine.machine_takeover_status',
     'output desktop public release readiness report',
     'output json when -Json is provided'
@@ -47,6 +47,7 @@ $fixture = [ordered]@{
         signing_method = ''
         timestamp_url = 'http://timestamp.digicert.com'
         store_certificate_candidates_count = 0
+        certificate_subject_match_count = 0
         unsigned_artifacts = @('target\release\keli-desktop-shell.exe', 'target\desktop\keli-desktop-mvp-windows-x64.msi')
         sign_command_previews = @(
             [ordered]@{
@@ -98,6 +99,9 @@ if ($report.signing.timestamp_url -ne 'http://timestamp.digicert.com') {
 }
 if ($report.signing.store_certificate_candidates_count -ne 0) {
     throw "readiness signing certificate candidate count mismatch: $($report.signing.store_certificate_candidates_count)"
+}
+if ($report.signing.certificate_subject_match_count -ne 0) {
+    throw "readiness signing subject match count mismatch: $($report.signing.certificate_subject_match_count)"
 }
 if (($report.signing.unsigned_artifacts -join ',') -ne 'target\release\keli-desktop-shell.exe,target\desktop\keli-desktop-mvp-windows-x64.msi') {
     throw "readiness unsigned artifacts mismatch: $($report.signing.unsigned_artifacts -join ',')"

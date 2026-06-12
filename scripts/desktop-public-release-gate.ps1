@@ -117,6 +117,9 @@ function Get-OptionalSigningDiagnostics {
         }
         $parts += "signing_method=$method"
     }
+    if (Test-JsonProperty -InputObject $signing -Name 'certificate_subject_match_count') {
+        $parts += "signing_certificate_subject_matches=$([int]$signing.certificate_subject_match_count)"
+    }
 
     $unsignedArtifacts = Get-StringArrayProperty -InputObject $signing -Name 'unsigned_artifacts'
     if ($unsignedArtifacts.Count -gt 0) {

@@ -172,6 +172,7 @@ function New-ReadinessReport {
             signing_method = Get-StringProperty -InputObject $signing -Name 'signing_method'
             timestamp_url = Get-StringProperty -InputObject $signing -Name 'timestamp_url'
             store_certificate_candidates_count = Get-IntProperty -InputObject $signing -Name 'store_certificate_candidates_count'
+            certificate_subject_match_count = Get-IntProperty -InputObject $signing -Name 'certificate_subject_match_count'
             unsigned_artifacts = Get-StringArrayProperty -InputObject $signing -Name 'unsigned_artifacts'
             sign_command_previews = @(Get-SignCommandPreviewsProperty -InputObject $signing -Name 'sign_command_previews')
         }
@@ -203,6 +204,7 @@ function Write-ReadinessText {
     Write-Output "signing_method $($Report.signing.signing_method)"
     Write-Output "signing_timestamp_url $($Report.signing.timestamp_url)"
     Write-Output "signing_certificate_candidates $($Report.signing.store_certificate_candidates_count)"
+    Write-Output "signing_certificate_subject_matches $($Report.signing.certificate_subject_match_count)"
     Write-Output "signing_unsigned_artifacts $($Report.signing.unsigned_artifacts -join ',')"
     Write-Output "signing_command_previews_count $(@($Report.signing.sign_command_previews).Count)"
     Write-Output "command.inspect $($Report.commands.inspect)"
@@ -221,7 +223,7 @@ try {
     if ($PlanOnly) {
         Write-Output "input $releaseEvidenceRelativePath"
         Write-Output 'read public_release_ready public_release_blockers public_release_next_steps'
-        Write-Output 'read signing.can_sign signing.signtool_available signing.signing_method signing.timestamp_url signing.store_certificate_candidates_count signing.unsigned_artifacts signing.sign_command_previews signing.release_commands'
+        Write-Output 'read signing.can_sign signing.signtool_available signing.signing_method signing.timestamp_url signing.store_certificate_candidates_count signing.certificate_subject_match_count signing.unsigned_artifacts signing.sign_command_previews signing.release_commands'
         Write-Output 'read smoke.machine.machine_takeover_status'
         Write-Output 'output desktop public release readiness report'
         Write-Output 'output json when -Json is provided'

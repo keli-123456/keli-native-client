@@ -201,6 +201,11 @@ function Read-SigningStatus {
         $storeCertificateCandidatesCount = [int]$signing.configuration.store_certificate_candidates_count
     }
 
+    $certificateSubjectMatchCount = 0
+    if ($null -ne $signing.configuration.PSObject.Properties['certificate_subject_match_count']) {
+        $certificateSubjectMatchCount = [int]$signing.configuration.certificate_subject_match_count
+    }
+
     $signingMethod = ''
     if ($null -ne $signing.configuration.PSObject.Properties['signing_method'] -and $null -ne $signing.configuration.signing_method) {
         $signingMethod = [string]$signing.configuration.signing_method
@@ -248,6 +253,7 @@ function Read-SigningStatus {
         signing_method = $signingMethod
         timestamp_url = $timestampUrl
         store_certificate_candidates_count = $storeCertificateCandidatesCount
+        certificate_subject_match_count = $certificateSubjectMatchCount
         unsigned_artifacts = $unsignedArtifacts
         operator_next_steps = $operatorNextSteps
         release_commands = $releaseCommands
@@ -363,6 +369,7 @@ try {
         Write-Output 'metadata signing_method'
         Write-Output 'metadata signing_timestamp_url'
         Write-Output 'metadata signing_unsigned_artifacts'
+        Write-Output 'metadata signing_certificate_subject_match_count'
         Write-Output 'metadata signing_command_previews'
         Write-Output 'metadata public_release_next_steps'
         Write-Output "output $evidenceRelativePath"
