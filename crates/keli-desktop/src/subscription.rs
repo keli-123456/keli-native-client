@@ -1,4 +1,7 @@
-use keli_cli::{ManagedSubscriptionUrlFetchOutcome, ManagedSubscriptionUrlUpdateOutcome};
+use keli_cli::{
+    ManagedNodeHealthState, ManagedNodeHealthStatus, ManagedSubscriptionStatus,
+    ManagedSubscriptionUrlFetchOutcome, ManagedSubscriptionUrlUpdateOutcome,
+};
 use keli_client_core::{SubscriptionPreflightReport, SubscriptionUpdateReport};
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +16,11 @@ pub struct DesktopNodeSummary {
     pub udp_supported: bool,
     pub selected: bool,
     pub recommended: bool,
+    pub health_state: Option<String>,
+    pub tcp_available: Option<bool>,
+    pub udp_available: Option<bool>,
+    pub latency_ms: Option<u64>,
+    pub health_error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -181,6 +189,11 @@ impl DesktopSubscriptionSummary {
                 udp_supported: node.udp_supported,
                 selected: selected_outbound.as_deref() == Some(node.tag.as_str()),
                 recommended: recommended_outbound.as_deref() == Some(node.tag.as_str()),
+                health_state: Some("unknown".to_string()),
+                tcp_available: None,
+                udp_available: None,
+                latency_ms: None,
+                health_error: None,
             })
             .collect();
         Self {
@@ -198,12 +211,162 @@ impl DesktopSubscriptionSummary {
                 .collect(),
         }
     }
+
+    pub fn from_managed(status: &ManagedSubscriptionStatus) -> Self {
+        let nodes = status
+            .supported
+            .iter()
+            .map(|node| {
+                let health = status.health_for(&node.tag);
+                let node_health = health
+                    .map(desktop_node_health_summary)
+                    .unwrap_or_else(unknown_node_health_summary);
+                DesktopNodeSummary {
+                    tag: node.tag.clone(),
+                    protocol: node.protocol.clone(),
+                    transport: node.transport.clone(),
+                    security: node.security.clone(),
+                    udp_supported: node.udp_supported,
+                    selected: status.selected_outbound == node.tag,
+                    recommended: status.recommended_outbound == node.tag,
+                    health_state: node_health.health_state,
+                    tcp_available: node_health.tcp_available,
+                    udp_available: node_health.udp_available,
+                    latency_ms: node_health.latency_ms,
+                    health_error: node_health.health_error,
+                }
+            })
+            .collect();
+
+        Self {
+            usable: status.usable,
+            supported_count: status.supported_count(),
+            skipped_count: status.skipped_count(),
+            default_outbound: status.default_outbound.clone(),
+            selected_outbound: Some(status.selected_outbound.clone()),
+            recommended_outbound: Some(status.recommended_outbound.clone()),
+            nodes,
+            skipped: status
+                .skipped
+                .iter()
+                .map(|skipped| format!("{}: {}", skipped.name, skipped.reason))
+                .collect(),
+        }
+    }
+}
+
+struct DesktopNodeHealthFields {
+    health_state: Option<String>,
+    tcp_available: Option<bool>,
+    udp_available: Option<bool>,
+    latency_ms: Option<u64>,
+    health_error: Option<String>,
+}
+
+fn unknown_node_health_summary() -> DesktopNodeHealthFields {
+    DesktopNodeHealthFields {
+        health_state: Some("unknown".to_string()),
+        tcp_available: None,
+        udp_available: None,
+        latency_ms: None,
+        health_error: None,
+    }
+}
+
+fn desktop_node_health_summary(health: &ManagedNodeHealthStatus) -> DesktopNodeHealthFields {
+    DesktopNodeHealthFields {
+        health_state: Some(node_health_state_label(&health.state).to_string()),
+        tcp_available: health.tcp_available,
+        udp_available: health.udp_available,
+        latency_ms: health.latency_ms.map(saturating_u128_to_u64),
+        health_error: health.error_detail.clone().or_else(|| {
+            health
+                .error_kind
+                .as_ref()
+                .map(|error_kind| format!("{error_kind:?}"))
+        }),
+    }
+}
+
+fn node_health_state_label(state: &ManagedNodeHealthState) -> &'static str {
+    match state {
+        ManagedNodeHealthState::Unknown => "unknown",
+        ManagedNodeHealthState::Healthy => "healthy",
+        ManagedNodeHealthState::Unhealthy => "unhealthy",
+    }
+}
+
+fn saturating_u128_to_u64(value: u128) -> u64 {
+    value.min(u128::from(u64::MAX)) as u64
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+
+    use keli_cli::ManagedMixedController;
     use keli_client_core::preflight_subscription_config;
+    use keli_platform::{
+        SystemProxyConfig, SystemProxyController, SystemProxyError, SystemProxySnapshot,
+    };
+
+    fn ss_config(tag: &str) -> String {
+        format!(
+            r#"
+proxies:
+  - name: {tag}
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+"#
+        )
+    }
+
+    fn managed_options() -> keli_cli::ManagedMixedOptions {
+        keli_cli::ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            ..keli_cli::ManagedMixedOptions::default()
+        }
+    }
+
+    #[derive(Debug)]
+    struct FakeSystemProxyController {
+        snapshot: SystemProxySnapshot,
+        applied: RefCell<Vec<SystemProxyConfig>>,
+        restored: RefCell<Vec<SystemProxySnapshot>>,
+    }
+
+    impl FakeSystemProxyController {
+        fn new() -> Self {
+            Self {
+                snapshot: SystemProxySnapshot::default(),
+                applied: RefCell::new(Vec::new()),
+                restored: RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl SystemProxyController for FakeSystemProxyController {
+        fn snapshot(&self) -> Result<SystemProxySnapshot, SystemProxyError> {
+            Ok(self.snapshot.clone())
+        }
+
+        fn apply(
+            &self,
+            config: &SystemProxyConfig,
+        ) -> Result<SystemProxySnapshot, SystemProxyError> {
+            self.applied.borrow_mut().push(config.clone());
+            Ok(self.snapshot.clone())
+        }
+
+        fn restore(&self, snapshot: &SystemProxySnapshot) -> Result<(), SystemProxyError> {
+            self.restored.borrow_mut().push(snapshot.clone());
+            Ok(())
+        }
+    }
 
     #[test]
     fn subscription_summary_marks_selected_and_recommended_nodes() {
@@ -240,5 +403,54 @@ proxies:
             .nodes
             .iter()
             .any(|node| node.tag == "SS-A" && node.recommended));
+    }
+
+    #[test]
+    fn subscription_summary_from_preflight_marks_node_health_unknown() {
+        let report = preflight_subscription_config(&ss_config("SS-A")).expect("preflight");
+
+        let summary =
+            DesktopSubscriptionSummary::from_preflight(&report, Some("SS-A"), Some("SS-A"));
+        let node = summary
+            .nodes
+            .iter()
+            .find(|node| node.tag == "SS-A")
+            .expect("SS-A");
+
+        assert_eq!(node.health_state.as_deref(), Some("unknown"));
+        assert_eq!(node.tcp_available, None);
+        assert_eq!(node.udp_available, None);
+        assert_eq!(node.latency_ms, None);
+        assert_eq!(node.health_error, None);
+    }
+
+    #[test]
+    fn subscription_summary_from_managed_maps_node_health() {
+        let platform_controller = FakeSystemProxyController::new();
+        let mut core = ManagedMixedController::new(&platform_controller);
+        core.start_from_subscription_config_text(&ss_config("SS-A"), managed_options())
+            .expect("start core");
+        let status = core
+            .record_node_health(keli_cli::ManagedNodeHealthStatus::healthy(
+                "SS-A",
+                Some(42),
+                true,
+                true,
+            ))
+            .expect("record health");
+        let managed = status.subscription.as_ref().expect("managed subscription");
+
+        let summary = DesktopSubscriptionSummary::from_managed(managed);
+        let node = summary
+            .nodes
+            .iter()
+            .find(|node| node.tag == "SS-A")
+            .expect("SS-A");
+
+        assert_eq!(node.health_state.as_deref(), Some("healthy"));
+        assert_eq!(node.tcp_available, Some(true));
+        assert_eq!(node.udp_available, Some(true));
+        assert_eq!(node.latency_ms, Some(42));
+        assert_eq!(node.health_error, None);
     }
 }

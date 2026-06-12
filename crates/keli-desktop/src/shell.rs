@@ -413,6 +413,11 @@ mod tests {
                 udp_supported: true,
                 selected: true,
                 recommended: true,
+                health_state: Some("unknown".to_string()),
+                tcp_available: None,
+                udp_available: None,
+                latency_ms: None,
+                health_error: None,
             }],
             skipped: Vec::new(),
         }

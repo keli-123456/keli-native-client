@@ -166,13 +166,17 @@ where
             let outcome = self
                 .core
                 .reload_subscription_config_with_update_plan(&config_text)?;
-            let preflight = preflight_subscription_config(&config_text)?;
             let planned_selected = outcome.report.planned_selected_outbound.clone();
-            let subscription = DesktopSubscriptionSummary::from_preflight(
-                &preflight,
-                planned_selected.as_deref(),
-                planned_selected.as_deref(),
-            );
+            let subscription = if let Some(subscription) = outcome.status.subscription.as_ref() {
+                DesktopSubscriptionSummary::from_managed(subscription)
+            } else {
+                let preflight = preflight_subscription_config(&config_text)?;
+                DesktopSubscriptionSummary::from_preflight(
+                    &preflight,
+                    planned_selected.as_deref(),
+                    planned_selected.as_deref(),
+                )
+            };
             if outcome.applied {
                 self.subscription_config = Some(config_text);
                 self.selected_outbound = outcome.status.selected_outbound.clone();
@@ -224,13 +228,17 @@ where
         let (outcome, fetched_config_text, applied_config_text) = result.into_parts();
         let update = match (outcome.update.as_ref(), fetched_config_text.as_deref()) {
             (Some(report), Some(config_text)) => {
-                let preflight = preflight_subscription_config(config_text)?;
                 let planned_selected = report.planned_selected_outbound.clone();
-                let subscription = DesktopSubscriptionSummary::from_preflight(
-                    &preflight,
-                    planned_selected.as_deref(),
-                    planned_selected.as_deref(),
-                );
+                let subscription = if let Some(subscription) = outcome.status.subscription.as_ref() {
+                    DesktopSubscriptionSummary::from_managed(subscription)
+                } else {
+                    let preflight = preflight_subscription_config(config_text)?;
+                    DesktopSubscriptionSummary::from_preflight(
+                        &preflight,
+                        planned_selected.as_deref(),
+                        planned_selected.as_deref(),
+                    )
+                };
                 Some(DesktopSubscriptionUpdateSummary::from_report(
                     report,
                     outcome.applied,
