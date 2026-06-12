@@ -8,6 +8,7 @@ pub enum DesktopShellUiEvent {
     Action(DesktopShellAction),
     Refresh,
     ImportSubscriptionConfig(String),
+    ImportSubscriptionUrl(String),
     SelectNode(String),
     SetTrafficMode(DesktopTrafficMode),
     ExportSupportBundle,
@@ -19,6 +20,7 @@ struct IpcCommand {
     #[serde(rename = "type")]
     command_type: String,
     config_text: Option<String>,
+    subscription_url: Option<String>,
     outbound_tag: Option<String>,
     traffic_mode: Option<DesktopTrafficMode>,
 }
@@ -51,6 +53,9 @@ fn json_ipc_event(message: &str) -> Option<DesktopShellUiEvent> {
         "import-subscription-config" => command
             .config_text
             .map(DesktopShellUiEvent::ImportSubscriptionConfig),
+        "import-subscription-url" => command
+            .subscription_url
+            .map(DesktopShellUiEvent::ImportSubscriptionUrl),
         "select-node" => command.outbound_tag.map(DesktopShellUiEvent::SelectNode),
         "set-traffic-mode" => command
             .traffic_mode
@@ -213,6 +218,19 @@ mod tests {
             ),
             Some(DesktopShellUiEvent::ImportSubscriptionConfig(
                 "proxies:\n  - name: SS-READY".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn subscription_ipc_import_url_json_maps_to_import_url_event() {
+        assert_eq!(
+            ipc_event_for_message(
+                r#"{"type":"import-subscription-url","subscriptionUrl":"https://sub.example.com/panel?token=secret"}"#,
+                &shell(DesktopRunState::Stopped, true),
+            ),
+            Some(DesktopShellUiEvent::ImportSubscriptionUrl(
+                "https://sub.example.com/panel?token=secret".to_string()
             ))
         );
     }

@@ -1,5 +1,6 @@
 use keli_desktop::{
-    DesktopRunState, DesktopShellState, DesktopSubscriptionSummary, DesktopTrafficMode,
+    DesktopRunState, DesktopShellState, DesktopSubscriptionSummary,
+    DesktopSubscriptionUrlImportSummary, DesktopTrafficMode,
 };
 
 use crate::support::SupportBundleSaveSummary;
@@ -148,6 +149,17 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       background: #edf0f3;
       color: #8a95a3;
     }}
+    input {{
+      width: 100%;
+      min-height: 34px;
+      border: 1px solid #b7c0ca;
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: #ffffff;
+      color: #171a1f;
+      font: inherit;
+      font-size: 13px;
+    }}
     textarea {{
       width: 100%;
       min-height: 128px;
@@ -218,6 +230,11 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       </section>
       <section class="wide">
         <h2>Subscription</h2>
+        <input id="subscription-url" type="url" placeholder="https://example.com/subscription" />
+        <div class="actions">
+          <button id="import-subscription-url-button" class="primary" onclick="postImportSubscriptionUrl()">Import URL</button>
+        </div>
+        <div class="muted" id="subscription-url-status">No subscription URL imported</div>
         <textarea id="subscription-config" spellcheck="false"></textarea>
         <div class="actions">
           <button id="import-subscription-button" class="primary" onclick="postImportSubscription()">Import</button>
@@ -261,6 +278,12 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         configText: document.getElementById("subscription-config").value
       }});
     }}
+    function postImportSubscriptionUrl() {{
+      postJson({{
+        type: "import-subscription-url",
+        subscriptionUrl: document.getElementById("subscription-url").value
+      }});
+    }}
     function postTrafficMode(trafficMode) {{
       postJson({{
         type: "set-traffic-mode",
@@ -301,6 +324,16 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         ? `Saved ${{summary.byte_count}} bytes to ${{summary.path}}`
         : `${{summary.status}}: ${{summary.path || ""}}`;
       document.getElementById("support-export-status").textContent = label;
+    }};
+    window.keliSetSubscriptionUrlImport = (summary) => {{
+      const fetch = summary.fetch || {{}};
+      const source = fetch.host
+        ? `${{fetch.scheme || "url"}}://${{fetch.host}}`
+        : "subscription URL";
+      const label = summary.error
+        ? `Import failed from ${{source}}: ${{summary.error}}`
+        : `Imported ${{summary.subscription ? summary.subscription.supported_count : 0}} nodes from ${{source}}`;
+      document.getElementById("subscription-url-status").textContent = label;
     }};
     window.keliSetShell = (snapshot) => {{
       const status = snapshot.status;
@@ -358,6 +391,15 @@ pub fn support_export_status_script(
     let summary_json = serde_json::to_string(summary)?;
     Ok(format!(
         "window.keliSetSupportExport && window.keliSetSupportExport({summary_json});"
+    ))
+}
+
+pub fn subscription_url_import_status_script(
+    summary: &DesktopSubscriptionUrlImportSummary,
+) -> serde_json::Result<String> {
+    let summary_json = serde_json::to_string(summary)?;
+    Ok(format!(
+        "window.keliSetSubscriptionUrlImport && window.keliSetSubscriptionUrlImport({summary_json});"
     ))
 }
 
@@ -425,8 +467,9 @@ mod tests {
     use super::*;
     use keli_desktop::{
         DesktopDependencyReport, DesktopFirstRunReport, DesktopNodeSummary, DesktopShellState,
-        DesktopStatusSnapshot, DesktopSubscriptionSummary, DesktopSystemProxyDependency,
-        DesktopTrafficMode, DesktopTunBackendDependency,
+        DesktopStatusSnapshot, DesktopSubscriptionSummary, DesktopSubscriptionUrlFetchSummary,
+        DesktopSubscriptionUrlImportSummary, DesktopSystemProxyDependency, DesktopTrafficMode,
+        DesktopTunBackendDependency,
     };
 
     fn snapshot() -> DesktopShellState {
@@ -543,6 +586,45 @@ mod tests {
         assert!(html.contains("import-subscription-config"));
         assert!(html.contains("set-traffic-mode"));
         assert!(html.contains("select-node"));
+    }
+
+    #[test]
+    fn subscription_url_html_includes_url_import_controls() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("id=\"subscription-url\""));
+        assert!(html.contains("import-subscription-url"));
+        assert!(html.contains("id=\"subscription-url-status\""));
+        assert!(html.contains("window.keliSetSubscriptionUrlImport"));
+    }
+
+    #[test]
+    fn subscription_url_status_script_updates_redacted_fetch_status() {
+        let summary = DesktopSubscriptionUrlImportSummary {
+            fetch: DesktopSubscriptionUrlFetchSummary {
+                ok: true,
+                scheme: Some("https".to_string()),
+                host: Some("sub.example.com".to_string()),
+                port: None,
+                default_port: Some(true),
+                path_present: Some(true),
+                query_present: Some(true),
+                http_status: Some(200),
+                body_bytes: Some(128),
+                elapsed_ms: Some(9),
+                error_kind: None,
+                error_detail: None,
+            },
+            subscription: Some(subscription("URL-READY")),
+            error: None,
+        };
+
+        let script = subscription_url_import_status_script(&summary)
+            .expect("subscription URL import script");
+
+        assert!(script.contains("window.keliSetSubscriptionUrlImport"));
+        assert!(script.contains("sub.example.com"));
+        assert!(!script.contains("token=secret"));
     }
 
     #[test]

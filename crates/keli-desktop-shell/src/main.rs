@@ -5,7 +5,10 @@ mod support;
 use std::error::Error;
 
 use actions::{ipc_event_for_message, tray_event_for_id, DesktopShellUiEvent};
-use html::{render_shell_html, shell_snapshot_script, support_export_status_script};
+use html::{
+    render_shell_html, shell_snapshot_script, subscription_url_import_status_script,
+    support_export_status_script,
+};
 use keli_desktop::{
     DesktopShellAction, DesktopShellController, DesktopShellControllerError, DesktopShellState,
 };
@@ -105,6 +108,23 @@ fn handle_ui_event(
     window: &tao::window::Window,
     control_flow: &mut ControlFlow,
 ) {
+    if let DesktopShellUiEvent::ImportSubscriptionUrl(url) = &event {
+        match import_subscription_url(controller, url.clone(), webview) {
+            Ok(shell) => {
+                window.set_visible(shell.window.main_visible);
+                sync_webview(webview, &shell);
+                if shell.quit_requested {
+                    *control_flow = ControlFlow::Exit;
+                }
+            }
+            Err(message) => {
+                eprintln!("desktop shell subscription URL import failed: {message}");
+                sync_webview(webview, controller.snapshot());
+            }
+        }
+        return;
+    }
+
     if matches!(event, DesktopShellUiEvent::ExportSupportBundle) {
         match export_support_bundle(controller, webview) {
             Ok(shell) => {
@@ -150,12 +170,29 @@ fn dispatch_ui_event(
         DesktopShellUiEvent::ImportSubscriptionConfig(config_text) => {
             controller.import_subscription_config(config_text)
         }
+        DesktopShellUiEvent::ImportSubscriptionUrl(_) => Ok(controller.refresh()),
         DesktopShellUiEvent::SelectNode(outbound_tag) => controller.select_node(outbound_tag),
         DesktopShellUiEvent::SetTrafficMode(traffic_mode) => {
             Ok(controller.set_traffic_mode(traffic_mode))
         }
         DesktopShellUiEvent::ExportSupportBundle => Ok(controller.refresh()),
     }
+}
+
+fn import_subscription_url(
+    controller: &mut DesktopShellController<keli_desktop::DesktopNativeCommandService>,
+    url: String,
+    webview: &WebView,
+) -> Result<DesktopShellState, String> {
+    let imported = controller
+        .import_subscription_url(url)
+        .map_err(|error| format!("{} {} {}", error.operation, error.kind, error.message))?;
+    let script = subscription_url_import_status_script(&imported)
+        .map_err(|error| format!("subscription URL import status serialization failed: {error}"))?;
+    webview
+        .evaluate_script(&script)
+        .map_err(|error| format!("subscription URL import status sync failed: {error}"))?;
+    Ok(controller.refresh())
 }
 
 fn export_support_bundle(

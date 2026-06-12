@@ -1,11 +1,16 @@
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 
 use crate::commands::{DesktopCommandError, DesktopNativeCommandService};
 use crate::dependencies::DesktopDependencyReport;
 use crate::shell::{DesktopShellAction, DesktopShellPrimaryCommand, DesktopShellState};
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
-use crate::subscription::DesktopSubscriptionSummary;
+use crate::subscription::{DesktopSubscriptionSummary, DesktopSubscriptionUrlImportSummary};
 use crate::support::DesktopSupportBundleExport;
+
+const DEFAULT_SUBSCRIPTION_URL_TIMEOUT: Duration = Duration::from_secs(15);
+const DEFAULT_SUBSCRIPTION_URL_MAX_BYTES: usize = 4 * 1024 * 1024;
 
 pub trait DesktopShellCommandHost {
     fn status(&self) -> DesktopStatusSnapshot;
@@ -16,6 +21,12 @@ pub trait DesktopShellCommandHost {
         &mut self,
         config_text: String,
     ) -> Result<DesktopSubscriptionSummary, DesktopCommandError>;
+    fn import_subscription_url(
+        &mut self,
+        url: String,
+        timeout: Duration,
+        max_bytes: usize,
+    ) -> Result<DesktopSubscriptionUrlImportSummary, DesktopCommandError>;
     fn select_node(
         &mut self,
         outbound_tag: String,
@@ -46,6 +57,15 @@ impl DesktopShellCommandHost for DesktopNativeCommandService {
         config_text: String,
     ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
         self.import_subscription_config(config_text)
+    }
+
+    fn import_subscription_url(
+        &mut self,
+        url: String,
+        timeout: Duration,
+        max_bytes: usize,
+    ) -> Result<DesktopSubscriptionUrlImportSummary, DesktopCommandError> {
+        self.import_subscription_url(&url, timeout, max_bytes)
     }
 
     fn select_node(
@@ -148,6 +168,22 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         Ok(self.shell.clone())
     }
 
+    pub fn import_subscription_url(
+        &mut self,
+        url: impl Into<String>,
+    ) -> Result<DesktopSubscriptionUrlImportSummary, DesktopShellControllerError> {
+        let imported = self.host.import_subscription_url(
+            url.into(),
+            DEFAULT_SUBSCRIPTION_URL_TIMEOUT,
+            DEFAULT_SUBSCRIPTION_URL_MAX_BYTES,
+        )?;
+        if let Some(subscription) = imported.subscription.clone() {
+            self.shell.refresh_subscription(Some(subscription));
+            self.shell.refresh_status(self.host.status());
+        }
+        Ok(imported)
+    }
+
     pub fn select_node(
         &mut self,
         outbound_tag: impl Into<String>,
@@ -218,7 +254,10 @@ mod tests {
     use crate::readiness::{DesktopBlocker, DesktopFirstRunReport};
     use crate::shell::{DesktopShellAction, DesktopShellPrimaryCommand};
     use crate::status::{DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode};
-    use crate::subscription::{DesktopNodeSummary, DesktopSubscriptionSummary};
+    use crate::subscription::{
+        DesktopNodeSummary, DesktopSubscriptionSummary, DesktopSubscriptionUrlFetchSummary,
+        DesktopSubscriptionUrlImportSummary,
+    };
     use crate::support::DesktopSupportBundleExport;
 
     #[derive(Debug, Clone)]
@@ -236,6 +275,7 @@ mod tests {
         selects: usize,
         modes: Vec<DesktopTrafficMode>,
         subscription: DesktopSubscriptionSummary,
+        url_imports: Vec<String>,
         exports: usize,
     }
 
@@ -251,6 +291,7 @@ mod tests {
                     selects: 0,
                     modes: Vec::new(),
                     subscription: subscription("SS-READY"),
+                    url_imports: Vec::new(),
                     exports: 0,
                 })),
             }
@@ -278,6 +319,10 @@ mod tests {
 
         fn exports(&self) -> usize {
             self.inner.borrow().exports
+        }
+
+        fn url_imports(&self) -> Vec<String> {
+            self.inner.borrow().url_imports.clone()
         }
 
         fn set_status(&self, status: DesktopStatusSnapshot) {
@@ -320,6 +365,36 @@ mod tests {
             inner.imports += 1;
             inner.subscription = subscription("SS-READY");
             Ok(inner.subscription.clone())
+        }
+
+        fn import_subscription_url(
+            &mut self,
+            url: String,
+            _timeout: std::time::Duration,
+            _max_bytes: usize,
+        ) -> Result<DesktopSubscriptionUrlImportSummary, DesktopCommandError> {
+            let mut inner = self.inner.borrow_mut();
+            inner.url_imports.push(url);
+            inner.subscription = subscription("URL-READY");
+            inner.status.selected_outbound = Some("URL-READY".to_string());
+            Ok(DesktopSubscriptionUrlImportSummary {
+                fetch: DesktopSubscriptionUrlFetchSummary {
+                    ok: true,
+                    scheme: Some("https".to_string()),
+                    host: Some("sub.example.com".to_string()),
+                    port: None,
+                    default_port: Some(true),
+                    path_present: Some(true),
+                    query_present: Some(true),
+                    http_status: Some(200),
+                    body_bytes: Some(128),
+                    elapsed_ms: Some(9),
+                    error_kind: None,
+                    error_detail: None,
+                },
+                subscription: Some(inner.subscription.clone()),
+                error: None,
+            })
         }
 
         fn select_node(
@@ -566,6 +641,36 @@ mod tests {
                 .as_ref()
                 .and_then(|subscription| subscription.selected_outbound.as_deref()),
             Some("SS-READY")
+        );
+    }
+
+    #[test]
+    fn shell_subscription_url_import_calls_host_and_updates_shell_snapshot() {
+        let host = FakeHost::new(status(DesktopRunState::Stopped), ready_dependencies());
+        let observed = host.clone();
+        let mut controller = DesktopShellController::new(host);
+
+        let imported = controller
+            .import_subscription_url("https://sub.example.com/panel?token=secret")
+            .expect("import subscription URL");
+
+        assert_eq!(
+            observed.url_imports(),
+            vec!["https://sub.example.com/panel?token=secret".to_string()]
+        );
+        assert!(imported.fetch.ok);
+        assert_eq!(imported.fetch.host.as_deref(), Some("sub.example.com"));
+        assert_eq!(
+            controller
+                .snapshot()
+                .subscription
+                .as_ref()
+                .and_then(|subscription| subscription.selected_outbound.as_deref()),
+            Some("URL-READY")
+        );
+        assert_eq!(
+            controller.snapshot().status.selected_outbound.as_deref(),
+            Some("URL-READY")
         );
     }
 
