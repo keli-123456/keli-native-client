@@ -110,11 +110,36 @@ function Read-SmokeStatus {
         throw "$Name smoke native_core_default must be true"
     }
 
-    [ordered]@{
+    $readmeSubscriptionImport = $null
+    if ($null -ne $smoke.PSObject.Properties['readme_subscription_import']) {
+        $readmeSubscriptionImport = [string]$smoke.readme_subscription_import
+    }
+
+    $manualSmokeCases = @()
+    if ($null -ne $smoke.PSObject.Properties['manual_smoke_cases']) {
+        $manualSmokeCases = @($smoke.manual_smoke_cases | ForEach-Object { [string]$_ })
+    }
+
+    $verifiedUiWorkflowEntrypoints = @()
+    if ($null -ne $smoke.PSObject.Properties['verified_ui_workflow_entrypoints']) {
+        $verifiedUiWorkflowEntrypoints = @($smoke.verified_ui_workflow_entrypoints | ForEach-Object { [string]$_ })
+    }
+
+    $status = [ordered]@{
         path = $RelativePath
         status = [string]$smoke.status
         native_core_default = $true
     }
+    if (![string]::IsNullOrWhiteSpace($readmeSubscriptionImport)) {
+        $status['readme_subscription_import'] = $readmeSubscriptionImport
+    }
+    if ($manualSmokeCases.Count -gt 0) {
+        $status['manual_smoke_cases'] = $manualSmokeCases
+    }
+    if ($verifiedUiWorkflowEntrypoints.Count -gt 0) {
+        $status['verified_ui_workflow_entrypoints'] = $verifiedUiWorkflowEntrypoints
+    }
+    return $status
 }
 
 function Read-MachineSmokeStatus {
@@ -293,6 +318,10 @@ try {
         Write-Output 'hash sha256 exe zip msi'
         Write-Output 'signature authenticode exe msi'
         Write-Output 'metadata native_core_default true'
+        Write-Output 'metadata install_smoke_ui_workflow_entrypoints'
+        Write-Output 'metadata install_smoke_readme_subscription_import'
+        Write-Output 'metadata msi_smoke_manual_smoke_cases'
+        Write-Output 'metadata msi_smoke_readme_subscription_import'
         Write-Output 'metadata public_release_ready false_when_unsigned'
         Write-Output 'metadata public_release_ready false_when_machine_takeover_missing'
         Write-Output 'metadata public_release_ready false_when_signing_missing'
