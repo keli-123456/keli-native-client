@@ -507,6 +507,7 @@ try {
         Write-Output 'metadata public_release_blocker signing-certificate-missing'
         Write-Output 'metadata sign_command_previews redacted'
         Write-Output 'metadata certificate_subject_matches'
+        Write-Output 'metadata sign_verification_failures'
         Write-Output 'metadata operator_next_steps'
         Write-Output 'metadata release_commands'
         Write-Output "output $evidenceRelativePath"
@@ -541,6 +542,12 @@ try {
         (Get-SignableArtifactEvidence -Kind 'desktop-shell-exe' -Path $exePath -RelativePath $exeRelativePath),
         (Get-SignableArtifactEvidence -Kind 'desktop-msi' -Path $msiPath -RelativePath $msiRelativePath)
     )
+    $signVerificationFailures = @()
+    if ($Sign) {
+        $signVerificationFailures = @($artifacts |
+            Where-Object { !$_.signature.signed } |
+            ForEach-Object { [string]$_.path })
+    }
     $signCommandPreviews = @(Get-SignCommandPreviews -Configuration $configuration -Artifacts $artifacts -ConfiguredCertificatePassword $CertificatePassword -ConfiguredCertificateSubject $CertificateSubject)
 
     $blockers = @()
@@ -569,6 +576,7 @@ try {
         configuration = $configuration
         artifacts = $artifacts
         sign_command_previews = @($signCommandPreviews)
+        sign_verification_failures = @($signVerificationFailures)
         operator_next_steps = $operatorNextSteps
         release_commands = $releaseCommands
         public_release_ready = (@($blockers).Count -eq 0)
@@ -578,6 +586,9 @@ try {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $evidencePath) | Out-Null
     $evidence | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $evidencePath -Encoding ASCII
     Write-Host "Desktop signing evidence written: $evidencePath"
+    if ($signVerificationFailures.Count -gt 0) {
+        throw "desktop signing -Sign did not produce valid signatures: $($signVerificationFailures -join ',')"
+    }
 } finally {
     Pop-Location
 }

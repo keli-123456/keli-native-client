@@ -34,6 +34,7 @@ $expected = @(
     'metadata public_release_blocker signing-certificate-missing',
     'metadata sign_command_previews redacted',
     'metadata certificate_subject_matches',
+    'metadata sign_verification_failures',
     'metadata operator_next_steps',
     'metadata release_commands',
     'output target\desktop\keli-desktop-signing.json'
@@ -131,6 +132,51 @@ if ($subjectNextStepIds -notcontains 'fix-certificate-subject') {
 }
 if (($subjectEvidence.public_release_blockers -join ',') -notlike '*signing-certificate-missing*') {
     throw "unmatched store-subject evidence should remain blocked on signing certificate: $($subjectEvidence.public_release_blockers -join ',')"
+}
+
+$fakeSuccessSignToolPath = Join-Path $tempDir 'fake-signtool-success.cmd'
+Set-Content -LiteralPath $fakeSuccessSignToolPath -Value "@echo off`r`nexit /b 0`r`n" -Encoding ASCII
+$signFailureStdoutPath = Join-Path $tempDir 'sign-failure-stdout.txt'
+$signFailureStderrPath = Join-Path $tempDir 'sign-failure-stderr.txt'
+$signFailureProcess = Start-Process `
+    -FilePath 'powershell' `
+    -ArgumentList @(
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        $signingScript,
+        '-Sign',
+        '-SignToolPath',
+        $fakeSuccessSignToolPath,
+        '-CertificatePath',
+        $fakePfxPath,
+        '-CertificatePassword',
+        'secret-password',
+        '-SkipCertificateStoreDiscovery'
+    ) `
+    -NoNewWindow `
+    -Wait `
+    -PassThru `
+    -RedirectStandardOutput $signFailureStdoutPath `
+    -RedirectStandardError $signFailureStderrPath
+if ($signFailureProcess.ExitCode -eq 0) {
+    throw 'desktop-signing.ps1 -Sign should fail when signtool exits 0 but artifacts remain unsigned'
+}
+$signFailureText = @(
+    if (Test-Path -LiteralPath $signFailureStdoutPath) {
+        Get-Content -LiteralPath $signFailureStdoutPath
+    }
+    if (Test-Path -LiteralPath $signFailureStderrPath) {
+        Get-Content -LiteralPath $signFailureStderrPath
+    }
+) -join "`n"
+if (!$signFailureText.Contains('desktop signing -Sign did not produce valid signatures')) {
+    throw "sign failure output did not explain unsigned artifacts: $signFailureText"
+}
+$failedSignEvidence = Get-Content -Raw -LiteralPath $evidencePath | ConvertFrom-Json
+if ($failedSignEvidence.sign_verification_failures.Count -ne 2) {
+    throw "expected two sign verification failures, got $($failedSignEvidence.sign_verification_failures.Count)"
 }
 
 Write-Output 'desktop signing plan test passed'
