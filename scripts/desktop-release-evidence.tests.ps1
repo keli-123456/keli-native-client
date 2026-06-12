@@ -38,6 +38,9 @@ $expected = @(
     'metadata signing_store_certificate_candidates_count',
     'metadata signing_operator_next_steps',
     'metadata signing_release_commands',
+    'metadata signing_method',
+    'metadata signing_timestamp_url',
+    'metadata signing_unsigned_artifacts',
     'metadata public_release_next_steps',
     'output target\desktop\keli-desktop-release-evidence.json'
 )

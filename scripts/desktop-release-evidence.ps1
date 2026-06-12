@@ -201,6 +201,23 @@ function Read-SigningStatus {
         $storeCertificateCandidatesCount = [int]$signing.configuration.store_certificate_candidates_count
     }
 
+    $signingMethod = ''
+    if ($null -ne $signing.configuration.PSObject.Properties['signing_method'] -and $null -ne $signing.configuration.signing_method) {
+        $signingMethod = [string]$signing.configuration.signing_method
+    }
+
+    $timestampUrl = ''
+    if ($null -ne $signing.configuration.PSObject.Properties['timestamp_url']) {
+        $timestampUrl = [string]$signing.configuration.timestamp_url
+    }
+
+    $unsignedArtifacts = @()
+    if ($null -ne $signing.PSObject.Properties['artifacts']) {
+        $unsignedArtifacts = @($signing.artifacts |
+            Where-Object { !$_.signature.signed } |
+            ForEach-Object { [string]$_.path })
+    }
+
     $operatorNextSteps = @()
     if ($null -ne $signing.PSObject.Properties['operator_next_steps']) {
         $operatorNextSteps = @($signing.operator_next_steps | ForEach-Object { [string]$_.id })
@@ -217,7 +234,10 @@ function Read-SigningStatus {
         mode = [string]$signing.mode
         signtool_available = [bool]$signing.signtool.available
         can_sign = [bool]$signing.configuration.can_sign
+        signing_method = $signingMethod
+        timestamp_url = $timestampUrl
         store_certificate_candidates_count = $storeCertificateCandidatesCount
+        unsigned_artifacts = $unsignedArtifacts
         operator_next_steps = $operatorNextSteps
         release_commands = $releaseCommands
         blockers = $blockers
@@ -328,6 +348,9 @@ try {
         Write-Output 'metadata signing_store_certificate_candidates_count'
         Write-Output 'metadata signing_operator_next_steps'
         Write-Output 'metadata signing_release_commands'
+        Write-Output 'metadata signing_method'
+        Write-Output 'metadata signing_timestamp_url'
+        Write-Output 'metadata signing_unsigned_artifacts'
         Write-Output 'metadata public_release_next_steps'
         Write-Output "output $evidenceRelativePath"
         return
