@@ -124,6 +124,9 @@ mod tests {
                 generation: 1,
                 event_count: 2,
                 last_error: None,
+                connection_metrics: Default::default(),
+                node_health: Default::default(),
+                recent_events: Vec::new(),
             },
             DesktopDependencyReport {
                 first_run: DesktopFirstRunReport {

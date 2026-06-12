@@ -36,6 +36,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let diagnostics_core_status = diagnostics_core_status(snapshot);
     let diagnostics_runtime_events = diagnostics_runtime_events(snapshot);
     let diagnostics_last_error = diagnostics_last_error(snapshot);
+    let diagnostics_connection_metrics = diagnostics_connection_metrics(snapshot);
+    let diagnostics_node_health = diagnostics_node_health(snapshot);
+    let diagnostics_recent_event = diagnostics_recent_event(snapshot);
     let diagnostics_system_proxy = diagnostics_system_proxy(snapshot);
     let diagnostics_tun = diagnostics_tun(snapshot);
     let diagnostics_default_core = diagnostics_default_core(snapshot);
@@ -343,6 +346,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="value" id="diagnostics-core-status">{diagnostics_core_status}</div>
         <div class="muted" id="diagnostics-runtime-events">{diagnostics_runtime_events}</div>
         <div class="muted" id="diagnostics-last-error">{diagnostics_last_error}</div>
+        <div class="muted" id="diagnostics-connection-metrics">{diagnostics_connection_metrics}</div>
+        <div class="muted" id="diagnostics-node-health">{diagnostics_node_health}</div>
+        <div class="muted" id="diagnostics-recent-event">{diagnostics_recent_event}</div>
         <div class="muted" id="diagnostics-system-proxy">{diagnostics_system_proxy}</div>
         <div class="muted" id="diagnostics-tun">{diagnostics_tun}</div>
         <div class="muted" id="diagnostics-default-core">{diagnostics_default_core}</div>
@@ -617,6 +623,27 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const lastError = snapshot.status.last_error || "none";
       return `Last error: ${{lastError}}`;
     }}
+    function diagnosticsConnectionMetrics(snapshot) {{
+      const metrics = snapshot.status.connection_metrics || {{}};
+      const average = metrics.average_connect_ms === null || metrics.average_connect_ms === undefined
+        ? "n/a"
+        : `${{metrics.average_connect_ms}} ms`;
+      return `Connections ${{metrics.total || 0}} total, ${{metrics.success || 0}} ok, ${{metrics.failure || 0}} failed, avg connect ${{average}}`;
+    }}
+    function diagnosticsNodeHealth(snapshot) {{
+      const health = snapshot.status.node_health || {{}};
+      const nodeCount = health.node_count || 0;
+      if (!nodeCount) return "No runtime health evidence yet";
+      const selected = health.selected_state || "unknown";
+      return `Node health ${{health.healthy_count || 0}} healthy, ${{health.unhealthy_count || 0}} unhealthy, ${{health.unknown_count || 0}} unknown, checked ${{health.checked_count || 0}}/${{nodeCount}}, selected ${{selected}}`;
+    }}
+    function diagnosticsRecentEvent(snapshot) {{
+      const event = (snapshot.status.recent_events || [])[0];
+      if (!event) return "Recent event: none";
+      const status = runStateLabels[event.status] || event.status;
+      const note = event.note ? ` - ${{event.note}}` : "";
+      return `Recent event: ${{status}}${{note}}`;
+    }}
     function diagnosticsSystemProxy(snapshot) {{
       return `System proxy: ${{systemProxyDependency(snapshot)}}`;
     }}
@@ -655,6 +682,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       document.getElementById("diagnostics-core-status").textContent = diagnosticsCoreStatus(snapshot);
       document.getElementById("diagnostics-runtime-events").textContent = diagnosticsRuntimeEvents(snapshot);
       document.getElementById("diagnostics-last-error").textContent = diagnosticsLastError(snapshot);
+      document.getElementById("diagnostics-connection-metrics").textContent = diagnosticsConnectionMetrics(snapshot);
+      document.getElementById("diagnostics-node-health").textContent = diagnosticsNodeHealth(snapshot);
+      document.getElementById("diagnostics-recent-event").textContent = diagnosticsRecentEvent(snapshot);
       document.getElementById("diagnostics-system-proxy").textContent = diagnosticsSystemProxy(snapshot);
       document.getElementById("diagnostics-tun").textContent = diagnosticsTun(snapshot);
       document.getElementById("diagnostics-default-core").textContent = diagnosticsDefaultCore(snapshot);
@@ -686,6 +716,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         diagnostics_core_status = escape_html(&diagnostics_core_status),
         diagnostics_runtime_events = escape_html(&diagnostics_runtime_events),
         diagnostics_last_error = escape_html(&diagnostics_last_error),
+        diagnostics_connection_metrics = escape_html(&diagnostics_connection_metrics),
+        diagnostics_node_health = escape_html(&diagnostics_node_health),
+        diagnostics_recent_event = escape_html(&diagnostics_recent_event),
         diagnostics_system_proxy = escape_html(&diagnostics_system_proxy),
         diagnostics_tun = escape_html(&diagnostics_tun),
         diagnostics_default_core = escape_html(&diagnostics_default_core),
@@ -927,6 +960,47 @@ fn diagnostics_last_error(snapshot: &DesktopShellState) -> String {
     )
 }
 
+fn diagnostics_connection_metrics(snapshot: &DesktopShellState) -> String {
+    let metrics = &snapshot.status.connection_metrics;
+    let average = metrics
+        .average_connect_ms
+        .map(|value| format!("{value} ms"))
+        .unwrap_or_else(|| "n/a".to_string());
+    format!(
+        "Connections {} total, {} ok, {} failed, avg connect {}",
+        metrics.total, metrics.success, metrics.failure, average
+    )
+}
+
+fn diagnostics_node_health(snapshot: &DesktopShellState) -> String {
+    let health = &snapshot.status.node_health;
+    if health.node_count == 0 {
+        return "No runtime health evidence yet".to_string();
+    }
+
+    format!(
+        "Node health {} healthy, {} unhealthy, {} unknown, checked {}/{}, selected {}",
+        health.healthy_count,
+        health.unhealthy_count,
+        health.unknown_count,
+        health.checked_count,
+        health.node_count,
+        health.selected_state.as_deref().unwrap_or("unknown")
+    )
+}
+
+fn diagnostics_recent_event(snapshot: &DesktopShellState) -> String {
+    let Some(event) = snapshot.status.recent_events.first() else {
+        return "Recent event: none".to_string();
+    };
+    let note = event
+        .note
+        .as_deref()
+        .map(|note| format!(" - {note}"))
+        .unwrap_or_default();
+    format!("Recent event: {}{}", run_state_label(event.status), note)
+}
+
 fn diagnostics_system_proxy(snapshot: &DesktopShellState) -> String {
     format!("System proxy: {}", system_proxy_dependency(snapshot))
 }
@@ -1050,8 +1124,9 @@ mod tests {
     use super::*;
     use keli_desktop::{
         DesktopDependencyReport, DesktopFirstRunReport, DesktopNodeSummary, DesktopShellState,
-        DesktopStatusSnapshot, DesktopSubscriptionSummary, DesktopSubscriptionUpdateSummary,
-        DesktopSubscriptionUrlFetchSummary, DesktopSubscriptionUrlImportSummary,
+        DesktopRecentRuntimeEvent, DesktopStatusSnapshot, DesktopSubscriptionSummary,
+        DesktopSubscriptionUpdateSummary, DesktopSubscriptionUrlFetchSummary,
+        DesktopSubscriptionUrlImportSummary,
         DesktopSubscriptionUrlUpdateSummary, DesktopSystemProxyDependency, DesktopTrafficMode,
         DesktopTunBackendDependency,
     };
@@ -1066,6 +1141,9 @@ mod tests {
                 generation: 3,
                 event_count: 5,
                 last_error: None,
+                connection_metrics: Default::default(),
+                node_health: Default::default(),
+                recent_events: Vec::new(),
             },
             DesktopDependencyReport {
                 first_run: DesktopFirstRunReport {
@@ -1321,6 +1399,9 @@ mod tests {
                 generation: 8,
                 event_count: 6,
                 last_error: None,
+                connection_metrics: Default::default(),
+                node_health: Default::default(),
+                recent_events: Vec::new(),
             },
         };
 
@@ -1466,6 +1547,19 @@ mod tests {
     fn diagnostics_html_includes_health_summary() {
         let mut snapshot = snapshot();
         snapshot.status.last_error = Some("Managed(\"bind failed\")".to_string());
+        snapshot.status.connection_metrics.total = 3;
+        snapshot.status.connection_metrics.success = 2;
+        snapshot.status.connection_metrics.failure = 1;
+        snapshot.status.connection_metrics.average_connect_ms = Some(25);
+        snapshot.status.node_health.node_count = 2;
+        snapshot.status.node_health.healthy_count = 1;
+        snapshot.status.node_health.unhealthy_count = 1;
+        snapshot.status.node_health.checked_count = 2;
+        snapshot.status.node_health.selected_state = Some("healthy".to_string());
+        snapshot.status.recent_events = vec![DesktopRecentRuntimeEvent {
+            status: DesktopRunState::Running,
+            note: Some("runtime running".to_string()),
+        }];
 
         let html = render_shell_html(&snapshot);
 
@@ -1476,6 +1570,11 @@ mod tests {
         assert!(html.contains("Last error: Managed(&quot;bind failed&quot;)"));
         assert!(html.contains("id=\"diagnostics-system-proxy\""));
         assert!(html.contains("id=\"diagnostics-tun\""));
+        assert!(html.contains("Connections 3 total, 2 ok, 1 failed, avg connect 25 ms"));
+        assert!(html.contains(
+            "Node health 1 healthy, 1 unhealthy, 0 unknown, checked 2/2, selected healthy"
+        ));
+        assert!(html.contains("Recent event: Running - runtime running"));
         assert!(html.contains("Native core default"));
     }
 
@@ -1486,6 +1585,12 @@ mod tests {
         assert!(html.contains("diagnosticsCoreStatus(snapshot)"));
         assert!(html.contains("diagnosticsRuntimeEvents(snapshot)"));
         assert!(html.contains("diagnosticsLastError(snapshot)"));
+        assert!(html.contains("id=\"diagnostics-connection-metrics\""));
+        assert!(html.contains("id=\"diagnostics-node-health\""));
+        assert!(html.contains("id=\"diagnostics-recent-event\""));
+        assert!(html.contains("diagnosticsConnectionMetrics(snapshot)"));
+        assert!(html.contains("diagnosticsNodeHealth(snapshot)"));
+        assert!(html.contains("diagnosticsRecentEvent(snapshot)"));
         assert!(html.contains("diagnosticsDefaultCore(snapshot)"));
     }
 
