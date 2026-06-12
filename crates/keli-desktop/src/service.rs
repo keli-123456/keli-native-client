@@ -229,7 +229,8 @@ where
         let update = match (outcome.update.as_ref(), fetched_config_text.as_deref()) {
             (Some(report), Some(config_text)) => {
                 let planned_selected = report.planned_selected_outbound.clone();
-                let subscription = if let Some(subscription) = outcome.status.subscription.as_ref() {
+                let subscription = if let Some(subscription) = outcome.status.subscription.as_ref()
+                {
                     DesktopSubscriptionSummary::from_managed(subscription)
                 } else {
                     let preflight = preflight_subscription_config(config_text)?;

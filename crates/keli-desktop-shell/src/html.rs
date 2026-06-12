@@ -473,6 +473,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         const tag = document.createElement("span");
         const meta = document.createElement("span");
         const udp = document.createElement("span");
+        const health = document.createElement("span");
         const badges = document.createElement("span");
         button.dataset.nodeTag = node.tag;
         button.setAttribute("aria-pressed", node.selected ? "true" : "false");
@@ -483,6 +484,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         meta.textContent = `${{node.protocol || "unknown"}} / ${{node.transport || "unknown"}} / ${{node.security || "unknown"}}`;
         udp.className = "node-meta";
         udp.textContent = node.udp_supported ? "UDP ready" : "UDP unavailable";
+        health.className = "node-meta";
+        health.textContent = nodeHealthDetail(node);
         badges.className = "node-badges";
         if (node.selected) {{
           const badge = document.createElement("span");
@@ -496,7 +499,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
           badge.textContent = "Recommended";
           badges.appendChild(badge);
         }}
-        button.append(tag, meta, udp, badges);
+        button.append(tag, meta, udp, health, badges);
         nodeList.appendChild(button);
       }}
       for (const skipped of subscription.skipped || []) {{
@@ -510,6 +513,17 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         item.append(badge, detail);
         nodeList.appendChild(item);
       }}
+    }}
+    function nodeHealthDetail(node) {{
+      const parts = [];
+      if (node.health_state) parts.push(`Health ${{node.health_state}}`);
+      if (node.tcp_available === true) parts.push("TCP ready");
+      if (node.tcp_available === false) parts.push("TCP failed");
+      if (node.udp_available === true) parts.push("UDP live");
+      if (node.udp_available === false) parts.push("UDP failed");
+      if (node.latency_ms !== null && node.latency_ms !== undefined) parts.push(`${{node.latency_ms}} ms`);
+      if (node.health_error) parts.push(`Last failure ${{node.health_error}}`);
+      return parts.length ? parts.join(", ") : "Health unknown";
     }}
     window.keliSetOperationStatus = (summary) => {{
       const status = document.getElementById("operation-status");
@@ -1089,6 +1103,7 @@ fn node_buttons(subscription: Option<&DesktopSubscriptionSummary>) -> String {
         } else {
             "UDP unavailable"
         };
+        let health = escape_html(&node_health_detail(node));
         let mut badges = Vec::new();
         if node.selected {
             badges.push(r#"<span class="node-badge">Selected</span>"#.to_string());
@@ -1098,7 +1113,7 @@ fn node_buttons(subscription: Option<&DesktopSubscriptionSummary>) -> String {
         }
         let badges = badges.join("");
         format!(
-            r#"<button data-node-tag="{tag}" aria-pressed="{selected}" onclick="postSelectNode(this.dataset.nodeTag)"><span class="node-tag">{tag}</span><span class="node-meta">{meta}</span><span class="node-meta">{udp}</span><span class="node-badges">{badges}</span></button>"#
+            r#"<button data-node-tag="{tag}" aria-pressed="{selected}" onclick="postSelectNode(this.dataset.nodeTag)"><span class="node-tag">{tag}</span><span class="node-meta">{meta}</span><span class="node-meta">{udp}</span><span class="node-meta">{health}</span><span class="node-badges">{badges}</span></button>"#
         )
     }));
     nodes.extend(subscription.skipped.iter().map(|skipped| {
@@ -1108,6 +1123,34 @@ fn node_buttons(subscription: Option<&DesktopSubscriptionSummary>) -> String {
         )
     }));
     nodes.join("")
+}
+
+fn node_health_detail(node: &keli_desktop::DesktopNodeSummary) -> String {
+    let mut parts = Vec::new();
+    if let Some(state) = node.health_state.as_deref() {
+        parts.push(format!("Health {state}"));
+    }
+    match node.tcp_available {
+        Some(true) => parts.push("TCP ready".to_string()),
+        Some(false) => parts.push("TCP failed".to_string()),
+        None => {}
+    }
+    match node.udp_available {
+        Some(true) => parts.push("UDP live".to_string()),
+        Some(false) => parts.push("UDP failed".to_string()),
+        None => {}
+    }
+    if let Some(latency_ms) = node.latency_ms {
+        parts.push(format!("{latency_ms} ms"));
+    }
+    if let Some(error) = node.health_error.as_deref() {
+        parts.push(format!("Last failure {error}"));
+    }
+    if parts.is_empty() {
+        "Health unknown".to_string()
+    } else {
+        parts.join(", ")
+    }
 }
 
 fn escape_html(value: &str) -> String {
@@ -1200,6 +1243,11 @@ mod tests {
                 udp_supported: true,
                 selected: true,
                 recommended: true,
+                health_state: Some("unknown".to_string()),
+                tcp_available: None,
+                udp_available: None,
+                latency_ms: None,
+                health_error: None,
             }],
             skipped: Vec::new(),
         }
@@ -1500,13 +1548,22 @@ mod tests {
     #[test]
     fn subscription_node_list_renders_protocol_transport_security_and_badges() {
         let mut snapshot = snapshot();
-        snapshot.refresh_subscription(Some(subscription("SS-READY")));
+        let mut summary = subscription("SS-READY");
+        summary.nodes[0].health_state = Some("healthy".to_string());
+        summary.nodes[0].tcp_available = Some(true);
+        summary.nodes[0].udp_available = Some(true);
+        summary.nodes[0].latency_ms = Some(42);
+        snapshot.refresh_subscription(Some(summary));
 
         let html = render_shell_html(&snapshot);
 
         assert!(html.contains("SS-READY"));
         assert!(html.contains("ss / tcp / none"));
         assert!(html.contains("UDP ready"));
+        assert!(html.contains("Health healthy"));
+        assert!(html.contains("TCP ready"));
+        assert!(html.contains("UDP live"));
+        assert!(html.contains("42 ms"));
         assert!(html.contains("Selected"));
         assert!(html.contains("Recommended"));
     }
@@ -1531,6 +1588,10 @@ mod tests {
 
         assert!(html.contains("node-meta"));
         assert!(html.contains("node-badge"));
+        assert!(html.contains("node.health_state"));
+        assert!(html.contains("node.tcp_available"));
+        assert!(html.contains("node.udp_available"));
+        assert!(html.contains("node.latency_ms"));
         assert!(html.contains("subscription.skipped"));
     }
 
