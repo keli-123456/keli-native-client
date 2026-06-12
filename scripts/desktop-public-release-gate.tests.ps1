@@ -25,6 +25,7 @@ $expected = @(
     'require smoke.machine.machine_takeover_status ready',
     'require smoke.install.verified_ui_workflow_entrypoints all_manual_smoke',
     'require smoke.install.readme_subscription_import subscription-url-or-config',
+    'require smoke.install first_run dependency blockers have action entrypoints',
     'require smoke.msi.manual_smoke_cases all_manual_smoke',
     'require smoke.msi.readme_subscription_import subscription-url-or-config',
     'require signing.can_sign true',
@@ -82,6 +83,16 @@ $fixture = [ordered]@{
             readme_subscription_import = 'subscription-url-or-config'
             manual_smoke_cases = $workflowIds
             verified_ui_workflow_entrypoints = $workflowIds
+            first_run_system_proxy_ready = $true
+            first_run_tun_ready = $false
+            first_run_blockers = @(
+                [ordered]@{
+                    code = 'wintun-missing'
+                    message = 'Wintun library was not found'
+                    action = 'install-wintun'
+                }
+            )
+            dependency_action_entrypoints = @('install-wintun')
         }
         msi = [ordered]@{
             readme_subscription_import = 'subscription-url-or-config'
@@ -132,6 +143,37 @@ foreach ($item in @(
     if (!$normalizedFailureText.Contains($item)) {
         throw "desktop public release gate fixture output is missing: $item"
     }
+}
+
+$dependencyFixturePath = Join-Path $tempDir 'release-evidence-missing-dependency-action.json'
+$dependencyFixture = Get-Content -Raw -LiteralPath $fixturePath | ConvertFrom-Json
+$dependencyFixture.smoke.install.dependency_action_entrypoints = @()
+$dependencyFixture | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $dependencyFixturePath -Encoding ASCII
+
+$dependencyStdoutPath = Join-Path $tempDir 'gate-dependency-stdout.txt'
+$dependencyStderrPath = Join-Path $tempDir 'gate-dependency-stderr.txt'
+$dependencyProcess = Start-Process `
+    -FilePath 'powershell' `
+    -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $gateScript, '-SkipGate', '-EvidencePath', $dependencyFixturePath) `
+    -NoNewWindow `
+    -Wait `
+    -PassThru `
+    -RedirectStandardOutput $dependencyStdoutPath `
+    -RedirectStandardError $dependencyStderrPath
+if ($dependencyProcess.ExitCode -eq 0) {
+    throw 'desktop-public-release-gate.ps1 should fail missing dependency action evidence'
+}
+$dependencyFailureText = @(
+    if (Test-Path -LiteralPath $dependencyStdoutPath) {
+        Get-Content -LiteralPath $dependencyStdoutPath
+    }
+    if (Test-Path -LiteralPath $dependencyStderrPath) {
+        Get-Content -LiteralPath $dependencyStderrPath
+    }
+) -join "`n"
+$normalizedDependencyFailureText = $dependencyFailureText -replace "(`r`n|`n|`r)", ''
+if (!$normalizedDependencyFailureText.Contains('install-first-run-dependency-evidence-missing')) {
+    throw "dependency evidence failure did not name install-first-run-dependency-evidence-missing: $dependencyFailureText"
 }
 
 Write-Output 'desktop public release gate plan test passed'

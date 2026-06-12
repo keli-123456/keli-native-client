@@ -174,6 +174,49 @@ function Test-StringArrayContainsAll {
     return $true
 }
 
+function Test-InstallFirstRunDependencyEvidence {
+    param(
+        [AllowNull()]
+        [object]$InstallSmoke
+    )
+
+    if (!(Test-JsonProperty -InputObject $InstallSmoke -Name 'first_run_system_proxy_ready')) {
+        return $false
+    }
+    if (!(Test-JsonProperty -InputObject $InstallSmoke -Name 'first_run_tun_ready')) {
+        return $false
+    }
+
+    $systemProxyReady = [bool]$InstallSmoke.first_run_system_proxy_ready
+    $tunReady = [bool]$InstallSmoke.first_run_tun_ready
+    $blockers = @()
+    if (Test-JsonProperty -InputObject $InstallSmoke -Name 'first_run_blockers') {
+        $blockers = @($InstallSmoke.first_run_blockers)
+    }
+
+    if ((!$systemProxyReady -or !$tunReady) -and $blockers.Count -eq 0) {
+        return $false
+    }
+    if ($blockers.Count -eq 0) {
+        return $true
+    }
+    if (!(Test-JsonProperty -InputObject $InstallSmoke -Name 'dependency_action_entrypoints')) {
+        return $false
+    }
+
+    $actions = Get-StringArrayProperty -InputObject $InstallSmoke -Name 'dependency_action_entrypoints'
+    foreach ($blocker in $blockers) {
+        if (!(Test-JsonProperty -InputObject $blocker -Name 'action')) {
+            return $false
+        }
+        $action = [string]$blocker.action
+        if ([string]::IsNullOrWhiteSpace($action) -or $actions -notcontains $action) {
+            return $false
+        }
+    }
+    return $true
+}
+
 function Add-WorkflowEvidenceBlockers {
     param(
         [Parameter(Mandatory = $true)]
@@ -200,6 +243,9 @@ function Add-WorkflowEvidenceBlockers {
     }
     if (!(Test-StringArrayContainsAll -Values $Evidence.smoke.install.verified_ui_workflow_entrypoints -Expected $expectedWorkflows)) {
         $Blockers = Add-UniqueBlocker -Blockers $Blockers -Blocker 'install-ui-workflow-entrypoints-missing'
+    }
+    if (!(Test-InstallFirstRunDependencyEvidence -InstallSmoke $Evidence.smoke.install)) {
+        $Blockers = Add-UniqueBlocker -Blockers $Blockers -Blocker 'install-first-run-dependency-evidence-missing'
     }
     if ($Evidence.smoke.msi.readme_subscription_import -ne 'subscription-url-or-config') {
         $Blockers = Add-UniqueBlocker -Blockers $Blockers -Blocker 'msi-readme-subscription-evidence-missing'
@@ -272,6 +318,7 @@ try {
         Write-Output 'require smoke.machine.machine_takeover_status ready'
         Write-Output 'require smoke.install.verified_ui_workflow_entrypoints all_manual_smoke'
         Write-Output 'require smoke.install.readme_subscription_import subscription-url-or-config'
+        Write-Output 'require smoke.install first_run dependency blockers have action entrypoints'
         Write-Output 'require smoke.msi.manual_smoke_cases all_manual_smoke'
         Write-Output 'require smoke.msi.readme_subscription_import subscription-url-or-config'
         Write-Output 'require signing.can_sign true'
