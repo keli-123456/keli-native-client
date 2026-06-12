@@ -141,6 +141,25 @@ function Get-CodeSigningCertificateCandidates {
     }
 }
 
+function Get-CertificateSubjectMatches {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$CertificateStoreDiscovery,
+
+        [AllowNull()]
+        [string]$ConfiguredCertificateSubject
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ConfiguredCertificateSubject)) {
+        return @()
+    }
+
+    return @($CertificateStoreDiscovery.candidates | Where-Object {
+        $subject = [string]$_.subject
+        $subject.IndexOf($ConfiguredCertificateSubject, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+    })
+}
+
 function Get-SignatureEvidence {
     param(
         [Parameter(Mandatory = $true)]
@@ -209,11 +228,16 @@ function Get-SigningConfiguration {
     } elseif ($subjectConfigured) {
         $method = 'store-subject'
     }
+    $subjectMatches = @(Get-CertificateSubjectMatches -CertificateStoreDiscovery $CertificateStoreDiscovery -ConfiguredCertificateSubject $ConfiguredCertificateSubject)
+    $storeSubjectCanSign = $subjectConfigured -and ($subjectMatches.Count -gt 0)
+    $canSign = [bool]$SignTool.available -and (($method -eq 'pfx') -or ($method -eq 'store-subject' -and $storeSubjectCanSign))
 
     [ordered]@{
         certificate_path_configured = $pathConfigured
         certificate_path_exists = $pathExists
         certificate_subject_configured = $subjectConfigured
+        certificate_subject_match_count = $subjectMatches.Count
+        certificate_subject_matches = $subjectMatches
         certificate_password_configured = ![string]::IsNullOrWhiteSpace($ConfiguredCertificatePassword)
         timestamp_url = $ConfiguredTimestampUrl
         signing_method = $method
@@ -223,7 +247,7 @@ function Get-SigningConfiguration {
         }
         store_certificate_candidates_count = [int]$CertificateStoreDiscovery.count
         store_certificate_candidates = @($CertificateStoreDiscovery.candidates)
-        can_sign = ([bool]$SignTool.available -and $null -ne $method)
+        can_sign = $canSign
     }
 }
 
@@ -300,6 +324,12 @@ function Get-OperatorNextSteps {
         $steps = Add-OperatorNextStep -Steps $steps -Step (New-OperatorNextStep `
             -Id 'fix-certificate-path' `
             -Detail 'KELI_SIGN_CERT_PATH is configured but the PFX file was not found; set it to an existing code-signing PFX.' `
+            -Command $null)
+    }
+    if (!$Configuration.certificate_path_exists -and $Configuration.certificate_subject_configured -and $Configuration.certificate_subject_match_count -eq 0) {
+        $steps = Add-OperatorNextStep -Steps $steps -Step (New-OperatorNextStep `
+            -Id 'fix-certificate-subject' `
+            -Detail 'KELI_SIGN_CERT_SUBJECT is configured but no discovered code-signing certificate subject matched it; install the certificate or correct the subject.' `
             -Command $null)
     }
     if (!$Configuration.certificate_path_exists -and !$Configuration.certificate_subject_configured) {
@@ -476,6 +506,7 @@ try {
         Write-Output 'metadata public_release_blocker artifact-signature-missing'
         Write-Output 'metadata public_release_blocker signing-certificate-missing'
         Write-Output 'metadata sign_command_previews redacted'
+        Write-Output 'metadata certificate_subject_matches'
         Write-Output 'metadata operator_next_steps'
         Write-Output 'metadata release_commands'
         Write-Output "output $evidenceRelativePath"

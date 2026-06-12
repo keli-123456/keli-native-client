@@ -33,6 +33,7 @@ $expected = @(
     'metadata public_release_blocker artifact-signature-missing',
     'metadata public_release_blocker signing-certificate-missing',
     'metadata sign_command_previews redacted',
+    'metadata certificate_subject_matches',
     'metadata operator_next_steps',
     'metadata release_commands',
     'output target\desktop\keli-desktop-signing.json'
@@ -105,6 +106,31 @@ foreach ($preview in $previewEvidence.sign_command_previews) {
     if ($preview.command.Contains($fakePfxPath)) {
         throw 'preview command leaked the local PFX path'
     }
+}
+
+& powershell -NoProfile -ExecutionPolicy Bypass -File $signingScript `
+    -SignToolPath $fakeSignToolPath `
+    -CertificatePath ' ' `
+    -CertificatePassword ' ' `
+    -CertificateSubject 'CN=Missing Keli Code Signing' `
+    -SkipCertificateStoreDiscovery
+if ($LASTEXITCODE -ne 0) {
+    throw "desktop-signing.ps1 unmatched subject inspect exited with $LASTEXITCODE"
+}
+
+$subjectEvidence = Get-Content -Raw -LiteralPath $evidencePath | ConvertFrom-Json
+if ($subjectEvidence.configuration.can_sign -ne $false) {
+    throw 'unmatched store-subject configuration should not be able to sign'
+}
+if ($subjectEvidence.configuration.certificate_subject_match_count -ne 0) {
+    throw "expected zero subject matches, got $($subjectEvidence.configuration.certificate_subject_match_count)"
+}
+$subjectNextStepIds = @($subjectEvidence.operator_next_steps | ForEach-Object { [string]$_.id })
+if ($subjectNextStepIds -notcontains 'fix-certificate-subject') {
+    throw 'unmatched store-subject evidence should include fix-certificate-subject next step'
+}
+if (($subjectEvidence.public_release_blockers -join ',') -notlike '*signing-certificate-missing*') {
+    throw "unmatched store-subject evidence should remain blocked on signing certificate: $($subjectEvidence.public_release_blockers -join ',')"
 }
 
 Write-Output 'desktop signing plan test passed'
