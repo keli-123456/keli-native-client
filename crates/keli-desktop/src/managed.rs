@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use keli_cli::{
-    fetch_subscription_url_config_text, ManagedMixedController, ManagedMixedOptions,
-    ManagedSubscriptionUpdateOutcome, ManagedSubscriptionUrlConfigFetchOutcome,
-    ManagedSubscriptionUrlConfigUpdateOutcome,
+    fetch_subscription_url_config_text, managed_mixed_status_json_value, ManagedMixedController,
+    ManagedMixedOptions, ManagedSubscriptionUpdateOutcome,
+    ManagedSubscriptionUrlConfigFetchOutcome, ManagedSubscriptionUrlConfigUpdateOutcome,
 };
 use keli_platform::SystemProxyController;
 
@@ -75,6 +75,10 @@ impl<'a, C: SystemProxyController + ?Sized> DesktopManagedCoreService<'a, C> {
 
     pub fn status(&self) -> DesktopStatusSnapshot {
         DesktopStatusSnapshot::from_managed_mixed_status(&self.core.status(), self.traffic_mode)
+    }
+
+    pub fn managed_status_json(&self) -> serde_json::Value {
+        managed_mixed_status_json_value(&self.core.status())
     }
 
     pub fn start(

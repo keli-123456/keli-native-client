@@ -3,6 +3,7 @@ pub mod readiness;
 pub mod service;
 pub mod status;
 pub mod subscription;
+pub mod support;
 
 pub use managed::{DesktopManagedCoreService, DesktopManagedStartOptions};
 pub use readiness::{DesktopBlocker, DesktopFirstRunReport};
@@ -13,6 +14,7 @@ pub use subscription::{
     DesktopSubscriptionUrlFetchSummary, DesktopSubscriptionUrlImportSummary,
     DesktopSubscriptionUrlUpdateSummary,
 };
+pub use support::{DesktopSupportBundleExport, DESKTOP_SUPPORT_BUNDLE_SCHEMA_VERSION};
 
 #[cfg(test)]
 mod tests {

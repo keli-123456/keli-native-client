@@ -860,6 +860,7 @@ dependencies = [
  "keli-client-core",
  "keli-platform",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

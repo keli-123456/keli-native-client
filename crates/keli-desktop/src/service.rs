@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use keli_cli::write_support_bundle_report;
 use keli_client_core::{plan_subscription_update, preflight_subscription_config, ClientErrorKind};
 use keli_platform::SystemProxyController;
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,7 @@ use crate::subscription::{
     DesktopSubscriptionUrlFetchSummary, DesktopSubscriptionUrlImportSummary,
     DesktopSubscriptionUrlUpdateSummary,
 };
+use crate::support::{build_desktop_support_bundle_export, DesktopSupportBundleExport};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -220,6 +222,22 @@ impl<'a, C: SystemProxyController + ?Sized> DesktopRuntimeService<'a, C> {
             update,
             self.traffic_mode,
         ))
+    }
+
+    pub fn export_support_bundle(&self) -> Result<DesktopSupportBundleExport, DesktopRuntimeError> {
+        let mut core_bundle_bytes = Vec::new();
+        write_support_bundle_report(self.subscription_config.as_deref(), &mut core_bundle_bytes)?;
+        let core_support_bundle: serde_json::Value = serde_json::from_slice(&core_bundle_bytes)
+            .map_err(|error| {
+                DesktopRuntimeError::Managed(format!("support bundle JSON parse failed: {error}"))
+            })?;
+        let desktop_status = self.status();
+        build_desktop_support_bundle_export(
+            core_support_bundle,
+            &desktop_status,
+            self.core.managed_status_json(),
+        )
+        .map_err(DesktopRuntimeError::Managed)
     }
 
     pub fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode) {
@@ -443,6 +461,53 @@ proxies:
             Some("SS-READY")
         );
         assert!(!format!("{imported:?}").contains("super-secret-token"));
+    }
+
+    #[test]
+    fn support_bundle_export_embeds_runtime_status_and_redacts_profile() {
+        let platform_controller = FakeSystemProxyController::new();
+        let mut service = DesktopRuntimeService::new(&platform_controller);
+        let config = r#"
+proxies:
+  - name: SS-READY
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: secret
+"#;
+        service
+            .import_subscription_config(config)
+            .expect("import subscription");
+        service.set_listen("127.0.0.1:0");
+        service.start().expect("start service");
+
+        let export = service
+            .export_support_bundle()
+            .expect("export support bundle");
+        let bundle: serde_json::Value =
+            serde_json::from_slice(&export.bytes).expect("support bundle JSON");
+        let serialized = String::from_utf8(export.bytes.clone()).expect("support bundle UTF-8");
+
+        assert_eq!(export.format, "json");
+        assert_eq!(export.byte_count, export.bytes.len());
+        assert_eq!(bundle["kind"], "keli_desktop_support_bundle");
+        assert_eq!(bundle["desktop_status"]["run_state"], "running");
+        assert_eq!(bundle["desktop_status"]["selected_outbound"], "SS-READY");
+        assert_eq!(
+            bundle["managed_runtime_status"]["selected_outbound"],
+            "SS-READY"
+        );
+        assert_eq!(bundle["core_support_bundle"]["kind"], "keli_support_bundle");
+        assert_eq!(bundle["core_support_bundle"]["profile"]["status"], "ok");
+        assert_eq!(
+            bundle["core_support_bundle"]["redaction"]["profile_config_text"],
+            "omitted"
+        );
+        assert!(!serialized.contains("password: secret"));
+        assert!(!serialized.contains("ss.example.com"));
+
+        service.stop().expect("stop service");
     }
 
     #[test]
