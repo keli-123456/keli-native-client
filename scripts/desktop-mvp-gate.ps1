@@ -34,6 +34,7 @@ function Get-DesktopMvpGateSteps {
         New-GateStep -Name 'Desktop shell tests' -Command @('cargo', 'test', '-p', 'keli-desktop-shell')
         New-GateStep -Name 'Desktop shell check' -Command @('cargo', 'check', '-p', 'keli-desktop-shell')
         New-GateStep -Name 'Desktop shell release build' -Command @('cargo', 'build', '--release', '-p', 'keli-desktop-shell')
+        New-GateStep -Name 'Desktop portable package' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-package.ps1', '-SkipBuild')
     )
 }
 
@@ -85,6 +86,7 @@ try {
             Write-Output (Format-StepCommand -Command $step.Command)
         }
         Write-Output 'artifact target\release\keli-desktop-shell.exe'
+        Write-Output 'artifact target\desktop\keli-desktop-mvp-windows-x64.zip'
         return
     }
 

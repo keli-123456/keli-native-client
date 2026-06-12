@@ -24,7 +24,9 @@ $expected = @(
     'cargo test -p keli-desktop-shell',
     'cargo check -p keli-desktop-shell',
     'cargo build --release -p keli-desktop-shell',
-    'target\release\keli-desktop-shell.exe'
+    'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-package.ps1 -SkipBuild',
+    'target\release\keli-desktop-shell.exe',
+    'target\desktop\keli-desktop-mvp-windows-x64.zip'
 )
 
 foreach ($item in $expected) {
