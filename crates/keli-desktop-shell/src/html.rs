@@ -26,6 +26,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let snapshot_json = serde_json::to_string_pretty(snapshot)
         .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}"));
     let primary_disabled = if primary.enabled { "" } else { " disabled" };
+    let is_running = snapshot.status.run_state == DesktopRunState::Running;
+    let import_subscription_url_disabled = if is_running { " disabled" } else { "" };
+    let update_subscription_url_disabled = if is_running { "" } else { " disabled" };
     let primary_state = primary.reason.as_deref().unwrap_or(if primary.enabled {
         "Enabled"
     } else {
@@ -332,8 +335,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <h2>Subscription</h2>
         <input id="subscription-url" type="url" placeholder="https://example.com/subscription" />
         <div class="actions">
-          <button id="import-subscription-url-button" class="primary" onclick="postImportSubscriptionUrl()">Import URL</button>
-          <button id="update-subscription-url-button" onclick="postUpdateSubscriptionUrl()">Update URL</button>
+          <button id="import-subscription-url-button" class="primary" onclick="postImportSubscriptionUrl()"{import_subscription_url_disabled}>Import URL</button>
+          <button id="update-subscription-url-button" onclick="postUpdateSubscriptionUrl()"{update_subscription_url_disabled}>Update URL</button>
           <button id="refresh-node-health-button" onclick="postRefreshNodeHealth()">Refresh health</button>
         </div>
         <div class="muted" id="subscription-url-status">No subscription URL imported</div>
@@ -728,6 +731,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         primary_label = escape_html(&primary.label),
         primary_state = escape_html(primary_state),
         primary_disabled = primary_disabled,
+        import_subscription_url_disabled = import_subscription_url_disabled,
+        update_subscription_url_disabled = update_subscription_url_disabled,
         tray_ids = escape_html(&tray_ids),
         window_visible = snapshot.window.main_visible,
         dependency_summary = escape_html(&dependency_summary),
@@ -1442,6 +1447,36 @@ mod tests {
         assert!(html.contains("id=\"update-subscription-url-button\""));
         assert!(html.contains("update-subscription-url"));
         assert!(html.contains("window.keliSetSubscriptionUrlUpdate"));
+    }
+
+    #[test]
+    fn subscription_url_update_button_starts_disabled_when_stopped() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains(
+            "id=\"import-subscription-url-button\" class=\"primary\" onclick=\"postImportSubscriptionUrl()\">Import URL</button>"
+        ));
+        assert!(html.contains(
+            "id=\"update-subscription-url-button\" onclick=\"postUpdateSubscriptionUrl()\" disabled>Update URL</button>"
+        ));
+    }
+
+    #[test]
+    fn subscription_url_import_button_starts_disabled_when_running() {
+        let mut snapshot = snapshot();
+        snapshot.refresh_status(DesktopStatusSnapshot {
+            run_state: DesktopRunState::Running,
+            ..snapshot.status.clone()
+        });
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains(
+            "id=\"import-subscription-url-button\" class=\"primary\" onclick=\"postImportSubscriptionUrl()\" disabled>Import URL</button>"
+        ));
+        assert!(html.contains(
+            "id=\"update-subscription-url-button\" onclick=\"postUpdateSubscriptionUrl()\">Update URL</button>"
+        ));
     }
 
     #[test]
