@@ -38,6 +38,7 @@ function Get-DesktopMvpGateSteps {
         New-GateStep -Name 'Desktop install smoke' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-install-smoke.ps1')
         New-GateStep -Name 'Desktop MSI installer' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-msi.ps1')
         New-GateStep -Name 'Desktop machine smoke evidence' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-machine-smoke.ps1')
+        New-GateStep -Name 'Desktop signing evidence' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-signing.ps1')
         New-GateStep -Name 'Desktop release evidence' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-release-evidence.ps1')
     )
 }
@@ -94,6 +95,7 @@ try {
         Write-Output 'artifact target\desktop\keli-desktop-mvp-windows-x64.msi'
         Write-Output 'artifact target\desktop\keli-desktop-msi-smoke.json'
         Write-Output 'artifact target\desktop\keli-desktop-machine-smoke.json'
+        Write-Output 'artifact target\desktop\keli-desktop-signing.json'
         Write-Output 'artifact target\desktop\keli-desktop-release-evidence.json'
         Write-Output 'artifact target\desktop-install-smoke\desktop-install-smoke.json'
         return

@@ -28,12 +28,14 @@ $expected = @(
     'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-install-smoke.ps1',
     'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-msi.ps1',
     'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-machine-smoke.ps1',
+    'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-signing.ps1',
     'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-release-evidence.ps1',
     'target\release\keli-desktop-shell.exe',
     'target\desktop\keli-desktop-mvp-windows-x64.zip',
     'target\desktop\keli-desktop-mvp-windows-x64.msi',
     'target\desktop\keli-desktop-msi-smoke.json',
     'target\desktop\keli-desktop-machine-smoke.json',
+    'target\desktop\keli-desktop-signing.json',
     'target\desktop\keli-desktop-release-evidence.json',
     'target\desktop-install-smoke\desktop-install-smoke.json'
 )

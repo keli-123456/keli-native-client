@@ -24,11 +24,13 @@ $expected = @(
     'input target\desktop-install-smoke\desktop-install-smoke.json',
     'input target\desktop\keli-desktop-msi-smoke.json',
     'input target\desktop\keli-desktop-machine-smoke.json',
+    'input target\desktop\keli-desktop-signing.json',
     'hash sha256 exe zip msi',
     'signature authenticode exe msi',
     'metadata native_core_default true',
     'metadata public_release_ready false_when_unsigned',
     'metadata public_release_ready false_when_machine_takeover_missing',
+    'metadata public_release_ready false_when_signing_missing',
     'output target\desktop\keli-desktop-release-evidence.json'
 )
 

@@ -151,6 +151,36 @@ function Read-MachineSmokeStatus {
     }
 }
 
+function Read-SigningStatus {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RelativePath
+    )
+
+    Require-File -Path $Path
+    $signing = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
+    if ($signing.status -ne 'passed') {
+        throw "signing status mismatch: $($signing.status)"
+    }
+
+    $blockers = @()
+    if ($null -ne $signing.public_release_blockers) {
+        $blockers = @($signing.public_release_blockers | ForEach-Object { [string]$_ })
+    }
+
+    [ordered]@{
+        path = $RelativePath
+        status = [string]$signing.status
+        mode = [string]$signing.mode
+        signtool_available = [bool]$signing.signtool.available
+        can_sign = [bool]$signing.configuration.can_sign
+        blockers = $blockers
+    }
+}
+
 function Add-UniqueBlocker {
     param(
         [Parameter(Mandatory = $true)]
@@ -174,6 +204,7 @@ $msiRelativePath = 'target\desktop\keli-desktop-mvp-windows-x64.msi'
 $installSmokeRelativePath = 'target\desktop-install-smoke\desktop-install-smoke.json'
 $msiSmokeRelativePath = 'target\desktop\keli-desktop-msi-smoke.json'
 $machineSmokeRelativePath = 'target\desktop\keli-desktop-machine-smoke.json'
+$signingRelativePath = 'target\desktop\keli-desktop-signing.json'
 $evidenceRelativePath = 'target\desktop\keli-desktop-release-evidence.json'
 
 $exePath = Join-Path $repoRoot $exeRelativePath
@@ -182,6 +213,7 @@ $msiPath = Join-Path $repoRoot $msiRelativePath
 $installSmokePath = Join-Path $repoRoot $installSmokeRelativePath
 $msiSmokePath = Join-Path $repoRoot $msiSmokeRelativePath
 $machineSmokePath = Join-Path $repoRoot $machineSmokeRelativePath
+$signingPath = Join-Path $repoRoot $signingRelativePath
 $evidencePath = Join-Path $repoRoot $evidenceRelativePath
 
 Push-Location $repoRoot
@@ -193,11 +225,13 @@ try {
         Write-Output "input $installSmokeRelativePath"
         Write-Output "input $msiSmokeRelativePath"
         Write-Output "input $machineSmokeRelativePath"
+        Write-Output "input $signingRelativePath"
         Write-Output 'hash sha256 exe zip msi'
         Write-Output 'signature authenticode exe msi'
         Write-Output 'metadata native_core_default true'
         Write-Output 'metadata public_release_ready false_when_unsigned'
         Write-Output 'metadata public_release_ready false_when_machine_takeover_missing'
+        Write-Output 'metadata public_release_ready false_when_signing_missing'
         Write-Output "output $evidenceRelativePath"
         return
     }
@@ -210,6 +244,7 @@ try {
     $installSmoke = Read-SmokeStatus -Name 'install' -Path $installSmokePath -RelativePath $installSmokeRelativePath
     $msiSmoke = Read-SmokeStatus -Name 'msi' -Path $msiSmokePath -RelativePath $msiSmokeRelativePath
     $machineSmoke = Read-MachineSmokeStatus -Path $machineSmokePath -RelativePath $machineSmokeRelativePath
+    $signingStatus = Read-SigningStatus -Path $signingPath -RelativePath $signingRelativePath
 
     $unsignedArtifacts = @($artifacts | Where-Object {
         $_.Contains('signature') -and !$_.signature.signed
@@ -217,6 +252,9 @@ try {
     $blockers = @()
     if ($unsignedArtifacts.Count -gt 0) {
         $blockers = Add-UniqueBlocker -Blockers $blockers -Blocker 'artifact-signature-missing'
+    }
+    foreach ($blocker in $signingStatus.blockers) {
+        $blockers = Add-UniqueBlocker -Blockers $blockers -Blocker $blocker
     }
     if ($machineSmoke.machine_takeover_status -ne 'ready') {
         if ($machineSmoke.blockers.Count -gt 0) {
@@ -236,6 +274,7 @@ try {
         public_release_ready = $publicReleaseReady
         public_release_blockers = $blockers
         artifacts = $artifacts
+        signing = $signingStatus
         smoke = [ordered]@{
             install = $installSmoke
             msi = $msiSmoke
