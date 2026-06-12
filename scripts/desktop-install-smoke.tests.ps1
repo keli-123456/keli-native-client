@@ -23,8 +23,10 @@ $expected = @(
     'check target\desktop-install-smoke\Keli\keli-desktop-shell.exe',
     'check target\desktop-install-smoke\Keli\README.txt',
     'check target\desktop-install-smoke\Keli\keli-desktop-manifest.json',
+    'run target\desktop-install-smoke\Keli\keli-desktop-shell.exe --smoke',
     'manifest native_core_default true',
     'manifest manual_smoke import-subscription',
+    'result target\desktop-install-smoke\desktop-shell-launch-smoke.json',
     'result target\desktop-install-smoke\desktop-install-smoke.json'
 )
 

@@ -10,7 +10,8 @@ use html::{
     subscription_url_update_status_script, support_export_status_script,
 };
 use keli_desktop::{
-    DesktopShellAction, DesktopShellController, DesktopShellControllerError, DesktopShellState,
+    DesktopRunState, DesktopShellAction, DesktopShellController, DesktopShellControllerError,
+    DesktopShellState,
 };
 use single_instance::SingleInstance;
 use support::{default_support_export_dir, write_support_bundle_export};
@@ -33,6 +34,10 @@ enum UserEvent {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    if is_smoke_mode(std::env::args()) {
+        return run_smoke();
+    }
+
     let instance = SingleInstance::new("keli-native-client-desktop-shell")?;
     if !instance.is_single() {
         return Ok(());
@@ -275,4 +280,154 @@ fn app_icon() -> Result<Icon, Box<dyn Error>> {
         }
     }
     Ok(Icon::from_rgba(rgba, SIZE, SIZE)?)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct DesktopShellSmokeReport {
+    status: String,
+    native_core_default: bool,
+    run_state: DesktopRunState,
+    traffic_mode: keli_desktop::DesktopTrafficMode,
+    primary_action_id: String,
+    can_start: bool,
+    dependency_blocker_count: usize,
+    html_ready: bool,
+    snapshot_script_ready: bool,
+}
+
+fn is_smoke_mode<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter()
+        .skip(1)
+        .any(|arg| arg.as_ref() == "--smoke")
+}
+
+fn run_smoke() -> Result<(), Box<dyn Error>> {
+    let controller = DesktopShellController::new_native();
+    let snapshot = controller.snapshot();
+    let html = render_shell_html(snapshot);
+    let script = shell_snapshot_script(snapshot)?;
+    let report = build_smoke_report(snapshot, &html, &script);
+    let passed = report.status == "passed";
+
+    println!("{}", serde_json::to_string_pretty(&report)?);
+
+    if passed {
+        Ok(())
+    } else {
+        Err("desktop shell smoke report failed".into())
+    }
+}
+
+fn build_smoke_report(
+    snapshot: &DesktopShellState,
+    html: &str,
+    snapshot_script: &str,
+) -> DesktopShellSmokeReport {
+    let html_ready = html.contains("id=\"run-state\"")
+        && html.contains("id=\"primary-button\"")
+        && html.contains("id=\"subscription-url\"")
+        && html.contains("id=\"dependency-summary\"");
+    let snapshot_script_ready =
+        snapshot_script.contains("window.keliSetShell") && snapshot_script.contains("\"status\"");
+    let status = if html_ready && snapshot_script_ready {
+        "passed"
+    } else {
+        "failed"
+    };
+
+    DesktopShellSmokeReport {
+        status: status.to_string(),
+        native_core_default: true,
+        run_state: snapshot.status.run_state,
+        traffic_mode: snapshot.status.traffic_mode,
+        primary_action_id: snapshot.primary_action.id.clone(),
+        can_start: snapshot.can_start,
+        dependency_blocker_count: snapshot.dependencies.first_run.blockers.len(),
+        html_ready,
+        snapshot_script_ready,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use keli_desktop::{
+        DesktopDependencyReport, DesktopFirstRunReport, DesktopRunState, DesktopShellState,
+        DesktopStatusSnapshot, DesktopSystemProxyDependency, DesktopTrafficMode,
+        DesktopTunBackendDependency,
+    };
+
+    fn smoke_snapshot() -> DesktopShellState {
+        DesktopShellState::new(
+            DesktopStatusSnapshot {
+                run_state: DesktopRunState::Stopped,
+                traffic_mode: DesktopTrafficMode::SystemProxy,
+                selected_outbound: Some("SS-READY".to_string()),
+                listen: Some("127.0.0.1:7890".to_string()),
+                generation: 1,
+                event_count: 0,
+                last_error: None,
+            },
+            DesktopDependencyReport {
+                first_run: DesktopFirstRunReport {
+                    platform: "Windows".to_string(),
+                    system_proxy_ready: true,
+                    tun_ready: true,
+                    can_start_system_proxy_mode: true,
+                    can_start_tun_mode: true,
+                    blockers: Vec::new(),
+                },
+                system_proxy: DesktopSystemProxyDependency {
+                    state: "ready".to_string(),
+                    supported: true,
+                    ready: true,
+                    enabled: Some(false),
+                    server: None,
+                    error: None,
+                    action: None,
+                },
+                tun_backend: DesktopTunBackendDependency {
+                    state: "ready".to_string(),
+                    platform: "Windows".to_string(),
+                    backend: "wintun".to_string(),
+                    supported: true,
+                    lifecycle_wired: true,
+                    packet_io_wired: true,
+                    route_takeover_wired: true,
+                    driver_library_present: true,
+                    driver_api_available: true,
+                    driver_library_path: Some("C:\\Keli\\wintun.dll".to_string()),
+                    driver_api_error: None,
+                    install_required: false,
+                    searched_paths: vec!["C:\\Keli\\wintun.dll".to_string()],
+                    reason: None,
+                    action: None,
+                },
+            },
+        )
+    }
+
+    #[test]
+    fn smoke_arg_detection_accepts_smoke_flag() {
+        assert!(is_smoke_mode(["keli-desktop-shell", "--smoke"]));
+        assert!(!is_smoke_mode(["keli-desktop-shell"]));
+    }
+
+    #[test]
+    fn smoke_report_confirms_shell_rendering_contract() {
+        let snapshot = smoke_snapshot();
+        let html = render_shell_html(&snapshot);
+        let script = shell_snapshot_script(&snapshot).expect("snapshot script");
+
+        let report = build_smoke_report(&snapshot, &html, &script);
+
+        assert_eq!(report.status, "passed");
+        assert!(report.native_core_default);
+        assert!(report.html_ready);
+        assert!(report.snapshot_script_ready);
+    }
 }
