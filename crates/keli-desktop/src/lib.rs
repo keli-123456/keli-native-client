@@ -1,3 +1,4 @@
+pub mod app;
 pub mod commands;
 pub mod dependencies;
 pub mod managed;
@@ -8,6 +9,7 @@ pub mod status;
 pub mod subscription;
 pub mod support;
 
+pub use app::{DesktopShellCommandHost, DesktopShellController, DesktopShellControllerError};
 pub use commands::{DesktopCommandError, DesktopCommandService, DesktopNativeCommandService};
 pub use dependencies::{
     DesktopDependencyError, DesktopDependencyReport, DesktopSystemProxyDependency,
