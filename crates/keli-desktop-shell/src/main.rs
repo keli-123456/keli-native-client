@@ -128,6 +128,13 @@ fn dispatch_ui_event(
     match event {
         DesktopShellUiEvent::Action(action) => controller.dispatch(action),
         DesktopShellUiEvent::Refresh => Ok(controller.refresh()),
+        DesktopShellUiEvent::ImportSubscriptionConfig(config_text) => {
+            controller.import_subscription_config(config_text)
+        }
+        DesktopShellUiEvent::SelectNode(outbound_tag) => controller.select_node(outbound_tag),
+        DesktopShellUiEvent::SetTrafficMode(traffic_mode) => {
+            Ok(controller.set_traffic_mode(traffic_mode))
+        }
     }
 }
 

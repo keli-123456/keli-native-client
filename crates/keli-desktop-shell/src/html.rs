@@ -1,4 +1,6 @@
-use keli_desktop::{DesktopRunState, DesktopShellState, DesktopTrafficMode};
+use keli_desktop::{
+    DesktopRunState, DesktopShellState, DesktopSubscriptionSummary, DesktopTrafficMode,
+};
 
 pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let run_state = run_state_label(snapshot.status.run_state);
@@ -20,6 +22,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let snapshot_json = serde_json::to_string_pretty(snapshot)
         .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}"));
     let primary_disabled = if primary.enabled { "" } else { " disabled" };
+    let subscription_summary = subscription_summary(snapshot.subscription.as_ref());
+    let node_buttons = node_buttons(snapshot.subscription.as_ref());
 
     format!(
         r#"<!doctype html>
@@ -92,6 +96,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       border-radius: 8px;
       background: #ffffff;
     }}
+    section.wide {{
+      grid-column: 1 / -1;
+    }}
     h2 {{
       margin: 0 0 10px;
       color: #4d5968;
@@ -139,6 +146,29 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       background: #edf0f3;
       color: #8a95a3;
     }}
+    textarea {{
+      width: 100%;
+      min-height: 128px;
+      resize: vertical;
+      border: 1px solid #b7c0ca;
+      border-radius: 6px;
+      padding: 10px;
+      background: #ffffff;
+      color: #171a1f;
+      font: 12px Consolas, "Cascadia Mono", monospace;
+      line-height: 1.45;
+    }}
+    .node-list {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }}
+    .node-list button[aria-pressed="true"] {{
+      border-color: #277d56;
+      color: #145a32;
+      background: #e6f4ec;
+    }}
     pre {{
       max-height: 160px;
       overflow: auto;
@@ -184,6 +214,17 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="value" id="tray-ids">{tray_ids}</div>
         <div class="muted" id="window-visible">Window visible: {window_visible}</div>
       </section>
+      <section class="wide">
+        <h2>Subscription</h2>
+        <textarea id="subscription-config" spellcheck="false"></textarea>
+        <div class="actions">
+          <button id="import-subscription-button" class="primary" onclick="postImportSubscription()">Import</button>
+          <button onclick="postTrafficMode('system-proxy')">System proxy</button>
+          <button onclick="postTrafficMode('tun')">TUN</button>
+        </div>
+        <div class="muted" id="subscription-summary">{subscription_summary}</div>
+        <div class="node-list" id="node-list">{node_buttons}</div>
+      </section>
     </div>
     <pre id="snapshot-json">{snapshot_json}</pre>
   </main>
@@ -201,6 +242,50 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       "tun": "TUN",
       "mixed-inbound-only": "Local inbound"
     }};
+    function postJson(payload) {{
+      window.ipc.postMessage(JSON.stringify(payload));
+    }}
+    function postImportSubscription() {{
+      postJson({{
+        type: "import-subscription-config",
+        configText: document.getElementById("subscription-config").value
+      }});
+    }}
+    function postTrafficMode(trafficMode) {{
+      postJson({{
+        type: "set-traffic-mode",
+        trafficMode
+      }});
+    }}
+    function postSelectNode(outboundTag) {{
+      postJson({{
+        type: "select-node",
+        outboundTag
+      }});
+    }}
+    function subscriptionSummary(subscription) {{
+      if (!subscription) return "No subscription imported";
+      return `Supported ${{subscription.supported_count}}, skipped ${{subscription.skipped_count}}`;
+    }}
+    function renderNodeList(subscription) {{
+      const nodeList = document.getElementById("node-list");
+      nodeList.replaceChildren();
+      if (!subscription || !subscription.nodes.length) {{
+        const empty = document.createElement("span");
+        empty.className = "muted";
+        empty.textContent = "No nodes";
+        nodeList.appendChild(empty);
+        return;
+      }}
+      for (const node of subscription.nodes) {{
+        const button = document.createElement("button");
+        button.dataset.nodeTag = node.tag;
+        button.textContent = node.tag;
+        button.setAttribute("aria-pressed", node.selected ? "true" : "false");
+        button.onclick = () => postSelectNode(node.tag);
+        nodeList.appendChild(button);
+      }}
+    }}
     window.keliSetShell = (snapshot) => {{
       const status = snapshot.status;
       const primary = snapshot.primary_action;
@@ -216,6 +301,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       primaryButton.disabled = !primary.enabled;
       document.getElementById("tray-ids").textContent = snapshot.tray_menu.items.map((item) => item.id).join(", ");
       document.getElementById("window-visible").textContent = `Window visible: ${{snapshot.window.main_visible}}`;
+      document.getElementById("subscription-summary").textContent = subscriptionSummary(snapshot.subscription);
+      renderNodeList(snapshot.subscription);
       document.getElementById("snapshot-json").textContent = JSON.stringify(snapshot, null, 2);
     }};
   </script>
@@ -236,6 +323,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         primary_disabled = primary_disabled,
         tray_ids = escape_html(&tray_ids),
         window_visible = snapshot.window.main_visible,
+        subscription_summary = escape_html(&subscription_summary),
+        node_buttons = node_buttons,
         snapshot_json = escape_html(&snapshot_json),
     )
 }
@@ -266,6 +355,37 @@ fn traffic_mode_label(traffic_mode: DesktopTrafficMode) -> &'static str {
     }
 }
 
+fn subscription_summary(subscription: Option<&DesktopSubscriptionSummary>) -> String {
+    match subscription {
+        Some(subscription) => format!(
+            "Supported {}, skipped {}",
+            subscription.supported_count, subscription.skipped_count
+        ),
+        None => "No subscription imported".to_string(),
+    }
+}
+
+fn node_buttons(subscription: Option<&DesktopSubscriptionSummary>) -> String {
+    let Some(subscription) = subscription else {
+        return r#"<span class="muted">No nodes</span>"#.to_string();
+    };
+    if subscription.nodes.is_empty() {
+        return r#"<span class="muted">No nodes</span>"#.to_string();
+    }
+    subscription
+        .nodes
+        .iter()
+        .map(|node| {
+            let selected = if node.selected { "true" } else { "false" };
+            let tag = escape_html(&node.tag);
+            format!(
+                r#"<button data-node-tag="{tag}" aria-pressed="{selected}" onclick="postSelectNode(this.dataset.nodeTag)">{tag}</button>"#
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
 fn escape_html(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -279,8 +399,9 @@ fn escape_html(value: &str) -> String {
 mod tests {
     use super::*;
     use keli_desktop::{
-        DesktopDependencyReport, DesktopFirstRunReport, DesktopShellState, DesktopStatusSnapshot,
-        DesktopSystemProxyDependency, DesktopTrafficMode, DesktopTunBackendDependency,
+        DesktopDependencyReport, DesktopFirstRunReport, DesktopNodeSummary, DesktopShellState,
+        DesktopStatusSnapshot, DesktopSubscriptionSummary, DesktopSystemProxyDependency,
+        DesktopTrafficMode, DesktopTunBackendDependency,
     };
 
     fn snapshot() -> DesktopShellState {
@@ -333,6 +454,27 @@ mod tests {
         )
     }
 
+    fn subscription(tag: &str) -> DesktopSubscriptionSummary {
+        DesktopSubscriptionSummary {
+            usable: true,
+            supported_count: 1,
+            skipped_count: 0,
+            default_outbound: Some(tag.to_string()),
+            selected_outbound: Some(tag.to_string()),
+            recommended_outbound: Some(tag.to_string()),
+            nodes: vec![DesktopNodeSummary {
+                tag: tag.to_string(),
+                protocol: "ss".to_string(),
+                transport: "tcp".to_string(),
+                security: "none".to_string(),
+                udp_supported: true,
+                selected: true,
+                recommended: true,
+            }],
+            skipped: Vec::new(),
+        }
+    }
+
     #[test]
     fn shell_html_includes_snapshot_state_and_tray_ids() {
         let html = render_shell_html(&snapshot());
@@ -365,5 +507,27 @@ mod tests {
         assert!(script.contains("window.keliSetShell"));
         assert!(script.contains("SS-READY"));
         assert!(script.contains("show-main-window"));
+    }
+
+    #[test]
+    fn subscription_ipc_html_includes_config_import_controls() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("id=\"subscription-config\""));
+        assert!(html.contains("import-subscription-config"));
+        assert!(html.contains("set-traffic-mode"));
+        assert!(html.contains("select-node"));
+    }
+
+    #[test]
+    fn subscription_ipc_html_renders_subscription_summary() {
+        let mut snapshot = snapshot();
+        snapshot.refresh_subscription(Some(subscription("SS-READY")));
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("Supported 1"));
+        assert!(html.contains("SS-READY"));
+        assert!(html.contains("data-node-tag=\"SS-READY\""));
     }
 }

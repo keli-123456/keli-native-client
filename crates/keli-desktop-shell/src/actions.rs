@@ -1,9 +1,25 @@
-use keli_desktop::{DesktopShellAction, DesktopShellPrimaryCommand, DesktopShellState};
+use keli_desktop::{
+    DesktopShellAction, DesktopShellPrimaryCommand, DesktopShellState, DesktopTrafficMode,
+};
+use serde::Deserialize;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DesktopShellUiEvent {
     Action(DesktopShellAction),
     Refresh,
+    ImportSubscriptionConfig(String),
+    SelectNode(String),
+    SetTrafficMode(DesktopTrafficMode),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IpcCommand {
+    #[serde(rename = "type")]
+    command_type: String,
+    config_text: Option<String>,
+    outbound_tag: Option<String>,
+    traffic_mode: Option<DesktopTrafficMode>,
 }
 
 pub fn ipc_event_for_message(
@@ -23,6 +39,20 @@ pub fn ipc_event_for_message(
             DesktopShellAction::OpenDiagnostics,
         )),
         "quit" => Some(DesktopShellUiEvent::Action(DesktopShellAction::RequestQuit)),
+        _ => json_ipc_event(message),
+    }
+}
+
+fn json_ipc_event(message: &str) -> Option<DesktopShellUiEvent> {
+    let command: IpcCommand = serde_json::from_str(message).ok()?;
+    match command.command_type.as_str() {
+        "import-subscription-config" => command
+            .config_text
+            .map(DesktopShellUiEvent::ImportSubscriptionConfig),
+        "select-node" => command.outbound_tag.map(DesktopShellUiEvent::SelectNode),
+        "set-traffic-mode" => command
+            .traffic_mode
+            .map(DesktopShellUiEvent::SetTrafficMode),
         _ => None,
     }
 }
@@ -169,6 +199,41 @@ mod tests {
         assert_eq!(
             tray_event_for_id("toggle-service", &shell(DesktopRunState::Running, true)),
             Some(DesktopShellUiEvent::Action(DesktopShellAction::RequestStop))
+        );
+    }
+
+    #[test]
+    fn subscription_ipc_import_config_json_maps_to_import_event() {
+        assert_eq!(
+            ipc_event_for_message(
+                r#"{"type":"import-subscription-config","configText":"proxies:\n  - name: SS-READY"}"#,
+                &shell(DesktopRunState::Stopped, true),
+            ),
+            Some(DesktopShellUiEvent::ImportSubscriptionConfig(
+                "proxies:\n  - name: SS-READY".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn subscription_ipc_select_node_json_maps_to_select_event() {
+        assert_eq!(
+            ipc_event_for_message(
+                r#"{"type":"select-node","outboundTag":"SS-READY"}"#,
+                &shell(DesktopRunState::Stopped, true),
+            ),
+            Some(DesktopShellUiEvent::SelectNode("SS-READY".to_string()))
+        );
+    }
+
+    #[test]
+    fn subscription_ipc_traffic_mode_json_maps_to_mode_event() {
+        assert_eq!(
+            ipc_event_for_message(
+                r#"{"type":"set-traffic-mode","trafficMode":"tun"}"#,
+                &shell(DesktopRunState::Stopped, true),
+            ),
+            Some(DesktopShellUiEvent::SetTrafficMode(DesktopTrafficMode::Tun))
         );
     }
 }

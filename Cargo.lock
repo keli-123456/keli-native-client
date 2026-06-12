@@ -1524,6 +1524,7 @@ name = "keli-desktop-shell"
 version = "0.1.425"
 dependencies = [
  "keli-desktop",
+ "serde",
  "serde_json",
  "single-instance",
  "tao",
