@@ -8,6 +8,7 @@ use keli_platform::{
 use serde::{Deserialize, Serialize};
 
 use crate::managed::{DesktopManagedCoreService, DesktopManagedStartOptions};
+use crate::persistence::DesktopPersistedSubscription;
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
 use crate::subscription::{
     DesktopSubscriptionSummary, DesktopSubscriptionUpdateSummary,
@@ -250,6 +251,15 @@ where
             update,
             self.traffic_mode,
         ))
+    }
+
+    pub fn persisted_subscription(&self) -> Option<DesktopPersistedSubscription> {
+        self.subscription_config
+            .as_ref()
+            .map(|config_text| DesktopPersistedSubscription {
+                config_text: config_text.clone(),
+                selected_outbound: self.selected_outbound.clone(),
+            })
     }
 
     pub fn export_support_bundle(&self) -> Result<DesktopSupportBundleExport, DesktopRuntimeError> {

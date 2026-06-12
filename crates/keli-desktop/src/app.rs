@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::commands::{DesktopCommandError, DesktopNativeCommandService};
 use crate::dependencies::{DesktopDependencyReport, DesktopWintunInstallSummary};
+use crate::persistence::{DesktopPersistedSubscription, DesktopSubscriptionStore};
 use crate::shell::{DesktopShellAction, DesktopShellPrimaryCommand, DesktopShellState};
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
 use crate::subscription::{
@@ -41,6 +42,7 @@ pub trait DesktopShellCommandHost {
         outbound_tag: String,
     ) -> Result<DesktopSubscriptionSummary, DesktopCommandError>;
     fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode);
+    fn persisted_subscription(&self) -> Option<DesktopPersistedSubscription>;
     fn export_support_bundle(&self) -> Result<DesktopSupportBundleExport, DesktopCommandError>;
     fn install_wintun_from_path(
         &mut self,
@@ -101,6 +103,10 @@ impl DesktopShellCommandHost for DesktopNativeCommandService {
         self.set_traffic_mode(traffic_mode);
     }
 
+    fn persisted_subscription(&self) -> Option<DesktopPersistedSubscription> {
+        DesktopNativeCommandService::persisted_subscription(self)
+    }
+
     fn export_support_bundle(&self) -> Result<DesktopSupportBundleExport, DesktopCommandError> {
         self.export_support_bundle()
     }
@@ -143,22 +149,37 @@ impl From<DesktopCommandError> for DesktopShellControllerError {
 pub struct DesktopShellController<H: DesktopShellCommandHost> {
     host: H,
     shell: DesktopShellState,
+    subscription_store: Option<DesktopSubscriptionStore>,
 }
 
 impl DesktopShellController<DesktopNativeCommandService> {
     pub fn new_native() -> Self {
-        Self::new(DesktopNativeCommandService::new())
+        Self::new_with_subscription_store(
+            DesktopNativeCommandService::new(),
+            DesktopSubscriptionStore::new(DesktopSubscriptionStore::default_path()),
+        )
     }
 }
 
 impl<H: DesktopShellCommandHost> DesktopShellController<H> {
     pub fn new(host: H) -> Self {
+        Self::from_parts(host, None)
+    }
+
+    pub fn new_with_subscription_store(host: H, store: DesktopSubscriptionStore) -> Self {
+        Self::from_parts(host, Some(store))
+    }
+
+    fn from_parts(host: H, subscription_store: Option<DesktopSubscriptionStore>) -> Self {
         let status = host.status();
         let dependencies = host.dependency_report();
-        Self {
+        let mut controller = Self {
             host,
             shell: DesktopShellState::new(status, dependencies),
-        }
+            subscription_store,
+        };
+        controller.restore_persisted_subscription();
+        controller
     }
 
     pub fn snapshot(&self) -> &DesktopShellState {
@@ -194,6 +215,7 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         let subscription = self.host.import_subscription_config(config_text.into())?;
         self.shell.refresh_subscription(Some(subscription));
         self.shell.refresh_status(self.host.status());
+        self.persist_current_subscription();
         Ok(self.shell.clone())
     }
 
@@ -209,6 +231,7 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         if let Some(subscription) = imported.subscription.clone() {
             self.shell.refresh_subscription(Some(subscription));
             self.shell.refresh_status(self.host.status());
+            self.persist_current_subscription();
         }
         Ok(imported)
     }
@@ -227,6 +250,7 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
                 self.shell
                     .refresh_subscription(Some(update.subscription.clone()));
             }
+            self.persist_current_subscription();
         }
         self.shell.refresh_status(updated.runtime_status.clone());
         Ok(updated)
@@ -239,6 +263,7 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         let subscription = self.host.select_node(outbound_tag.into())?;
         self.shell.refresh_subscription(Some(subscription));
         self.shell.refresh_status(self.host.status());
+        self.persist_current_subscription();
         Ok(self.shell.clone())
     }
 
@@ -299,17 +324,75 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         self.shell.refresh_status(status);
         Ok(self.shell.clone())
     }
+
+    fn restore_persisted_subscription(&mut self) {
+        let Some(store) = self.subscription_store.clone() else {
+            return;
+        };
+        let persisted = match store.load() {
+            Ok(Some(persisted)) => persisted,
+            Ok(None) => return,
+            Err(error) => {
+                eprintln!("desktop subscription persistence load failed: {error}");
+                return;
+            }
+        };
+        match self
+            .host
+            .import_subscription_config(persisted.config_text.clone())
+        {
+            Ok(subscription) => {
+                self.shell.refresh_subscription(Some(subscription));
+            }
+            Err(error) => {
+                eprintln!(
+                    "desktop subscription persistence restore failed: {} {} {}",
+                    error.operation, error.kind, error.message
+                );
+                return;
+            }
+        }
+        if let Some(selected_outbound) = persisted.selected_outbound {
+            match self.host.select_node(selected_outbound) {
+                Ok(subscription) => {
+                    self.shell.refresh_subscription(Some(subscription));
+                }
+                Err(error) => {
+                    eprintln!(
+                        "desktop subscription persistence selection restore failed: {} {} {}",
+                        error.operation, error.kind, error.message
+                    );
+                }
+            }
+        }
+        self.shell.refresh_status(self.host.status());
+    }
+
+    fn persist_current_subscription(&self) {
+        let Some(store) = self.subscription_store.as_ref() else {
+            return;
+        };
+        let Some(subscription) = self.host.persisted_subscription() else {
+            return;
+        };
+        if let Err(error) = store.save(&subscription) {
+            eprintln!("desktop subscription persistence save failed: {error}");
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
+    use std::path::PathBuf;
     use std::rc::Rc;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
     use crate::dependencies::{
         DesktopDependencyReport, DesktopSystemProxyDependency, DesktopTunBackendDependency,
     };
+    use crate::persistence::{DesktopPersistedSubscription, DesktopSubscriptionStore};
     use crate::readiness::{DesktopBlocker, DesktopFirstRunReport};
     use crate::shell::{DesktopShellAction, DesktopShellPrimaryCommand};
     use crate::status::{DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode};
@@ -335,6 +418,7 @@ mod tests {
         selects: usize,
         modes: Vec<DesktopTrafficMode>,
         subscription: DesktopSubscriptionSummary,
+        subscription_config: Option<String>,
         url_imports: Vec<String>,
         url_updates: Vec<String>,
         exports: usize,
@@ -353,6 +437,7 @@ mod tests {
                     selects: 0,
                     modes: Vec::new(),
                     subscription: subscription("SS-READY"),
+                    subscription_config: None,
                     url_imports: Vec::new(),
                     url_updates: Vec::new(),
                     exports: 0,
@@ -431,10 +516,11 @@ mod tests {
 
         fn import_subscription_config(
             &mut self,
-            _config_text: String,
+            config_text: String,
         ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
             let mut inner = self.inner.borrow_mut();
             inner.imports += 1;
+            inner.subscription_config = Some(config_text);
             inner.subscription = subscription("SS-READY");
             Ok(inner.subscription.clone())
         }
@@ -447,6 +533,7 @@ mod tests {
         ) -> Result<DesktopSubscriptionUrlImportSummary, DesktopCommandError> {
             let mut inner = self.inner.borrow_mut();
             inner.url_imports.push(url);
+            inner.subscription_config = Some(ss_config("URL-READY"));
             inner.subscription = subscription("URL-READY");
             inner.status.selected_outbound = Some("URL-READY".to_string());
             Ok(DesktopSubscriptionUrlImportSummary {
@@ -478,6 +565,7 @@ mod tests {
             let mut inner = self.inner.borrow_mut();
             inner.url_updates.push(url);
             let updated = url_update_summary("URL-STAY");
+            inner.subscription_config = Some(ss_config("URL-STAY"));
             inner.subscription = updated
                 .update
                 .as_ref()
@@ -502,6 +590,17 @@ mod tests {
             let mut inner = self.inner.borrow_mut();
             inner.modes.push(traffic_mode);
             inner.status.traffic_mode = traffic_mode;
+        }
+
+        fn persisted_subscription(&self) -> Option<DesktopPersistedSubscription> {
+            let inner = self.inner.borrow();
+            inner
+                .subscription_config
+                .as_ref()
+                .map(|config_text| DesktopPersistedSubscription {
+                    config_text: config_text.clone(),
+                    selected_outbound: inner.status.selected_outbound.clone(),
+                })
         }
 
         fn export_support_bundle(&self) -> Result<DesktopSupportBundleExport, DesktopCommandError> {
@@ -632,6 +731,36 @@ mod tests {
             }],
             skipped: Vec::new(),
         }
+    }
+
+    fn ss_config(tag: &str) -> String {
+        ss_config_with_tags(&[tag])
+    }
+
+    fn ss_config_with_tags(tags: &[&str]) -> String {
+        let proxies = tags
+            .iter()
+            .map(|tag| {
+                format!(
+                    r#"  - name: {tag}
+    type: ss
+    server: 127.0.0.1
+    port: 8388
+    cipher: aes-128-gcm
+    password: pass"#
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("proxies:\n{proxies}\n")
+    }
+
+    fn test_path(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        std::env::temp_dir().join(format!("keli-desktop-controller-{name}-{unique}.json"))
     }
 
     fn url_update_summary(tag: &str) -> DesktopSubscriptionUrlUpdateSummary {
@@ -806,6 +935,98 @@ mod tests {
                 .and_then(|subscription| subscription.selected_outbound.as_deref()),
             Some("SS-READY")
         );
+    }
+
+    #[test]
+    fn shell_subscription_persistence_restores_selected_node() {
+        let store = DesktopSubscriptionStore::new(test_path("restore-selected"));
+        store
+            .save(&DesktopPersistedSubscription {
+                config_text: ss_config_with_tags(&["SS-OLD", "SS-READY"]),
+                selected_outbound: Some("SS-READY".to_string()),
+            })
+            .expect("save persisted subscription");
+        let host = FakeHost::new(status(DesktopRunState::Stopped), ready_dependencies());
+        let observed = host.clone();
+
+        let controller = DesktopShellController::new_with_subscription_store(host, store.clone());
+
+        assert_eq!(observed.imports(), 1);
+        assert_eq!(observed.selects(), 1);
+        assert_eq!(
+            controller
+                .snapshot()
+                .subscription
+                .as_ref()
+                .and_then(|subscription| subscription.selected_outbound.as_deref()),
+            Some("SS-READY")
+        );
+
+        let _ = std::fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn shell_subscription_persistence_saves_import_and_selected_node() {
+        let store = DesktopSubscriptionStore::new(test_path("persist-import-select"));
+        let host = FakeHost::new(status(DesktopRunState::Stopped), ready_dependencies());
+        let mut controller =
+            DesktopShellController::new_with_subscription_store(host, store.clone());
+
+        controller
+            .import_subscription_config(ss_config_with_tags(&["SS-A", "SS-B"]))
+            .expect("import subscription");
+        controller.select_node("SS-B").expect("select node");
+
+        let persisted = store
+            .load()
+            .expect("load persisted subscription")
+            .expect("persisted subscription");
+        assert!(persisted.config_text.contains("SS-A"));
+        assert_eq!(persisted.selected_outbound.as_deref(), Some("SS-B"));
+
+        let _ = std::fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn shell_subscription_persistence_saves_url_import_config() {
+        let store = DesktopSubscriptionStore::new(test_path("persist-url-import"));
+        let host = FakeHost::new(status(DesktopRunState::Stopped), ready_dependencies());
+        let mut controller =
+            DesktopShellController::new_with_subscription_store(host, store.clone());
+
+        controller
+            .import_subscription_url("https://sub.example.com/panel?token=secret")
+            .expect("import subscription URL");
+
+        let persisted = store
+            .load()
+            .expect("load persisted subscription")
+            .expect("persisted subscription");
+        assert!(persisted.config_text.contains("URL-READY"));
+        assert_eq!(persisted.selected_outbound.as_deref(), Some("URL-READY"));
+
+        let _ = std::fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn shell_subscription_persistence_saves_url_update_config() {
+        let store = DesktopSubscriptionStore::new(test_path("persist-url-update"));
+        let host = FakeHost::new(status(DesktopRunState::Running), ready_dependencies());
+        let mut controller =
+            DesktopShellController::new_with_subscription_store(host, store.clone());
+
+        controller
+            .update_subscription_url("https://sub.example.com/panel?token=secret")
+            .expect("update subscription URL");
+
+        let persisted = store
+            .load()
+            .expect("load persisted subscription")
+            .expect("persisted subscription");
+        assert!(persisted.config_text.contains("URL-STAY"));
+        assert_eq!(persisted.selected_outbound.as_deref(), Some("URL-STAY"));
+
+        let _ = std::fs::remove_file(store.path());
     }
 
     #[test]

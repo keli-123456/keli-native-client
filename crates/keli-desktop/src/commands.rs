@@ -13,6 +13,7 @@ use crate::dependencies::{
     install_wintun_from_directory, install_wintun_from_file, DesktopDependencyReport,
     DesktopWintunInstallSummary,
 };
+use crate::persistence::DesktopPersistedSubscription;
 use crate::service::{DesktopRuntimeError, DesktopRuntimeService};
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
 use crate::subscription::{
@@ -137,6 +138,10 @@ impl DesktopNativeCommandService {
         self.commands.set_listen(listen);
     }
 
+    pub fn persisted_subscription(&self) -> Option<DesktopPersistedSubscription> {
+        self.commands.persisted_subscription()
+    }
+
     pub fn start(&mut self) -> Result<DesktopStatusSnapshot, DesktopCommandError> {
         self.commands.start()
     }
@@ -236,6 +241,10 @@ where
 
     pub fn set_listen(&mut self, listen: impl Into<String>) {
         self.runtime.set_listen(listen);
+    }
+
+    pub fn persisted_subscription(&self) -> Option<DesktopPersistedSubscription> {
+        self.runtime.persisted_subscription()
     }
 
     pub fn start(&mut self) -> Result<DesktopStatusSnapshot, DesktopCommandError> {

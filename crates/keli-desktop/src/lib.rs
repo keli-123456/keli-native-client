@@ -2,6 +2,7 @@ pub mod app;
 pub mod commands;
 pub mod dependencies;
 pub mod managed;
+pub mod persistence;
 pub mod readiness;
 pub mod service;
 pub mod shell;
@@ -16,6 +17,9 @@ pub use dependencies::{
     DesktopTunBackendDependency, DesktopWintunInstallSummary,
 };
 pub use managed::{DesktopManagedCoreService, DesktopManagedStartOptions};
+pub use persistence::{
+    DesktopPersistedSubscription, DesktopPersistenceError, DesktopSubscriptionStore,
+};
 pub use readiness::{DesktopBlocker, DesktopFirstRunReport};
 pub use service::{DesktopRuntimeCommand, DesktopRuntimeError, DesktopRuntimeService};
 pub use shell::{
