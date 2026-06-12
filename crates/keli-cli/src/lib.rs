@@ -1305,6 +1305,7 @@ pub struct ManagedMixedOptions {
     pub relay_options: RelayOptions,
     pub system_proxy: bool,
     pub system_proxy_bypass: Vec<String>,
+    pub tun_device: Option<TunDeviceConfig>,
     pub dns_options: MixedDnsOptions,
     pub tun_tcp_max_active_sessions: usize,
     pub max_connection_workers: usize,
@@ -1319,6 +1320,7 @@ impl Default for ManagedMixedOptions {
             relay_options: default_relay_options(),
             system_proxy: false,
             system_proxy_bypass: Vec::new(),
+            tun_device: None,
             dns_options: MixedDnsOptions::default(),
             tun_tcp_max_active_sessions: DEFAULT_TUN_TCP_MAX_ACTIVE_SESSIONS,
             max_connection_workers: DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
@@ -1990,6 +1992,156 @@ where
     Ok((output, report))
 }
 
+fn start_managed_tun_background_runtime<'a, C>(
+    controller: &'a C,
+    config: TunDeviceConfig,
+    runtime: Arc<RwLock<MixedProxyRuntime>>,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+) -> Result<ManagedTunBackgroundRuntime<'a>, String>
+where
+    C: TunPacketIoController + ?Sized,
+    C::PacketIo: Send + 'static,
+{
+    let guard = apply_tun_device_for_config(controller, config)?;
+    let config = guard.config().clone();
+    let start_snapshot = guard.snapshot().clone();
+    let owns_device = guard.owns_device();
+    let io = match controller.open_packet_io(&config) {
+        Ok(io) => io,
+        Err(error) => {
+            let open_error = format!("open TUN packet I/O: {error}");
+            let stop_result = if owns_device {
+                controller
+                    .stop()
+                    .map(|_| ())
+                    .map_err(|error| format!("stop TUN device: {error}"))
+            } else {
+                Ok(())
+            };
+            return match stop_result {
+                Ok(()) => Err(open_error),
+                Err(stop_error) => Err(format!("{open_error}; {stop_error}")),
+            };
+        }
+    };
+    let stop = Arc::new(AtomicBool::new(false));
+    let thread_stop = Arc::clone(&stop);
+    let thread_config = config.clone();
+    let thread = thread::spawn(move || {
+        run_managed_tun_packet_loop_shared_runtime_until_stop(
+            io,
+            thread_config,
+            runtime,
+            dns_ttl_seconds,
+            max_packets,
+            thread_stop,
+        )
+    });
+    let stop_snapshot = start_snapshot.clone();
+    let stop_device = Box::new(move || {
+        if owns_device {
+            controller
+                .stop()
+                .map_err(|error| format!("stop TUN device: {error}"))
+        } else {
+            Ok(stop_snapshot)
+        }
+    });
+
+    Ok(ManagedTunBackgroundRuntime {
+        config,
+        start_snapshot,
+        owns_device,
+        stop,
+        thread: Some(thread),
+        stop_device: Some(stop_device),
+    })
+}
+
+fn run_managed_tun_packet_loop_shared_runtime_until_stop<I>(
+    io: I,
+    config: TunDeviceConfig,
+    runtime: Arc<RwLock<MixedProxyRuntime>>,
+    dns_ttl_seconds: u32,
+    max_packets: usize,
+    stop: Arc<AtomicBool>,
+) -> Result<TunPacketLoopSummary, String>
+where
+    I: TunPacketIo,
+{
+    let mut device = PlatformTunPacketDevice::new(io);
+    let initial_runtime = runtime
+        .read()
+        .map_err(|_| "managed mixed runtime lock poisoned".to_string())?
+        .clone();
+    let mut sessions =
+        TunTcpSessionTable::with_max_active_sessions(initial_runtime.tun_tcp_max_active_sessions);
+    let mut summary = TunPacketLoopSummary::default();
+    let mut packet_limit_reached = true;
+    for _ in 0..max_packets {
+        if stop.load(Ordering::SeqCst) {
+            summary.record_stop_requested();
+            packet_limit_reached = false;
+            break;
+        }
+
+        let runtime_snapshot = runtime
+            .read()
+            .map_err(|_| "managed mixed runtime lock poisoned".to_string())?
+            .clone();
+        let timeout = runtime_snapshot
+            .relay_options
+            .first_byte_timeout
+            .unwrap_or(DEFAULT_FIRST_BYTE_TIMEOUT);
+        let session_idle_timeout = runtime_snapshot
+            .relay_options
+            .idle_timeout
+            .unwrap_or(DEFAULT_IDLE_TIMEOUT);
+        let mut dns = runtime_snapshot.dns_options.engine();
+        let mut udp_relay_dns = runtime_snapshot.dns_options.engine();
+        let mut tcp_relay_dns = runtime_snapshot.dns_options.engine();
+        let mut udp_relay =
+            RegistryTunUdpRelay::new(&runtime_snapshot.outbounds, &mut udp_relay_dns, timeout);
+        let mut tcp_relay = RegistryTunTcpSessionRelay::new(
+            &runtime_snapshot.outbounds,
+            &mut tcp_relay_dns,
+            timeout,
+        );
+        let prune_report = prune_idle_tun_tcp_sessions(
+            &mut sessions,
+            &mut tcp_relay,
+            Instant::now(),
+            session_idle_timeout,
+        );
+        summary.record_tcp_session_prune_report(&prune_report);
+        let event = process_tun_device_packet_with_relays(
+            &mut device,
+            &runtime_snapshot.routes,
+            config.dns_hijack,
+            &mut dns,
+            dns_ttl_seconds,
+            &mut udp_relay,
+            &mut sessions,
+            &mut tcp_relay,
+            DEFAULT_TUN_TCP_SERVER_INITIAL_SEQUENCE_NUMBER,
+            DEFAULT_TUN_TCP_WINDOW_SIZE,
+        )
+        .map_err(|error| format!("run TUN packet loop: {error}"))?;
+        let should_pause = event == TunPacketLoopEvent::NoPacket;
+        summary.record_event(&event);
+        summary.record_tcp_session_table_state(&sessions);
+        if should_pause {
+            thread::sleep(MANAGED_TUN_IDLE_POLL_INTERVAL);
+        }
+    }
+    if packet_limit_reached {
+        summary.record_packet_limit_reached();
+    }
+    summary.record_tcp_session_table_state(&sessions);
+    Ok(summary)
+}
+
 fn run_managed_tun_packet_loop_inner<C, R>(
     controller: &C,
     config: &TunDeviceConfig,
@@ -2342,6 +2494,51 @@ pub struct ManagedMixedHandle<'a, C: SystemProxyController + ?Sized> {
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<io::Result<RuntimeManagedMixedStopDrainDiagnostic>>>,
     system_proxy_guard: Option<ManagedSystemProxyGuard<'a, C>>,
+    tun_runtime: Option<ManagedTunBackgroundRuntime<'a>>,
+}
+
+struct ManagedTunBackgroundRuntime<'a> {
+    config: TunDeviceConfig,
+    start_snapshot: TunDeviceSnapshot,
+    owns_device: bool,
+    stop: Arc<AtomicBool>,
+    thread: Option<thread::JoinHandle<Result<TunPacketLoopSummary, String>>>,
+    stop_device: Option<Box<dyn FnOnce() -> Result<TunDeviceSnapshot, String> + 'a>>,
+}
+
+impl fmt::Debug for ManagedTunBackgroundRuntime<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ManagedTunBackgroundRuntime")
+            .field("config", &self.config)
+            .field("start_snapshot", &self.start_snapshot)
+            .field("owns_device", &self.owns_device)
+            .field("thread_running", &self.thread.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl ManagedTunBackgroundRuntime<'_> {
+    fn stop(mut self) -> Result<ManagedTunPacketLoopReport, String> {
+        self.stop.store(true, Ordering::SeqCst);
+        let summary = self
+            .thread
+            .take()
+            .ok_or_else(|| "managed TUN packet loop thread is missing".to_string())?
+            .join()
+            .map_err(|_| "managed TUN packet loop thread panicked".to_string())??;
+        let stop_snapshot =
+            self.stop_device
+                .take()
+                .ok_or_else(|| "managed TUN stop handler is missing".to_string())?()?;
+        Ok(ManagedTunPacketLoopReport {
+            config: self.config,
+            start_snapshot: self.start_snapshot,
+            stop_snapshot,
+            owns_device: self.owns_device,
+            summary,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3734,6 +3931,9 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         config_text: &str,
         options: ManagedMixedOptions,
     ) -> Result<ManagedMixedStatusSnapshot, String> {
+        if options.tun_device.is_some() {
+            return Err("managed mixed TUN start requires a TUN controller".to_string());
+        }
         if self.handle.is_some() {
             return Err("managed mixed core is already running".to_string());
         }
@@ -3745,6 +3945,34 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
             self.controller,
         )?;
         self.handle = Some(session.spawn_background()?);
+        self.last_stopped_status = None;
+        Ok(self.status())
+    }
+
+    pub fn start_from_subscription_config_text_with_tun_controller<T>(
+        &mut self,
+        config_text: &str,
+        options: ManagedMixedOptions,
+        tun_controller: &'a T,
+    ) -> Result<ManagedMixedStatusSnapshot, String>
+    where
+        T: TunPacketIoController + ?Sized,
+        T::PacketIo: Send + 'static,
+    {
+        if self.handle.is_some() {
+            return Err("managed mixed core is already running".to_string());
+        }
+        self.ensure_panel_allows_traffic()?;
+
+        let tun_device = options.tun_device.clone();
+        let session = ManagedMixedSession::start_from_subscription_config_text(
+            config_text,
+            options,
+            self.controller,
+        )?;
+        self.handle = Some(
+            session.spawn_background_with_optional_tun_controller(tun_controller, tun_device)?,
+        );
         self.last_stopped_status = None;
         Ok(self.status())
     }
@@ -4575,6 +4803,11 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
                     })
             })
             .unwrap_or(Ok(None));
+        let tun_result = self
+            .tun_runtime
+            .take()
+            .map(|tun_runtime| tun_runtime.stop().map(Some))
+            .unwrap_or(Ok(None));
         let restore_result = self
             .system_proxy_guard
             .take()
@@ -4586,15 +4819,28 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedHandle<'a, C> {
                 managed_mixed_stop_drain_diagnostic(diagnostic.clone()),
             );
         }
+        if let Ok(Some(report)) = &tun_result {
+            self.state.record_status_diagnostic(
+                managed_tun_runtime_report_note(report),
+                managed_tun_runtime_report_diagnostic(report),
+            );
+        }
         self.state.stop();
 
-        match (serve_result, restore_result) {
-            (Ok(_), Ok(())) => Ok(self.state),
-            (Err(serve_error), Ok(())) => Err(serve_error),
-            (Ok(_), Err(restore_error)) => Err(restore_error),
-            (Err(serve_error), Err(restore_error)) => {
-                Err(format!("{serve_error}; {restore_error}"))
-            }
+        let mut errors = Vec::new();
+        if let Err(error) = serve_result {
+            errors.push(error);
+        }
+        if let Err(error) = tun_result {
+            errors.push(error);
+        }
+        if let Err(error) = restore_result {
+            errors.push(error);
+        }
+        if errors.is_empty() {
+            Ok(self.state)
+        } else {
+            Err(errors.join("; "))
         }
     }
 }
@@ -4816,6 +5062,71 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedSession<'a, C> {
             stop,
             thread: Some(thread),
             system_proxy_guard: self.system_proxy_guard,
+            tun_runtime: None,
+        })
+    }
+
+    pub fn spawn_background_with_optional_tun_controller<T>(
+        mut self,
+        tun_controller: &'a T,
+        tun_device: Option<TunDeviceConfig>,
+    ) -> Result<ManagedMixedHandle<'a, C>, String>
+    where
+        T: TunPacketIoController + ?Sized,
+        T::PacketIo: Send + 'static,
+    {
+        let listener = self
+            .listener
+            .take()
+            .expect("managed mixed listener is present");
+        let selected_outbound = self.selected_outbound().map(str::to_string);
+        let runtime = Arc::new(RwLock::new(self.runtime));
+        let tun_runtime = match tun_device {
+            Some(config) => match start_managed_tun_background_runtime(
+                tun_controller,
+                config,
+                Arc::clone(&runtime),
+                DEFAULT_TUN_DNS_TTL_SECONDS,
+                DEFAULT_TUN_PACKET_LOOP_MAX_PACKETS,
+            ) {
+                Ok(tun_runtime) => Some(tun_runtime),
+                Err(error) => {
+                    let restore_result = self
+                        .system_proxy_guard
+                        .take()
+                        .map(ManagedSystemProxyGuard::restore)
+                        .unwrap_or(Ok(()));
+                    self.state.stop();
+                    return match restore_result {
+                        Ok(()) => Err(error),
+                        Err(restore_error) => Err(format!("{error}; {restore_error}")),
+                    };
+                }
+            },
+            None => None,
+        };
+        let thread_runtime = Arc::clone(&runtime);
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread_stop = Arc::clone(&stop);
+        let thread = thread::spawn(move || {
+            serve_mixed_listener_until(listener, thread_runtime, thread_stop)
+        });
+
+        Ok(ManagedMixedHandle {
+            state: self.state,
+            listen_addr: self.listen_addr,
+            selected_outbound,
+            runtime,
+            block_domains: self.block_domains,
+            relay_options: self.relay_options,
+            dns_options: self.dns_options,
+            tun_tcp_max_active_sessions: self.tun_tcp_max_active_sessions,
+            node_health: HashMap::new(),
+            last_subscription_url_update: None,
+            stop,
+            thread: Some(thread),
+            system_proxy_guard: self.system_proxy_guard,
+            tun_runtime,
         })
     }
 
@@ -5012,6 +5323,7 @@ pub fn run(command: CliCommand) -> Result<(), String> {
                         relay_options,
                         system_proxy,
                         system_proxy_bypass,
+                        tun_device: None,
                         dns_options,
                         tun_tcp_max_active_sessions,
                         max_connection_workers,

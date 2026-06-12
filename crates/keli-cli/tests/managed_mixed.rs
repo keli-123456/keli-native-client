@@ -29,6 +29,8 @@ use keli_net_core::{
 };
 use keli_platform::{
     SystemProxyConfig, SystemProxyController, SystemProxyError, SystemProxySnapshot,
+    TunDeviceConfig, TunDeviceController, TunDeviceError, TunDeviceSnapshot, TunPacketIo,
+    TunPacketIoController,
 };
 use serde_json::Value;
 use shadowsocks_crypto::kind::CipherKind;
@@ -465,6 +467,78 @@ impl SystemProxyController for FakeSystemProxyController {
     }
 }
 
+#[derive(Debug, Default)]
+struct FakeTunDeviceController {
+    starts: RefCell<Vec<TunDeviceConfig>>,
+    opens: RefCell<Vec<TunDeviceConfig>>,
+    stops: RefCell<usize>,
+    running: RefCell<Option<TunDeviceConfig>>,
+}
+
+#[derive(Debug, Default)]
+struct FakeTunPacketIo;
+
+impl FakeTunDeviceController {
+    fn stopped_snapshot() -> TunDeviceSnapshot {
+        TunDeviceSnapshot {
+            supported: true,
+            lifecycle_available: true,
+            packet_io_available: true,
+            running: false,
+            interface_name: None,
+            address_cidr: None,
+            mtu: None,
+            dns_hijack: None,
+        }
+    }
+}
+
+impl TunDeviceController for FakeTunDeviceController {
+    fn snapshot(&self) -> Result<TunDeviceSnapshot, TunDeviceError> {
+        Ok(self
+            .running
+            .borrow()
+            .as_ref()
+            .map(TunDeviceSnapshot::running)
+            .unwrap_or_else(Self::stopped_snapshot))
+    }
+
+    fn start(&self, config: &TunDeviceConfig) -> Result<TunDeviceSnapshot, TunDeviceError> {
+        self.starts.borrow_mut().push(config.clone());
+        self.running.borrow_mut().replace(config.clone());
+        Ok(TunDeviceSnapshot::running(config))
+    }
+
+    fn stop(&self) -> Result<TunDeviceSnapshot, TunDeviceError> {
+        *self.stops.borrow_mut() += 1;
+        self.running.borrow_mut().take();
+        Ok(Self::stopped_snapshot())
+    }
+}
+
+impl TunPacketIo for FakeTunPacketIo {
+    fn read_packet(&mut self) -> Result<Option<Vec<u8>>, TunDeviceError> {
+        Ok(None)
+    }
+
+    fn write_packet(&mut self, _packet: &[u8]) -> Result<(), TunDeviceError> {
+        Ok(())
+    }
+}
+
+impl TunPacketIoController for FakeTunDeviceController {
+    type PacketIo = FakeTunPacketIo;
+
+    fn open_packet_io(&self, config: &TunDeviceConfig) -> Result<Self::PacketIo, TunDeviceError> {
+        self.opens.borrow_mut().push(config.clone());
+        Ok(FakeTunPacketIo)
+    }
+}
+
+fn test_tun_device_config() -> TunDeviceConfig {
+    TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500).expect("valid TUN config")
+}
+
 #[test]
 fn managed_system_proxy_uses_listener_port_and_restores_snapshot() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind local listener");
@@ -814,6 +888,48 @@ fn managed_mixed_controller_start_status_reload_and_stop() {
     assert_eq!(core.status().peak_client_connections, 0);
     assert!(!core.status().system_proxy_enabled());
     assert!(!platform_controller.restored.borrow().is_empty());
+}
+
+#[test]
+fn managed_mixed_controller_start_with_tun_stops_packet_loop_and_device() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let tun_controller = FakeTunDeviceController::default();
+    let tun_device = test_tun_device_config();
+    let mut core = ManagedMixedController::new(&platform_controller);
+
+    let started = core
+        .start_from_subscription_config_text_with_tun_controller(
+            ss_config(),
+            ManagedMixedOptions {
+                listen: "127.0.0.1:0".to_string(),
+                outbound_tag: Some("SS-READY".to_string()),
+                tun_device: Some(tun_device.clone()),
+                ..ManagedMixedOptions::default()
+            },
+            &tun_controller,
+        )
+        .expect("start managed mixed controller with TUN");
+
+    assert!(core.is_running());
+    assert_eq!(started.selected_outbound.as_deref(), Some("SS-READY"));
+    assert_eq!(
+        tun_controller.starts.borrow().as_slice(),
+        &[tun_device.clone()]
+    );
+    assert_eq!(
+        tun_controller.opens.borrow().as_slice(),
+        &[tun_device.clone()]
+    );
+
+    let stopped = core.stop().expect("stop managed mixed controller");
+
+    assert_eq!(*tun_controller.stops.borrow(), 1);
+    assert!(!core.is_running());
+    assert_eq!(core.status().status, RuntimeStatus::Stopped);
+    assert!(stopped
+        .events()
+        .iter()
+        .any(|event| { matches!(event.diagnostic, Some(RuntimeDiagnostic::TunPacketLoop(_))) }));
 }
 
 #[test]

@@ -2,7 +2,9 @@ use std::time::Duration;
 
 use keli_cli::write_support_bundle_report;
 use keli_client_core::{plan_subscription_update, preflight_subscription_config, ClientErrorKind};
-use keli_platform::SystemProxyController;
+use keli_platform::{
+    NativeTunDeviceController, SystemProxyController, TunDeviceConfig, TunPacketIoController,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::managed::{DesktopManagedCoreService, DesktopManagedStartOptions};
@@ -42,18 +44,44 @@ impl From<String> for DesktopRuntimeError {
     }
 }
 
-pub struct DesktopRuntimeService<'a, C: SystemProxyController + ?Sized> {
+pub struct DesktopRuntimeService<
+    'a,
+    C: SystemProxyController + ?Sized,
+    T: TunPacketIoController + ?Sized = NativeTunDeviceController,
+> {
     core: DesktopManagedCoreService<'a, C>,
+    tun_controller: Option<&'a T>,
     subscription_config: Option<String>,
     selected_outbound: Option<String>,
     traffic_mode: DesktopTrafficMode,
     listen: String,
 }
 
-impl<'a, C: SystemProxyController + ?Sized> DesktopRuntimeService<'a, C> {
+impl<'a, C: SystemProxyController + ?Sized>
+    DesktopRuntimeService<'a, C, NativeTunDeviceController>
+{
     pub fn new(controller: &'a C) -> Self {
         Self {
             core: DesktopManagedCoreService::new(controller),
+            tun_controller: None,
+            subscription_config: None,
+            selected_outbound: None,
+            traffic_mode: DesktopTrafficMode::MixedInboundOnly,
+            listen: "127.0.0.1:7890".to_string(),
+        }
+    }
+}
+
+impl<'a, C, T> DesktopRuntimeService<'a, C, T>
+where
+    C: SystemProxyController + ?Sized,
+    T: TunPacketIoController + ?Sized,
+    T::PacketIo: Send + 'static,
+{
+    pub fn new_with_tun_controller(controller: &'a C, tun_controller: &'a T) -> Self {
+        Self {
+            core: DesktopManagedCoreService::new(controller),
+            tun_controller: Some(tun_controller),
             subscription_config: None,
             selected_outbound: None,
             traffic_mode: DesktopTrafficMode::MixedInboundOnly,
@@ -258,9 +286,20 @@ impl<'a, C: SystemProxyController + ?Sized> DesktopRuntimeService<'a, C> {
             .clone()
             .ok_or(ClientErrorKind::NoSupportedOutbounds)?;
         if self.traffic_mode == DesktopTrafficMode::Tun {
-            return Err(DesktopRuntimeError::Managed(
-                "TUN traffic mode is not wired into desktop runtime service".to_string(),
-            ));
+            let tun_controller = self.tun_controller.ok_or_else(|| {
+                DesktopRuntimeError::Managed(
+                    "desktop TUN mode requires a TUN controller".to_string(),
+                )
+            })?;
+            let options = DesktopManagedStartOptions::tun_mode(
+                config_text,
+                self.selected_outbound.clone(),
+                default_desktop_tun_device_config()?,
+            )
+            .with_listen(self.listen.clone());
+            return Ok(self
+                .core
+                .start_with_tun_controller(options, tun_controller)?);
         }
         let options = if self.traffic_mode == DesktopTrafficMode::SystemProxy {
             DesktopManagedStartOptions::system_proxy_mode(
@@ -291,6 +330,11 @@ impl<'a, C: SystemProxyController + ?Sized> DesktopRuntimeService<'a, C> {
     }
 }
 
+fn default_desktop_tun_device_config() -> Result<TunDeviceConfig, DesktopRuntimeError> {
+    TunDeviceConfig::new("keli-tun0", "10.7.0.1/24", 1500)
+        .map_err(|error| DesktopRuntimeError::Managed(format!("build default TUN config: {error}")))
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -303,6 +347,8 @@ mod tests {
     use crate::status::DesktopRunState;
     use keli_platform::{
         SystemProxyConfig, SystemProxyController, SystemProxyError, SystemProxySnapshot,
+        TunDeviceConfig, TunDeviceController, TunDeviceError, TunDeviceSnapshot, TunPacketIo,
+        TunPacketIoController,
     };
 
     fn ss_config(tag: &str) -> String {
@@ -415,6 +461,77 @@ proxies:
         fn restore(&self, snapshot: &SystemProxySnapshot) -> Result<(), SystemProxyError> {
             self.restored.borrow_mut().push(snapshot.clone());
             Ok(())
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct FakeTunDeviceController {
+        starts: RefCell<Vec<TunDeviceConfig>>,
+        opens: RefCell<Vec<TunDeviceConfig>>,
+        stops: RefCell<usize>,
+        running: RefCell<Option<TunDeviceConfig>>,
+    }
+
+    #[derive(Debug, Default)]
+    struct FakeTunPacketIo;
+
+    impl FakeTunDeviceController {
+        fn stopped_snapshot() -> TunDeviceSnapshot {
+            TunDeviceSnapshot {
+                supported: true,
+                lifecycle_available: true,
+                packet_io_available: true,
+                running: false,
+                interface_name: None,
+                address_cidr: None,
+                mtu: None,
+                dns_hijack: None,
+            }
+        }
+    }
+
+    impl TunDeviceController for FakeTunDeviceController {
+        fn snapshot(&self) -> Result<TunDeviceSnapshot, TunDeviceError> {
+            Ok(self
+                .running
+                .borrow()
+                .as_ref()
+                .map(TunDeviceSnapshot::running)
+                .unwrap_or_else(Self::stopped_snapshot))
+        }
+
+        fn start(&self, config: &TunDeviceConfig) -> Result<TunDeviceSnapshot, TunDeviceError> {
+            self.starts.borrow_mut().push(config.clone());
+            self.running.borrow_mut().replace(config.clone());
+            Ok(TunDeviceSnapshot::running(config))
+        }
+
+        fn stop(&self) -> Result<TunDeviceSnapshot, TunDeviceError> {
+            *self.stops.borrow_mut() += 1;
+            self.running.borrow_mut().take();
+            Ok(Self::stopped_snapshot())
+        }
+    }
+
+    impl TunPacketIo for FakeTunPacketIo {
+        fn read_packet(&mut self) -> Result<Option<Vec<u8>>, TunDeviceError> {
+            Ok(None)
+        }
+
+        fn write_packet(&mut self, _packet: &[u8]) -> Result<(), TunDeviceError> {
+            Ok(())
+        }
+    }
+
+    impl TunPacketIoController for FakeTunDeviceController {
+        type PacketIo = FakeTunPacketIo;
+
+        fn open_packet_io(
+            &self,
+            config: &TunDeviceConfig,
+        ) -> Result<Self::PacketIo, TunDeviceError> {
+            self.opens.borrow_mut().push(config.clone());
+            Ok(FakeTunPacketIo)
         }
     }
 
@@ -753,7 +870,32 @@ proxies:
     }
 
     #[test]
-    fn tun_mode_start_is_blocked_until_tun_lifecycle_is_wired() {
+    fn tun_mode_start_uses_managed_tun_controller() {
+        let platform_controller = FakeSystemProxyController::new();
+        let tun_controller = FakeTunDeviceController::default();
+        let mut service =
+            DesktopRuntimeService::new_with_tun_controller(&platform_controller, &tun_controller);
+        service
+            .import_subscription_config(ss_config("SS-READY"))
+            .expect("import subscription");
+        service.set_traffic_mode(DesktopTrafficMode::Tun);
+        service.set_listen("127.0.0.1:0");
+
+        let running = service.start().expect("start TUN service");
+
+        assert_eq!(running.traffic_mode, DesktopTrafficMode::Tun);
+        assert_eq!(running.run_state, DesktopRunState::Running);
+        assert_eq!(tun_controller.starts.borrow().len(), 1);
+        assert_eq!(tun_controller.opens.borrow().len(), 1);
+
+        let stopped = service.stop().expect("stop TUN service");
+
+        assert_eq!(stopped.traffic_mode, DesktopTrafficMode::Tun);
+        assert_eq!(*tun_controller.stops.borrow(), 1);
+    }
+
+    #[test]
+    fn tun_mode_start_requires_tun_controller_when_not_supplied() {
         let platform_controller = FakeSystemProxyController::new();
         let mut service = DesktopRuntimeService::new(&platform_controller);
         service
@@ -765,9 +907,7 @@ proxies:
 
         assert_eq!(
             error,
-            DesktopRuntimeError::Managed(
-                "TUN traffic mode is not wired into desktop runtime service".to_string()
-            )
+            DesktopRuntimeError::Managed("desktop TUN mode requires a TUN controller".to_string())
         );
         assert_eq!(service.status().run_state, DesktopRunState::Stopped);
     }
