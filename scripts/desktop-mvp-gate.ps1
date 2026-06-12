@@ -35,6 +35,7 @@ function Get-DesktopMvpGateSteps {
         New-GateStep -Name 'Desktop shell check' -Command @('cargo', 'check', '-p', 'keli-desktop-shell')
         New-GateStep -Name 'Desktop shell release build' -Command @('cargo', 'build', '--release', '-p', 'keli-desktop-shell')
         New-GateStep -Name 'Desktop portable package' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-package.ps1', '-SkipBuild')
+        New-GateStep -Name 'Desktop install smoke' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-install-smoke.ps1')
     )
 }
 
@@ -87,6 +88,7 @@ try {
         }
         Write-Output 'artifact target\release\keli-desktop-shell.exe'
         Write-Output 'artifact target\desktop\keli-desktop-mvp-windows-x64.zip'
+        Write-Output 'artifact target\desktop-install-smoke\desktop-install-smoke.json'
         return
     }
 
