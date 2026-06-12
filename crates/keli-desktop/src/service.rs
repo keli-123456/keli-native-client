@@ -7,6 +7,7 @@ use keli_platform::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::dependencies::DesktopDependencyReport;
 use crate::managed::{DesktopManagedCoreService, DesktopManagedStartOptions};
 use crate::persistence::DesktopPersistedSubscription;
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
@@ -295,10 +296,12 @@ where
                 DesktopRuntimeError::Managed(format!("support bundle JSON parse failed: {error}"))
             })?;
         let desktop_status = self.status();
+        let desktop_dependencies = DesktopDependencyReport::detect_native();
         build_desktop_support_bundle_export(
             core_support_bundle,
             &desktop_status,
             self.core.managed_status_json(),
+            &desktop_dependencies,
         )
         .map_err(DesktopRuntimeError::Managed)
     }
@@ -650,6 +653,24 @@ proxies:
             bundle["managed_runtime_status"]["selected_outbound"],
             "SS-READY"
         );
+        let first_run = &bundle["desktop_dependencies"]["first_run"];
+        assert!(first_run["system_proxy_ready"].is_boolean());
+        assert!(first_run["tun_ready"].is_boolean());
+        assert!(first_run["can_start_tun_mode"].is_boolean());
+        assert_eq!(
+            bundle["desktop_dependencies"]["tun_backend"]["backend"],
+            "wintun"
+        );
+        if first_run["tun_ready"] == false {
+            assert_eq!(
+                bundle["desktop_dependencies"]["first_run"]["blockers"][0]["action"],
+                "install-wintun"
+            );
+            assert_eq!(
+                bundle["desktop_dependencies"]["tun_backend"]["action"],
+                "install-wintun"
+            );
+        }
         assert_eq!(bundle["core_support_bundle"]["kind"], "keli_support_bundle");
         assert_eq!(bundle["core_support_bundle"]["profile"]["status"], "ok");
         assert_eq!(

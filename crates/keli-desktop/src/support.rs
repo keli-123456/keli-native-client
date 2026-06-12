@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::dependencies::DesktopDependencyReport;
 use crate::status::DesktopStatusSnapshot;
 
 pub const DESKTOP_SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 1;
@@ -15,6 +16,7 @@ pub fn build_desktop_support_bundle_export(
     core_support_bundle: serde_json::Value,
     desktop_status: &DesktopStatusSnapshot,
     managed_runtime_status: serde_json::Value,
+    desktop_dependencies: &DesktopDependencyReport,
 ) -> Result<DesktopSupportBundleExport, String> {
     let value = serde_json::json!({
         "status": "ok",
@@ -22,6 +24,7 @@ pub fn build_desktop_support_bundle_export(
         "schema_version": DESKTOP_SUPPORT_BUNDLE_SCHEMA_VERSION,
         "desktop_status": desktop_status,
         "managed_runtime_status": managed_runtime_status,
+        "desktop_dependencies": desktop_dependencies,
         "core_support_bundle": core_support_bundle,
         "redaction": {
             "profile_config_text": "omitted",
