@@ -17542,58 +17542,85 @@ fn spawn_trojan_grpc_tcp_relay_smoke_server() -> Result<
     Ok((listen_port, handle))
 }
 
+async fn drive_single_h2_smoke_request<T, F, Fut>(
+    mut h2: h2::server::Connection<tokio::net::TcpStream, Bytes>,
+    label: &'static str,
+    serve: F,
+) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(http::Request<h2::RecvStream>, h2::server::SendResponse<Bytes>) -> Fut
+        + Send
+        + 'static,
+    Fut: std::future::Future<Output = Result<T, String>> + Send + 'static,
+{
+    let (result_tx, mut result_rx) = tokio::sync::mpsc::unbounded_channel::<Result<T, String>>();
+    let mut accepted = false;
+    let mut accepting = true;
+    let mut serve = Some(serve);
+    let mut finished = None;
+
+    loop {
+        if !accepting {
+            if let Some(result) = finished.take() {
+                return result;
+            }
+        }
+
+        tokio::select! {
+            result = result_rx.recv(), if accepted && finished.is_none() => {
+                finished = Some(result.unwrap_or_else(|| {
+                    Err(format!("{label} request handler ended without a result"))
+                }));
+            }
+            request = h2.accept(), if accepting => {
+                match request {
+                    Some(Ok((request, respond))) => {
+                        if accepted {
+                            return Err(format!("{label} received an unexpected second h2 request"));
+                        }
+                        accepted = true;
+                        let serve = serve
+                            .take()
+                            .ok_or_else(|| format!("{label} request handler was already installed"))?;
+                        let result_tx = result_tx.clone();
+                        tokio::spawn(async move {
+                            let result = serve(request, respond).await;
+                            let _ = result_tx.send(result);
+                        });
+                    }
+                    Some(Err(error)) => {
+                        if let Some(result) = finished.take() {
+                            return result;
+                        }
+                        return Err(format!("accept {label} h2 request: {error}"));
+                    }
+                    None => {
+                        accepting = false;
+                        if !accepted {
+                            return Err(format!("{label} h2 stream was not opened"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 async fn handle_trojan_grpc_tcp_relay_smoke_stream(
     stream: TcpStream,
 ) -> Result<TcpRelaySmokeServerObservation, String> {
     let stream = tokio::net::TcpStream::from_std(stream)
         .map_err(|error| format!("convert Trojan gRPC TCP smoke stream: {error}"))?;
-    let mut h2 = h2::server::handshake(stream)
+    let h2 = h2::server::handshake(stream)
         .await
         .map_err(|error| format!("Trojan gRPC TCP smoke h2 handshake: {error}"))?;
-    let (result_tx, mut result_rx) =
-        tokio::sync::mpsc::unbounded_channel::<Result<TcpRelaySmokeServerObservation, String>>();
-    let mut accepted = false;
-    let mut accepting = true;
-
-    loop {
-        tokio::select! {
-            result = result_rx.recv() => {
-                return result.unwrap_or_else(|| {
-                    Err("Trojan gRPC TCP smoke request handler ended without a result".to_string())
-                });
-            }
-            request = h2.accept(), if accepting => {
-                let Some(request) = request else {
-                    accepting = false;
-                    if !accepted {
-                        return Err("Trojan gRPC TCP smoke h2 stream was not opened".to_string());
-                    }
-                    continue;
-                };
-                let (request, respond) = request
-                    .map_err(|error| format!("accept Trojan gRPC TCP smoke h2 request: {error}"))?;
-                if accepted {
-                    return Err("Trojan gRPC TCP smoke received an unexpected second h2 request".to_string());
-                }
-                accepted = true;
-                let result_tx = result_tx.clone();
-                tokio::spawn(async move {
-                    let result =
-                        serve_trojan_grpc_tcp_relay_smoke_request(request, respond).await;
-                    let _ = result_tx.send(result);
-                });
-            }
-        }
-
-        if !accepting && accepted {
-            return result_rx.recv().await.unwrap_or_else(|| {
-                Err(
-                    "Trojan gRPC TCP smoke request handler ended after connection close"
-                        .to_string(),
-                )
-            });
-        }
-    }
+    drive_single_h2_smoke_request(
+        h2,
+        "Trojan gRPC TCP smoke",
+        serve_trojan_grpc_tcp_relay_smoke_request,
+    )
+    .await
 }
 
 async fn serve_trojan_grpc_tcp_relay_smoke_request(
@@ -18343,49 +18370,15 @@ async fn handle_trojan_h2_tcp_relay_smoke_stream(
 ) -> Result<TcpRelaySmokeServerObservation, String> {
     let stream = tokio::net::TcpStream::from_std(stream)
         .map_err(|error| format!("convert Trojan H2 TCP smoke stream: {error}"))?;
-    let mut h2 = h2::server::handshake(stream)
+    let h2 = h2::server::handshake(stream)
         .await
         .map_err(|error| format!("Trojan H2 TCP smoke h2 handshake: {error}"))?;
-    let (result_tx, mut result_rx) =
-        tokio::sync::mpsc::unbounded_channel::<Result<TcpRelaySmokeServerObservation, String>>();
-    let mut accepted = false;
-    let mut accepting = true;
-
-    loop {
-        tokio::select! {
-            result = result_rx.recv() => {
-                return result.unwrap_or_else(|| {
-                    Err("Trojan H2 TCP smoke request handler ended without a result".to_string())
-                });
-            }
-            request = h2.accept(), if accepting => {
-                let Some(request) = request else {
-                    accepting = false;
-                    if !accepted {
-                        return Err("Trojan H2 TCP smoke h2 stream was not opened".to_string());
-                    }
-                    continue;
-                };
-                let (request, respond) = request
-                    .map_err(|error| format!("accept Trojan H2 TCP smoke h2 request: {error}"))?;
-                if accepted {
-                    return Err("Trojan H2 TCP smoke received an unexpected second h2 request".to_string());
-                }
-                accepted = true;
-                let result_tx = result_tx.clone();
-                tokio::spawn(async move {
-                    let result = serve_trojan_h2_tcp_relay_smoke_request(request, respond).await;
-                    let _ = result_tx.send(result);
-                });
-            }
-        }
-
-        if !accepting && accepted {
-            return result_rx.recv().await.unwrap_or_else(|| {
-                Err("Trojan H2 TCP smoke request handler ended after connection close".to_string())
-            });
-        }
-    }
+    drive_single_h2_smoke_request(
+        h2,
+        "Trojan H2 TCP smoke",
+        serve_trojan_h2_tcp_relay_smoke_request,
+    )
+    .await
 }
 
 async fn serve_trojan_h2_tcp_relay_smoke_request(
@@ -31603,50 +31596,15 @@ async fn handle_vless_grpc_tcp_relay_smoke_stream(
 ) -> Result<TcpRelaySmokeServerObservation, String> {
     let stream = tokio::net::TcpStream::from_std(stream)
         .map_err(|error| format!("convert VLESS gRPC TCP smoke stream: {error}"))?;
-    let mut h2 = h2::server::handshake(stream)
+    let h2 = h2::server::handshake(stream)
         .await
         .map_err(|error| format!("VLESS gRPC TCP smoke h2 handshake: {error}"))?;
-    let (result_tx, mut result_rx) =
-        tokio::sync::mpsc::unbounded_channel::<Result<TcpRelaySmokeServerObservation, String>>();
-    let mut accepted = false;
-    let mut accepting = true;
-
-    loop {
-        tokio::select! {
-            result = result_rx.recv() => {
-                return result.unwrap_or_else(|| {
-                    Err("VLESS gRPC TCP smoke request handler ended without a result".to_string())
-                });
-            }
-            request = h2.accept(), if accepting => {
-                let Some(request) = request else {
-                    accepting = false;
-                    if !accepted {
-                        return Err("VLESS gRPC TCP smoke h2 stream was not opened".to_string());
-                    }
-                    continue;
-                };
-                let (request, respond) = request
-                    .map_err(|error| format!("accept VLESS gRPC TCP smoke h2 request: {error}"))?;
-                if accepted {
-                    return Err("VLESS gRPC TCP smoke received an unexpected second h2 request".to_string());
-                }
-                accepted = true;
-                let result_tx = result_tx.clone();
-                tokio::spawn(async move {
-                    let result =
-                        serve_vless_grpc_tcp_relay_smoke_request(request, respond).await;
-                    let _ = result_tx.send(result);
-                });
-            }
-        }
-
-        if !accepting && accepted {
-            return result_rx.recv().await.unwrap_or_else(|| {
-                Err("VLESS gRPC TCP smoke request handler ended after connection close".to_string())
-            });
-        }
-    }
+    drive_single_h2_smoke_request(
+        h2,
+        "VLESS gRPC TCP smoke",
+        serve_vless_grpc_tcp_relay_smoke_request,
+    )
+    .await
 }
 
 async fn serve_vless_grpc_tcp_relay_smoke_request(
@@ -32623,50 +32581,15 @@ async fn handle_vless_grpc_udp_relay_smoke_stream(
 ) -> Result<UdpRelaySmokeServerObservation, String> {
     let stream = tokio::net::TcpStream::from_std(stream)
         .map_err(|error| format!("convert VLESS gRPC UDP smoke stream: {error}"))?;
-    let mut h2 = h2::server::handshake(stream)
+    let h2 = h2::server::handshake(stream)
         .await
         .map_err(|error| format!("VLESS gRPC UDP smoke h2 handshake: {error}"))?;
-    let (result_tx, mut result_rx) =
-        tokio::sync::mpsc::unbounded_channel::<Result<UdpRelaySmokeServerObservation, String>>();
-    let mut accepted = false;
-    let mut accepting = true;
-
-    loop {
-        tokio::select! {
-            result = result_rx.recv() => {
-                return result.unwrap_or_else(|| {
-                    Err("VLESS gRPC UDP smoke request handler ended without a result".to_string())
-                });
-            }
-            request = h2.accept(), if accepting => {
-                let Some(request) = request else {
-                    accepting = false;
-                    if !accepted {
-                        return Err("VLESS gRPC UDP smoke h2 stream was not opened".to_string());
-                    }
-                    continue;
-                };
-                let (request, respond) = request
-                    .map_err(|error| format!("accept VLESS gRPC UDP smoke h2 request: {error}"))?;
-                if accepted {
-                    return Err("VLESS gRPC UDP smoke received an unexpected second h2 request".to_string());
-                }
-                accepted = true;
-                let result_tx = result_tx.clone();
-                tokio::spawn(async move {
-                    let result =
-                        serve_vless_grpc_udp_relay_smoke_request(request, respond).await;
-                    let _ = result_tx.send(result);
-                });
-            }
-        }
-
-        if !accepting && accepted {
-            return result_rx.recv().await.unwrap_or_else(|| {
-                Err("VLESS gRPC UDP smoke request handler ended after connection close".to_string())
-            });
-        }
-    }
+    drive_single_h2_smoke_request(
+        h2,
+        "VLESS gRPC UDP smoke",
+        serve_vless_grpc_udp_relay_smoke_request,
+    )
+    .await
 }
 
 async fn serve_vless_grpc_udp_relay_smoke_request(
@@ -33445,49 +33368,15 @@ async fn handle_vless_h2_tcp_relay_smoke_stream(
 ) -> Result<TcpRelaySmokeServerObservation, String> {
     let stream = tokio::net::TcpStream::from_std(stream)
         .map_err(|error| format!("convert VLESS H2 TCP smoke stream: {error}"))?;
-    let mut h2 = h2::server::handshake(stream)
+    let h2 = h2::server::handshake(stream)
         .await
         .map_err(|error| format!("VLESS H2 TCP smoke h2 handshake: {error}"))?;
-    let (result_tx, mut result_rx) =
-        tokio::sync::mpsc::unbounded_channel::<Result<TcpRelaySmokeServerObservation, String>>();
-    let mut accepted = false;
-    let mut accepting = true;
-
-    loop {
-        tokio::select! {
-            result = result_rx.recv() => {
-                return result.unwrap_or_else(|| {
-                    Err("VLESS H2 TCP smoke request handler ended without a result".to_string())
-                });
-            }
-            request = h2.accept(), if accepting => {
-                let Some(request) = request else {
-                    accepting = false;
-                    if !accepted {
-                        return Err("VLESS H2 TCP smoke h2 stream was not opened".to_string());
-                    }
-                    continue;
-                };
-                let (request, respond) = request
-                    .map_err(|error| format!("accept VLESS H2 TCP smoke h2 request: {error}"))?;
-                if accepted {
-                    return Err("VLESS H2 TCP smoke received an unexpected second h2 request".to_string());
-                }
-                accepted = true;
-                let result_tx = result_tx.clone();
-                tokio::spawn(async move {
-                    let result = serve_vless_h2_tcp_relay_smoke_request(request, respond).await;
-                    let _ = result_tx.send(result);
-                });
-            }
-        }
-
-        if !accepting && accepted {
-            return result_rx.recv().await.unwrap_or_else(|| {
-                Err("VLESS H2 TCP smoke request handler ended after connection close".to_string())
-            });
-        }
-    }
+    drive_single_h2_smoke_request(
+        h2,
+        "VLESS H2 TCP smoke",
+        serve_vless_h2_tcp_relay_smoke_request,
+    )
+    .await
 }
 
 async fn serve_vless_h2_tcp_relay_smoke_request(
@@ -34310,49 +34199,15 @@ async fn handle_vless_h2_udp_relay_smoke_stream(
 ) -> Result<UdpRelaySmokeServerObservation, String> {
     let stream = tokio::net::TcpStream::from_std(stream)
         .map_err(|error| format!("convert VLESS H2 UDP smoke stream: {error}"))?;
-    let mut h2 = h2::server::handshake(stream)
+    let h2 = h2::server::handshake(stream)
         .await
         .map_err(|error| format!("VLESS H2 UDP smoke h2 handshake: {error}"))?;
-    let (result_tx, mut result_rx) =
-        tokio::sync::mpsc::unbounded_channel::<Result<UdpRelaySmokeServerObservation, String>>();
-    let mut accepted = false;
-    let mut accepting = true;
-
-    loop {
-        tokio::select! {
-            result = result_rx.recv() => {
-                return result.unwrap_or_else(|| {
-                    Err("VLESS H2 UDP smoke request handler ended without a result".to_string())
-                });
-            }
-            request = h2.accept(), if accepting => {
-                let Some(request) = request else {
-                    accepting = false;
-                    if !accepted {
-                        return Err("VLESS H2 UDP smoke h2 stream was not opened".to_string());
-                    }
-                    continue;
-                };
-                let (request, respond) = request
-                    .map_err(|error| format!("accept VLESS H2 UDP smoke h2 request: {error}"))?;
-                if accepted {
-                    return Err("VLESS H2 UDP smoke received an unexpected second h2 request".to_string());
-                }
-                accepted = true;
-                let result_tx = result_tx.clone();
-                tokio::spawn(async move {
-                    let result = serve_vless_h2_udp_relay_smoke_request(request, respond).await;
-                    let _ = result_tx.send(result);
-                });
-            }
-        }
-
-        if !accepting && accepted {
-            return result_rx.recv().await.unwrap_or_else(|| {
-                Err("VLESS H2 UDP smoke request handler ended after connection close".to_string())
-            });
-        }
-    }
+    drive_single_h2_smoke_request(
+        h2,
+        "VLESS H2 UDP smoke",
+        serve_vless_h2_udp_relay_smoke_request,
+    )
+    .await
 }
 
 async fn serve_vless_h2_udp_relay_smoke_request(
@@ -41636,50 +41491,15 @@ async fn handle_vmess_grpc_tcp_relay_smoke_stream(
 ) -> Result<TcpRelaySmokeServerObservation, String> {
     let stream = tokio::net::TcpStream::from_std(stream)
         .map_err(|error| format!("convert VMess gRPC TCP smoke stream: {error}"))?;
-    let mut h2 = h2::server::handshake(stream)
+    let h2 = h2::server::handshake(stream)
         .await
         .map_err(|error| format!("VMess gRPC TCP smoke h2 handshake: {error}"))?;
-    let (result_tx, mut result_rx) =
-        tokio::sync::mpsc::unbounded_channel::<Result<TcpRelaySmokeServerObservation, String>>();
-    let mut accepted = false;
-    let mut accepting = true;
-
-    loop {
-        tokio::select! {
-            result = result_rx.recv() => {
-                return result.unwrap_or_else(|| {
-                    Err("VMess gRPC TCP smoke request handler ended without a result".to_string())
-                });
-            }
-            request = h2.accept(), if accepting => {
-                let Some(request) = request else {
-                    accepting = false;
-                    if !accepted {
-                        return Err("VMess gRPC TCP smoke h2 stream was not opened".to_string());
-                    }
-                    continue;
-                };
-                let (request, respond) = request
-                    .map_err(|error| format!("accept VMess gRPC TCP smoke h2 request: {error}"))?;
-                if accepted {
-                    return Err("VMess gRPC TCP smoke received an unexpected second h2 request".to_string());
-                }
-                accepted = true;
-                let result_tx = result_tx.clone();
-                tokio::spawn(async move {
-                    let result =
-                        serve_vmess_grpc_tcp_relay_smoke_request(request, respond).await;
-                    let _ = result_tx.send(result);
-                });
-            }
-        }
-
-        if !accepting && accepted {
-            return result_rx.recv().await.unwrap_or_else(|| {
-                Err("VMess gRPC TCP smoke request handler ended after connection close".to_string())
-            });
-        }
-    }
+    drive_single_h2_smoke_request(
+        h2,
+        "VMess gRPC TCP smoke",
+        serve_vmess_grpc_tcp_relay_smoke_request,
+    )
+    .await
 }
 
 async fn serve_vmess_grpc_tcp_relay_smoke_request(
@@ -42622,50 +42442,15 @@ async fn handle_vmess_grpc_udp_relay_smoke_stream(
 ) -> Result<UdpRelaySmokeServerObservation, String> {
     let stream = tokio::net::TcpStream::from_std(stream)
         .map_err(|error| format!("convert VMess gRPC UDP smoke stream: {error}"))?;
-    let mut h2 = h2::server::handshake(stream)
+    let h2 = h2::server::handshake(stream)
         .await
         .map_err(|error| format!("VMess gRPC UDP smoke h2 handshake: {error}"))?;
-    let (result_tx, mut result_rx) =
-        tokio::sync::mpsc::unbounded_channel::<Result<UdpRelaySmokeServerObservation, String>>();
-    let mut accepted = false;
-    let mut accepting = true;
-
-    loop {
-        tokio::select! {
-            result = result_rx.recv() => {
-                return result.unwrap_or_else(|| {
-                    Err("VMess gRPC UDP smoke request handler ended without a result".to_string())
-                });
-            }
-            request = h2.accept(), if accepting => {
-                let Some(request) = request else {
-                    accepting = false;
-                    if !accepted {
-                        return Err("VMess gRPC UDP smoke h2 stream was not opened".to_string());
-                    }
-                    continue;
-                };
-                let (request, respond) = request
-                    .map_err(|error| format!("accept VMess gRPC UDP smoke h2 request: {error}"))?;
-                if accepted {
-                    return Err("VMess gRPC UDP smoke received an unexpected second h2 request".to_string());
-                }
-                accepted = true;
-                let result_tx = result_tx.clone();
-                tokio::spawn(async move {
-                    let result =
-                        serve_vmess_grpc_udp_relay_smoke_request(request, respond).await;
-                    let _ = result_tx.send(result);
-                });
-            }
-        }
-
-        if !accepting && accepted {
-            return result_rx.recv().await.unwrap_or_else(|| {
-                Err("VMess gRPC UDP smoke request handler ended after connection close".to_string())
-            });
-        }
-    }
+    drive_single_h2_smoke_request(
+        h2,
+        "VMess gRPC UDP smoke",
+        serve_vmess_grpc_udp_relay_smoke_request,
+    )
+    .await
 }
 
 async fn serve_vmess_grpc_udp_relay_smoke_request(
@@ -43475,49 +43260,15 @@ async fn handle_vmess_h2_tcp_relay_smoke_stream(
 ) -> Result<TcpRelaySmokeServerObservation, String> {
     let stream = tokio::net::TcpStream::from_std(stream)
         .map_err(|error| format!("convert VMess H2 TCP smoke stream: {error}"))?;
-    let mut h2 = h2::server::handshake(stream)
+    let h2 = h2::server::handshake(stream)
         .await
         .map_err(|error| format!("VMess H2 TCP smoke h2 handshake: {error}"))?;
-    let (result_tx, mut result_rx) =
-        tokio::sync::mpsc::unbounded_channel::<Result<TcpRelaySmokeServerObservation, String>>();
-    let mut accepted = false;
-    let mut accepting = true;
-
-    loop {
-        tokio::select! {
-            result = result_rx.recv() => {
-                return result.unwrap_or_else(|| {
-                    Err("VMess H2 TCP smoke request handler ended without a result".to_string())
-                });
-            }
-            request = h2.accept(), if accepting => {
-                let Some(request) = request else {
-                    accepting = false;
-                    if !accepted {
-                        return Err("VMess H2 TCP smoke h2 stream was not opened".to_string());
-                    }
-                    continue;
-                };
-                let (request, respond) = request
-                    .map_err(|error| format!("accept VMess H2 TCP smoke h2 request: {error}"))?;
-                if accepted {
-                    return Err("VMess H2 TCP smoke received an unexpected second h2 request".to_string());
-                }
-                accepted = true;
-                let result_tx = result_tx.clone();
-                tokio::spawn(async move {
-                    let result = serve_vmess_h2_tcp_relay_smoke_request(request, respond).await;
-                    let _ = result_tx.send(result);
-                });
-            }
-        }
-
-        if !accepting && accepted {
-            return result_rx.recv().await.unwrap_or_else(|| {
-                Err("VMess H2 TCP smoke request handler ended after connection close".to_string())
-            });
-        }
-    }
+    drive_single_h2_smoke_request(
+        h2,
+        "VMess H2 TCP smoke",
+        serve_vmess_h2_tcp_relay_smoke_request,
+    )
+    .await
 }
 
 async fn serve_vmess_h2_tcp_relay_smoke_request(
@@ -44443,49 +44194,15 @@ async fn handle_vmess_h2_udp_relay_smoke_stream(
 ) -> Result<UdpRelaySmokeServerObservation, String> {
     let stream = tokio::net::TcpStream::from_std(stream)
         .map_err(|error| format!("convert VMess H2 UDP smoke stream: {error}"))?;
-    let mut h2 = h2::server::handshake(stream)
+    let h2 = h2::server::handshake(stream)
         .await
         .map_err(|error| format!("VMess H2 UDP smoke h2 handshake: {error}"))?;
-    let (result_tx, mut result_rx) =
-        tokio::sync::mpsc::unbounded_channel::<Result<UdpRelaySmokeServerObservation, String>>();
-    let mut accepted = false;
-    let mut accepting = true;
-
-    loop {
-        tokio::select! {
-            result = result_rx.recv() => {
-                return result.unwrap_or_else(|| {
-                    Err("VMess H2 UDP smoke request handler ended without a result".to_string())
-                });
-            }
-            request = h2.accept(), if accepting => {
-                let Some(request) = request else {
-                    accepting = false;
-                    if !accepted {
-                        return Err("VMess H2 UDP smoke h2 stream was not opened".to_string());
-                    }
-                    continue;
-                };
-                let (request, respond) = request
-                    .map_err(|error| format!("accept VMess H2 UDP smoke h2 request: {error}"))?;
-                if accepted {
-                    return Err("VMess H2 UDP smoke received an unexpected second h2 request".to_string());
-                }
-                accepted = true;
-                let result_tx = result_tx.clone();
-                tokio::spawn(async move {
-                    let result = serve_vmess_h2_udp_relay_smoke_request(request, respond).await;
-                    let _ = result_tx.send(result);
-                });
-            }
-        }
-
-        if !accepting && accepted {
-            return result_rx.recv().await.unwrap_or_else(|| {
-                Err("VMess H2 UDP smoke request handler ended after connection close".to_string())
-            });
-        }
-    }
+    drive_single_h2_smoke_request(
+        h2,
+        "VMess H2 UDP smoke",
+        serve_vmess_h2_udp_relay_smoke_request,
+    )
+    .await
 }
 
 async fn serve_vmess_h2_udp_relay_smoke_request(
