@@ -302,6 +302,9 @@ mod tests {
             generation: 7,
             event_count: 3,
             last_error: None,
+            connection_metrics: Default::default(),
+            node_health: Default::default(),
+            recent_events: Vec::new(),
         }
     }
 

@@ -1,5 +1,8 @@
-use keli_cli::ManagedMixedStatusSnapshot;
-use keli_client_core::{ClientErrorKind, ClientRuntime, RuntimeStatus};
+use keli_cli::{
+    ConnectionMetricsSnapshot, ManagedMixedStatusSnapshot, ManagedNodeHealthState,
+    ManagedSubscriptionHealthSummary,
+};
+use keli_client_core::{ClientErrorKind, ClientRuntime, RuntimeEvent, RuntimeStatus};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,6 +25,66 @@ pub enum DesktopTrafficMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopConnectionMetricsSummary {
+    pub total: u64,
+    pub success: u64,
+    pub failure: u64,
+    pub average_connect_ms: Option<u64>,
+    pub average_first_byte_ms: Option<u64>,
+}
+
+impl Default for DesktopConnectionMetricsSummary {
+    fn default() -> Self {
+        Self {
+            total: 0,
+            success: 0,
+            failure: 0,
+            average_connect_ms: None,
+            average_first_byte_ms: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopNodeHealthSummary {
+    pub node_count: usize,
+    pub healthy_count: usize,
+    pub unhealthy_count: usize,
+    pub unknown_count: usize,
+    pub checked_count: usize,
+    pub unchecked_count: usize,
+    pub udp_available_count: usize,
+    pub selected_state: Option<String>,
+    pub recommended_state: Option<String>,
+    pub selected_outbound_healthy: bool,
+    pub recommended_switch_ready: bool,
+}
+
+impl Default for DesktopNodeHealthSummary {
+    fn default() -> Self {
+        Self {
+            node_count: 0,
+            healthy_count: 0,
+            unhealthy_count: 0,
+            unknown_count: 0,
+            checked_count: 0,
+            unchecked_count: 0,
+            udp_available_count: 0,
+            selected_state: None,
+            recommended_state: None,
+            selected_outbound_healthy: false,
+            recommended_switch_ready: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopRecentRuntimeEvent {
+    pub status: DesktopRunState,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DesktopStatusSnapshot {
     pub run_state: DesktopRunState,
     pub traffic_mode: DesktopTrafficMode,
@@ -30,6 +93,9 @@ pub struct DesktopStatusSnapshot {
     pub generation: u64,
     pub event_count: usize,
     pub last_error: Option<String>,
+    pub connection_metrics: DesktopConnectionMetricsSummary,
+    pub node_health: DesktopNodeHealthSummary,
+    pub recent_events: Vec<DesktopRecentRuntimeEvent>,
 }
 
 impl DesktopStatusSnapshot {
@@ -50,6 +116,9 @@ impl DesktopStatusSnapshot {
             generation: runtime.generation(),
             event_count: runtime.event_count(),
             last_error: runtime.last_error().map(error_label),
+            connection_metrics: DesktopConnectionMetricsSummary::default(),
+            node_health: DesktopNodeHealthSummary::default(),
+            recent_events: Vec::new(),
         }
     }
 
@@ -65,12 +134,92 @@ impl DesktopStatusSnapshot {
             generation: status.generation,
             event_count: status.event_count,
             last_error: status.last_error.as_ref().map(error_label),
+            connection_metrics: DesktopConnectionMetricsSummary::from_metrics(
+                &status.connection_metrics,
+            ),
+            node_health: status
+                .subscription
+                .as_ref()
+                .map(|subscription| {
+                    DesktopNodeHealthSummary::from_health_summary(&subscription.health_summary)
+                })
+                .unwrap_or_default(),
+            recent_events: status
+                .recent_events
+                .iter()
+                .map(DesktopRecentRuntimeEvent::from_runtime_event)
+                .collect(),
+        }
+    }
+}
+
+impl DesktopConnectionMetricsSummary {
+    fn from_metrics(metrics: &ConnectionMetricsSnapshot) -> Self {
+        Self {
+            total: metrics.total_connection_count,
+            success: metrics.success_count,
+            failure: metrics.failure_count,
+            average_connect_ms: average_duration_ms(
+                metrics.total_connect_ms,
+                metrics.timed_connect_count,
+            ),
+            average_first_byte_ms: average_duration_ms(
+                metrics.total_first_byte_ms,
+                metrics.timed_first_byte_count,
+            ),
+        }
+    }
+}
+
+impl DesktopNodeHealthSummary {
+    fn from_health_summary(summary: &ManagedSubscriptionHealthSummary) -> Self {
+        Self {
+            node_count: summary.node_count,
+            healthy_count: summary.healthy_count,
+            unhealthy_count: summary.unhealthy_count,
+            unknown_count: summary.unknown_count,
+            checked_count: summary.checked_count,
+            unchecked_count: summary.unchecked_count,
+            udp_available_count: summary.udp_available_count,
+            selected_state: summary.selected_state.as_ref().map(node_health_state_label),
+            recommended_state: summary
+                .recommended_state
+                .as_ref()
+                .map(node_health_state_label),
+            selected_outbound_healthy: summary.selected_outbound_healthy,
+            recommended_switch_ready: summary.recommended_switch_ready,
+        }
+    }
+}
+
+impl DesktopRecentRuntimeEvent {
+    fn from_runtime_event(event: &RuntimeEvent) -> Self {
+        Self {
+            status: run_state(&event.status),
+            note: event.note.clone(),
         }
     }
 }
 
 fn error_label(error: &ClientErrorKind) -> String {
     format!("{error:?}")
+}
+
+fn average_duration_ms(total_ms: u128, count: u64) -> Option<u64> {
+    if count == 0 {
+        None
+    } else {
+        Some((total_ms / u128::from(count)).min(u128::from(u64::MAX)) as u64)
+    }
+}
+
+fn node_health_state_label(state: &ManagedNodeHealthState) -> String {
+    match state {
+        ManagedNodeHealthState::Unknown => "unknown",
+        ManagedNodeHealthState::Healthy => "healthy",
+        ManagedNodeHealthState::Unhealthy => "unhealthy",
+    }
+    .to_string()
 }
 
 fn run_state(status: &RuntimeStatus) -> DesktopRunState {
@@ -107,6 +256,13 @@ proxies:
     password: secret
 "#
         )
+    }
+
+    fn managed_options() -> keli_cli::ManagedMixedOptions {
+        keli_cli::ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            ..keli_cli::ManagedMixedOptions::default()
+        }
     }
 
     #[test]
@@ -198,5 +354,81 @@ proxies:
         assert_eq!(status.generation, 0);
         assert_eq!(status.event_count, 0);
         assert_eq!(status.last_error, None);
+    }
+
+    #[test]
+    fn managed_mixed_status_exposes_runtime_evidence_summary() {
+        let platform_controller = FakeSystemProxyController::new();
+        let mut core = ManagedMixedController::new(&platform_controller);
+        let status = core
+            .start_from_subscription_config_text(
+                &ss_config("SS-READY"),
+                managed_options(),
+            )
+            .expect("start managed core");
+
+        let status = DesktopStatusSnapshot::from_managed_mixed_status(
+            &status,
+            DesktopTrafficMode::MixedInboundOnly,
+        );
+
+        assert_eq!(status.connection_metrics.total, 0);
+        assert_eq!(status.connection_metrics.success, 0);
+        assert_eq!(status.connection_metrics.failure, 0);
+        assert_eq!(status.connection_metrics.average_connect_ms, None);
+        assert_eq!(status.node_health.node_count, 1);
+        assert_eq!(status.node_health.unknown_count, 1);
+        assert_eq!(status.node_health.checked_count, 0);
+        assert_eq!(status.node_health.selected_state.as_deref(), Some("unknown"));
+        assert_eq!(
+            status.node_health.recommended_state.as_deref(),
+            Some("unknown")
+        );
+        assert!(!status.node_health.recommended_switch_ready);
+        assert!(!status.recent_events.is_empty());
+        assert!(status
+            .recent_events
+            .iter()
+            .any(|event| event.status == DesktopRunState::Running));
+        assert!(status
+            .recent_events
+            .iter()
+            .any(|event| event.note.as_deref() == Some("runtime running")));
+    }
+
+    #[test]
+    fn managed_mixed_status_exposes_recorded_node_health_summary() {
+        let platform_controller = FakeSystemProxyController::new();
+        let mut core = ManagedMixedController::new(&platform_controller);
+        core.start_from_subscription_config_text(
+            &ss_config("SS-READY"),
+            managed_options(),
+        )
+        .expect("start managed core");
+
+        let status = core
+            .record_node_health(keli_cli::ManagedNodeHealthStatus::healthy(
+                "SS-READY",
+                Some(42),
+                true,
+                true,
+            ))
+            .expect("record node health");
+
+        let status = DesktopStatusSnapshot::from_managed_mixed_status(
+            &status,
+            DesktopTrafficMode::MixedInboundOnly,
+        );
+
+        assert_eq!(status.node_health.node_count, 1);
+        assert_eq!(status.node_health.healthy_count, 1);
+        assert_eq!(status.node_health.checked_count, 1);
+        assert_eq!(status.node_health.udp_available_count, 1);
+        assert_eq!(status.node_health.selected_state.as_deref(), Some("healthy"));
+        assert_eq!(
+            status.node_health.recommended_state.as_deref(),
+            Some("healthy")
+        );
+        assert!(status.node_health.selected_outbound_healthy);
     }
 }

@@ -26,7 +26,10 @@ pub use shell::{
     DesktopShellAction, DesktopShellPrimaryAction, DesktopShellPrimaryCommand, DesktopShellState,
     DesktopShellTrayItem, DesktopShellTrayMenu, DesktopShellWindowState,
 };
-pub use status::{DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode};
+pub use status::{
+    DesktopConnectionMetricsSummary, DesktopNodeHealthSummary, DesktopRecentRuntimeEvent,
+    DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode,
+};
 pub use subscription::{
     DesktopNodeSummary, DesktopSubscriptionSummary, DesktopSubscriptionUpdateSummary,
     DesktopSubscriptionUrlFetchSummary, DesktopSubscriptionUrlImportSummary,

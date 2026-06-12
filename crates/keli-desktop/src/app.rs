@@ -649,6 +649,9 @@ mod tests {
             generation: 9,
             event_count: 4,
             last_error: None,
+            connection_metrics: Default::default(),
+            node_health: Default::default(),
+            recent_events: Vec::new(),
         }
     }
 
@@ -806,6 +809,9 @@ mod tests {
                 generation: 10,
                 event_count: 5,
                 last_error: None,
+                connection_metrics: Default::default(),
+                node_health: Default::default(),
+                recent_events: Vec::new(),
             },
         }
     }
