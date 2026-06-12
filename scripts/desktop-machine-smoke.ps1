@@ -173,6 +173,7 @@ function Get-MachineTakeoverStatus {
     $certification = $null
     $blockers = @()
     $status = 'failed'
+    $verdict = $null
 
     if (![string]::IsNullOrWhiteSpace($result.Output)) {
         try {
@@ -186,8 +187,19 @@ function Get-MachineTakeoverStatus {
 
     if ($result.ExitCode -eq 0 -and $null -ne $certification) {
         $verdict = Get-ObjectPropertyValue -Object $certification -Name 'default_core_promotion_verdict'
-        if ($verdict -eq 'machine-takeover-ready') {
+        $releaseGate = Get-ObjectPropertyValue -Object $certification -Name 'release_gate'
+        $machineTakeoverReady = $false
+        if ($null -ne $releaseGate) {
+            $gateReady = Get-ObjectPropertyValue -Object $releaseGate -Name 'machine_takeover_ready'
+            $takeover = Get-ObjectPropertyValue -Object $releaseGate -Name 'takeover'
+            $takeoverReady = if ($null -ne $takeover) { Get-ObjectPropertyValue -Object $takeover -Name 'ready' } else { $null }
+            $machineTakeoverReady = ($gateReady -eq $true -or $takeoverReady -eq $true)
+        }
+        if ($machineTakeoverReady) {
             $status = 'ready'
+            if ($null -eq $verdict) {
+                $verdict = 'machine-takeover-ready'
+            }
         } else {
             $status = 'failed'
             $blockers += 'machine-takeover-not-ready'
@@ -204,7 +216,7 @@ function Get-MachineTakeoverStatus {
         certification = if ($null -ne $certification) {
             [ordered]@{
                 exit_code = $result.ExitCode
-                default_core_promotion_verdict = Get-ObjectPropertyValue -Object $certification -Name 'default_core_promotion_verdict'
+                default_core_promotion_verdict = $verdict
                 release_gate = Get-ObjectPropertyValue -Object $certification -Name 'release_gate'
             }
         } else {
@@ -231,6 +243,7 @@ try {
         Write-Output 'metadata native_core_default true'
         Write-Output 'metadata machine_takeover_requested false_by_default'
         Write-Output 'metadata public_release_blocker machine-takeover-smoke-not-run'
+        Write-Output 'failure machine_takeover_not_ready exits_nonzero_when_requested'
         Write-Output "output $evidenceRelativePath"
         return
     }
@@ -248,6 +261,10 @@ try {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $evidencePath) | Out-Null
     $report | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $evidencePath -Encoding ASCII
     Write-Host "Desktop machine smoke evidence written: $evidencePath"
+    if ($IncludeMachineTakeover -and $report.machine_takeover.status -ne 'ready') {
+        $blockers = $report.machine_takeover.blockers -join ','
+        throw "Desktop machine takeover smoke failed: status=$($report.machine_takeover.status) blockers=$blockers"
+    }
 } finally {
     Pop-Location
 }

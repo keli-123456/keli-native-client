@@ -46,4 +46,15 @@ foreach ($item in $expected) {
     }
 }
 
+$takeoverOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $gateScript -PlanOnly -IncludeMachineTakeover
+if ($LASTEXITCODE -ne 0) {
+    throw "desktop-mvp-gate.ps1 -PlanOnly -IncludeMachineTakeover exited with $LASTEXITCODE"
+}
+
+$takeoverPlan = $takeoverOutput -join "`n"
+$takeoverExpected = 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-machine-smoke.ps1 -IncludeMachineTakeover'
+if (!$takeoverPlan.Contains($takeoverExpected)) {
+    throw "desktop MVP gate takeover plan is missing: $takeoverExpected"
+}
+
 Write-Output 'desktop MVP gate plan test passed'

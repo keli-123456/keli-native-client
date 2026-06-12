@@ -25,6 +25,7 @@ $expected = @(
     'metadata native_core_default true',
     'metadata machine_takeover_requested false_by_default',
     'metadata public_release_blocker machine-takeover-smoke-not-run',
+    'failure machine_takeover_not_ready exits_nonzero_when_requested',
     'output target\desktop\keli-desktop-machine-smoke.json'
 )
 
