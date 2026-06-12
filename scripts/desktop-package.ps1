@@ -43,7 +43,7 @@ function Write-PortableReadme {
         '',
         'Manual smoke checklist:',
         '1. Open keli-desktop-shell.exe without a command prompt.',
-        '2. Import a subscription config.',
+        '2. Import a subscription URL or local subscription config.',
         '3. Select a node.',
         '4. Start and stop system proxy mode and confirm Windows proxy state is restored.',
         '5. Run TUN preflight and confirm Wintun state is clear.',
@@ -103,6 +103,7 @@ try {
         Write-Output 'stage target\desktop\keli-desktop-mvp-windows-x64'
         Write-Output 'file target\desktop\keli-desktop-mvp-windows-x64\keli-desktop-shell.exe'
         Write-Output 'file target\desktop\keli-desktop-mvp-windows-x64\README.txt'
+        Write-Output 'readme manual_smoke import-subscription-url-or-config'
         Write-Output 'file target\desktop\keli-desktop-mvp-windows-x64\keli-desktop-manifest.json'
         Write-Output 'zip target\desktop\keli-desktop-mvp-windows-x64.zip'
         return

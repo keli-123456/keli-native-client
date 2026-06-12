@@ -22,6 +22,7 @@ $expected = @(
     'stage target\desktop\keli-desktop-mvp-windows-x64',
     'file target\desktop\keli-desktop-mvp-windows-x64\keli-desktop-shell.exe',
     'file target\desktop\keli-desktop-mvp-windows-x64\README.txt',
+    'readme manual_smoke import-subscription-url-or-config',
     'file target\desktop\keli-desktop-mvp-windows-x64\keli-desktop-manifest.json',
     'zip target\desktop\keli-desktop-mvp-windows-x64.zip'
 )

@@ -38,6 +38,21 @@ function Require-File {
     }
 }
 
+function Require-FileContains {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Text
+    )
+
+    $content = Get-Content -Raw -LiteralPath $Path
+    if (!$content.Contains($Text)) {
+        throw "required installed file content is missing from $Path`: $Text"
+    }
+}
+
 function Require-SmokeCase {
     param(
         [Parameter(Mandatory = $true)]
@@ -86,6 +101,7 @@ try {
         Write-Output 'install target\desktop-install-smoke\Keli'
         Write-Output 'check target\desktop-install-smoke\Keli\keli-desktop-shell.exe'
         Write-Output 'check target\desktop-install-smoke\Keli\README.txt'
+        Write-Output 'readme manual_smoke import-subscription-url-or-config'
         Write-Output 'check target\desktop-install-smoke\Keli\keli-desktop-manifest.json'
         Write-Output 'run target\desktop-install-smoke\Keli\keli-desktop-shell.exe --smoke'
         Write-Output 'manifest native_core_default true'
@@ -119,6 +135,7 @@ try {
 
     Require-File -Path $exePath
     Require-File -Path $readmePath
+    Require-FileContains -Path $readmePath -Text 'Import a subscription URL or local subscription config.'
     Require-File -Path $manifestPath
 
     $launchOutput = & $exePath --smoke
@@ -162,6 +179,7 @@ try {
         executable = 'keli-desktop-shell.exe'
         native_core_default = $true
         launch_smoke = 'target\desktop-install-smoke\desktop-shell-launch-smoke.json'
+        readme_subscription_import = 'subscription-url-or-config'
         manual_smoke_cases = $manifest.manual_smoke
         verified_ui_workflow_entrypoints = $launchSmoke.ui_workflow_entrypoints
     }
