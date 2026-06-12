@@ -567,11 +567,11 @@ const UDP_RELAY_SMOKE_TIMEOUT: Duration = Duration::from_secs(4);
 pub const MANAGED_MIXED_RECENT_EVENT_LIMIT: usize = 5;
 pub const MANAGED_CONNECTION_REPORT_HISTORY_LIMIT: usize = 64;
 pub const DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS: usize = 1024;
-pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 106;
-pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 95;
+pub const DOCTOR_REPORT_SCHEMA_VERSION: u32 = 107;
+pub const SUPPORT_BUNDLE_SCHEMA_VERSION: u32 = 96;
 pub const INTEROP_MATRIX_SCHEMA_VERSION: u32 = 1;
-pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 91;
-pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 110;
+pub const READINESS_CHECK_SCHEMA_VERSION: u32 = 92;
+pub const DEFAULT_CORE_CERTIFICATION_SCHEMA_VERSION: u32 = 111;
 pub const MANAGED_MIXED_STATUS_SCHEMA_VERSION: u32 = 6;
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_WINDOW: Duration = Duration::from_secs(60);
 const DEFAULT_CORE_RELEASE_GATE_STABILITY_CONNECTIONS: usize = 25;
@@ -8119,6 +8119,9 @@ pub struct TunRuntimeSmokeReport {
     pub dns_stimulus_required: bool,
     pub dns_stimulus_observed: bool,
     pub dns_hijack_route_observed: bool,
+    pub relay_route_observed: bool,
+    pub last_relay_route_action: Option<RouteAction>,
+    pub last_relay_matched_rule: Option<String>,
     pub interface_snapshot: TunRuntimeSmokeInterfaceSnapshot,
     pub traffic_stimulus: TunRuntimeSmokeTrafficStimulusReport,
     pub dns_stimulus: TunRuntimeSmokeDnsStimulusReport,
@@ -58371,6 +58374,9 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
             let dns_hijack_route_observed = tun_runtime_smoke_dns_hijack_route_observed(&report);
             let dns_stimulus_observed =
                 tun_runtime_smoke_dns_stimulus_observed(&report, &dns_stimulus);
+            let relay_route_observed = tun_runtime_smoke_relay_route_observed(&report);
+            let last_relay_route_action = report.summary.last_relay_route_action.clone();
+            let last_relay_matched_rule = report.summary.last_relay_matched_rule.clone();
             let clean_stop_observed = tun_runtime_smoke_clean_stop_observed(&report);
             let residual_state_clean = tun_runtime_smoke_residual_state_clean(&report);
             let passed = tun_runtime_smoke_report_passed(
@@ -58405,6 +58411,9 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 dns_stimulus_required,
                 dns_stimulus_observed,
                 dns_hijack_route_observed,
+                relay_route_observed,
+                last_relay_route_action.as_ref(),
+                last_relay_matched_rule.as_deref(),
                 &interface_snapshot,
                 &dns_stimulus,
                 &route_takeover,
@@ -58429,6 +58438,9 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
                 dns_stimulus_required,
                 dns_stimulus_observed,
                 dns_hijack_route_observed,
+                relay_route_observed,
+                last_relay_route_action,
+                last_relay_matched_rule,
                 interface_snapshot,
                 traffic_stimulus,
                 dns_stimulus,
@@ -58456,6 +58468,9 @@ fn collect_default_tun_runtime_smoke_report(min_duration: Duration) -> TunRuntim
             dns_stimulus_required: TUN_RUNTIME_SMOKE_DNS_REQUIRED,
             dns_stimulus_observed: false,
             dns_hijack_route_observed: false,
+            relay_route_observed: false,
+            last_relay_route_action: None,
+            last_relay_matched_rule: None,
             interface_snapshot: tun_runtime_smoke_interface_snapshot_not_attempted(),
             traffic_stimulus: tun_runtime_smoke_traffic_stimulus_not_attempted(),
             dns_stimulus: tun_runtime_smoke_dns_stimulus_not_attempted(),
@@ -59423,6 +59438,68 @@ mod tun_runtime_smoke_tests {
             true,
         ));
     }
+
+    #[test]
+    fn tun_runtime_smoke_json_reports_relay_route_evidence() {
+        let mut summary = TunPacketLoopSummary {
+            udp_relay_responses_written: 1,
+            udp_relay_plans: 1,
+            last_relay_route_action: Some(RouteAction::Outbound("edge".to_string())),
+            last_relay_matched_rule: Some("proxy-dgram".to_string()),
+            ..TunPacketLoopSummary::default()
+        };
+        summary.stop_requested = true;
+
+        let runtime_report = ManagedTunPacketLoopReport {
+            config: default_tun_device_config(),
+            start_snapshot: snapshot(true),
+            stop_snapshot: snapshot(false),
+            owns_device: true,
+            summary,
+        };
+        let smoke_report = TunRuntimeSmokeReport {
+            passed: true,
+            detail: "ok".to_string(),
+            min_duration: Duration::from_millis(50),
+            elapsed: Duration::from_millis(51),
+            duration_target_met: true,
+            loop_activity_observed: true,
+            traffic_stimulus_required: false,
+            traffic_stimulus_observed: false,
+            traffic_packets_observed: false,
+            traffic_drop_observed: false,
+            traffic_stimulus_drop_observed: false,
+            dns_stimulus_required: false,
+            dns_stimulus_observed: false,
+            dns_hijack_route_observed: false,
+            relay_route_observed: true,
+            last_relay_route_action: Some(RouteAction::Outbound("edge".to_string())),
+            last_relay_matched_rule: Some("proxy-dgram".to_string()),
+            interface_snapshot: tun_runtime_smoke_interface_snapshot_not_attempted(),
+            traffic_stimulus: tun_runtime_smoke_traffic_stimulus_not_attempted(),
+            dns_stimulus: tun_runtime_smoke_dns_stimulus_not_attempted(),
+            route_takeover: route_snapshot(true, &["0.0.0.0/1", "128.0.0.0/1"], &[], None),
+            route_cleanup: route_snapshot(false, &[], &["0.0.0.0/1", "128.0.0.0/1"], None),
+            route_cleanup_observed: true,
+            route_cleanup_expected_prefixes_absent: true,
+            clean_stop_observed: true,
+            residual_state_clean: true,
+            report: Some(runtime_report),
+        };
+
+        let value =
+            tun_runtime_smoke_json_value(true, Duration::from_millis(50), Some(&smoke_report));
+
+        assert_eq!(value["relay_route_observed"], true);
+        assert_eq!(
+            value["last_relay_route_action"],
+            serde_json::json!({
+                "kind": "outbound",
+                "tag": "edge",
+            })
+        );
+        assert_eq!(value["last_relay_matched_rule"], "proxy-dgram");
+    }
 }
 
 fn tun_runtime_smoke_report_passed(
@@ -59481,6 +59558,13 @@ fn tun_runtime_smoke_dns_hijack_route_observed(report: &ManagedTunPacketLoopRepo
         })
 }
 
+fn tun_runtime_smoke_relay_route_observed(report: &ManagedTunPacketLoopReport) -> bool {
+    report.summary.last_relay_route_action.is_some()
+        && (report.summary.relay_packets > 0
+            || report.summary.tcp_relay_plans > 0
+            || report.summary.udp_relay_plans > 0)
+}
+
 fn tun_runtime_smoke_dns_stimulus_observed(
     report: &ManagedTunPacketLoopReport,
     dns_stimulus: &TunRuntimeSmokeDnsStimulusReport,
@@ -59518,6 +59602,9 @@ fn tun_runtime_smoke_detail(
     dns_stimulus_required: bool,
     dns_stimulus_observed: bool,
     dns_hijack_route_observed: bool,
+    relay_route_observed: bool,
+    last_relay_route_action: Option<&RouteAction>,
+    last_relay_matched_rule: Option<&str>,
     interface_snapshot: &TunRuntimeSmokeInterfaceSnapshot,
     dns_stimulus: &TunRuntimeSmokeDnsStimulusReport,
     route_takeover: &TunRouteTakeoverSnapshot,
@@ -59600,8 +59687,14 @@ fn tun_runtime_smoke_detail(
         .as_deref()
         .map(sanitize_runtime_note_value)
         .unwrap_or_else(|| "-".to_string());
+    let last_relay_route_action = last_relay_route_action
+        .map(route_action_note_value)
+        .unwrap_or_else(|| "-".to_string());
+    let last_relay_matched_rule = last_relay_matched_rule
+        .map(sanitize_runtime_note_value)
+        .unwrap_or_else(|| "-".to_string());
     format!(
-        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} dropped={} unsupported={} dns_responses_written={} dns_hijacked_route_count={} route_takeover_expected_prefixes_present={} route_takeover_missing_prefixes={} route_takeover_cleanup_observed={} route_takeover_cleanup_expected_prefixes_absent={} route_takeover_cleanup_observed_prefixes={} route_takeover_cleanup_missing_prefixes={} route_takeover_cleanup_error={} interface_snapshot_attempted={} interface_addresses_exit_success={} interface_addresses_exit_code={} interface_addresses_error={} interface_list_exit_success={} interface_list_exit_code={} interface_list_error={} dns_stimulus_required={} dns_stimulus_attempted={} dns_stimulus_observed={} dns_hijack_route_observed={} dns_stimulus_source={} dns_stimulus_target={} dns_stimulus_query_name={} dns_stimulus_query_type={} dns_stimulus_query_id={} dns_stimulus_query_bytes={} dns_stimulus_response_received={} dns_stimulus_response_source={} dns_stimulus_response_bytes={} dns_stimulus_response_id={} dns_stimulus_response_id_matches={} dns_stimulus_response_rcode={} dns_stimulus_error_count={} traffic_stimulus_required={} traffic_stimulus_attempted={} traffic_stimulus_observed={} traffic_stimulus_source={} traffic_stimulus_target={} traffic_stimulus_attempts={} traffic_stimulus_sent_packets={} traffic_stimulus_error_count={} traffic_stimulus_route_lookup_attempted={} traffic_stimulus_route_lookup_exit_success={} traffic_stimulus_route_lookup_exit_code={} traffic_stimulus_route_lookup_error={} traffic_stimulus_ping_attempted={} traffic_stimulus_ping_command={} traffic_stimulus_ping_timeout_ms={} traffic_stimulus_ping_exit_success={} traffic_stimulus_ping_exit_code={} traffic_stimulus_ping_error={} traffic_packets_observed={} traffic_drop_observed={} traffic_stimulus_drop_observed={} last_dropped_matched_rule={} exit_reason={} stop_requested={} clean_stop_observed={} residual_state_clean={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
+        "interface={} owns_device={} start_running={} stop_running={} processed={} idle={} dropped={} unsupported={} dns_responses_written={} dns_hijacked_route_count={} route_takeover_expected_prefixes_present={} route_takeover_missing_prefixes={} route_takeover_cleanup_observed={} route_takeover_cleanup_expected_prefixes_absent={} route_takeover_cleanup_observed_prefixes={} route_takeover_cleanup_missing_prefixes={} route_takeover_cleanup_error={} interface_snapshot_attempted={} interface_addresses_exit_success={} interface_addresses_exit_code={} interface_addresses_error={} interface_list_exit_success={} interface_list_exit_code={} interface_list_error={} dns_stimulus_required={} dns_stimulus_attempted={} dns_stimulus_observed={} dns_hijack_route_observed={} relay_route_observed={} last_relay_route_action={} last_relay_matched_rule={} dns_stimulus_source={} dns_stimulus_target={} dns_stimulus_query_name={} dns_stimulus_query_type={} dns_stimulus_query_id={} dns_stimulus_query_bytes={} dns_stimulus_response_received={} dns_stimulus_response_source={} dns_stimulus_response_bytes={} dns_stimulus_response_id={} dns_stimulus_response_id_matches={} dns_stimulus_response_rcode={} dns_stimulus_error_count={} traffic_stimulus_required={} traffic_stimulus_attempted={} traffic_stimulus_observed={} traffic_stimulus_source={} traffic_stimulus_target={} traffic_stimulus_attempts={} traffic_stimulus_sent_packets={} traffic_stimulus_error_count={} traffic_stimulus_route_lookup_attempted={} traffic_stimulus_route_lookup_exit_success={} traffic_stimulus_route_lookup_exit_code={} traffic_stimulus_route_lookup_error={} traffic_stimulus_ping_attempted={} traffic_stimulus_ping_command={} traffic_stimulus_ping_timeout_ms={} traffic_stimulus_ping_exit_success={} traffic_stimulus_ping_exit_code={} traffic_stimulus_ping_error={} traffic_packets_observed={} traffic_drop_observed={} traffic_stimulus_drop_observed={} last_dropped_matched_rule={} exit_reason={} stop_requested={} clean_stop_observed={} residual_state_clean={} tcp_sessions_open={} tcp_server_close_markers_open={} tcp_post_close_markers_open={} packet_limit_reached={} packet_errors={} udp_relay_errors={} tcp_session_errors={} min_duration_ms={} elapsed_ms={} duration_target_met={} loop_activity_observed={}",
         report.config.interface_name,
         report.owns_device,
         report.start_snapshot.running,
@@ -59630,6 +59723,9 @@ fn tun_runtime_smoke_detail(
         dns_stimulus.attempted,
         dns_stimulus_observed,
         dns_hijack_route_observed,
+        relay_route_observed,
+        last_relay_route_action,
+        last_relay_matched_rule,
         dns_stimulus.source,
         dns_stimulus.target,
         dns_stimulus.query_name,
@@ -63897,6 +63993,21 @@ fn tun_runtime_smoke_json_value(
     field!(
         "dns_hijack_route_observed",
         report.map(|report| report.dns_hijack_route_observed)
+    );
+    field!(
+        "relay_route_observed",
+        report.map(|report| report.relay_route_observed)
+    );
+    field!(
+        "last_relay_route_action",
+        report.and_then(|report| report
+            .last_relay_route_action
+            .as_ref()
+            .map(route_action_json_value))
+    );
+    field!(
+        "last_relay_matched_rule",
+        report.and_then(|report| report.last_relay_matched_rule.as_deref())
     );
     field!(
         "dns_stimulus_attempted",

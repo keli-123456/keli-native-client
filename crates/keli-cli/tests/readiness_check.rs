@@ -3090,6 +3090,18 @@ fn readiness_check_json_reports_default_core_gates_with_skipped_soak() {
     assert!(report["tun_runtime_smoke"]["dns_stimulus_required"].is_null());
     assert!(report["tun_runtime_smoke"]["dns_stimulus_observed"].is_null());
     assert!(report["tun_runtime_smoke"]["dns_hijack_route_observed"].is_null());
+    assert!(report["tun_runtime_smoke"]
+        .get("relay_route_observed")
+        .expect("relay route observed field")
+        .is_null());
+    assert!(report["tun_runtime_smoke"]
+        .get("last_relay_route_action")
+        .expect("last relay route action field")
+        .is_null());
+    assert!(report["tun_runtime_smoke"]
+        .get("last_relay_matched_rule")
+        .expect("last relay matched rule field")
+        .is_null());
     assert!(report["tun_runtime_smoke"]["dns_stimulus_attempted"].is_null());
     assert!(report["tun_runtime_smoke"]["dns_stimulus_source"].is_null());
     assert!(report["tun_runtime_smoke"]["dns_stimulus_target"].is_null());
@@ -5617,6 +5629,18 @@ fn default_core_certification_json_embeds_readiness_and_backend_evidence() {
     assert!(report["tun_runtime_smoke"]["dns_stimulus_required"].is_null());
     assert!(report["tun_runtime_smoke"]["dns_stimulus_observed"].is_null());
     assert!(report["tun_runtime_smoke"]["dns_hijack_route_observed"].is_null());
+    assert!(report["tun_runtime_smoke"]
+        .get("relay_route_observed")
+        .expect("relay route observed field")
+        .is_null());
+    assert!(report["tun_runtime_smoke"]
+        .get("last_relay_route_action")
+        .expect("last relay route action field")
+        .is_null());
+    assert!(report["tun_runtime_smoke"]
+        .get("last_relay_matched_rule")
+        .expect("last relay matched rule field")
+        .is_null());
     assert!(report["tun_runtime_smoke"]["dns_stimulus_attempted"].is_null());
     assert!(report["tun_runtime_smoke"]["dns_stimulus_source"].is_null());
     assert!(report["tun_runtime_smoke"]["dns_stimulus_target"].is_null());
