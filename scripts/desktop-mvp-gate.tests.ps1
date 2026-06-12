@@ -30,6 +30,7 @@ $expected = @(
     'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-machine-smoke.ps1',
     'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-signing.ps1',
     'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-release-evidence.ps1',
+    'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-mvp-status.ps1',
     'target\release\keli-desktop-shell.exe',
     'target\desktop\keli-desktop-mvp-windows-x64.zip',
     'target\desktop\keli-desktop-mvp-windows-x64.msi',
