@@ -8,7 +8,9 @@ pub use managed::{DesktopManagedCoreService, DesktopManagedStartOptions};
 pub use readiness::{DesktopBlocker, DesktopFirstRunReport};
 pub use service::{DesktopRuntimeCommand, DesktopRuntimeError, DesktopRuntimeService};
 pub use status::{DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode};
-pub use subscription::{DesktopNodeSummary, DesktopSubscriptionSummary};
+pub use subscription::{
+    DesktopNodeSummary, DesktopSubscriptionSummary, DesktopSubscriptionUpdateSummary,
+};
 
 #[cfg(test)]
 mod tests {

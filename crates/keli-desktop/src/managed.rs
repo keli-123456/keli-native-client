@@ -1,4 +1,4 @@
-use keli_cli::{ManagedMixedController, ManagedMixedOptions};
+use keli_cli::{ManagedMixedController, ManagedMixedOptions, ManagedSubscriptionUpdateOutcome};
 use keli_platform::SystemProxyController;
 
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
@@ -100,6 +100,14 @@ impl<'a, C: SystemProxyController + ?Sized> DesktopManagedCoreService<'a, C> {
             &status,
             self.traffic_mode,
         ))
+    }
+
+    pub fn reload_subscription_config_with_update_plan(
+        &mut self,
+        config_text: &str,
+    ) -> Result<ManagedSubscriptionUpdateOutcome, String> {
+        self.core
+            .reload_from_subscription_config_text_with_update_plan(config_text)
     }
 
     pub fn stop(&mut self) -> Result<DesktopStatusSnapshot, String> {

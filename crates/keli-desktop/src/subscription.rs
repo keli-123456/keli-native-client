@@ -1,4 +1,4 @@
-use keli_client_core::SubscriptionPreflightReport;
+use keli_client_core::{SubscriptionPreflightReport, SubscriptionUpdateReport};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,6 +22,50 @@ pub struct DesktopSubscriptionSummary {
     pub recommended_outbound: Option<String>,
     pub nodes: Vec<DesktopNodeSummary>,
     pub skipped: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopSubscriptionUpdateSummary {
+    pub applied: bool,
+    pub error: Option<String>,
+    pub reason: String,
+    pub current_supported_count: usize,
+    pub new_supported_count: usize,
+    pub new_skipped_count: usize,
+    pub current_selected_outbound: Option<String>,
+    pub planned_selected_outbound: Option<String>,
+    pub selected_outbound_preserved: bool,
+    pub selected_outbound_changed: bool,
+    pub added_tags: Vec<String>,
+    pub removed_tags: Vec<String>,
+    pub retained_tags: Vec<String>,
+    pub subscription: DesktopSubscriptionSummary,
+}
+
+impl DesktopSubscriptionUpdateSummary {
+    pub fn from_report(
+        report: &SubscriptionUpdateReport,
+        applied: bool,
+        error: Option<String>,
+        subscription: DesktopSubscriptionSummary,
+    ) -> Self {
+        Self {
+            applied,
+            error,
+            reason: report.reason.label().to_string(),
+            current_supported_count: report.current_supported_count,
+            new_supported_count: report.new_supported_count,
+            new_skipped_count: report.new_skipped_count,
+            current_selected_outbound: report.current_selected_outbound.clone(),
+            planned_selected_outbound: report.planned_selected_outbound.clone(),
+            selected_outbound_preserved: report.selected_outbound_preserved,
+            selected_outbound_changed: report.selected_outbound_changed,
+            added_tags: report.added_tags.clone(),
+            removed_tags: report.removed_tags.clone(),
+            retained_tags: report.retained_tags.clone(),
+            subscription,
+        }
+    }
 }
 
 impl DesktopSubscriptionSummary {

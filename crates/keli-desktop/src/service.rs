@@ -1,10 +1,10 @@
-use keli_client_core::{preflight_subscription_config, ClientErrorKind};
+use keli_client_core::{plan_subscription_update, preflight_subscription_config, ClientErrorKind};
 use keli_platform::SystemProxyController;
 use serde::{Deserialize, Serialize};
 
 use crate::managed::{DesktopManagedCoreService, DesktopManagedStartOptions};
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
-use crate::subscription::DesktopSubscriptionSummary;
+use crate::subscription::{DesktopSubscriptionSummary, DesktopSubscriptionUpdateSummary};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -89,6 +89,56 @@ impl<'a, C: SystemProxyController + ?Sized> DesktopRuntimeService<'a, C> {
             &report,
             Some(&outbound_tag),
             Some(&outbound_tag),
+        ))
+    }
+
+    pub fn update_subscription_config(
+        &mut self,
+        config_text: impl Into<String>,
+    ) -> Result<DesktopSubscriptionUpdateSummary, DesktopRuntimeError> {
+        let config_text = config_text.into();
+        if self.core.is_running() {
+            let outcome = self
+                .core
+                .reload_subscription_config_with_update_plan(&config_text)?;
+            let preflight = preflight_subscription_config(&config_text)?;
+            let planned_selected = outcome.report.planned_selected_outbound.clone();
+            let subscription = DesktopSubscriptionSummary::from_preflight(
+                &preflight,
+                planned_selected.as_deref(),
+                planned_selected.as_deref(),
+            );
+            if outcome.applied {
+                self.subscription_config = Some(config_text);
+                self.selected_outbound = outcome.status.selected_outbound.clone();
+            }
+            return Ok(DesktopSubscriptionUpdateSummary::from_report(
+                &outcome.report,
+                outcome.applied,
+                outcome.error,
+                subscription,
+            ));
+        }
+
+        let preflight = preflight_subscription_config(&config_text)?;
+        let report = plan_subscription_update(
+            self.subscription_config.as_deref(),
+            &config_text,
+            self.selected_outbound.as_deref(),
+        )?;
+        let selected = report.planned_selected_outbound.clone();
+        let subscription = DesktopSubscriptionSummary::from_preflight(
+            &preflight,
+            selected.as_deref(),
+            selected.as_deref(),
+        );
+        self.subscription_config = Some(config_text);
+        self.selected_outbound = selected;
+        Ok(DesktopSubscriptionUpdateSummary::from_report(
+            &report,
+            true,
+            None,
+            subscription,
         ))
     }
 
@@ -181,6 +231,17 @@ proxies:
             ));
         }
         config
+    }
+
+    fn unusable_config() -> &'static str {
+        r#"
+proxies:
+  - name: WG-SKIPPED
+    type: wireguard
+    server: wg.example.com
+    port: 51820
+    password: ignored
+"#
     }
 
     #[derive(Debug)]
@@ -290,6 +351,96 @@ proxies:
         assert_eq!(
             service.status().selected_outbound.as_deref(),
             Some("SS-NEXT")
+        );
+        assert_eq!(service.status().run_state, DesktopRunState::Running);
+
+        service.stop().expect("stop service");
+    }
+
+    #[test]
+    fn running_subscription_update_preserves_selected_outbound() {
+        let platform_controller = FakeSystemProxyController::new();
+        let mut service = DesktopRuntimeService::new(&platform_controller);
+        service
+            .import_subscription_config(ss_config_with_tags(&["SS-OLD", "SS-STAY"]))
+            .expect("import subscription");
+        service.select_node("SS-STAY").expect("select node");
+        service.set_listen("127.0.0.1:0");
+        service.start().expect("start service");
+
+        let update = service
+            .update_subscription_config(ss_config_with_tags(&["SS-STAY", "SS-NEW"]))
+            .expect("update subscription");
+
+        assert!(update.applied);
+        assert_eq!(update.error, None);
+        assert_eq!(update.reason, "selected-outbound-preserved");
+        assert_eq!(update.current_selected_outbound.as_deref(), Some("SS-STAY"));
+        assert_eq!(update.planned_selected_outbound.as_deref(), Some("SS-STAY"));
+        assert!(update.selected_outbound_preserved);
+        assert!(!update.selected_outbound_changed);
+        assert_eq!(update.added_tags, vec!["SS-NEW".to_string()]);
+        assert_eq!(update.removed_tags, vec!["SS-OLD".to_string()]);
+        assert_eq!(
+            service.status().selected_outbound.as_deref(),
+            Some("SS-STAY")
+        );
+
+        service.stop().expect("stop service");
+    }
+
+    #[test]
+    fn running_subscription_update_falls_back_to_new_default() {
+        let platform_controller = FakeSystemProxyController::new();
+        let mut service = DesktopRuntimeService::new(&platform_controller);
+        service
+            .import_subscription_config(ss_config_with_tags(&["SS-A", "SS-B"]))
+            .expect("import subscription");
+        service.select_node("SS-B").expect("select node");
+        service.set_listen("127.0.0.1:0");
+        service.start().expect("start service");
+
+        let update = service
+            .update_subscription_config(ss_config_with_tags(&["SS-C", "SS-D"]))
+            .expect("update subscription");
+
+        assert!(update.applied);
+        assert_eq!(update.reason, "selected-outbound-missing-use-default");
+        assert_eq!(update.current_selected_outbound.as_deref(), Some("SS-B"));
+        assert_eq!(update.planned_selected_outbound.as_deref(), Some("SS-C"));
+        assert!(!update.selected_outbound_preserved);
+        assert!(update.selected_outbound_changed);
+        assert_eq!(service.status().selected_outbound.as_deref(), Some("SS-C"));
+
+        service.stop().expect("stop service");
+    }
+
+    #[test]
+    fn unusable_running_subscription_update_keeps_runtime() {
+        let platform_controller = FakeSystemProxyController::new();
+        let mut service = DesktopRuntimeService::new(&platform_controller);
+        service
+            .import_subscription_config(ss_config("SS-READY"))
+            .expect("import subscription");
+        service.set_listen("127.0.0.1:0");
+        service.start().expect("start service");
+
+        let update = service
+            .update_subscription_config(unusable_config())
+            .expect("update subscription");
+
+        assert!(!update.applied);
+        assert_eq!(
+            update.error.as_deref(),
+            Some("subscription update rejected: no supported outbounds")
+        );
+        assert_eq!(update.reason, "no-supported-outbounds");
+        assert_eq!(update.new_supported_count, 0);
+        assert_eq!(update.new_skipped_count, 1);
+        assert_eq!(update.planned_selected_outbound, None);
+        assert_eq!(
+            service.status().selected_outbound.as_deref(),
+            Some("SS-READY")
         );
         assert_eq!(service.status().run_state, DesktopRunState::Running);
 
