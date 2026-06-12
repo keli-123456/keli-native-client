@@ -12,9 +12,10 @@ use keli_cli::{
     ConnectionRouteActionCount, ManagedMixedController, ManagedMixedOptions, ManagedMixedSession,
     ManagedMixedStatusSnapshot, ManagedNodeHealthState, ManagedNodeHealthStatus,
     ManagedNodeProbeOptions, ManagedNodeProbeSweepOptions, ManagedNodeUdpProbeOptions,
-    ManagedRecommendedSwitchReason, MixedDnsOptions, SmokeInboundKind,
-    DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS, MANAGED_CONNECTION_REPORT_HISTORY_LIMIT,
-    MANAGED_MIXED_RECENT_EVENT_LIMIT, MANAGED_MIXED_STATUS_SCHEMA_VERSION,
+    ManagedRecommendedSwitchReason, ManagedSubscriptionUrlConfigUpdateOutcome, MixedDnsOptions,
+    SmokeInboundKind, DEFAULT_MANAGED_MIXED_MAX_CONNECTION_WORKERS,
+    MANAGED_CONNECTION_REPORT_HISTORY_LIMIT, MANAGED_MIXED_RECENT_EVENT_LIMIT,
+    MANAGED_MIXED_STATUS_SCHEMA_VERSION,
 };
 use keli_client_core::{
     ClientErrorKind, PanelAccountState, PanelRiskControlState, PanelState, PanelUserState,
@@ -1085,6 +1086,41 @@ fn managed_mixed_controller_updates_from_subscription_url_and_redacts_source() {
         .last_subscription_url_update
         .as_ref()
         .is_some_and(|update| update.applied));
+}
+
+#[test]
+fn managed_mixed_controller_url_config_update_exposes_body_without_debug_leak() {
+    let platform_controller = FakeSystemProxyController::new(SystemProxySnapshot::default());
+    let mut core = ManagedMixedController::new(&platform_controller);
+    core.start_from_subscription_config_text(
+        &ss_config_with_tags(&["SS-OLD", "SS-STAY"]),
+        ManagedMixedOptions {
+            listen: "127.0.0.1:0".to_string(),
+            outbound_tag: Some("SS-STAY".to_string()),
+            ..ManagedMixedOptions::default()
+        },
+    )
+    .expect("start managed mixed controller");
+    let fetched_config = ss_config_with_tags(&["SS-STAY", "SS-NEW"]);
+    let (url, request_thread) = spawn_subscription_http_server(200, "OK", fetched_config.clone());
+
+    let result: ManagedSubscriptionUrlConfigUpdateOutcome = core
+        .reload_from_subscription_url_with_update_plan_and_config_text(
+            &url,
+            Duration::from_secs(2),
+            4096,
+        )
+        .expect("subscription URL config update");
+    request_thread.join().expect("subscription request");
+
+    assert!(result.outcome().applied);
+    assert_eq!(result.applied_config_text(), Some(fetched_config.as_str()));
+    assert_eq!(result.fetched_config_text(), Some(fetched_config.as_str()));
+    let debug = format!("{result:?}");
+    assert!(!debug.contains("password: secret"));
+    assert!(!debug.contains(&fetched_config));
+
+    core.stop().expect("stop managed mixed controller");
 }
 
 #[test]

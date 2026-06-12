@@ -1,6 +1,7 @@
 #![recursion_limit = "512"]
 
 use std::collections::{HashMap, VecDeque};
+use std::fmt;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{
@@ -2389,6 +2390,19 @@ pub struct ManagedSubscriptionUrlUpdateOutcome {
     pub error: Option<String>,
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub struct ManagedSubscriptionUrlConfigFetchOutcome {
+    pub fetch: ManagedSubscriptionUrlFetchOutcome,
+    config_text: Option<String>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct ManagedSubscriptionUrlConfigUpdateOutcome {
+    pub outcome: ManagedSubscriptionUrlUpdateOutcome,
+    fetched_config_text: Option<String>,
+    applied_config_text: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedSubscriptionUrlUpdateStatus {
     pub at: SystemTime,
@@ -2417,6 +2431,78 @@ pub struct ManagedSubscriptionUrlSource {
     pub default_port: bool,
     pub path_present: bool,
     pub query_present: bool,
+}
+
+impl fmt::Debug for ManagedSubscriptionUrlConfigFetchOutcome {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ManagedSubscriptionUrlConfigFetchOutcome")
+            .field("fetch", &self.fetch)
+            .field(
+                "config_text",
+                &self.config_text.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
+}
+
+impl fmt::Debug for ManagedSubscriptionUrlConfigUpdateOutcome {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ManagedSubscriptionUrlConfigUpdateOutcome")
+            .field("outcome", &self.outcome)
+            .field(
+                "fetched_config_text",
+                &self.fetched_config_text.as_ref().map(|_| "<redacted>"),
+            )
+            .field(
+                "applied_config_text",
+                &self.applied_config_text.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
+}
+
+impl ManagedSubscriptionUrlConfigFetchOutcome {
+    pub fn config_text(&self) -> Option<&str> {
+        self.config_text.as_deref()
+    }
+
+    pub fn into_parts(self) -> (ManagedSubscriptionUrlFetchOutcome, Option<String>) {
+        (self.fetch, self.config_text)
+    }
+}
+
+impl ManagedSubscriptionUrlConfigUpdateOutcome {
+    pub fn outcome(&self) -> &ManagedSubscriptionUrlUpdateOutcome {
+        &self.outcome
+    }
+
+    pub fn fetched_config_text(&self) -> Option<&str> {
+        self.fetched_config_text.as_deref()
+    }
+
+    pub fn applied_config_text(&self) -> Option<&str> {
+        self.applied_config_text.as_deref()
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        ManagedSubscriptionUrlUpdateOutcome,
+        Option<String>,
+        Option<String>,
+    ) {
+        (
+            self.outcome,
+            self.fetched_config_text,
+            self.applied_config_text,
+        )
+    }
+
+    pub fn into_outcome(self) -> ManagedSubscriptionUrlUpdateOutcome {
+        self.outcome
+    }
 }
 
 impl ManagedSubscriptionUrlUpdateStatus {
@@ -3705,77 +3791,95 @@ impl<'a, C: SystemProxyController + ?Sized> ManagedMixedController<'a, C> {
         timeout: Duration,
         max_bytes: usize,
     ) -> Result<ManagedSubscriptionUrlUpdateOutcome, String> {
+        Ok(self
+            .reload_from_subscription_url_with_update_plan_and_config_text(url, timeout, max_bytes)?
+            .into_outcome())
+    }
+
+    pub fn reload_from_subscription_url_with_update_plan_and_config_text(
+        &mut self,
+        url: &str,
+        timeout: Duration,
+        max_bytes: usize,
+    ) -> Result<ManagedSubscriptionUrlConfigUpdateOutcome, String> {
         self.ensure_panel_allows_traffic()?;
         if self.handle.is_none() {
             return Err("managed mixed core is not running".to_string());
         }
 
-        let fetch_result =
-            fetch_subscription_config_text(&subscription_fetch_options(url, timeout, max_bytes));
-        match fetch_result {
-            Ok(response) => {
-                let fetch = ManagedSubscriptionUrlFetchOutcome::from_response(&response);
-                match self.reload_from_subscription_config_text_with_update_plan(&response.body) {
-                    Ok(update) => {
-                        let url_update_status = ManagedSubscriptionUrlUpdateStatus::new(
-                            fetch.clone(),
-                            Some(update.report.clone()),
-                            update.applied,
-                            update.error.clone(),
-                        );
-                        if let Some(handle) = self.handle.as_mut() {
-                            handle.record_subscription_url_update_status(url_update_status);
-                        }
-                        Ok(ManagedSubscriptionUrlUpdateOutcome {
-                            fetch,
-                            update: Some(update.report),
-                            status: self.status(),
-                            applied: update.applied,
-                            error: update.error,
-                        })
-                    }
-                    Err(error) => {
-                        let url_update_status = ManagedSubscriptionUrlUpdateStatus::new(
-                            fetch.clone(),
-                            None,
-                            false,
-                            Some(error.clone()),
-                        );
-                        if let Some(handle) = self.handle.as_mut() {
-                            handle.record_subscription_url_update_status(url_update_status);
-                        }
-                        Ok(ManagedSubscriptionUrlUpdateOutcome {
-                            fetch,
-                            update: None,
-                            status: self.status(),
-                            applied: false,
-                            error: Some(error),
-                        })
-                    }
-                }
+        let fetched = fetch_subscription_url_config_text(url, timeout, max_bytes);
+        let (fetch, fetched_config_text) = fetched.into_parts();
+        let Some(config_text) = fetched_config_text.clone() else {
+            let error_message = format!(
+                "subscription URL fetch failed: {}",
+                fetch.error_kind.as_deref().unwrap_or("unknown")
+            );
+            let url_update_status = ManagedSubscriptionUrlUpdateStatus::new(
+                fetch.clone(),
+                None,
+                false,
+                Some(error_message.clone()),
+            );
+            if let Some(handle) = self.handle.as_mut() {
+                handle.record_subscription_url_fetch_rejected(&url_update_status, &error_message);
             }
-            Err(error) => {
-                let fetch = ManagedSubscriptionUrlFetchOutcome::from_error(&error);
-                let error_message = format!(
-                    "subscription URL fetch failed: {}",
-                    fetch.error_kind.as_deref().unwrap_or("unknown")
-                );
-                let url_update_status = ManagedSubscriptionUrlUpdateStatus::new(
-                    fetch.clone(),
-                    None,
-                    false,
-                    Some(error_message.clone()),
-                );
-                if let Some(handle) = self.handle.as_mut() {
-                    handle
-                        .record_subscription_url_fetch_rejected(&url_update_status, &error_message);
-                }
-                Ok(ManagedSubscriptionUrlUpdateOutcome {
+            return Ok(ManagedSubscriptionUrlConfigUpdateOutcome {
+                outcome: ManagedSubscriptionUrlUpdateOutcome {
                     fetch,
                     update: None,
                     status: self.status(),
                     applied: false,
                     error: Some(error_message),
+                },
+                fetched_config_text: None,
+                applied_config_text: None,
+            });
+        };
+
+        match self.reload_from_subscription_config_text_with_update_plan(&config_text) {
+            Ok(update) => {
+                let url_update_status = ManagedSubscriptionUrlUpdateStatus::new(
+                    fetch.clone(),
+                    Some(update.report.clone()),
+                    update.applied,
+                    update.error.clone(),
+                );
+                if let Some(handle) = self.handle.as_mut() {
+                    handle.record_subscription_url_update_status(url_update_status);
+                }
+                let applied_config_text = update.applied.then_some(config_text.clone());
+                Ok(ManagedSubscriptionUrlConfigUpdateOutcome {
+                    outcome: ManagedSubscriptionUrlUpdateOutcome {
+                        fetch,
+                        update: Some(update.report),
+                        status: self.status(),
+                        applied: update.applied,
+                        error: update.error,
+                    },
+                    fetched_config_text: Some(config_text),
+                    applied_config_text,
+                })
+            }
+            Err(error) => {
+                let url_update_status = ManagedSubscriptionUrlUpdateStatus::new(
+                    fetch.clone(),
+                    None,
+                    false,
+                    Some(error.clone()),
+                );
+                if let Some(handle) = self.handle.as_mut() {
+                    handle.record_subscription_url_update_status(url_update_status);
+                }
+                Ok(ManagedSubscriptionUrlConfigUpdateOutcome {
+                    outcome: ManagedSubscriptionUrlUpdateOutcome {
+                        fetch,
+                        update: None,
+                        status: self.status(),
+                        applied: false,
+                        error: Some(error),
+                    },
+                    fetched_config_text: Some(config_text),
+                    applied_config_text: None,
                 })
             }
         }
@@ -64963,6 +65067,23 @@ pub fn write_subscription_fetch_report_from_url(
                 .map_err(|error| error.to_string())?;
             writeln!(writer).map_err(|error| error.to_string())
         }
+    }
+}
+
+pub fn fetch_subscription_url_config_text(
+    url: &str,
+    timeout: Duration,
+    max_bytes: usize,
+) -> ManagedSubscriptionUrlConfigFetchOutcome {
+    match fetch_subscription_config_text(&subscription_fetch_options(url, timeout, max_bytes)) {
+        Ok(response) => ManagedSubscriptionUrlConfigFetchOutcome {
+            fetch: ManagedSubscriptionUrlFetchOutcome::from_response(&response),
+            config_text: Some(response.body),
+        },
+        Err(error) => ManagedSubscriptionUrlConfigFetchOutcome {
+            fetch: ManagedSubscriptionUrlFetchOutcome::from_error(&error),
+            config_text: None,
+        },
     }
 }
 
