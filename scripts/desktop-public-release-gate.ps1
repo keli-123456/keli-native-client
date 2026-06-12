@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [switch]$PlanOnly,
-    [switch]$SkipGate
+    [switch]$SkipGate,
+    [string]$EvidencePath
 )
 
 Set-StrictMode -Version Latest
@@ -65,6 +66,67 @@ function Add-UniqueBlocker {
         return @($Blockers + $Blocker)
     }
     return $Blockers
+}
+
+function Test-JsonProperty {
+    param(
+        [AllowNull()]
+        [object]$InputObject,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    return ($null -ne $InputObject -and $null -ne $InputObject.PSObject.Properties[$Name])
+}
+
+function Get-StringArrayProperty {
+    param(
+        [AllowNull()]
+        [object]$InputObject,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if (!(Test-JsonProperty -InputObject $InputObject -Name $Name)) {
+        return @()
+    }
+    return @($InputObject.$Name | ForEach-Object { [string]$_ } | Where-Object { ![string]::IsNullOrWhiteSpace($_) })
+}
+
+function Get-OptionalSigningDiagnostics {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Evidence
+    )
+
+    if (!(Test-JsonProperty -InputObject $Evidence -Name 'signing')) {
+        return ''
+    }
+
+    $signing = $Evidence.signing
+    $parts = @()
+    if (Test-JsonProperty -InputObject $signing -Name 'signtool_available') {
+        $parts += "signing_signtool_available=$(([bool]$signing.signtool_available).ToString().ToLowerInvariant())"
+    }
+    if (Test-JsonProperty -InputObject $signing -Name 'signing_method') {
+        $method = [string]$signing.signing_method
+        if ([string]::IsNullOrWhiteSpace($method)) {
+            $method = 'none'
+        }
+        $parts += "signing_method=$method"
+    }
+
+    $unsignedArtifacts = Get-StringArrayProperty -InputObject $signing -Name 'unsigned_artifacts'
+    if ($unsignedArtifacts.Count -gt 0) {
+        $parts += "signing_unsigned_artifacts=$($unsignedArtifacts -join ',')"
+    }
+
+    if ($parts.Count -eq 0) {
+        return ''
+    }
+    return $parts -join ' '
 }
 
 function Test-StringArrayContainsAll {
@@ -171,7 +233,9 @@ function Get-ReleaseNextSteps {
 
 $repoRoot = Resolve-RepoRoot
 $releaseEvidenceRelativePath = 'target\desktop\keli-desktop-release-evidence.json'
-$releaseEvidencePath = Join-Path $repoRoot $releaseEvidenceRelativePath
+if ([string]::IsNullOrWhiteSpace($EvidencePath)) {
+    $EvidencePath = Join-Path $repoRoot $releaseEvidenceRelativePath
+}
 $mvpGateCommand = @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-mvp-gate.ps1', '-IncludeMachineTakeover')
 
 Push-Location $repoRoot
@@ -179,6 +243,7 @@ try {
     if ($PlanOnly) {
         Write-Output 'command powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop-mvp-gate.ps1 -IncludeMachineTakeover'
         Write-Output "input $releaseEvidenceRelativePath"
+        Write-Output 'config -EvidencePath optional'
         Write-Output 'require public_release_ready true'
         Write-Output 'require smoke.machine.machine_takeover_status ready'
         Write-Output 'require smoke.install.verified_ui_workflow_entrypoints all_manual_smoke'
@@ -189,6 +254,7 @@ try {
         Write-Output 'require public_release_blockers empty'
         Write-Output 'failure print blockers and exit nonzero'
         Write-Output 'failure print blockers next_steps and exit nonzero'
+        Write-Output 'failure print signing diagnostics when available'
         Write-Output 'output public release gate passed'
         return
     }
@@ -197,7 +263,7 @@ try {
         Invoke-CommandLine -Command $mvpGateCommand
     }
 
-    $evidence = Read-ReleaseEvidence -Path $releaseEvidencePath
+    $evidence = Read-ReleaseEvidence -Path $EvidencePath
     if ($evidence.status -ne 'passed') {
         throw "release evidence status mismatch: $($evidence.status)"
     }
@@ -205,10 +271,12 @@ try {
     $blockers = Get-ReleaseBlockers -Evidence $evidence
     if ($blockers.Count -gt 0) {
         $nextSteps = Get-ReleaseNextSteps -Evidence $evidence
+        $diagnostics = Get-OptionalSigningDiagnostics -Evidence $evidence
+        $diagnosticSuffix = if ([string]::IsNullOrWhiteSpace($diagnostics)) { '' } else { " $diagnostics" }
         if ($nextSteps.Count -gt 0) {
-            throw "Desktop public release gate blocked: $($blockers -join ',') next_steps=$($nextSteps -join ',')"
+            throw "Desktop public release gate blocked: $($blockers -join ',') next_steps=$($nextSteps -join ',')$diagnosticSuffix"
         }
-        throw "Desktop public release gate blocked: $($blockers -join ',')"
+        throw "Desktop public release gate blocked: $($blockers -join ',')$diagnosticSuffix"
     }
 
     Write-Host 'Desktop public release gate passed'
