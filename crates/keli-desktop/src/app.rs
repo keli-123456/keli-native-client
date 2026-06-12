@@ -875,10 +875,14 @@ mod tests {
             controller.snapshot().status.run_state,
             DesktopRunState::Stopped
         );
-        assert!(controller.snapshot().can_start);
+        assert!(!controller.snapshot().can_start);
         assert_eq!(
             controller.snapshot().primary_action.command,
-            DesktopShellPrimaryCommand::Start
+            DesktopShellPrimaryCommand::Blocked
+        );
+        assert_eq!(
+            controller.snapshot().primary_action.reason.as_deref(),
+            Some("Import a subscription before starting Keli")
         );
     }
 
@@ -907,6 +911,9 @@ mod tests {
         let observed = host.clone();
         let mut controller = DesktopShellController::new(host);
 
+        controller
+            .import_subscription_config("proxies: []")
+            .expect("import subscription");
         let shell = controller
             .dispatch(DesktopShellAction::RequestStart)
             .expect("request start");
@@ -925,6 +932,9 @@ mod tests {
         let observed = host.clone();
         let mut controller = DesktopShellController::new(host);
 
+        controller
+            .import_subscription_config("proxies: []")
+            .expect("import subscription");
         let shell = controller
             .dispatch(DesktopShellAction::RequestStop)
             .expect("request stop");
@@ -943,6 +953,9 @@ mod tests {
         let observed = host.clone();
         let mut controller = DesktopShellController::new(host);
 
+        controller
+            .import_subscription_config("proxies: []")
+            .expect("import subscription");
         let error = controller
             .dispatch(DesktopShellAction::RequestStart)
             .expect_err("blocked start should fail");

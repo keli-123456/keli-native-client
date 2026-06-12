@@ -4,6 +4,8 @@ use crate::dependencies::DesktopDependencyReport;
 use crate::status::{DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode};
 use crate::subscription::DesktopSubscriptionSummary;
 
+const MISSING_SUBSCRIPTION_REASON: &str = "Import a subscription before starting Keli";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DesktopShellAction {
@@ -75,8 +77,8 @@ impl DesktopShellState {
             main_visible: false,
             diagnostics_visible: false,
         };
-        let can_start = can_start_for_traffic_mode(&status, &dependencies);
-        let primary_action = derive_primary_action(&status, &dependencies);
+        let can_start = can_start_for_shell(&status, &dependencies, None);
+        let primary_action = derive_primary_action(&status, &dependencies, None);
         let tray_menu = derive_tray_menu(&window, &primary_action);
         Self {
             window,
@@ -121,13 +123,34 @@ impl DesktopShellState {
 
     pub fn refresh_subscription(&mut self, subscription: Option<DesktopSubscriptionSummary>) {
         self.subscription = subscription;
+        self.rebuild_derived();
     }
 
     fn rebuild_derived(&mut self) {
-        self.can_start = can_start_for_traffic_mode(&self.status, &self.dependencies);
-        self.primary_action = derive_primary_action(&self.status, &self.dependencies);
+        self.can_start =
+            can_start_for_shell(&self.status, &self.dependencies, self.subscription.as_ref());
+        self.primary_action =
+            derive_primary_action(&self.status, &self.dependencies, self.subscription.as_ref());
         self.tray_menu = derive_tray_menu(&self.window, &self.primary_action);
     }
+}
+
+fn can_start_for_shell(
+    status: &DesktopStatusSnapshot,
+    dependencies: &DesktopDependencyReport,
+    subscription: Option<&DesktopSubscriptionSummary>,
+) -> bool {
+    has_usable_subscription(subscription) && can_start_for_traffic_mode(status, dependencies)
+}
+
+fn has_usable_subscription(subscription: Option<&DesktopSubscriptionSummary>) -> bool {
+    subscription
+        .map(|subscription| {
+            subscription.usable
+                && subscription.supported_count > 0
+                && !subscription.nodes.is_empty()
+        })
+        .unwrap_or(false)
 }
 
 fn can_start_for_traffic_mode(
@@ -144,8 +167,10 @@ fn can_start_for_traffic_mode(
 fn derive_primary_action(
     status: &DesktopStatusSnapshot,
     dependencies: &DesktopDependencyReport,
+    subscription: Option<&DesktopSubscriptionSummary>,
 ) -> DesktopShellPrimaryAction {
-    let can_start = can_start_for_traffic_mode(status, dependencies);
+    let has_subscription = has_usable_subscription(subscription);
+    let can_start = has_subscription && can_start_for_traffic_mode(status, dependencies);
     match status.run_state {
         DesktopRunState::Stopped => {
             if can_start {
@@ -156,6 +181,8 @@ fn derive_primary_action(
                     true,
                     None,
                 )
+            } else if !has_subscription {
+                missing_subscription_primary_action()
             } else {
                 blocked_primary_action(dependencies)
             }
@@ -179,6 +206,8 @@ fn derive_primary_action(
                     true,
                     status.last_error.clone(),
                 )
+            } else if !has_subscription {
+                missing_subscription_primary_action()
             } else {
                 blocked_primary_action(dependencies)
             }
@@ -209,6 +238,16 @@ fn busy_primary_action(label: &str) -> DesktopShellPrimaryAction {
         label,
         false,
         None,
+    )
+}
+
+fn missing_subscription_primary_action() -> DesktopShellPrimaryAction {
+    primary_action(
+        "blocked-service",
+        DesktopShellPrimaryCommand::Blocked,
+        "Start Blocked",
+        false,
+        Some(MISSING_SUBSCRIPTION_REASON.to_string()),
     )
 }
 
@@ -431,7 +470,7 @@ mod tests {
     }
 
     #[test]
-    fn default_shell_starts_hidden_stopped_with_start_primary_action() {
+    fn default_shell_requires_subscription_before_start() {
         let shell = DesktopShellState::new(status(DesktopRunState::Stopped), ready_dependencies());
 
         assert!(!shell.window.main_visible);
@@ -441,10 +480,14 @@ mod tests {
         assert_eq!(shell.status.run_state, DesktopRunState::Stopped);
         assert_eq!(
             shell.primary_action.command,
-            DesktopShellPrimaryCommand::Start
+            DesktopShellPrimaryCommand::Blocked
         );
-        assert!(shell.primary_action.enabled);
-        assert!(shell.can_start);
+        assert!(!shell.primary_action.enabled);
+        assert!(!shell.can_start);
+        assert_eq!(
+            shell.primary_action.reason.as_deref(),
+            Some("Import a subscription before starting Keli")
+        );
     }
 
     #[test]
@@ -509,7 +552,8 @@ mod tests {
         let mut failed = status(DesktopRunState::Failed);
         failed.last_error = Some("Managed(\"bind failed\")".to_string());
 
-        let shell = DesktopShellState::new(failed, ready_dependencies());
+        let mut shell = DesktopShellState::new(failed, ready_dependencies());
+        shell.refresh_subscription(Some(subscription("SS-READY")));
 
         assert_eq!(
             shell.primary_action.command,
@@ -524,8 +568,9 @@ mod tests {
 
     #[test]
     fn blocked_dependencies_disable_primary_start() {
-        let shell =
+        let mut shell =
             DesktopShellState::new(status(DesktopRunState::Stopped), blocked_dependencies());
+        shell.refresh_subscription(Some(subscription("SS-READY")));
 
         assert_eq!(
             shell.primary_action.command,
@@ -546,7 +591,8 @@ mod tests {
         let mut local = status(DesktopRunState::Stopped);
         local.traffic_mode = DesktopTrafficMode::MixedInboundOnly;
 
-        let shell = DesktopShellState::new(local, blocked_dependencies());
+        let mut shell = DesktopShellState::new(local, blocked_dependencies());
+        shell.refresh_subscription(Some(subscription("SS-READY")));
 
         assert_eq!(
             shell.primary_action.command,
@@ -561,7 +607,8 @@ mod tests {
         let mut tun = status(DesktopRunState::Stopped);
         tun.traffic_mode = DesktopTrafficMode::Tun;
 
-        let shell = DesktopShellState::new(tun, blocked_dependencies());
+        let mut shell = DesktopShellState::new(tun, blocked_dependencies());
+        shell.refresh_subscription(Some(subscription("SS-READY")));
 
         assert_eq!(
             shell.primary_action.command,
@@ -621,5 +668,11 @@ mod tests {
                 .and_then(|subscription| subscription.selected_outbound.as_deref()),
             Some("SS-READY")
         );
+        assert_eq!(
+            shell.primary_action.command,
+            DesktopShellPrimaryCommand::Start
+        );
+        assert!(shell.primary_action.enabled);
+        assert!(shell.can_start);
     }
 }

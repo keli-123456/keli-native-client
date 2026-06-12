@@ -111,13 +111,13 @@ fn primary_event(shell: &DesktopShellState) -> Option<DesktopShellUiEvent> {
 mod tests {
     use super::*;
     use keli_desktop::{
-        DesktopDependencyReport, DesktopFirstRunReport, DesktopRunState, DesktopShellAction,
-        DesktopShellState, DesktopStatusSnapshot, DesktopSystemProxyDependency, DesktopTrafficMode,
-        DesktopTunBackendDependency,
+        DesktopDependencyReport, DesktopFirstRunReport, DesktopNodeSummary, DesktopRunState,
+        DesktopShellAction, DesktopShellState, DesktopStatusSnapshot, DesktopSubscriptionSummary,
+        DesktopSystemProxyDependency, DesktopTrafficMode, DesktopTunBackendDependency,
     };
 
     fn shell(run_state: DesktopRunState, can_start: bool) -> DesktopShellState {
-        DesktopShellState::new(
+        let mut shell = DesktopShellState::new(
             DesktopStatusSnapshot {
                 run_state,
                 traffic_mode: DesktopTrafficMode::SystemProxy,
@@ -171,7 +171,37 @@ mod tests {
                     action: None,
                 },
             },
-        )
+        );
+        if can_start {
+            shell.refresh_subscription(Some(subscription("SS-READY")));
+        }
+        shell
+    }
+
+    fn subscription(tag: &str) -> DesktopSubscriptionSummary {
+        DesktopSubscriptionSummary {
+            usable: true,
+            supported_count: 1,
+            skipped_count: 0,
+            default_outbound: Some(tag.to_string()),
+            selected_outbound: Some(tag.to_string()),
+            recommended_outbound: Some(tag.to_string()),
+            nodes: vec![DesktopNodeSummary {
+                tag: tag.to_string(),
+                protocol: "ss".to_string(),
+                transport: "tcp".to_string(),
+                security: "none".to_string(),
+                udp_supported: true,
+                selected: true,
+                recommended: true,
+                health_state: Some("unknown".to_string()),
+                tcp_available: None,
+                udp_available: None,
+                latency_ms: None,
+                health_error: None,
+            }],
+            skipped: Vec::new(),
+        }
     }
 
     #[test]
