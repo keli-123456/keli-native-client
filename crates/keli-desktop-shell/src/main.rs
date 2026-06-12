@@ -3,6 +3,7 @@ mod html;
 mod support;
 
 use std::error::Error;
+use std::fs;
 
 use actions::{ipc_event_for_message, tray_event_for_id, DesktopShellUiEvent};
 use html::{
@@ -38,6 +39,9 @@ enum UserEvent {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    if is_support_export_smoke_mode(std::env::args()) {
+        return run_support_export_smoke();
+    }
     if is_smoke_mode(std::env::args()) {
         return run_smoke();
     }
@@ -580,6 +584,17 @@ struct DesktopShellSmokeReport {
     ui_workflow_entrypoints: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct DesktopShellSupportExportSmokeReport {
+    status: String,
+    path: String,
+    byte_count: usize,
+    format: String,
+    kind: String,
+    desktop_dependencies: bool,
+    core_support_bundle: bool,
+}
+
 fn is_smoke_mode<I, S>(args: I) -> bool
 where
     I: IntoIterator<Item = S>,
@@ -588,6 +603,30 @@ where
     args.into_iter()
         .skip(1)
         .any(|arg| arg.as_ref() == "--smoke")
+}
+
+fn is_support_export_smoke_mode<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter()
+        .skip(1)
+        .any(|arg| arg.as_ref() == "--support-export-smoke")
+}
+
+fn support_export_smoke_dir_arg<I, S>(args: I) -> Option<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut args = args.into_iter().skip(1);
+    while let Some(arg) = args.next() {
+        if arg.as_ref() == "--support-export-smoke" {
+            return args.next().map(|value| value.as_ref().to_string());
+        }
+    }
+    None
 }
 
 fn run_smoke() -> Result<(), Box<dyn Error>> {
@@ -604,6 +643,64 @@ fn run_smoke() -> Result<(), Box<dyn Error>> {
         Ok(())
     } else {
         Err("desktop shell smoke report failed".into())
+    }
+}
+
+fn run_support_export_smoke() -> Result<(), Box<dyn Error>> {
+    let directory = support_export_smoke_dir_arg(std::env::args())
+        .ok_or("--support-export-smoke requires an export directory")?;
+    let controller = DesktopShellController::new_native();
+    let export = controller
+        .export_support_bundle()
+        .map_err(|error| format!("{} {} {}", error.operation, error.kind, error.message))?;
+    let summary = write_support_bundle_export(&export, directory)
+        .map_err(|error| format!("write support bundle failed: {error}"))?;
+    let bundle_bytes =
+        fs::read(&summary.path).map_err(|error| format!("read support bundle failed: {error}"))?;
+    let bundle: serde_json::Value = serde_json::from_slice(&bundle_bytes)
+        .map_err(|error| format!("support bundle JSON parse failed: {error}"))?;
+    let report = build_support_export_smoke_report(&summary, &export.format, &bundle);
+    let passed = report.status == "passed";
+
+    println!("{}", serde_json::to_string_pretty(&report)?);
+
+    if passed {
+        Ok(())
+    } else {
+        Err("desktop support export smoke report failed".into())
+    }
+}
+
+fn build_support_export_smoke_report(
+    summary: &support::SupportBundleSaveSummary,
+    format: &str,
+    bundle: &serde_json::Value,
+) -> DesktopShellSupportExportSmokeReport {
+    let kind = bundle["kind"].as_str().unwrap_or_default().to_string();
+    let desktop_dependencies = bundle["desktop_dependencies"]["first_run"]["system_proxy_ready"]
+        .is_boolean()
+        && bundle["desktop_dependencies"]["first_run"]["tun_ready"].is_boolean()
+        && bundle["desktop_dependencies"]["tun_backend"]["backend"].as_str() == Some("wintun");
+    let core_support_bundle =
+        bundle["core_support_bundle"]["kind"].as_str() == Some("keli_support_bundle");
+    let status = if summary.status == "saved"
+        && kind == "keli_desktop_support_bundle"
+        && desktop_dependencies
+        && core_support_bundle
+    {
+        "passed"
+    } else {
+        "failed"
+    };
+
+    DesktopShellSupportExportSmokeReport {
+        status: status.to_string(),
+        path: summary.path.clone(),
+        byte_count: summary.byte_count,
+        format: format.to_string(),
+        kind,
+        desktop_dependencies,
+        core_support_bundle,
     }
 }
 
@@ -807,6 +904,54 @@ mod tests {
     fn smoke_arg_detection_accepts_smoke_flag() {
         assert!(is_smoke_mode(["keli-desktop-shell", "--smoke"]));
         assert!(!is_smoke_mode(["keli-desktop-shell"]));
+    }
+
+    #[test]
+    fn support_export_smoke_arg_detection_accepts_directory_flag() {
+        assert!(is_support_export_smoke_mode([
+            "keli-desktop-shell",
+            "--support-export-smoke",
+            "C:\\Temp\\KeliSupport",
+        ]));
+        assert!(!is_support_export_smoke_mode([
+            "keli-desktop-shell",
+            "--smoke",
+        ]));
+    }
+
+    #[test]
+    fn support_export_smoke_report_confirms_bundle_shape() {
+        let report = build_support_export_smoke_report(
+            &support::SupportBundleSaveSummary {
+                status: "saved".to_string(),
+                path: "C:\\Temp\\KeliSupport\\keli-support-1.json".to_string(),
+                byte_count: 42,
+            },
+            "json",
+            &serde_json::json!({
+                "kind": "keli_desktop_support_bundle",
+                "desktop_dependencies": {
+                    "first_run": {
+                        "system_proxy_ready": true,
+                        "tun_ready": false
+                    },
+                    "tun_backend": {
+                        "backend": "wintun"
+                    }
+                },
+                "core_support_bundle": {
+                    "kind": "keli_support_bundle"
+                }
+            }),
+        );
+
+        assert_eq!(report.status, "passed");
+        assert_eq!(report.path, "C:\\Temp\\KeliSupport\\keli-support-1.json");
+        assert_eq!(report.byte_count, 42);
+        assert_eq!(report.format, "json");
+        assert_eq!(report.kind, "keli_desktop_support_bundle");
+        assert!(report.desktop_dependencies);
+        assert!(report.core_support_bundle);
     }
 
     #[test]

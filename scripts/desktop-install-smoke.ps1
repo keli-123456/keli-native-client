@@ -92,6 +92,8 @@ $exePath = Join-Path $installDir 'keli-desktop-shell.exe'
 $readmePath = Join-Path $installDir 'README.txt'
 $manifestPath = Join-Path $installDir 'keli-desktop-manifest.json'
 $launchSmokePath = Join-Path $smokeRoot 'desktop-shell-launch-smoke.json'
+$supportExportSmokeDir = Join-Path $smokeRoot 'support-export'
+$supportExportSmokePath = Join-Path $smokeRoot 'desktop-support-export-smoke.json'
 $resultPath = Join-Path $smokeRoot 'desktop-install-smoke.json'
 
 Push-Location $repoRoot
@@ -104,6 +106,7 @@ try {
         Write-Output 'readme manual_smoke import-subscription-url-or-config'
         Write-Output 'check target\desktop-install-smoke\Keli\keli-desktop-manifest.json'
         Write-Output 'run target\desktop-install-smoke\Keli\keli-desktop-shell.exe --smoke'
+        Write-Output 'run target\desktop-install-smoke\Keli\keli-desktop-shell.exe --support-export-smoke target\desktop-install-smoke\support-export'
         Write-Output 'manifest native_core_default true'
         Write-Output 'manifest manual_smoke import-subscription'
         Write-Output 'launch_smoke ui_workflow_entrypoint open-desktop-shell'
@@ -114,7 +117,11 @@ try {
         Write-Output 'launch_smoke ui_workflow_entrypoint export-support-bundle'
         Write-Output 'launch_smoke first_run_dependency_blockers'
         Write-Output 'launch_smoke dependency_action_entrypoint install-wintun'
+        Write-Output 'support_export_smoke status passed'
+        Write-Output 'support_export_smoke kind keli_desktop_support_bundle'
+        Write-Output 'support_export_smoke desktop_dependencies true'
         Write-Output 'result target\desktop-install-smoke\desktop-shell-launch-smoke.json'
+        Write-Output 'result target\desktop-install-smoke\desktop-support-export-smoke.json'
         Write-Output 'result target\desktop-install-smoke\desktop-install-smoke.json'
         return
     }
@@ -165,6 +172,23 @@ try {
         throw 'desktop shell launch smoke dependency_action_entrypoints is missing'
     }
 
+    New-Item -ItemType Directory -Force -Path $supportExportSmokeDir | Out-Null
+    $supportExportOutput = & $exePath --support-export-smoke $supportExportSmokeDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "desktop shell support export smoke failed with exit code $LASTEXITCODE"
+    }
+    $supportExportOutput | Set-Content -LiteralPath $supportExportSmokePath -Encoding ASCII
+    $supportExportSmoke = Get-Content -Raw -LiteralPath $supportExportSmokePath | ConvertFrom-Json
+    if ($supportExportSmoke.status -ne 'passed') {
+        throw "desktop shell support export smoke status mismatch: $($supportExportSmoke.status)"
+    }
+    if ($supportExportSmoke.kind -ne 'keli_desktop_support_bundle') {
+        throw "desktop shell support export smoke kind mismatch: $($supportExportSmoke.kind)"
+    }
+    if ($supportExportSmoke.desktop_dependencies -ne $true) {
+        throw 'desktop shell support export smoke desktop_dependencies must be true'
+    }
+
     $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
     if ($manifest.executable -ne 'keli-desktop-shell.exe') {
         throw "manifest executable mismatch: $($manifest.executable)"
@@ -187,6 +211,10 @@ try {
         executable = 'keli-desktop-shell.exe'
         native_core_default = $true
         launch_smoke = 'target\desktop-install-smoke\desktop-shell-launch-smoke.json'
+        support_export_smoke = 'target\desktop-install-smoke\desktop-support-export-smoke.json'
+        support_export_path = [string]$supportExportSmoke.path
+        support_export_kind = [string]$supportExportSmoke.kind
+        support_export_desktop_dependencies = [bool]$supportExportSmoke.desktop_dependencies
         readme_subscription_import = 'subscription-url-or-config'
         manual_smoke_cases = $manifest.manual_smoke
         verified_ui_workflow_entrypoints = $launchSmoke.ui_workflow_entrypoints
