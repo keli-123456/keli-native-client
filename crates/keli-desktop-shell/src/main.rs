@@ -164,6 +164,19 @@ fn handle_ui_event(
         return;
     }
 
+    if let DesktopShellUiEvent::DependencyAction(action) = &event {
+        if let Err(message) = open_dependency_action(action) {
+            eprintln!("desktop shell dependency action failed: {message}");
+        }
+        let shell = controller.refresh();
+        window.set_visible(shell.window.main_visible);
+        sync_webview(webview, &shell);
+        if shell.quit_requested {
+            *control_flow = ControlFlow::Exit;
+        }
+        return;
+    }
+
     match dispatch_ui_event(controller, event) {
         Ok(shell) => {
             window.set_visible(shell.window.main_visible);
@@ -199,6 +212,7 @@ fn dispatch_ui_event(
             Ok(controller.set_traffic_mode(traffic_mode))
         }
         DesktopShellUiEvent::ExportSupportBundle => Ok(controller.refresh()),
+        DesktopShellUiEvent::DependencyAction(_) => Ok(controller.refresh()),
     }
 }
 
@@ -261,6 +275,60 @@ fn sync_webview(webview: &WebView, shell: &DesktopShellState) {
         Err(error) => {
             eprintln!("desktop shell snapshot serialization failed: {error}");
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DependencyActionLaunchTarget {
+    target: &'static str,
+}
+
+fn dependency_action_launch_target(action: &str) -> Option<DependencyActionLaunchTarget> {
+    match action {
+        "check-system-proxy" => Some(DependencyActionLaunchTarget {
+            target: "ms-settings:network-proxy",
+        }),
+        "install-wintun" | "check-tun" => Some(DependencyActionLaunchTarget {
+            target: "https://www.wintun.net/",
+        }),
+        _ => None,
+    }
+}
+
+fn open_dependency_action(action: &str) -> Result<(), String> {
+    let target = dependency_action_launch_target(action)
+        .ok_or_else(|| format!("unknown dependency action: {action}"))?;
+    open_launch_target(target.target).map_err(|error| format!("open {}: {error}", target.target))
+}
+
+fn open_launch_target(target: &str) -> std::io::Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", target])
+            .spawn()?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(target).spawn()?;
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open").arg(target).spawn()?;
+        return Ok(());
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", unix)))]
+    {
+        let _ = target;
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "opening dependency action targets is unsupported on this platform",
+        ))
     }
 }
 
@@ -330,7 +398,8 @@ fn build_smoke_report(
     let html_ready = html.contains("id=\"run-state\"")
         && html.contains("id=\"primary-button\"")
         && html.contains("id=\"subscription-url\"")
-        && html.contains("id=\"dependency-summary\"");
+        && html.contains("id=\"dependency-summary\"")
+        && html.contains("id=\"dependency-actions\"");
     let snapshot_script_ready =
         snapshot_script.contains("window.keliSetShell") && snapshot_script.contains("\"status\"");
     let status = if html_ready && snapshot_script_ready {
@@ -429,5 +498,38 @@ mod tests {
         assert!(report.native_core_default);
         assert!(report.html_ready);
         assert!(report.snapshot_script_ready);
+        assert!(html.contains("id=\"dependency-actions\""));
+    }
+
+    #[test]
+    fn smoke_report_requires_dependency_action_container() {
+        let snapshot = smoke_snapshot();
+        let html = render_shell_html(&snapshot).replace(
+            "id=\"dependency-actions\"",
+            "id=\"missing-dependency-actions\"",
+        );
+        let script = shell_snapshot_script(&snapshot).expect("snapshot script");
+
+        let report = build_smoke_report(&snapshot, &html, &script);
+
+        assert_eq!(report.status, "failed");
+        assert!(!report.html_ready);
+    }
+
+    #[test]
+    fn dependency_action_launch_targets_are_fixed_and_safe() {
+        assert_eq!(
+            dependency_action_launch_target("check-system-proxy").map(|target| target.target),
+            Some("ms-settings:network-proxy")
+        );
+        assert_eq!(
+            dependency_action_launch_target("install-wintun").map(|target| target.target),
+            Some("https://www.wintun.net/")
+        );
+        assert_eq!(
+            dependency_action_launch_target("check-tun").map(|target| target.target),
+            Some("https://www.wintun.net/")
+        );
+        assert!(dependency_action_launch_target("unknown").is_none());
     }
 }

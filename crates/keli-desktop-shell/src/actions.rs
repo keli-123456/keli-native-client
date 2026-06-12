@@ -13,6 +13,7 @@ pub enum DesktopShellUiEvent {
     SelectNode(String),
     SetTrafficMode(DesktopTrafficMode),
     ExportSupportBundle,
+    DependencyAction(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -24,6 +25,7 @@ struct IpcCommand {
     subscription_url: Option<String>,
     outbound_tag: Option<String>,
     traffic_mode: Option<DesktopTrafficMode>,
+    action: Option<String>,
 }
 
 pub fn ipc_event_for_message(
@@ -64,6 +66,7 @@ fn json_ipc_event(message: &str) -> Option<DesktopShellUiEvent> {
         "set-traffic-mode" => command
             .traffic_mode
             .map(DesktopShellUiEvent::SetTrafficMode),
+        "dependency-action" => command.action.map(DesktopShellUiEvent::DependencyAction),
         _ => None,
     }
 }
@@ -282,6 +285,19 @@ mod tests {
                 &shell(DesktopRunState::Stopped, true)
             ),
             Some(DesktopShellUiEvent::ExportSupportBundle)
+        );
+    }
+
+    #[test]
+    fn dependency_action_ipc_maps_to_dependency_action_event() {
+        assert_eq!(
+            ipc_event_for_message(
+                r#"{"type":"dependency-action","action":"install-wintun"}"#,
+                &shell(DesktopRunState::Stopped, true),
+            ),
+            Some(DesktopShellUiEvent::DependencyAction(
+                "install-wintun".to_string()
+            ))
         );
     }
 }

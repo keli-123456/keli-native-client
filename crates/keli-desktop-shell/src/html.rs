@@ -31,6 +31,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let system_proxy_dependency = system_proxy_dependency(snapshot);
     let tun_dependency = tun_dependency(snapshot);
     let dependency_blockers = dependency_blockers(snapshot);
+    let dependency_actions = dependency_action_buttons(snapshot);
 
     format!(
         r#"<!doctype html>
@@ -238,6 +239,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="muted" id="system-proxy-dependency">{system_proxy_dependency}</div>
         <div class="muted" id="tun-dependency">{tun_dependency}</div>
         <div class="muted" id="dependency-blockers">{dependency_blockers}</div>
+        <div class="actions" id="dependency-actions">{dependency_actions}</div>
       </section>
       <section class="wide">
         <h2>Subscription</h2>
@@ -313,6 +315,40 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         type: "select-node",
         outboundTag
       }});
+    }}
+    const dependencyActionLabels = {{
+      "check-system-proxy": "Open proxy settings",
+      "install-wintun": "Open Wintun download",
+      "check-tun": "Open TUN help"
+    }};
+    function postDependencyAction(action) {{
+      postJson({{
+        type: "dependency-action",
+        action
+      }});
+    }}
+    function collectDependencyActions(snapshot) {{
+      const actions = [];
+      const add = (action) => {{
+        if (action && !actions.includes(action)) actions.push(action);
+      }};
+      add(snapshot.dependencies.system_proxy.action);
+      add(snapshot.dependencies.tun_backend.action);
+      for (const blocker of snapshot.dependencies.first_run.blockers || []) {{
+        add(blocker.action);
+      }}
+      return actions;
+    }}
+    function renderDependencyActions(snapshot) {{
+      const container = document.getElementById("dependency-actions");
+      container.replaceChildren();
+      for (const action of collectDependencyActions(snapshot)) {{
+        const button = document.createElement("button");
+        button.dataset.dependencyAction = action;
+        button.textContent = dependencyActionLabels[action] || action;
+        button.onclick = () => postDependencyAction(action);
+        container.appendChild(button);
+      }}
     }}
     function subscriptionSummary(subscription) {{
       if (!subscription) return "No subscription imported";
@@ -430,6 +466,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       document.getElementById("system-proxy-dependency").textContent = systemProxyDependency(snapshot);
       document.getElementById("tun-dependency").textContent = tunDependency(snapshot);
       document.getElementById("dependency-blockers").textContent = dependencyBlockers(snapshot);
+      renderDependencyActions(snapshot);
       document.getElementById("subscription-summary").textContent = subscriptionSummary(snapshot.subscription);
       renderNodeList(snapshot.subscription);
       document.getElementById("snapshot-json").textContent = JSON.stringify(snapshot, null, 2);
@@ -456,6 +493,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         system_proxy_dependency = escape_html(&system_proxy_dependency),
         tun_dependency = escape_html(&tun_dependency),
         dependency_blockers = escape_html(&dependency_blockers),
+        dependency_actions = dependency_actions,
         subscription_summary = escape_html(&subscription_summary),
         node_buttons = node_buttons,
         snapshot_json = escape_html(&snapshot_json),
@@ -583,6 +621,52 @@ fn dependency_blockers(snapshot: &DesktopShellState) -> String {
         })
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+fn dependency_action_buttons(snapshot: &DesktopShellState) -> String {
+    let mut actions = Vec::new();
+    add_dependency_action(
+        &mut actions,
+        snapshot.dependencies.system_proxy.action.as_deref(),
+    );
+    add_dependency_action(
+        &mut actions,
+        snapshot.dependencies.tun_backend.action.as_deref(),
+    );
+    for blocker in &snapshot.dependencies.first_run.blockers {
+        add_dependency_action(&mut actions, blocker.action.as_deref());
+    }
+
+    actions
+        .iter()
+        .map(|action| {
+            let action_value = escape_html(action);
+            let label = escape_html(dependency_action_label(action));
+            format!(
+                r#"<button data-dependency-action="{action_value}" onclick="postDependencyAction(this.dataset.dependencyAction)">{label}</button>"#
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn add_dependency_action(actions: &mut Vec<String>, action: Option<&str>) {
+    let Some(action) = action else {
+        return;
+    };
+    if action.trim().is_empty() || actions.iter().any(|existing| existing == action) {
+        return;
+    }
+    actions.push(action.to_string());
+}
+
+fn dependency_action_label(action: &str) -> &str {
+    match action {
+        "check-system-proxy" => "Open proxy settings",
+        "install-wintun" => "Open Wintun download",
+        "check-tun" => "Open TUN help",
+        _ => action,
+    }
 }
 
 fn subscription_summary(subscription: Option<&DesktopSubscriptionSummary>) -> String {
@@ -886,10 +970,37 @@ mod tests {
 
         let html = render_shell_html(&snapshot);
 
+        assert!(html.contains("id=\"dependency-actions\""));
+        assert!(html.contains("dependency-action"));
+        assert!(html.contains("Open Wintun download"));
         assert!(html.contains("Wintun install-required"));
         assert!(html.contains("Wintun library was not found"));
         assert!(html.contains("install-wintun"));
         assert!(html.contains("System proxy ready"));
+    }
+
+    #[test]
+    fn dependency_html_renders_system_proxy_action_button() {
+        let mut snapshot = snapshot();
+        snapshot.dependencies.first_run.system_proxy_ready = false;
+        snapshot.dependencies.first_run.can_start_system_proxy_mode = false;
+        snapshot.dependencies.first_run.blockers = vec![keli_desktop::DesktopBlocker {
+            code: "system-proxy-unavailable".to_string(),
+            message: "System proxy control is unavailable".to_string(),
+            action: Some("check-system-proxy".to_string()),
+        }];
+        snapshot.dependencies.system_proxy.state = "unavailable".to_string();
+        snapshot.dependencies.system_proxy.ready = false;
+        snapshot.dependencies.system_proxy.supported = false;
+        snapshot.dependencies.system_proxy.error =
+            Some("System proxy control is unavailable".to_string());
+        snapshot.dependencies.system_proxy.action = Some("check-system-proxy".to_string());
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("id=\"dependency-actions\""));
+        assert!(html.contains("check-system-proxy"));
+        assert!(html.contains("Open proxy settings"));
     }
 
     #[test]
