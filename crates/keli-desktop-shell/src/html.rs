@@ -780,6 +780,23 @@ pub fn support_export_status_script(
     ))
 }
 
+#[derive(serde::Serialize)]
+struct SupportExportFailureStatus<'a> {
+    status: &'static str,
+    error: &'a str,
+}
+
+pub fn support_export_failure_status_script(error: &str) -> serde_json::Result<String> {
+    let status = SupportExportFailureStatus {
+        status: "failed",
+        error,
+    };
+    let status_json = serde_json::to_string(&status)?;
+    Ok(format!(
+        "window.keliSetSupportExport && window.keliSetSupportExport({status_json});"
+    ))
+}
+
 pub fn wintun_install_status_script(
     summary: &DesktopWintunInstallSummary,
 ) -> serde_json::Result<String> {
@@ -1761,6 +1778,17 @@ mod tests {
 
         assert!(script.contains("window.keliSetSupportExport"));
         assert!(script.contains("keli-support.json"));
+    }
+
+    #[test]
+    fn support_export_failure_status_script_reports_error() {
+        let script =
+            support_export_failure_status_script("write support bundle failed: access denied")
+                .expect("support export failure script");
+
+        assert!(script.contains("window.keliSetSupportExport"));
+        assert!(script.contains("\"status\":\"failed\""));
+        assert!(script.contains("access denied"));
     }
 
     #[test]

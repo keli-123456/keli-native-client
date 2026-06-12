@@ -10,8 +10,8 @@ use html::{
     subscription_config_import_failure_status_script, subscription_config_import_status_script,
     subscription_url_import_failure_status_script, subscription_url_import_status_script,
     subscription_url_update_failure_status_script, subscription_url_update_status_script,
-    support_export_status_script, wintun_install_failure_status_script,
-    wintun_install_status_script,
+    support_export_failure_status_script, support_export_status_script,
+    wintun_install_failure_status_script, wintun_install_status_script,
 };
 use keli_desktop::{
     DesktopRunState, DesktopShellAction, DesktopShellController, DesktopShellControllerError,
@@ -184,6 +184,7 @@ fn handle_ui_event(
             }
             Err(message) => {
                 eprintln!("desktop shell support export failed: {message}");
+                sync_support_export_failure(webview, &message);
                 sync_webview(webview, controller.snapshot());
                 sync_operation_status(webview, "error", &message);
             }
@@ -329,6 +330,19 @@ fn sync_subscription_url_update_failure(webview: &WebView, message: &str) {
         }
         Err(error) => {
             eprintln!("subscription URL update failure status serialization failed: {error}");
+        }
+    }
+}
+
+fn sync_support_export_failure(webview: &WebView, message: &str) {
+    match support_export_failure_status_script(message) {
+        Ok(script) => {
+            if let Err(error) = webview.evaluate_script(&script) {
+                eprintln!("support export failure status sync failed: {error}");
+            }
+        }
+        Err(error) => {
+            eprintln!("support export failure status serialization failed: {error}");
         }
     }
 }
