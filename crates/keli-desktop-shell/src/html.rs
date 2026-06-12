@@ -92,6 +92,29 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       font-weight: 600;
       white-space: nowrap;
     }}
+    .operation-status {{
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      border: 1px solid #d9dee5;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #4d5968;
+      font-size: 13px;
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }}
+    .operation-status[data-kind="success"] {{
+      border-color: #add7bf;
+      background: #e6f4ec;
+      color: #145a32;
+    }}
+    .operation-status[data-kind="error"] {{
+      border-color: #efb0a7;
+      background: #fff1ef;
+      color: #8f2618;
+    }}
     .grid {{
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -209,6 +232,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       <h1>Keli</h1>
       <span class="pill" id="run-state">{run_state}</span>
     </header>
+    <div class="operation-status" id="operation-status" data-kind="info">Ready</div>
     <div class="grid">
       <section>
         <h2>Mode</h2>
@@ -386,17 +410,27 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         nodeList.appendChild(button);
       }}
     }}
+    window.keliSetOperationStatus = (summary) => {{
+      const status = document.getElementById("operation-status");
+      const kind = summary.kind || "info";
+      status.dataset.kind = kind;
+      status.textContent = summary.message || "Ready";
+    }};
     window.keliSetSupportExport = (summary) => {{
       const label = summary.status === "saved"
         ? `Saved ${{summary.byte_count}} bytes to ${{summary.path}}`
         : `${{summary.status}}: ${{summary.path || ""}}`;
+      const kind = summary.status === "saved" ? "success" : "error";
       document.getElementById("support-export-status").textContent = label;
+      window.keliSetOperationStatus({{ kind: kind, message: label }});
     }};
     window.keliSetWintunInstall = (summary) => {{
       const label = summary.error
         ? `${{summary.status}}: ${{summary.error}}`
         : `${{summary.status}}: ${{summary.target_path || ""}} (${{summary.copied_bytes || 0}} bytes)`;
+      const kind = summary.error ? "error" : "success";
       document.getElementById("wintun-install-status").textContent = label;
+      window.keliSetOperationStatus({{ kind: kind, message: label }});
     }};
     function subscriptionSource(fetch) {{
       const source = fetch.host
@@ -410,7 +444,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const label = summary.error
         ? `Import failed from ${{source}}: ${{summary.error}}`
         : `Imported ${{summary.subscription ? summary.subscription.supported_count : 0}} nodes from ${{source}}`;
+      const kind = summary.error ? "error" : "success";
       document.getElementById("subscription-url-status").textContent = label;
+      window.keliSetOperationStatus({{ kind: kind, message: label }});
     }};
     window.keliSetSubscriptionUrlUpdate = (summary) => {{
       const fetch = summary.fetch || {{}};
@@ -425,13 +461,17 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         : summary.applied
           ? `Updated from ${{source}}${{reason}}${{selected}}`
           : `Update not applied from ${{source}}: ${{fetch.error_kind || "unknown"}}`;
+      const kind = summary.error || !summary.applied ? "error" : "success";
       document.getElementById("subscription-url-status").textContent = label;
+      window.keliSetOperationStatus({{ kind: kind, message: label }});
     }};
     window.keliSetSubscriptionConfigImport = (summary) => {{
       const label = summary.error
         ? `Import failed: ${{summary.error}}`
         : `Imported ${{summary.supported_count || 0}} nodes, skipped ${{summary.skipped_count || 0}}`;
+      const kind = summary.error ? "error" : "success";
       document.getElementById("subscription-config-status").textContent = label;
+      window.keliSetOperationStatus({{ kind: kind, message: label }});
     }};
     function dependencySummary(snapshot) {{
       const firstRun = snapshot.dependencies.first_run;
@@ -529,6 +569,20 @@ pub fn shell_snapshot_script(snapshot: &DesktopShellState) -> serde_json::Result
     let snapshot_json = serde_json::to_string(snapshot)?;
     Ok(format!(
         "window.keliSetShell && window.keliSetShell({snapshot_json});"
+    ))
+}
+
+#[derive(serde::Serialize)]
+struct OperationStatus<'a> {
+    kind: &'a str,
+    message: &'a str,
+}
+
+pub fn operation_status_script(kind: &str, message: &str) -> serde_json::Result<String> {
+    let status = OperationStatus { kind, message };
+    let status_json = serde_json::to_string(&status)?;
+    Ok(format!(
+        "window.keliSetOperationStatus && window.keliSetOperationStatus({status_json});"
     ))
 }
 
@@ -922,6 +976,33 @@ mod tests {
         assert!(script.contains("window.keliSetShell"));
         assert!(script.contains("SS-READY"));
         assert!(script.contains("show-main-window"));
+    }
+
+    #[test]
+    fn operation_status_html_includes_unified_target_and_setter() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("id=\"operation-status\""));
+        assert!(html.contains("window.keliSetOperationStatus"));
+        assert!(html.contains("data-kind=\"info\""));
+    }
+
+    #[test]
+    fn existing_status_setters_mirror_to_operation_status() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("window.keliSetOperationStatus({ kind:"));
+        assert!(html.contains("document.getElementById(\"operation-status\")"));
+    }
+
+    #[test]
+    fn operation_status_script_reports_kind_and_message() {
+        let script =
+            operation_status_script("error", "Start failed").expect("operation status script");
+
+        assert!(script.contains("window.keliSetOperationStatus"));
+        assert!(script.contains("\"kind\":\"error\""));
+        assert!(script.contains("Start failed"));
     }
 
     #[test]

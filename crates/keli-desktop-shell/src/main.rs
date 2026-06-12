@@ -6,10 +6,11 @@ use std::error::Error;
 
 use actions::{ipc_event_for_message, tray_event_for_id, DesktopShellUiEvent};
 use html::{
-    render_shell_html, shell_snapshot_script, subscription_config_import_failure_status_script,
-    subscription_config_import_status_script, subscription_url_import_status_script,
-    subscription_url_update_status_script, support_export_status_script,
-    wintun_install_failure_status_script, wintun_install_status_script,
+    operation_status_script, render_shell_html, shell_snapshot_script,
+    subscription_config_import_failure_status_script, subscription_config_import_status_script,
+    subscription_url_import_status_script, subscription_url_update_status_script,
+    support_export_status_script, wintun_install_failure_status_script,
+    wintun_install_status_script,
 };
 use keli_desktop::{
     DesktopRunState, DesktopShellAction, DesktopShellController, DesktopShellControllerError,
@@ -145,6 +146,7 @@ fn handle_ui_event(
             Err(message) => {
                 eprintln!("desktop shell subscription URL import failed: {message}");
                 sync_webview(webview, controller.snapshot());
+                sync_operation_status(webview, "error", &message);
             }
         }
         return;
@@ -162,6 +164,7 @@ fn handle_ui_event(
             Err(message) => {
                 eprintln!("desktop shell subscription URL update failed: {message}");
                 sync_webview(webview, controller.snapshot());
+                sync_operation_status(webview, "error", &message);
             }
         }
         return;
@@ -179,6 +182,7 @@ fn handle_ui_event(
             Err(message) => {
                 eprintln!("desktop shell support export failed: {message}");
                 sync_webview(webview, controller.snapshot());
+                sync_operation_status(webview, "error", &message);
             }
         }
         return;
@@ -203,32 +207,44 @@ fn handle_ui_event(
     }
 
     if let DesktopShellUiEvent::DependencyAction(action) = &event {
-        if let Err(message) = open_dependency_action(action) {
-            eprintln!("desktop shell dependency action failed: {message}");
-        }
+        let operation_status = match open_dependency_action(action) {
+            Ok(()) => (
+                "success",
+                operation_success_message(&event)
+                    .unwrap_or_else(|| format!("Dependency action opened: {action}")),
+            ),
+            Err(message) => {
+                eprintln!("desktop shell dependency action failed: {message}");
+                ("error", message)
+            }
+        };
         let shell = controller.refresh();
         window.set_visible(shell.window.main_visible);
         sync_webview(webview, &shell);
+        sync_operation_status(webview, operation_status.0, &operation_status.1);
         if shell.quit_requested {
             *control_flow = ControlFlow::Exit;
         }
         return;
     }
 
+    let operation_success = operation_success_message(&event);
     match dispatch_ui_event(controller, event) {
         Ok(shell) => {
             window.set_visible(shell.window.main_visible);
             sync_webview(webview, &shell);
+            if let Some(message) = operation_success.as_deref() {
+                sync_operation_status(webview, "success", message);
+            }
             if shell.quit_requested {
                 *control_flow = ControlFlow::Exit;
             }
         }
         Err(error) => {
-            eprintln!(
-                "desktop shell action failed: {} {} {}",
-                error.operation, error.kind, error.message
-            );
+            let message = format!("{} {} {}", error.operation, error.kind, error.message);
+            eprintln!("desktop shell action failed: {message}");
             sync_webview(webview, controller.snapshot());
+            sync_operation_status(webview, "error", &message);
         }
     }
 }
@@ -365,6 +381,19 @@ fn sync_wintun_install_failure(webview: &WebView, source_path: &str, message: &s
     }
 }
 
+fn sync_operation_status(webview: &WebView, kind: &str, message: &str) {
+    match operation_status_script(kind, message) {
+        Ok(script) => {
+            if let Err(error) = webview.evaluate_script(&script) {
+                eprintln!("operation status sync failed: {error}");
+            }
+        }
+        Err(error) => {
+            eprintln!("operation status serialization failed: {error}");
+        }
+    }
+}
+
 fn sync_webview(webview: &WebView, shell: &DesktopShellState) {
     match shell_snapshot_script(shell) {
         Ok(script) => {
@@ -375,6 +404,37 @@ fn sync_webview(webview: &WebView, shell: &DesktopShellState) {
         Err(error) => {
             eprintln!("desktop shell snapshot serialization failed: {error}");
         }
+    }
+}
+
+fn operation_success_message(event: &DesktopShellUiEvent) -> Option<String> {
+    match event {
+        DesktopShellUiEvent::Action(DesktopShellAction::RequestStart) => {
+            Some("Start requested".to_string())
+        }
+        DesktopShellUiEvent::Action(DesktopShellAction::RequestStop) => {
+            Some("Stop requested".to_string())
+        }
+        DesktopShellUiEvent::Refresh => Some("Status refreshed".to_string()),
+        DesktopShellUiEvent::SelectNode(outbound_tag) => {
+            Some(format!("Selected node {outbound_tag}"))
+        }
+        DesktopShellUiEvent::SetTrafficMode(traffic_mode) => Some(format!(
+            "Traffic mode set to {}",
+            traffic_mode_label(*traffic_mode)
+        )),
+        DesktopShellUiEvent::DependencyAction(action) => {
+            Some(format!("Dependency action opened: {action}"))
+        }
+        _ => None,
+    }
+}
+
+fn traffic_mode_label(traffic_mode: keli_desktop::DesktopTrafficMode) -> &'static str {
+    match traffic_mode {
+        keli_desktop::DesktopTrafficMode::SystemProxy => "System proxy",
+        keli_desktop::DesktopTrafficMode::Tun => "TUN",
+        keli_desktop::DesktopTrafficMode::MixedInboundOnly => "Local inbound",
     }
 }
 
@@ -631,6 +691,51 @@ mod tests {
 
         assert_eq!(report.status, "failed");
         assert!(!report.html_ready);
+    }
+
+    #[test]
+    fn operation_success_message_covers_generic_actions() {
+        assert_eq!(
+            operation_success_message(&DesktopShellUiEvent::Refresh).as_deref(),
+            Some("Status refreshed")
+        );
+        assert_eq!(
+            operation_success_message(&DesktopShellUiEvent::Action(
+                DesktopShellAction::RequestStart
+            ))
+            .as_deref(),
+            Some("Start requested")
+        );
+        assert_eq!(
+            operation_success_message(&DesktopShellUiEvent::Action(
+                DesktopShellAction::RequestStop
+            ))
+            .as_deref(),
+            Some("Stop requested")
+        );
+        assert_eq!(
+            operation_success_message(&DesktopShellUiEvent::SelectNode("SS-READY".to_string()))
+                .as_deref(),
+            Some("Selected node SS-READY")
+        );
+    }
+
+    #[test]
+    fn operation_success_message_covers_mode_and_dependency_actions() {
+        assert_eq!(
+            operation_success_message(&DesktopShellUiEvent::SetTrafficMode(
+                DesktopTrafficMode::Tun
+            ))
+            .as_deref(),
+            Some("Traffic mode set to TUN")
+        );
+        assert_eq!(
+            operation_success_message(&DesktopShellUiEvent::DependencyAction(
+                "install-wintun".to_string()
+            ))
+            .as_deref(),
+            Some("Dependency action opened: install-wintun")
+        );
     }
 
     #[test]
