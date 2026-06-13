@@ -497,7 +497,7 @@ fn operation_success_message(event: &DesktopShellUiEvent) -> Option<String> {
         DesktopShellUiEvent::PanelImportConfig { server_name, .. } => {
             Some(format!("已导入面板节点配置：{server_name}"))
         }
-        DesktopShellUiEvent::SelectNode(outbound_tag) => Some(format!("已选择节点 {outbound_tag}")),
+        DesktopShellUiEvent::SelectNode(outbound_tag) => Some(format!("已应用节点 {outbound_tag}")),
         DesktopShellUiEvent::SetTrafficMode(traffic_mode) => Some(format!(
             "流量模式已切换为 {}",
             traffic_mode_label(*traffic_mode)
@@ -1096,7 +1096,7 @@ mod tests {
         assert_eq!(
             operation_success_message(&DesktopShellUiEvent::SelectNode("SS-READY".to_string()))
                 .as_deref(),
-            Some("已选择节点 SS-READY")
+            Some("已应用节点 SS-READY")
         );
     }
 

@@ -763,11 +763,13 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       background: #fff1ef;
       color: #8f2618;
     }}
-    #nodes-health-refresh-status[data-kind="success"] {{
+    #nodes-health-refresh-status[data-kind="success"],
+    #nodes-selection-status[data-kind="success"] {{
       color: #145a32;
       font-weight: 650;
     }}
-    #nodes-health-refresh-status[data-kind="error"] {{
+    #nodes-health-refresh-status[data-kind="error"],
+    #nodes-selection-status[data-kind="error"] {{
       color: #8f2618;
       font-weight: 650;
     }}
@@ -1296,6 +1298,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
             <button class="primary" onclick="postSelectNode(document.getElementById('selected-node-title').textContent)">选择</button>
             <button onclick="postRefreshNodeHealth()">测试</button>
           </div>
+          <div class="muted" id="nodes-selection-status" data-kind="idle">尚未切换节点</div>
           <div class="node-connection-panel" id="nodes-connection-panel">
             <h2>连接</h2>
             <div class="value" id="nodes-connection-state">{run_state}</div>
@@ -1588,6 +1591,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let pendingPanelSync = false;
     let pendingAutoHealthAfterSync = false;
     let pendingNodeHealthRefresh = false;
+    let pendingSelectedNodeTag = "";
     let lastAutoHealthSubscriptionKey = "";
     function setOperationPending(message) {{
       window.keliSetOperationStatus({{ kind: "info", message: message || "正在处理操作" }});
@@ -1617,6 +1621,43 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       if (!status) return;
       status.dataset.kind = kind || "info";
       status.textContent = message || "节点健康状态未知";
+    }}
+    function setNodeSelectionStatus(kind, message) {{
+      const status = document.getElementById("nodes-selection-status");
+      if (!status) return;
+      status.dataset.kind = kind || "info";
+      status.textContent = message || "节点应用状态未知";
+    }}
+    function completeNodeSelection(snapshot) {{
+      const requestedTag = pendingSelectedNodeTag;
+      if (!requestedTag || !snapshot.subscription) return;
+      const subscription = snapshot.subscription;
+      const nodes = subscription.nodes || [];
+      const requestedNode = nodes.find((node) => node.tag === requestedTag);
+      if (!requestedNode) {{
+        pendingSelectedNodeTag = "";
+        const message = `节点应用失败：${{requestedTag}} 不在当前订阅`;
+        setNodeSelectionStatus("error", message);
+        window.keliSetOperationStatus({{ kind: "error", message }});
+        return;
+      }}
+      const selectedTag = (snapshot.status && snapshot.status.selected_outbound)
+        || subscription.selected_outbound
+        || "";
+      if (selectedTag !== requestedTag) return;
+      pendingSelectedNodeTag = "";
+      const reloaded = snapshot.status && snapshot.status.run_state === "running" ? "，核心已重载" : "";
+      if (nodeHasFailure(requestedNode)) {{
+        const recommended = recommendedSwitchNode(subscription);
+        const suggestion = recommended ? `，建议切换到 ${{recommended.tag}}` : "";
+        const message = `已应用节点 ${{requestedTag}}${{reloaded}}，但健康异常${{suggestion}}`;
+        setNodeSelectionStatus("error", message);
+        window.keliSetOperationStatus({{ kind: "error", message }});
+        return;
+      }}
+      const message = `已应用节点 ${{requestedTag}}${{reloaded}}`;
+      setNodeSelectionStatus("success", message);
+      window.keliSetOperationStatus({{ kind: "success", message }});
     }}
     function subscriptionHealthKey(subscription) {{
       if (!subscription) return "";
@@ -1800,6 +1841,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       }}, `正在切换流量模式：${{trafficModeLabels[trafficMode] || trafficMode}}`);
     }}
     function postSelectNode(outboundTag) {{
+      pendingSelectedNodeTag = outboundTag;
+      setNodeSelectionStatus("info", `正在应用节点：${{outboundTag}}`);
       postJson({{
         type: "select-node",
         outboundTag
@@ -2316,6 +2359,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       if (updateUrlButton) updateUrlButton.disabled = snapshot.status.run_state !== "running";
       renderNodesTable(subscription);
       renderSelectedNodeDetail(subscription);
+      completeNodeSelection(snapshot);
       completeNodeHealthRefresh(subscription);
       maybeRequestAutoNodeHealthRefresh(subscription);
     }};
@@ -2324,6 +2368,11 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const kind = summary.kind || "info";
       status.dataset.kind = kind;
       status.textContent = summary.message || "就绪";
+      if (kind === "error" && pendingSelectedNodeTag) {{
+        const message = summary.message || `节点应用失败：${{pendingSelectedNodeTag}}`;
+        pendingSelectedNodeTag = "";
+        setNodeSelectionStatus("error", message);
+      }}
     }};
     window.keliSetSupportExport = (summary) => {{
       const label = summary.status === "saved"
@@ -4249,6 +4298,23 @@ mod tests {
         assert!(html.contains("id=\"nodes-primary-button\""));
         assert!(html.contains("postOperation('primary', primaryOperationPending())"));
         assert!(html.contains("window.keliSyncNodeConnection"));
+    }
+
+    #[test]
+    fn nodes_selection_feedback_confirms_apply_result() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("id=\"nodes-selection-status\""));
+        assert!(html.contains("pendingSelectedNodeTag"));
+        assert!(html.contains("function setNodeSelectionStatus(kind, message)"));
+        assert!(html.contains("function completeNodeSelection(snapshot)"));
+        assert!(html.contains("pendingSelectedNodeTag = outboundTag"));
+        assert!(html.contains("completeNodeSelection(snapshot)"));
+        assert!(html.contains("正在应用节点"));
+        assert!(html.contains("已应用节点"));
+        assert!(html.contains("核心已重载"));
+        assert!(html.contains("节点应用失败"));
+        assert!(html.contains("建议切换到"));
     }
 
     #[test]
