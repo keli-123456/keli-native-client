@@ -20,7 +20,9 @@ use keli_desktop::{
     DesktopShellState,
 };
 use single_instance::SingleInstance;
-use support::{default_support_export_dir, write_support_bundle_export};
+use support::{
+    default_support_export_dir, read_last_support_bundle_export, write_support_bundle_export,
+};
 use tao::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -67,6 +69,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let _ = ipc_proxy.send_event(UserEvent::Ipc(request.body().to_string()));
         })
         .build(&window)?;
+    sync_last_support_export(&webview);
     let menu_proxy = event_loop.create_proxy();
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         let _ = menu_proxy.send_event(UserEvent::TrayMenu(event.id().as_ref().to_string()));
@@ -393,6 +396,25 @@ fn sync_support_export_failure(webview: &WebView, message: &str) {
     }
 }
 
+fn sync_last_support_export(webview: &WebView) {
+    match read_last_support_bundle_export(default_support_export_dir()) {
+        Ok(Some(summary)) => match support_export_status_script(&summary) {
+            Ok(script) => {
+                if let Err(error) = webview.evaluate_script(&script) {
+                    eprintln!("last support export restore sync failed: {error}");
+                }
+            }
+            Err(error) => {
+                eprintln!("last support export restore serialization failed: {error}");
+            }
+        },
+        Ok(None) => {}
+        Err(error) => {
+            eprintln!("last support export restore read failed: {error}");
+        }
+    }
+}
+
 fn import_subscription_url(
     controller: &mut DesktopShellController<keli_desktop::DesktopNativeCommandService>,
     url: String,
@@ -682,6 +704,7 @@ struct DesktopShellSupportExportSmokeReport {
     kind: String,
     desktop_dependencies: bool,
     core_support_bundle: bool,
+    last_record_matches: bool,
 }
 
 fn is_smoke_mode<I, S>(args: I) -> bool
@@ -748,7 +771,9 @@ fn run_support_export_smoke() -> Result<(), Box<dyn Error>> {
         fs::read(&summary.path).map_err(|error| format!("read support bundle failed: {error}"))?;
     let bundle: serde_json::Value = serde_json::from_slice(&bundle_bytes)
         .map_err(|error| format!("support bundle JSON parse failed: {error}"))?;
-    let report = build_support_export_smoke_report(&summary, &export.format, &bundle);
+    let last_record_matches = last_support_export_record_matches(&summary);
+    let report =
+        build_support_export_smoke_report(&summary, &export.format, &bundle, last_record_matches);
     let passed = report.status == "passed";
 
     println!("{}", serde_json::to_string_pretty(&report)?);
@@ -764,6 +789,7 @@ fn build_support_export_smoke_report(
     summary: &support::SupportBundleSaveSummary,
     format: &str,
     bundle: &serde_json::Value,
+    last_record_matches: bool,
 ) -> DesktopShellSupportExportSmokeReport {
     let kind = bundle["kind"].as_str().unwrap_or_default().to_string();
     let desktop_dependencies = bundle["desktop_dependencies"]["first_run"]["system_proxy_ready"]
@@ -776,6 +802,7 @@ fn build_support_export_smoke_report(
         && kind == "keli_desktop_support_bundle"
         && desktop_dependencies
         && core_support_bundle
+        && last_record_matches
     {
         "passed"
     } else {
@@ -790,7 +817,21 @@ fn build_support_export_smoke_report(
         kind,
         desktop_dependencies,
         core_support_bundle,
+        last_record_matches,
     }
+}
+
+fn last_support_export_record_matches(summary: &support::SupportBundleSaveSummary) -> bool {
+    read_last_support_bundle_export(&summary.directory)
+        .ok()
+        .flatten()
+        .map(|record| {
+            record.status == summary.status
+                && record.path == summary.path
+                && record.directory == summary.directory
+                && record.byte_count == summary.byte_count
+        })
+        .unwrap_or(false)
 }
 
 fn build_smoke_report(
@@ -1033,6 +1074,7 @@ mod tests {
                     "kind": "keli_support_bundle"
                 }
             }),
+            true,
         );
 
         assert_eq!(report.status, "passed");
@@ -1042,6 +1084,7 @@ mod tests {
         assert_eq!(report.kind, "keli_desktop_support_bundle");
         assert!(report.desktop_dependencies);
         assert!(report.core_support_bundle);
+        assert!(report.last_record_matches);
     }
 
     #[test]
