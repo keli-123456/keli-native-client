@@ -66,6 +66,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let readiness_system_proxy_detail = readiness_system_proxy_detail(snapshot);
     let readiness_tun_detail = readiness_tun_detail(snapshot);
     let activity_summary = format!("{diagnostics_runtime_events}；{diagnostics_recent_event}");
+    let panel_account = panel_account_summary(snapshot);
+    let panel_subscription = panel_subscription_summary(snapshot);
+    let panel_nodes = panel_nodes_summary(snapshot);
+    let panel_notice = panel_notice_summary(snapshot);
     let top_core_status = format!("核心状态：{run_state}");
     let top_dependency_status = if snapshot.dependencies.first_run.blockers.is_empty()
         && snapshot.dependencies.first_run.system_proxy_ready
@@ -360,6 +364,31 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
       gap: 12px;
       align-items: start;
+    }}
+    .panel-grid {{
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+      gap: 12px;
+      overflow: hidden;
+    }}
+    .bounded-list {{
+      min-height: 0;
+      max-height: 320px;
+      overflow: auto;
+    }}
+    .panel-kpi-row {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .panel-kpi {{
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid #d9dee5;
+      border-radius: 8px;
+      background: #ffffff;
+      overflow: hidden;
     }}
     .node-filter-tabs {{
       display: flex;
@@ -845,6 +874,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       .diagnostics-grid,
       .settings-grid,
       .metrics-grid,
+      .panel-grid,
+      .panel-kpi-row,
       .settings-strip,
       .nodes-toolbar,
       .nodes-summary-strip,
@@ -876,6 +907,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       <nav class="nav-list">
         <button class="nav-item" data-view-target="dashboard-view" aria-current="page" onclick="postViewTarget('dashboard-view')">概览</button>
         <button class="nav-item" data-view-target="nodes-view" onclick="postViewTarget('nodes-view')">节点</button>
+        <button class="nav-item" data-view-target="subscription-view" onclick="postViewTarget('subscription-view')">订阅</button>
+        <button class="nav-item" data-view-target="store-view" onclick="postViewTarget('store-view')">商店</button>
+        <button class="nav-item" data-view-target="support-view" onclick="postViewTarget('support-view')">支持</button>
         <button class="nav-item" data-view-target="diagnostics-view" onclick="postViewTarget('diagnostics-view')">诊断</button>
         <button class="nav-item" data-view-target="settings-view" onclick="postViewTarget('settings-view')">设置</button>
       </nav>
@@ -933,6 +967,14 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <button data-traffic-mode-button="tun" aria-pressed="{tun_pressed}" onclick="postTrafficMode('tun')">TUN</button>
       </div>
       <div class="activity-strip" id="activity-summary">{activity_summary}</div>
+    </section>
+    <section id="dashboard-panel-account">
+      <h2>账号</h2>
+      <div class="panel-kpi-row">
+        <div class="panel-kpi"><div class="metric-label">账号</div><strong>{panel_account}</strong></div>
+        <div class="panel-kpi"><div class="metric-label">订阅</div><strong>{panel_subscription}</strong></div>
+        <div class="panel-kpi"><div class="metric-label">公告</div><strong>{panel_notice}</strong></div>
+      </div>
     </section>
     <section id="connection-activity-panel">
       <div class="activity-header">
@@ -1118,6 +1160,33 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         </section>
       </div>
     </section>
+    <div class="app-view subscription-view" id="subscription-view" data-app-view hidden>
+      <div class="panel-grid">
+        <section>
+          <h2>订阅</h2>
+          <div class="value">{panel_subscription}</div>
+          <div class="muted">账号模式优先；订阅 URL 导入保留为兼容入口。</div>
+        </section>
+        <section>
+          <h2>面板节点</h2>
+          <div class="bounded-list">{panel_nodes}</div>
+        </section>
+      </div>
+    </div>
+    <div class="app-view store-view" id="store-view" data-app-view hidden>
+      <section>
+        <h2>商店</h2>
+        <div class="value">套餐、订单、支付接口已进入客户端契约。</div>
+        <div class="muted">下一步接入套餐和订单快照。</div>
+      </section>
+    </div>
+    <div class="app-view support-view" id="support-view" data-app-view hidden>
+      <section>
+        <h2>支持</h2>
+        <div class="value">{panel_notice}</div>
+        <div class="muted">公告先接入；知识库和工单动作单独规划。</div>
+      </section>
+    </div>
     <div class="app-view diagnostics-view" id="diagnostics-view" data-app-view hidden>
       <section id="readiness-checklist">
         <h2>就绪检查</h2>
@@ -2036,6 +2105,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         diagnostics_system_proxy = escape_html(&diagnostics_system_proxy),
         diagnostics_tun = escape_html(&diagnostics_tun),
         diagnostics_default_core = escape_html(&diagnostics_default_core),
+        panel_account = escape_html(&panel_account),
+        panel_subscription = escape_html(&panel_subscription),
+        panel_nodes = panel_nodes,
+        panel_notice = escape_html(&panel_notice),
         readiness_system_proxy_detail = escape_html(&readiness_system_proxy_detail),
         readiness_tun_detail = escape_html(&readiness_tun_detail),
         activity_summary = escape_html(&activity_summary),
@@ -2766,6 +2839,68 @@ fn node_health_detail(node: &keli_desktop::DesktopNodeSummary) -> String {
     }
 }
 
+fn panel_account_summary(snapshot: &DesktopShellState) -> String {
+    snapshot
+        .panel
+        .as_ref()
+        .map(|panel| panel.account.email_redacted.clone())
+        .unwrap_or_else(|| "未登录面板".to_string())
+}
+
+fn panel_subscription_summary(snapshot: &DesktopShellState) -> String {
+    let Some(panel) = snapshot.panel.as_ref() else {
+        return "未加载订阅".to_string();
+    };
+    let plan = panel
+        .subscription
+        .plan_name
+        .as_deref()
+        .unwrap_or("未命名套餐");
+    let used = panel.subscription.used_bytes.unwrap_or(0);
+    let total = panel.subscription.total_bytes.unwrap_or(0);
+    format!(
+        "{plan}，已用 {} / {}",
+        bytes_label(used),
+        bytes_label(total)
+    )
+}
+
+fn panel_notice_summary(snapshot: &DesktopShellState) -> String {
+    snapshot
+        .panel
+        .as_ref()
+        .and_then(|panel| panel.notices.iter().find(|notice| notice.show))
+        .map(|notice| notice.title.clone())
+        .unwrap_or_else(|| "暂无公告".to_string())
+}
+
+fn panel_nodes_summary(snapshot: &DesktopShellState) -> String {
+    let Some(panel) = snapshot.panel.as_ref() else {
+        return r#"<div class="muted">未加载面板节点</div>"#.to_string();
+    };
+    if panel.nodes.is_empty() {
+        return r#"<div class="muted">没有可用节点</div>"#.to_string();
+    }
+    panel
+        .nodes
+        .iter()
+        .map(|node| {
+            let protocol = node.protocol.as_deref().unwrap_or("未知协议");
+            format!(
+                r#"<div class="status-row"><strong>{}</strong><span>{}</span></div>"#,
+                escape_html(&node.name),
+                escape_html(protocol)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn bytes_label(bytes: i64) -> String {
+    let gb = bytes as f64 / 1024.0 / 1024.0 / 1024.0;
+    format!("{gb:.1} GB")
+}
+
 fn escape_html(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -2938,6 +3073,36 @@ mod tests {
         assert!(html.contains("就绪"));
         assert!(!html.contains(">Dashboard</button>"));
         assert!(!html.contains(">Refresh</button>"));
+    }
+
+    #[test]
+    fn panel_ui_baseline_includes_account_subscription_store_and_support_views() {
+        let mut snapshot = snapshot();
+        snapshot.panel = Some(keli_desktop::DesktopPanelSnapshot::fixture_ready());
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("data-view-target=\"subscription-view\""));
+        assert!(html.contains("data-view-target=\"store-view\""));
+        assert!(html.contains("data-view-target=\"support-view\""));
+        assert!(html.contains(">订阅</button>"));
+        assert!(html.contains(">商店</button>"));
+        assert!(html.contains(">支持</button>"));
+        assert!(html.contains("id=\"dashboard-panel-account\""));
+        assert!(html.contains("u***@example.com"));
+        assert!(html.contains("Pro，已用 4.0 GB / 10.0 GB"));
+        assert!(html.contains("欢迎使用 Keli"));
+        assert!(!html.contains("https://panel.example.com/s/token"));
+    }
+
+    #[test]
+    fn panel_ui_keeps_page_level_scrolling_disabled() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("html,\n    body {"));
+        assert!(html.contains("overflow: hidden;"));
+        assert!(html.contains(".bounded-list"));
+        assert!(html.contains(".panel-grid"));
     }
 
     #[test]
