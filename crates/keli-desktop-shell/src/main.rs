@@ -12,7 +12,8 @@ use html::{
     subscription_config_import_failure_status_script, subscription_config_import_status_script,
     subscription_url_import_failure_status_script, subscription_url_import_status_script,
     subscription_url_update_failure_status_script, subscription_url_update_status_script,
-    support_export_failure_status_script, support_export_status_script,
+    support_export_cleanup_status_script, support_export_failure_status_script,
+    support_export_status_script, support_export_storage_status_script,
     wintun_install_failure_status_script, wintun_install_status_script,
 };
 use keli_desktop::{
@@ -21,7 +22,8 @@ use keli_desktop::{
 };
 use single_instance::SingleInstance;
 use support::{
-    default_support_export_dir, read_last_support_bundle_export, write_support_bundle_export,
+    clear_support_export_directory, default_support_export_dir, read_last_support_bundle_export,
+    summarize_support_export_directory, write_support_bundle_export,
 };
 use tao::{
     dpi::LogicalSize,
@@ -70,6 +72,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         })
         .build(&window)?;
     sync_last_support_export(&webview);
+    sync_support_export_storage(&webview);
     let menu_proxy = event_loop.create_proxy();
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         let _ = menu_proxy.send_event(UserEvent::TrayMenu(event.id().as_ref().to_string()));
@@ -205,6 +208,24 @@ fn handle_ui_event(
             Ok(()) => ("success", "已打开支持包目录".to_string()),
             Err(message) => {
                 eprintln!("desktop shell open support export directory failed: {message}");
+                ("error", message)
+            }
+        };
+        let shell = controller.refresh();
+        window.set_visible(shell.window.main_visible);
+        sync_webview(webview, &shell);
+        sync_operation_status(webview, operation_status.0, &operation_status.1);
+        if shell.quit_requested {
+            *control_flow = ControlFlow::Exit;
+        }
+        return;
+    }
+
+    if matches!(event, DesktopShellUiEvent::ClearSupportExports) {
+        let operation_status = match clear_support_exports(webview) {
+            Ok(()) => ("success", "已清理旧支持包".to_string()),
+            Err(message) => {
+                eprintln!("desktop shell support cleanup failed: {message}");
                 ("error", message)
             }
         };
@@ -416,6 +437,24 @@ fn sync_last_support_export(webview: &WebView) {
     }
 }
 
+fn sync_support_export_storage(webview: &WebView) {
+    match summarize_support_export_directory(default_support_export_dir()) {
+        Ok(summary) => match support_export_storage_status_script(&summary) {
+            Ok(script) => {
+                if let Err(error) = webview.evaluate_script(&script) {
+                    eprintln!("support export storage sync failed: {error}");
+                }
+            }
+            Err(error) => {
+                eprintln!("support export storage serialization failed: {error}");
+            }
+        },
+        Err(error) => {
+            eprintln!("support export storage summary failed: {error}");
+        }
+    }
+}
+
 fn import_subscription_url(
     controller: &mut DesktopShellController<keli_desktop::DesktopNativeCommandService>,
     url: String,
@@ -462,7 +501,18 @@ fn export_support_bundle(
     webview
         .evaluate_script(&script)
         .map_err(|error| format!("support export status sync failed: {error}"))?;
+    sync_support_export_storage(webview);
     Ok(controller.refresh())
+}
+
+fn clear_support_exports(webview: &WebView) -> Result<(), String> {
+    let summary = clear_support_export_directory(default_support_export_dir())
+        .map_err(|error| format!("clear support exports failed: {error}"))?;
+    let script = support_export_cleanup_status_script(&summary)
+        .map_err(|error| format!("support cleanup status serialization failed: {error}"))?;
+    webview
+        .evaluate_script(&script)
+        .map_err(|error| format!("support cleanup status sync failed: {error}"))
 }
 
 fn install_wintun_path(
@@ -880,7 +930,7 @@ fn build_smoke_report(
     }
 }
 
-fn expected_smoke_workflows() -> [&'static str; 6] {
+fn expected_smoke_workflows() -> [&'static str; 7] {
     [
         "open-desktop-shell",
         "import-subscription",
@@ -888,6 +938,7 @@ fn expected_smoke_workflows() -> [&'static str; 6] {
         "start-stop-system-proxy",
         "tun-preflight",
         "export-support-bundle",
+        "clear-support-exports",
     ]
 }
 
@@ -922,6 +973,11 @@ fn smoke_workflow_entrypoints(html: &str, snapshot_script: &str) -> Vec<String> 
     }
     if html.contains("export-support-bundle") && html.contains("id=\"support-export-status\"") {
         entrypoints.push("export-support-bundle".to_string());
+    }
+    if html.contains("clear-support-exports")
+        && html.contains("id=\"diagnostics-clear-support-button\"")
+    {
+        entrypoints.push("clear-support-exports".to_string());
     }
     entrypoints
 }
@@ -1109,6 +1165,7 @@ mod tests {
                 "start-stop-system-proxy",
                 "tun-preflight",
                 "export-support-bundle",
+                "clear-support-exports",
             ]
         );
         assert!(html.contains("id=\"dependency-actions\""));
