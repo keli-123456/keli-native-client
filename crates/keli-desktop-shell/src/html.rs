@@ -4,7 +4,9 @@ use keli_desktop::{
     DesktopWintunInstallSummary,
 };
 
-use crate::support::SupportBundleSaveSummary;
+use crate::support::{
+    SupportBundleSaveSummary, SupportExportCleanupSummary, SupportExportStorageSummary,
+};
 
 pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let run_state = run_state_label(snapshot.status.run_state);
@@ -1208,11 +1210,14 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="muted" id="support-export-status">尚未导出支持包</div>
         <div class="muted" id="support-export-file">文件：尚未生成</div>
         <div class="muted" id="support-export-directory">目录：尚未生成</div>
+        <div class="muted" id="support-export-storage">支持包目录：尚未统计</div>
+        <div class="muted" id="support-export-cleanup-status">尚未清理支持包</div>
         <div class="muted" id="support-export-diagnosis">{support_diagnosis_summary}</div>
         <div class="muted" id="support-export-action">{support_diagnosis_action}</div>
         <div class="actions">
           <button id="export-support-button" onclick="window.ipc.postMessage('export-support-bundle')">导出支持包</button>
           <button id="open-support-directory-button" onclick="postOpenSupportExportDirectory()" disabled>打开目录</button>
+          <button id="clear-support-button" onclick="postClearSupportExports()">清理旧支持包</button>
         </div>
       </section>
     </div>
@@ -1484,11 +1489,14 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
           <div class="muted" id="diagnostics-support-status">尚未导出支持包</div>
           <div class="muted" id="diagnostics-support-file">文件：尚未生成</div>
           <div class="muted" id="diagnostics-support-directory">目录：尚未生成</div>
+          <div class="muted" id="diagnostics-support-storage">支持包目录：尚未统计</div>
+          <div class="muted" id="diagnostics-support-cleanup-status">尚未清理支持包</div>
           <div class="muted" id="diagnostics-support-diagnosis">{support_diagnosis_summary}</div>
           <div class="muted" id="diagnostics-support-action">{support_diagnosis_action}</div>
           <div class="support-actions">
             <button id="diagnostics-export-button" class="primary" onclick="window.ipc.postMessage('export-support-bundle')">导出诊断</button>
             <button id="diagnostics-open-support-directory-button" onclick="postOpenSupportExportDirectory()" disabled>打开目录</button>
+            <button id="diagnostics-clear-support-button" onclick="postClearSupportExports()">清理旧支持包</button>
             <button id="diagnostics-copy-logs-button" onclick="postCopyDiagnosticsLogs()">复制日志</button>
             <label class="toggle-row"><input id="include-certification-toggle" type="checkbox" checked /> 包含认证证据</label>
           </div>
@@ -2650,6 +2658,46 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       window.ipc.postMessage("open-support-export-dir");
       window.keliSetOperationStatus({{ kind: "info", message: "正在打开支持包目录" }});
     }}
+    function supportBytesLabel(value) {{
+      const bytes = Number(value || 0);
+      if (bytes >= 1024 * 1024) return `${{(bytes / 1024 / 1024).toFixed(1)}} MB`;
+      if (bytes >= 1024) return `${{(bytes / 1024).toFixed(1)}} KB`;
+      return `${{bytes}} B`;
+    }}
+    function supportStorageLabel(summary) {{
+      return `支持包目录：${{summary.file_count || 0}} 个文件，${{supportBytesLabel(summary.byte_count)}}`;
+    }}
+    function setSupportCleanupStatus(label) {{
+      setText("support-export-cleanup-status", label);
+      setText("diagnostics-support-cleanup-status", label);
+    }}
+    function postClearSupportExports() {{
+      window.ipc.postMessage("clear-support-exports");
+      window.keliSetOperationStatus({{ kind: "info", message: "正在清理旧支持包" }});
+    }}
+    window.keliSetSupportStorage = (summary) => {{
+      const label = supportStorageLabel(summary || {{}});
+      setText("support-export-storage", label);
+      setText("diagnostics-support-storage", label);
+    }};
+    window.keliSetSupportCleanup = (summary) => {{
+      const label = `已清理 ${{summary.deleted_count || 0}} 个文件，释放 ${{supportBytesLabel(summary.reclaimed_bytes)}}`;
+      setSupportCleanupStatus(label);
+      if ((summary.deleted_count || 0) > 0) {{
+        lastSupportExportDirectory = "";
+        setSupportExportLocation("尚未生成", "尚未生成");
+        setSupportExportDirectoryEnabled(false);
+        setText("support-export-status", "已清理支持包目录");
+        setText("diagnostics-support-status", "已清理支持包目录");
+      }}
+      window.keliSetSupportStorage({{
+        status: "ready",
+        directory: summary.directory || "",
+        file_count: summary.remaining_count || 0,
+        byte_count: summary.remaining_bytes || 0,
+      }});
+      window.keliSetOperationStatus({{ kind: "success", message: label }});
+    }};
     window.keliSetSupportExport = (summary) => {{
       const saved = summary.status === "saved";
       const label = saved
@@ -3211,6 +3259,24 @@ pub fn support_export_status_script(
     let summary_json = serde_json::to_string(summary)?;
     Ok(format!(
         "window.keliSetSupportExport && window.keliSetSupportExport({summary_json});"
+    ))
+}
+
+pub fn support_export_storage_status_script(
+    summary: &SupportExportStorageSummary,
+) -> serde_json::Result<String> {
+    let summary_json = serde_json::to_string(summary)?;
+    Ok(format!(
+        "window.keliSetSupportStorage && window.keliSetSupportStorage({summary_json});"
+    ))
+}
+
+pub fn support_export_cleanup_status_script(
+    summary: &SupportExportCleanupSummary,
+) -> serde_json::Result<String> {
+    let summary_json = serde_json::to_string(summary)?;
+    Ok(format!(
+        "window.keliSetSupportCleanup && window.keliSetSupportCleanup({summary_json});"
     ))
 }
 
@@ -5198,6 +5264,8 @@ mod tests {
         assert!(html.contains("id=\"diagnostics-support-action\""));
         assert!(html.contains("id=\"diagnostics-support-file\""));
         assert!(html.contains("id=\"diagnostics-support-directory\""));
+        assert!(html.contains("id=\"diagnostics-support-storage\""));
+        assert!(html.contains("id=\"diagnostics-clear-support-button\""));
         assert!(html.contains("id=\"diagnostics-export-button\""));
         assert!(html.contains("id=\"diagnostics-open-support-directory-button\""));
         assert!(html.contains("id=\"diagnostics-copy-logs-button\""));
@@ -5209,6 +5277,8 @@ mod tests {
         assert!(html.contains("id=\"diagnostics-max-workers\""));
         assert!(html.contains("window.keliSyncDiagnosticsView"));
         assert!(html.contains("syncSupportDiagnosis(snapshot)"));
+        assert!(html.contains("window.keliSetSupportStorage"));
+        assert!(html.contains("window.keliSetSupportCleanup"));
     }
 
     #[test]
@@ -5698,9 +5768,12 @@ mod tests {
 
         assert!(html.contains("export-support-bundle"));
         assert!(html.contains("open-support-export-dir"));
+        assert!(html.contains("clear-support-exports"));
         assert!(html.contains("id=\"support-export-status\""));
         assert!(html.contains("id=\"support-export-file\""));
         assert!(html.contains("id=\"support-export-directory\""));
+        assert!(html.contains("id=\"support-export-storage\""));
+        assert!(html.contains("id=\"clear-support-button\""));
         assert!(html.contains("id=\"open-support-directory-button\""));
         assert!(html.contains("id=\"support-export-diagnosis\""));
         assert!(html.contains("id=\"support-export-action\""));
@@ -5708,6 +5781,7 @@ mod tests {
         assert!(html.contains("建议动作：登录面板或导入订阅"));
         assert!(html.contains("window.keliSetSupportExport"));
         assert!(html.contains("function postOpenSupportExportDirectory()"));
+        assert!(html.contains("function postClearSupportExports()"));
     }
 
     #[test]
@@ -5810,6 +5884,40 @@ mod tests {
         assert!(script.contains("window.keliSetSupportExport"));
         assert!(script.contains("keli-support.json"));
         assert!(script.contains("Documents\\\\Keli\\\\Support"));
+    }
+
+    #[test]
+    fn support_export_storage_status_script_updates_storage_status() {
+        let summary = crate::support::SupportExportStorageSummary {
+            status: "ready".to_string(),
+            directory: "C:\\Users\\Administrator\\Documents\\Keli\\Support".to_string(),
+            file_count: 2,
+            byte_count: 128,
+        };
+
+        let script = support_export_storage_status_script(&summary).expect("storage script");
+
+        assert!(script.contains("window.keliSetSupportStorage"));
+        assert!(script.contains("\"file_count\":2"));
+        assert!(script.contains("\"byte_count\":128"));
+    }
+
+    #[test]
+    fn support_export_cleanup_status_script_updates_cleanup_status() {
+        let summary = crate::support::SupportExportCleanupSummary {
+            status: "cleared".to_string(),
+            directory: "C:\\Users\\Administrator\\Documents\\Keli\\Support".to_string(),
+            deleted_count: 2,
+            reclaimed_bytes: 128,
+            remaining_count: 0,
+            remaining_bytes: 0,
+        };
+
+        let script = support_export_cleanup_status_script(&summary).expect("cleanup script");
+
+        assert!(script.contains("window.keliSetSupportCleanup"));
+        assert!(script.contains("\"deleted_count\":2"));
+        assert!(script.contains("\"reclaimed_bytes\":128"));
     }
 
     #[test]

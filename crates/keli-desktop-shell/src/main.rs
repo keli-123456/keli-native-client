@@ -320,6 +320,7 @@ fn dispatch_ui_event(
         }
         DesktopShellUiEvent::ExportSupportBundle => Ok(controller.refresh()),
         DesktopShellUiEvent::OpenSupportExportDirectory => Ok(controller.refresh()),
+        DesktopShellUiEvent::ClearSupportExports => Ok(controller.refresh()),
         DesktopShellUiEvent::DependencyAction(_) => Ok(controller.refresh()),
         DesktopShellUiEvent::InstallWintunPath(_) => Ok(controller.refresh()),
     }

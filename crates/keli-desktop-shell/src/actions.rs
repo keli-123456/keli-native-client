@@ -30,6 +30,7 @@ pub enum DesktopShellUiEvent {
     SetTrafficMode(DesktopTrafficMode),
     ExportSupportBundle,
     OpenSupportExportDirectory,
+    ClearSupportExports,
     DependencyAction(String),
     InstallWintunPath(String),
 }
@@ -71,6 +72,7 @@ pub fn ipc_event_for_message(
         )),
         "export-support-bundle" => Some(DesktopShellUiEvent::ExportSupportBundle),
         "open-support-export-dir" => Some(DesktopShellUiEvent::OpenSupportExportDirectory),
+        "clear-support-exports" => Some(DesktopShellUiEvent::ClearSupportExports),
         "quit" => Some(DesktopShellUiEvent::Action(DesktopShellAction::RequestQuit)),
         _ => json_ipc_event(message),
     }
@@ -436,6 +438,17 @@ mod tests {
                 &shell(DesktopRunState::Stopped, true)
             ),
             Some(DesktopShellUiEvent::OpenSupportExportDirectory)
+        );
+    }
+
+    #[test]
+    fn support_export_cleanup_ipc_maps_to_cleanup_event() {
+        assert_eq!(
+            ipc_event_for_message(
+                "clear-support-exports",
+                &shell(DesktopRunState::Stopped, true)
+            ),
+            Some(DesktopShellUiEvent::ClearSupportExports)
         );
     }
 
