@@ -763,6 +763,14 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       background: #fff1ef;
       color: #8f2618;
     }}
+    #nodes-health-refresh-status[data-kind="success"] {{
+      color: #145a32;
+      font-weight: 650;
+    }}
+    #nodes-health-refresh-status[data-kind="error"] {{
+      color: #8f2618;
+      font-weight: 650;
+    }}
     .grid {{
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1205,6 +1213,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
           </div>
         </div>
         <div class="muted" id="nodes-subscription-url-status">尚未导入订阅 URL</div>
+        <div class="muted" id="nodes-health-refresh-status" data-kind="idle">尚未自动测试节点健康</div>
       </section>
       <div class="nodes-summary-strip" id="nodes-summary-strip">
         <div class="nodes-summary-item">
@@ -1577,6 +1586,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let activeNodeSearch = "";
     let currentNodesSubscription = null;
     let pendingPanelSync = false;
+    let pendingAutoHealthAfterSync = false;
+    let pendingNodeHealthRefresh = false;
+    let lastAutoHealthSubscriptionKey = "";
     function setOperationPending(message) {{
       window.keliSetOperationStatus({{ kind: "info", message: message || "正在处理操作" }});
     }}
@@ -1599,6 +1611,64 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     function postJson(payload, pendingMessage) {{
       if (pendingMessage) setOperationPending(pendingMessage);
       window.ipc.postMessage(JSON.stringify(payload));
+    }}
+    function setNodesHealthRefreshStatus(kind, message) {{
+      const status = document.getElementById("nodes-health-refresh-status");
+      if (!status) return;
+      status.dataset.kind = kind || "info";
+      status.textContent = message || "节点健康状态未知";
+    }}
+    function subscriptionHealthKey(subscription) {{
+      if (!subscription) return "";
+      const nodes = subscription.nodes || [];
+      return [
+        subscription.selected_outbound || "",
+        subscription.supported_count || 0,
+        nodes.map((node) => node.tag).join("|")
+      ].join("::");
+    }}
+    function nodeHasHealthEvidence(node) {{
+      return Boolean(node) && (
+        (node.health_state && node.health_state !== "unknown") ||
+        node.tcp_available !== null && node.tcp_available !== undefined ||
+        node.udp_available !== null && node.udp_available !== undefined ||
+        node.latency_ms !== null && node.latency_ms !== undefined ||
+        Boolean(node.health_error)
+      );
+    }}
+    function requestAutoNodeHealthRefresh(subscription) {{
+      const nodes = subscription && subscription.nodes ? subscription.nodes : [];
+      if (!nodes.length) return false;
+      const key = subscriptionHealthKey(subscription);
+      if (key && key === lastAutoHealthSubscriptionKey && pendingNodeHealthRefresh) return false;
+      pendingAutoHealthAfterSync = false;
+      pendingNodeHealthRefresh = true;
+      lastAutoHealthSubscriptionKey = key;
+      setNodesHealthRefreshStatus("info", "正在自动测试节点健康");
+      postJson({{
+        type: "refresh-node-health"
+      }}, "正在自动测试节点健康");
+      return true;
+    }}
+    function maybeRequestAutoNodeHealthRefresh(subscription) {{
+      if (!pendingAutoHealthAfterSync || !subscription) return;
+      if (!(subscription.nodes || []).length) {{
+        pendingAutoHealthAfterSync = false;
+        setNodesHealthRefreshStatus("info", "没有可测试节点");
+        return;
+      }}
+      requestAutoNodeHealthRefresh(subscription);
+    }}
+    function completeNodeHealthRefresh(subscription) {{
+      if (!pendingNodeHealthRefresh || !subscription) return;
+      const nodes = subscription.nodes || [];
+      if (!nodes.some(nodeHasHealthEvidence)) return;
+      pendingNodeHealthRefresh = false;
+      const hasFailure = nodes.some(nodeHasFailure);
+      const kind = hasFailure ? "error" : "success";
+      const message = hasFailure ? "节点健康测试完成，有节点失败" : "节点健康测试完成";
+      setNodesHealthRefreshStatus(kind, message);
+      window.keliSetOperationStatus({{ kind, message }});
     }}
     function postViewTarget(viewId) {{
       document.querySelectorAll("[data-view-target]").forEach((button) => {{
@@ -1656,6 +1726,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       }}, "正在更新订阅 URL");
     }}
     function postRefreshNodeHealth() {{
+      pendingNodeHealthRefresh = true;
+      setNodesHealthRefreshStatus("info", "正在测试节点健康");
       postJson({{
         type: "refresh-node-health"
       }}, "正在刷新节点健康");
@@ -1683,6 +1755,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
           kind: "success",
           message: `已同步 ${{count}} 个节点，可开始选择`
         }});
+        pendingAutoHealthAfterSync = true;
+        requestAutoNodeHealthRefresh(snapshot.subscription);
       }}, 0);
     }}
     function postPanelImportConfig() {{
@@ -2242,6 +2316,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       if (updateUrlButton) updateUrlButton.disabled = snapshot.status.run_state !== "running";
       renderNodesTable(subscription);
       renderSelectedNodeDetail(subscription);
+      completeNodeHealthRefresh(subscription);
+      maybeRequestAutoNodeHealthRefresh(subscription);
     }};
     window.keliSetOperationStatus = (summary) => {{
       const status = document.getElementById("operation-status");
@@ -2283,6 +2359,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setText("nodes-subscription-url-status", label);
       setText("settings-subscription-url-status", label);
       window.keliSetOperationStatus({{ kind: kind, message: label }});
+      if (!summary.error) {{
+        pendingAutoHealthAfterSync = true;
+        requestAutoNodeHealthRefresh(summary.subscription);
+      }}
     }};
     window.keliSetSubscriptionUrlUpdate = (summary) => {{
       const fetch = summary.fetch || {{}};
@@ -2302,6 +2382,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setText("nodes-subscription-url-status", label);
       setText("settings-subscription-url-status", label);
       window.keliSetOperationStatus({{ kind: kind, message: label }});
+      if (!summary.error && summary.applied) {{
+        pendingAutoHealthAfterSync = true;
+      }}
     }};
     window.keliSetSubscriptionConfigImport = (summary) => {{
       const label = summary.error
@@ -2310,6 +2393,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const kind = summary.error ? "error" : "success";
       document.getElementById("subscription-config-status").textContent = label;
       window.keliSetOperationStatus({{ kind: kind, message: label }});
+      if (!summary.error) pendingAutoHealthAfterSync = true;
     }};
     function dependencySummary(snapshot) {{
       const firstRun = snapshot.dependencies.first_run;
@@ -4131,6 +4215,22 @@ mod tests {
         assert!(html.contains("1 / 1 健康"));
         assert!(html.contains("42 ms"));
         assert!(html.contains("window.keliSyncNodeStatusCards"));
+    }
+
+    #[test]
+    fn nodes_health_refresh_auto_runs_after_subscription_sync() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("id=\"nodes-health-refresh-status\""));
+        assert!(html.contains("pendingAutoHealthAfterSync"));
+        assert!(html.contains("pendingNodeHealthRefresh"));
+        assert!(html.contains("function requestAutoNodeHealthRefresh(subscription"));
+        assert!(html.contains("function completeNodeHealthRefresh(subscription)"));
+        assert!(html.contains("requestAutoNodeHealthRefresh(snapshot.subscription"));
+        assert!(html.contains("pendingAutoHealthAfterSync = true"));
+        assert!(html.contains("正在自动测试节点健康"));
+        assert!(html.contains("节点健康测试完成"));
+        assert!(html.contains("节点健康测试完成，有节点失败"));
     }
 
     #[test]
