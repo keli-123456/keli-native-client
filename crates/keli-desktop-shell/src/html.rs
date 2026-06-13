@@ -1018,8 +1018,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="muted" id="quick-primary-state">{primary_state}</div>
       </div>
       <div class="actions command-actions">
-        <button id="quick-primary-button" class="primary" onclick="window.ipc.postMessage('primary')"{primary_disabled}>{primary_label}</button>
-        <button id="quick-refresh-button" onclick="window.ipc.postMessage('refresh')">刷新</button>
+        <button id="quick-primary-button" class="primary" onclick="postOperation('primary', primaryOperationPending())"{primary_disabled}>{primary_label}</button>
+        <button id="quick-refresh-button" onclick="postOperation('refresh', '正在刷新状态')">刷新</button>
       </div>
       <div class="quick-status" aria-label="核心状态">
         <div class="quick-status-item">
@@ -1087,7 +1087,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       <div class="muted">导出脱敏后的运行状态、依赖检查和核心支持证据。</div>
       <div class="support-actions">
         <button id="dashboard-export-support-button" class="primary" onclick="window.ipc.postMessage('export-support-bundle')">导出诊断</button>
-        <button onclick="window.ipc.postMessage('refresh')">刷新状态</button>
+        <button onclick="postOperation('refresh', '正在刷新状态')">刷新状态</button>
       </div>
     </section>
     <div class="grid legacy-workflow-surface" hidden>
@@ -1106,8 +1106,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="value" id="primary-label">{primary_label}</div>
         <div class="muted" id="primary-state">{primary_state}</div>
         <div class="actions">
-          <button id="primary-button" class="primary" onclick="window.ipc.postMessage('primary')"{primary_disabled}>{primary_label}</button>
-          <button id="refresh-button" onclick="window.ipc.postMessage('refresh')">刷新</button>
+          <button id="primary-button" class="primary" onclick="postOperation('primary', primaryOperationPending())"{primary_disabled}>{primary_label}</button>
+          <button id="refresh-button" onclick="postOperation('refresh', '正在刷新状态')">刷新</button>
         </div>
       </section>
       <section>
@@ -1274,8 +1274,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
             <div class="muted" id="nodes-connection-error">{nodes_connection_error}</div>
             <div class="actions" id="nodes-connection-actions">{nodes_connection_actions}</div>
             <div class="actions">
-              <button id="nodes-primary-button" class="primary" onclick="window.ipc.postMessage('primary')"{primary_disabled}>{primary_label}</button>
-              <button id="nodes-refresh-button" onclick="window.ipc.postMessage('refresh')">刷新状态</button>
+              <button id="nodes-primary-button" class="primary" onclick="postOperation('primary', primaryOperationPending())"{primary_disabled}>{primary_label}</button>
+              <button id="nodes-refresh-button" onclick="postOperation('refresh', '正在刷新状态')">刷新状态</button>
             </div>
           </div>
         </section>
@@ -1360,7 +1360,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
             <strong>DNS 策略</strong>
             <span class="status-ok">就绪</span>
             <span id="readiness-dns-policy-detail">已有运行时 DNS 策略冒烟证据</span>
-            <button onclick="window.ipc.postMessage('refresh')">刷新</button>
+            <button onclick="postOperation('refresh', '正在刷新状态')">刷新</button>
           </div>
           <div class="readiness-row" id="readiness-route-takeover">
             <strong>路由接管</strong>
@@ -1378,7 +1378,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
             <strong>签名状态</strong>
             <span class="status-warning">未签名测试版</span>
             <span id="readiness-signing-status-detail">证书采购完成前，发布链可先发布未签名构建</span>
-            <button onclick="window.ipc.postMessage('refresh')">检查</button>
+            <button onclick="postOperation('refresh', '正在刷新状态')">检查</button>
           </div>
         </div>
       </section>
@@ -1465,8 +1465,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
             <div class="muted" id="settings-primary-state">{primary_state}</div>
           </div>
           <div class="actions">
-            <button id="settings-primary-button" class="primary" onclick="window.ipc.postMessage('primary')"{primary_disabled}>{primary_label}</button>
-            <button id="settings-refresh-button" onclick="window.ipc.postMessage('refresh')">刷新</button>
+            <button id="settings-primary-button" class="primary" onclick="postOperation('primary', primaryOperationPending())"{primary_disabled}>{primary_label}</button>
+            <button id="settings-refresh-button" onclick="postOperation('refresh', '正在刷新状态')">刷新</button>
             <button id="settings-load-panel-fixture-button" onclick="window.ipc.postMessage('load-panel-fixture')">加载面板示例</button>
           </div>
         </section>
@@ -1546,7 +1546,27 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let activeNodeSearch = "";
     let currentNodesSubscription = null;
     let pendingPanelSync = false;
-    function postJson(payload) {{
+    function setOperationPending(message) {{
+      window.keliSetOperationStatus({{ kind: "info", message: message || "正在处理操作" }});
+    }}
+    function postOperation(message, pendingMessage) {{
+      setOperationPending(pendingMessage);
+      window.ipc.postMessage(message);
+    }}
+    function primaryOperationPending() {{
+      const labels = [
+        document.getElementById("quick-primary-button"),
+        document.getElementById("nodes-primary-button"),
+        document.getElementById("settings-primary-button"),
+        document.getElementById("primary-button")
+      ].map((button) => button ? button.textContent.trim() : "").filter(Boolean);
+      const label = labels[0] || "";
+      if (label.includes("停止")) return "正在停止核心";
+      if (label.includes("启动")) return "正在启动核心";
+      return "正在处理核心操作";
+    }}
+    function postJson(payload, pendingMessage) {{
+      if (pendingMessage) setOperationPending(pendingMessage);
       window.ipc.postMessage(JSON.stringify(payload));
     }}
     function postViewTarget(viewId) {{
@@ -1566,48 +1586,48 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       postJson({{
         type: "import-subscription-config",
         configText: document.getElementById("subscription-config").value
-      }});
+      }}, "正在导入本地订阅");
     }}
     function postImportSubscriptionUrl() {{
       postJson({{
         type: "import-subscription-url",
         subscriptionUrl: document.getElementById("subscription-url").value
-      }});
+      }}, "正在导入订阅 URL");
     }}
     function postImportNodesSubscriptionUrl() {{
       postJson({{
         type: "import-subscription-url",
         subscriptionUrl: document.getElementById("nodes-subscription-url").value
-      }});
+      }}, "正在导入订阅 URL");
     }}
     function postUpdateNodesSubscriptionUrl() {{
       postJson({{
         type: "update-subscription-url",
         subscriptionUrl: document.getElementById("nodes-subscription-url").value
-      }});
+      }}, "正在更新订阅 URL");
     }}
     function postImportSettingsSubscriptionUrl() {{
       postJson({{
         type: "import-subscription-url",
         subscriptionUrl: document.getElementById("settings-subscription-url").value
-      }});
+      }}, "正在导入订阅 URL");
     }}
     function postUpdateSettingsSubscriptionUrl() {{
       postJson({{
         type: "update-subscription-url",
         subscriptionUrl: document.getElementById("settings-subscription-url").value
-      }});
+      }}, "正在更新订阅 URL");
     }}
     function postUpdateSubscriptionUrl() {{
       postJson({{
         type: "update-subscription-url",
         subscriptionUrl: document.getElementById("subscription-url").value
-      }});
+      }}, "正在更新订阅 URL");
     }}
     function postRefreshNodeHealth() {{
       postJson({{
         type: "refresh-node-health"
-      }});
+      }}, "正在刷新节点健康");
     }}
     function postPanelLogin() {{
       pendingPanelSync = true;
@@ -1646,7 +1666,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
           type: "panel-fetch-config",
           serverId,
           serverName
-        }});
+        }}, `正在拉取面板节点配置：${{serverName}}`);
         return;
       }}
       postJson({{
@@ -1654,7 +1674,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         serverId,
         serverName,
         configText
-      }});
+      }}, `正在导入面板节点配置：${{serverName}}`);
     }}
     function postCopyDiagnosticsLogs() {{
       const snapshot = document.getElementById("snapshot-json");
@@ -1672,13 +1692,13 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       postJson({{
         type: "set-traffic-mode",
         trafficMode
-      }});
+      }}, `正在切换流量模式：${{trafficModeLabels[trafficMode] || trafficMode}}`);
     }}
     function postSelectNode(outboundTag) {{
       postJson({{
         type: "select-node",
         outboundTag
-      }});
+      }}, `正在切换节点：${{outboundTag}}`);
     }}
     function postNodeFilter(filter) {{
       activeNodeFilter = filter;
@@ -1701,13 +1721,13 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       postJson({{
         type: "dependency-action",
         action
-      }});
+      }}, `正在处理依赖：${{dependencyActionLabels[action] || action}}`);
     }}
     function postInstallWintunPath() {{
       postJson({{
         type: "install-wintun-path",
         sourcePath: document.getElementById("wintun-source-path").value
-      }});
+      }}, "正在安装 Wintun");
     }}
     function collectDependencyActions(snapshot) {{
       const actions = [];
@@ -3464,7 +3484,7 @@ mod tests {
         let html = render_shell_html(&snapshot());
 
         assert!(html.contains("Keli"));
-        assert!(html.contains("window.ipc.postMessage('primary')"));
+        assert!(html.contains("postOperation('primary', primaryOperationPending())"));
         assert!(html.contains("id=\"run-state\""));
         assert!(html.contains("已停止"));
         assert!(html.contains("SS-READY"));
@@ -3743,7 +3763,7 @@ mod tests {
         assert!(html.contains("id=\"nodes-connection-mode\""));
         assert!(html.contains("id=\"nodes-connection-primary-state\""));
         assert!(html.contains("id=\"nodes-primary-button\""));
-        assert!(html.contains("window.ipc.postMessage('primary')"));
+        assert!(html.contains("postOperation('primary', primaryOperationPending())"));
         assert!(html.contains("window.keliSyncNodeConnection"));
     }
 
@@ -3875,7 +3895,7 @@ mod tests {
         let html = render_shell_html(&snapshot());
 
         assert!(html.contains("id=\"primary-state\">请先导入订阅，再启动 Keli</div>"));
-        assert!(html.contains("id=\"primary-button\" class=\"primary\" onclick=\"window.ipc.postMessage('primary')\" disabled>启动受阻</button>"));
+        assert!(html.contains("id=\"primary-button\" class=\"primary\" onclick=\"postOperation('primary', primaryOperationPending())\" disabled>启动受阻</button>"));
     }
 
     #[test]
@@ -3920,6 +3940,21 @@ mod tests {
 
         assert!(html.contains("window.keliSetOperationStatus({ kind:"));
         assert!(html.contains("document.getElementById(\"operation-status\")"));
+    }
+
+    #[test]
+    fn operation_status_shows_pending_feedback_for_connection_actions() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("function setOperationPending(message)"));
+        assert!(html.contains("function postOperation(message, pendingMessage)"));
+        assert!(html.contains("function primaryOperationPending()"));
+        assert!(html.contains("postOperation('primary', primaryOperationPending())"));
+        assert!(html.contains("postOperation('refresh', '正在刷新状态')"));
+        assert!(html.contains("正在刷新节点健康"));
+        assert!(html.contains("正在切换节点："));
+        assert!(html.contains("正在切换流量模式："));
+        assert!(html.contains("正在处理依赖："));
     }
 
     #[test]
