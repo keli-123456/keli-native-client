@@ -1,5 +1,5 @@
 use keli_desktop::{
-    DesktopRunState, DesktopShellState, DesktopSubscriptionSummary,
+    DesktopNodeSummary, DesktopRunState, DesktopShellState, DesktopSubscriptionSummary,
     DesktopSubscriptionUrlImportSummary, DesktopSubscriptionUrlUpdateSummary, DesktopTrafficMode,
     DesktopWintunInstallSummary,
 };
@@ -2229,8 +2229,64 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       if (!snapshot.subscription) return "请先登录面板或导入订阅";
       return "连接条件已就绪";
     }}
+    function errorContainsAny(error, needles) {{
+      const value = String(error || "").toLowerCase();
+      return needles.some((needle) => value.includes(needle));
+    }}
+    function classifyConnectionError(error) {{
+      if (errorContainsAny(error, ["bind", "listen", "address already in use", "addrinuse", "os error 10048", "端口", "占用"])) {{
+        return "port-conflict";
+      }}
+      if (errorContainsAny(error, ["dial", "connect", "timeout", "timed out", "refused", "unreachable", "connection reset", "no route"])) {{
+        return "node-unreachable";
+      }}
+      return "core-error";
+    }}
+    function nodeUnreachableDetail(error, node, subscription) {{
+      const recommended = recommendedSwitchNode(subscription);
+      const recommendedDetail = recommended ? `；推荐切换到 ${{recommended.tag}}` : "";
+      const errorDetail = error ? `；最后错误：${{error}}` : "";
+      return `${{nodeHealthDetail(node)}}${{errorDetail}}${{recommendedDetail}}`;
+    }}
+    function proxyTakeoverDiagnosis(snapshot) {{
+      const status = snapshot.status || {{}};
+      const proxy = systemProxyTakeoverSummary(snapshot);
+      if (status.traffic_mode === "system-proxy" && proxy.kind === "error") {{
+        return {{
+          level: "proxy-takeover",
+          title: "系统代理未接管",
+          detail: proxy.message || "系统代理状态未确认",
+          action: "打开代理设置或切换本地入站"
+        }};
+      }}
+      return null;
+    }}
     function connectionDiagnosis(snapshot) {{
       const status = snapshot.status || {{}};
+      if (status.last_error) {{
+        const classification = classifyConnectionError(status.last_error);
+        if (classification === "port-conflict") {{
+          return {{
+            level: "port-conflict",
+            title: "端口被占用",
+            detail: `最后错误：${{status.last_error}}；请关闭占用端口的程序，或在设置中切换本地监听`,
+            action: "关闭占用端口或切换本地监听"
+          }};
+        }}
+        if (classification === "node-unreachable" && snapshot.subscription) {{
+          const node = selectedNode(snapshot.subscription);
+          if (node) {{
+            return {{
+              level: "node-unreachable",
+              title: "节点不可用",
+              detail: nodeUnreachableDetail(status.last_error, node, snapshot.subscription),
+              action: "测试节点或切换到推荐节点"
+            }};
+          }}
+        }}
+      }}
+      const proxyDiagnosis = proxyTakeoverDiagnosis(snapshot);
+      if (proxyDiagnosis) return proxyDiagnosis;
       if (status.last_error) {{
         return {{
           level: "error",
@@ -2337,6 +2393,25 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         if (recommended) {{
           appendDiagnosisButton(container, "select-recommended-node", `切换到 ${{recommended.tag}}`, () => postSelectNode(recommended.tag));
         }}
+        return;
+      }}
+      if (diagnosis.level === "port-conflict") {{
+        appendDiagnosisButton(container, "refresh", "刷新状态", () => postOperation("refresh", "正在刷新状态"));
+        appendDiagnosisButton(container, "open-settings", "打开设置", () => postViewTarget("settings-view"));
+        return;
+      }}
+      if (diagnosis.level === "node-unreachable") {{
+        appendDiagnosisButton(container, "refresh-node-health", "测试节点", () => postRefreshNodeHealth());
+        const recommended = recommendedSwitchNode(snapshot.subscription);
+        if (recommended) {{
+          appendDiagnosisButton(container, "select-recommended-node", `切换到 ${{recommended.tag}}`, () => postSelectNode(recommended.tag));
+        }}
+        return;
+      }}
+      if (diagnosis.level === "proxy-takeover") {{
+        appendDiagnosisButton(container, "dependency-check-system-proxy", "打开代理设置", () => postDependencyAction("check-system-proxy"));
+        appendDiagnosisButton(container, "refresh", "刷新状态", () => postOperation("refresh", "正在刷新状态"));
+        appendDiagnosisButton(container, "local-inbound", "切换本地入站", () => postTrafficMode("mixed-inbound-only"));
         return;
       }}
       if (diagnosis.level === "error") {{
@@ -3516,7 +3591,98 @@ struct ConnectionDiagnosis {
     action: &'static str,
 }
 
+fn error_contains_any(error: &str, needles: &[&str]) -> bool {
+    let error = error.to_lowercase();
+    needles.iter().any(|needle| error.contains(needle))
+}
+
+fn is_port_conflict_error(error: &str) -> bool {
+    error_contains_any(
+        error,
+        &[
+            "bind",
+            "listen",
+            "address already in use",
+            "addrinuse",
+            "os error 10048",
+            "端口",
+            "占用",
+        ],
+    )
+}
+
+fn is_node_unreachable_error(error: &str) -> bool {
+    error_contains_any(
+        error,
+        &[
+            "dial",
+            "connect",
+            "timeout",
+            "timed out",
+            "refused",
+            "unreachable",
+            "connection reset",
+            "no route",
+        ],
+    )
+}
+
+fn node_unreachable_detail(
+    error: Option<&str>,
+    node: &DesktopNodeSummary,
+    subscription: &DesktopSubscriptionSummary,
+) -> String {
+    let mut detail = node_health_detail(node);
+    if let Some(error) = error {
+        detail.push_str(&format!("；最后错误：{error}"));
+    }
+    if let Some(recommended) = recommended_switch_node(subscription) {
+        detail.push_str(&format!("；推荐切换到 {}", recommended.tag));
+    }
+    detail
+}
+
+fn proxy_takeover_diagnosis(snapshot: &DesktopShellState) -> Option<ConnectionDiagnosis> {
+    let proxy = system_proxy_takeover_status(snapshot);
+    if snapshot.status.traffic_mode == DesktopTrafficMode::SystemProxy && proxy.kind == "error" {
+        return Some(ConnectionDiagnosis {
+            level: "proxy-takeover",
+            title: "系统代理未接管",
+            detail: proxy
+                .message
+                .unwrap_or_else(|| "系统代理状态未确认".to_string()),
+            action: "打开代理设置或切换本地入站",
+        });
+    }
+    None
+}
+
 fn connection_diagnosis(snapshot: &DesktopShellState) -> ConnectionDiagnosis {
+    if let Some(error) = snapshot.status.last_error.as_deref() {
+        if is_port_conflict_error(error) {
+            return ConnectionDiagnosis {
+                level: "port-conflict",
+                title: "端口被占用",
+                detail: format!("最后错误：{error}；请关闭占用端口的程序，或在设置中切换本地监听"),
+                action: "关闭占用端口或切换本地监听",
+            };
+        }
+        if is_node_unreachable_error(error) {
+            if let Some(subscription) = snapshot.subscription.as_ref() {
+                if let Some(node) = selected_node(Some(subscription)) {
+                    return ConnectionDiagnosis {
+                        level: "node-unreachable",
+                        title: "节点不可用",
+                        detail: node_unreachable_detail(Some(error), node, subscription),
+                        action: "测试节点或切换到推荐节点",
+                    };
+                }
+            }
+        }
+    }
+    if let Some(diagnosis) = proxy_takeover_diagnosis(snapshot) {
+        return diagnosis;
+    }
     if let Some(error) = snapshot.status.last_error.as_deref() {
         return ConnectionDiagnosis {
             level: "error",
@@ -3596,6 +3762,18 @@ fn connection_diagnosis_action_buttons(snapshot: &DesktopShellState) -> String {
         }
         "blocked" => dependency_diagnosis_action_buttons(snapshot),
         "node-warning" => node_warning_diagnosis_action_buttons(snapshot),
+        "port-conflict" => [
+            r#"<button data-diagnosis-action="refresh" onclick="postOperation('refresh', '正在刷新状态')">刷新状态</button>"#,
+            r#"<button data-diagnosis-action="open-settings" onclick="postViewTarget('settings-view')">打开设置</button>"#,
+        ]
+        .join(""),
+        "node-unreachable" => node_warning_diagnosis_action_buttons(snapshot),
+        "proxy-takeover" => [
+            r#"<button data-diagnosis-action="dependency-check-system-proxy" data-dependency-action="check-system-proxy" onclick="postDependencyAction(this.dataset.dependencyAction)">打开代理设置</button>"#,
+            r#"<button data-diagnosis-action="refresh" onclick="postOperation('refresh', '正在刷新状态')">刷新状态</button>"#,
+            r#"<button data-diagnosis-action="local-inbound" onclick="postTrafficMode('mixed-inbound-only')">切换本地入站</button>"#,
+        ]
+        .join(""),
         "error" => [
             r#"<button data-diagnosis-action="open-diagnostics" onclick="postViewTarget('diagnostics-view')">打开诊断</button>"#,
             r#"<button data-diagnosis-action="refresh" onclick="postOperation('refresh', '正在刷新状态')">刷新状态</button>"#,
@@ -4769,6 +4947,69 @@ mod tests {
         assert!(html.contains("id=\"nodes-connection-diagnosis-action\">查看诊断或刷新状态</span>"));
         assert!(html.contains("function connectionDiagnosis(snapshot)"));
         assert!(html.contains("function syncConnectionDiagnosis(snapshot)"));
+    }
+
+    #[test]
+    fn nodes_connection_diagnosis_classifies_start_failures() {
+        let mut port = snapshot();
+        port.status.last_error =
+            Some("Managed(\"bind failed: address already in use\")".to_string());
+
+        let html = render_shell_html(&port);
+
+        assert!(html.contains("data-diagnosis-level=\"port-conflict\""));
+        assert!(html.contains("id=\"nodes-connection-diagnosis-title\">端口被占用</strong>"));
+        assert!(html.contains("关闭占用端口或切换本地监听"));
+        assert!(html.contains("data-diagnosis-action=\"open-settings\""));
+        assert!(html.contains("postViewTarget('settings-view')"));
+
+        let mut node = snapshot();
+        let mut summary = subscription("SS-BAD");
+        summary.supported_count = 2;
+        summary.nodes[0].health_state = Some("failed".to_string());
+        summary.nodes[0].tcp_available = Some(false);
+        summary.nodes[0].health_error = Some("connect timeout".to_string());
+        summary.nodes.push(DesktopNodeSummary {
+            tag: "SS-FAST".to_string(),
+            protocol: "ss".to_string(),
+            transport: "tcp".to_string(),
+            security: "none".to_string(),
+            udp_supported: true,
+            selected: false,
+            recommended: false,
+            health_state: Some("healthy".to_string()),
+            tcp_available: Some(true),
+            udp_available: Some(true),
+            latency_ms: Some(21),
+            health_error: None,
+        });
+        node.refresh_subscription(Some(summary));
+        node.status.last_error = Some("Managed(\"dial timeout\")".to_string());
+
+        let html = render_shell_html(&node);
+
+        assert!(html.contains("data-diagnosis-level=\"node-unreachable\""));
+        assert!(html.contains("id=\"nodes-connection-diagnosis-title\">节点不可用</strong>"));
+        assert!(html.contains("推荐切换到 SS-FAST"));
+        assert!(html.contains("data-diagnosis-action=\"select-recommended-node\""));
+
+        let mut proxy = snapshot();
+        proxy.refresh_subscription(Some(subscription("SS-READY")));
+        proxy.status.run_state = DesktopRunState::Running;
+        proxy.status.traffic_mode = DesktopTrafficMode::SystemProxy;
+        proxy.status.listen = Some("127.0.0.1:7890".to_string());
+        proxy.dependencies.system_proxy.enabled = Some(false);
+        proxy.dependencies.system_proxy.server = None;
+
+        let html = render_shell_html(&proxy);
+
+        assert!(html.contains("data-diagnosis-level=\"proxy-takeover\""));
+        assert!(html.contains("id=\"nodes-connection-diagnosis-title\">系统代理未接管</strong>"));
+        assert!(html.contains("打开代理设置或切换本地入站"));
+        assert!(html.contains("data-diagnosis-action=\"dependency-check-system-proxy\""));
+        assert!(html.contains("postTrafficMode('mixed-inbound-only')"));
+        assert!(html.contains("function classifyConnectionError(error)"));
+        assert!(html.contains("function proxyTakeoverDiagnosis(snapshot)"));
     }
 
     #[test]
