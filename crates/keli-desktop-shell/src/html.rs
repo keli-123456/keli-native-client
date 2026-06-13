@@ -1521,6 +1521,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let activeNodeFilter = "all";
     let activeNodeSearch = "";
     let currentNodesSubscription = null;
+    let pendingPanelSync = false;
     function postJson(payload) {{
       window.ipc.postMessage(JSON.stringify(payload));
     }}
@@ -1585,12 +1586,29 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       }});
     }}
     function postPanelLogin() {{
+      pendingPanelSync = true;
+      window.keliSetOperationStatus({{
+        kind: "info",
+        message: "正在登录面板并同步节点"
+      }});
       postJson({{
         type: "panel-login",
         endpoint: document.getElementById("panel-endpoint").value,
         email: document.getElementById("panel-account").value,
         password: document.getElementById("panel-password").value
       }});
+    }}
+    function maybeOpenNodesAfterPanelSync(snapshot) {{
+      if (!pendingPanelSync || !snapshot.panel || !snapshot.subscription) return;
+      pendingPanelSync = false;
+      postViewTarget("nodes-view");
+      const count = snapshot.subscription.supported_count || 0;
+      setTimeout(() => {{
+        window.keliSetOperationStatus({{
+          kind: "success",
+          message: `已同步 ${{count}} 个节点，可开始选择`
+        }});
+      }}, 0);
     }}
     function postPanelImportConfig() {{
       const serverId = Number(document.getElementById("panel-server-id").value || "0");
@@ -2404,6 +2422,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       document.getElementById("diagnostics-tun").textContent = diagnosticsTun(snapshot);
       document.getElementById("diagnostics-default-core").textContent = diagnosticsDefaultCore(snapshot);
       document.getElementById("snapshot-json").textContent = JSON.stringify(snapshot, null, 2);
+      maybeOpenNodesAfterPanelSync(snapshot);
     }};
   </script>
 </body>
@@ -3487,6 +3506,22 @@ mod tests {
         assert!(!html.contains("auth_data"));
         assert!(!html.contains("token-secret"));
         assert!(!html.contains("https://panel.example.com/s/token"));
+    }
+
+    #[test]
+    fn panel_login_flow_auto_opens_nodes_after_sync() {
+        let mut snapshot = snapshot();
+        snapshot.panel = Some(keli_desktop::DesktopPanelSnapshot::fixture_ready());
+        snapshot.refresh_subscription(Some(subscription("JP Tokyo 01")));
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("pendingPanelSync"));
+        assert!(html.contains("正在登录面板并同步节点"));
+        assert!(html.contains("maybeOpenNodesAfterPanelSync"));
+        assert!(html.contains("postViewTarget(\"nodes-view\")"));
+        assert!(html.contains("已同步"));
+        assert!(html.contains("个节点，可开始选择"));
     }
 
     #[test]
