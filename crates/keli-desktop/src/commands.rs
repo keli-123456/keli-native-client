@@ -13,6 +13,7 @@ use crate::dependencies::{
     install_wintun_from_directory, install_wintun_from_file, DesktopDependencyReport,
     DesktopWintunInstallSummary,
 };
+use crate::panel::DesktopPanelConfigImportSummary;
 use crate::persistence::DesktopPersistedSubscription;
 use crate::service::{DesktopRuntimeError, DesktopRuntimeService};
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
@@ -101,6 +102,16 @@ impl DesktopNativeCommandService {
         config_text: impl Into<String>,
     ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
         self.commands.import_subscription_config(config_text)
+    }
+
+    pub fn import_panel_config(
+        &mut self,
+        server_id: i64,
+        server_name: impl Into<String>,
+        config_text: impl Into<String>,
+    ) -> Result<DesktopPanelConfigImportSummary, DesktopCommandError> {
+        self.commands
+            .import_panel_config(server_id, server_name, config_text)
     }
 
     pub fn import_subscription_url(
@@ -208,6 +219,17 @@ where
         self.runtime
             .import_subscription_config(config_text)
             .map_err(|error| DesktopCommandError::runtime("import-subscription", error))
+    }
+
+    pub fn import_panel_config(
+        &mut self,
+        server_id: i64,
+        server_name: impl Into<String>,
+        config_text: impl Into<String>,
+    ) -> Result<DesktopPanelConfigImportSummary, DesktopCommandError> {
+        self.runtime
+            .import_panel_config(server_id, server_name, config_text)
+            .map_err(|error| DesktopCommandError::runtime("import-panel-config", error))
     }
 
     pub fn import_subscription_url(

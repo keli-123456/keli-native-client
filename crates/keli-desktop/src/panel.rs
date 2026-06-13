@@ -1,6 +1,8 @@
 use keli_client_core::panel::{PanelBootstrapPayload, PanelNode};
 use serde::{Deserialize, Serialize};
 
+use crate::subscription::DesktopSubscriptionSummary;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DesktopPanelSnapshot {
     pub endpoint: DesktopPanelEndpointSummary,
@@ -53,6 +55,31 @@ pub struct DesktopPanelNoticeSummary {
     pub id: String,
     pub title: String,
     pub show: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopPanelConfigImportSummary {
+    pub server_id: i64,
+    pub server_name: String,
+    pub selected_outbound: Option<String>,
+    pub usable: bool,
+    pub subscription: DesktopSubscriptionSummary,
+}
+
+impl DesktopPanelConfigImportSummary {
+    pub fn from_subscription(
+        server_id: i64,
+        server_name: impl Into<String>,
+        subscription: DesktopSubscriptionSummary,
+    ) -> Self {
+        Self {
+            server_id,
+            server_name: server_name.into(),
+            selected_outbound: subscription.selected_outbound.clone(),
+            usable: subscription.usable,
+            subscription,
+        }
+    }
 }
 
 impl DesktopPanelSnapshot {

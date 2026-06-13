@@ -19,8 +19,9 @@ pub use dependencies::{
 };
 pub use managed::{DesktopManagedCoreService, DesktopManagedStartOptions};
 pub use panel::{
-    DesktopPanelAccountSummary, DesktopPanelEndpointSummary, DesktopPanelNodeSummary,
-    DesktopPanelNoticeSummary, DesktopPanelSnapshot, DesktopPanelSubscriptionSummary,
+    DesktopPanelAccountSummary, DesktopPanelConfigImportSummary, DesktopPanelEndpointSummary,
+    DesktopPanelNodeSummary, DesktopPanelNoticeSummary, DesktopPanelSnapshot,
+    DesktopPanelSubscriptionSummary,
 };
 pub use persistence::{
     DesktopPersistedSubscription, DesktopPersistenceError, DesktopSubscriptionStore,

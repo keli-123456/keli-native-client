@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::commands::{DesktopCommandError, DesktopNativeCommandService};
 use crate::dependencies::{DesktopDependencyReport, DesktopWintunInstallSummary};
+use crate::panel::DesktopPanelConfigImportSummary;
 use crate::persistence::{DesktopPersistedSubscription, DesktopSubscriptionStore};
 use crate::shell::{DesktopShellAction, DesktopShellPrimaryCommand, DesktopShellState};
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
@@ -25,6 +26,12 @@ pub trait DesktopShellCommandHost {
         &mut self,
         config_text: String,
     ) -> Result<DesktopSubscriptionSummary, DesktopCommandError>;
+    fn import_panel_config(
+        &mut self,
+        server_id: i64,
+        server_name: String,
+        config_text: String,
+    ) -> Result<DesktopPanelConfigImportSummary, DesktopCommandError>;
     fn import_subscription_url(
         &mut self,
         url: String,
@@ -73,6 +80,15 @@ impl DesktopShellCommandHost for DesktopNativeCommandService {
         config_text: String,
     ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
         self.import_subscription_config(config_text)
+    }
+
+    fn import_panel_config(
+        &mut self,
+        server_id: i64,
+        server_name: String,
+        config_text: String,
+    ) -> Result<DesktopPanelConfigImportSummary, DesktopCommandError> {
+        self.import_panel_config(server_id, server_name, config_text)
     }
 
     fn import_subscription_url(
@@ -230,6 +246,21 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         self.shell.refresh_status(self.host.status());
         self.persist_current_subscription();
         Ok(self.shell.clone())
+    }
+
+    pub fn import_panel_config(
+        &mut self,
+        server_id: i64,
+        server_name: impl Into<String>,
+        config_text: impl Into<String>,
+    ) -> Result<DesktopPanelConfigImportSummary, DesktopShellControllerError> {
+        let imported =
+            self.host
+                .import_panel_config(server_id, server_name.into(), config_text.into())?;
+        self.shell
+            .refresh_subscription(Some(imported.subscription.clone()));
+        self.shell.refresh_status(self.host.status());
+        Ok(imported)
     }
 
     pub fn import_subscription_url(
@@ -547,6 +578,24 @@ mod tests {
             inner.subscription_config = Some(config_text);
             inner.subscription = subscription("SS-READY");
             Ok(inner.subscription.clone())
+        }
+
+        fn import_panel_config(
+            &mut self,
+            server_id: i64,
+            server_name: String,
+            config_text: String,
+        ) -> Result<DesktopPanelConfigImportSummary, DesktopCommandError> {
+            let mut inner = self.inner.borrow_mut();
+            inner.imports += 1;
+            inner.subscription_config = Some(config_text);
+            inner.subscription = subscription(&server_name);
+            inner.status.selected_outbound = Some(server_name.clone());
+            Ok(DesktopPanelConfigImportSummary::from_subscription(
+                server_id,
+                server_name,
+                inner.subscription.clone(),
+            ))
         }
 
         fn import_subscription_url(
@@ -1179,6 +1228,37 @@ mod tests {
             snapshot.panel.as_ref().unwrap().nodes[0].name,
             "JP Tokyo 01"
         );
+    }
+
+    #[test]
+    fn shell_controller_import_panel_config_updates_subscription_and_keeps_panel_snapshot() {
+        let store = DesktopSubscriptionStore::new(test_path("panel-import"));
+        let host = FakeHost::new(status(DesktopRunState::Stopped), ready_dependencies());
+        let observed = host.clone();
+        let mut controller = DesktopShellController::new_with_subscription_store(host, store.clone());
+        controller.refresh_panel_snapshot(Some(crate::panel::DesktopPanelSnapshot::fixture_ready()));
+
+        let imported = controller
+            .import_panel_config(51, "JP Tokyo 01", ss_config("JP Tokyo 01"))
+            .expect("import panel config");
+
+        assert_eq!(imported.server_id, 51);
+        assert_eq!(imported.server_name, "JP Tokyo 01");
+        assert_eq!(imported.selected_outbound.as_deref(), Some("JP Tokyo 01"));
+        assert!(controller.snapshot().panel.is_some());
+        assert_eq!(
+            controller
+                .snapshot()
+                .subscription
+                .as_ref()
+                .and_then(|subscription| subscription.selected_outbound.as_deref()),
+            Some("JP Tokyo 01")
+        );
+        assert_eq!(observed.url_imports(), Vec::<String>::new());
+        assert_eq!(observed.url_updates(), Vec::<String>::new());
+        assert!(store.load().expect("load store").is_none());
+
+        let _ = std::fs::remove_file(store.path());
     }
 
     #[test]

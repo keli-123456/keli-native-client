@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::dependencies::DesktopDependencyReport;
 use crate::managed::{DesktopManagedCoreService, DesktopManagedStartOptions};
+use crate::panel::DesktopPanelConfigImportSummary;
 use crate::persistence::DesktopPersistedSubscription;
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
 use crate::subscription::{
@@ -104,6 +105,36 @@ where
             &report,
             selected.as_deref(),
             selected.as_deref(),
+        ))
+    }
+
+    pub fn import_panel_config(
+        &mut self,
+        server_id: i64,
+        server_name: impl Into<String>,
+        config_text: impl Into<String>,
+    ) -> Result<DesktopPanelConfigImportSummary, DesktopRuntimeError> {
+        let server_name = server_name.into();
+        let config_text = config_text.into();
+        let update_subscription = if self.core.is_running() {
+            self.update_subscription_config(config_text)?.subscription
+        } else {
+            self.import_subscription_config(config_text)?
+        };
+        let subscription = if update_subscription
+            .nodes
+            .iter()
+            .any(|node| node.tag == server_name)
+            && update_subscription.selected_outbound.as_deref() != Some(server_name.as_str())
+        {
+            self.select_node(server_name.clone())?
+        } else {
+            update_subscription
+        };
+        Ok(DesktopPanelConfigImportSummary::from_subscription(
+            server_id,
+            server_name,
+            subscription,
         ))
     }
 
@@ -586,6 +617,27 @@ proxies:
         assert_eq!(summary.selected_outbound.as_deref(), Some("SS-READY"));
         assert_eq!(summary.nodes[0].tag, "SS-READY");
         assert!(summary.nodes[0].selected);
+    }
+
+    #[test]
+    fn import_panel_config_uses_preflight_and_selects_panel_node() {
+        let platform_controller = FakeSystemProxyController::new();
+        let mut service = DesktopRuntimeService::new(&platform_controller);
+
+        let imported = service
+            .import_panel_config(51, "JP Tokyo 01", ss_config("JP Tokyo 01"))
+            .expect("import panel config");
+
+        assert_eq!(imported.server_id, 51);
+        assert_eq!(imported.server_name, "JP Tokyo 01");
+        assert_eq!(imported.selected_outbound.as_deref(), Some("JP Tokyo 01"));
+        assert!(imported.usable);
+        assert_eq!(
+            service
+                .persisted_subscription()
+                .and_then(|persisted| persisted.selected_outbound),
+            Some("JP Tokyo 01".to_string())
+        );
     }
 
     #[test]
