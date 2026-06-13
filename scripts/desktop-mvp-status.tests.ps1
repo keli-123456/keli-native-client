@@ -138,6 +138,33 @@ if ($LASTEXITCODE -ne 0) {
     throw 'desktop-mvp-status.ps1 -FailOnMvpBlocked should ignore signing-only public release blockers'
 }
 
+$safeProbeFixturePath = Join-Path $tempDir 'release-evidence-safe-probe-machine-not-run.json'
+$safeProbeFixture = Get-Content -Raw -LiteralPath $fixturePath | ConvertFrom-Json
+$safeProbeFixture.public_release_blockers = @('artifact-signature-missing', 'signing-certificate-missing', 'machine-takeover-smoke-not-run')
+$safeProbeFixture.smoke.machine = [pscustomobject][ordered]@{
+    status = 'passed'
+    native_core_default = $true
+    machine_takeover_status = 'not-run'
+    blockers = @('machine-takeover-smoke-not-run')
+}
+$safeProbeFixture | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $safeProbeFixturePath -Encoding ASCII
+
+$safeProbeJsonOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $statusScript -EvidencePath $safeProbeFixturePath -Json
+if ($LASTEXITCODE -ne 0) {
+    throw "desktop-mvp-status.ps1 safe-probe fixture exited with $LASTEXITCODE"
+}
+$safeProbeReport = $safeProbeJsonOutput -join "`n" | ConvertFrom-Json
+if ($safeProbeReport.desktop_mvp_ready -ne $true) {
+    throw 'desktop MVP should be ready for unsigned beta when machine takeover is only a public-release blocker'
+}
+if (($safeProbeReport.remaining_external_blockers -join ',') -ne 'artifact-signature-missing,signing-certificate-missing,machine-takeover-smoke-not-run') {
+    throw "safe-probe external blockers mismatch: $($safeProbeReport.remaining_external_blockers -join ',')"
+}
+& powershell -NoProfile -ExecutionPolicy Bypass -File $statusScript -EvidencePath $safeProbeFixturePath -FailOnMvpBlocked
+if ($LASTEXITCODE -ne 0) {
+    throw 'desktop-mvp-status.ps1 -FailOnMvpBlocked should allow safe-probe machine takeover blocker for unsigned beta'
+}
+
 $blockedFixturePath = Join-Path $tempDir 'release-evidence-local-blocked.json'
 $blockedFixture = $fixture
 $blockedFixture.smoke.install.verified_ui_workflow_entrypoints = @(

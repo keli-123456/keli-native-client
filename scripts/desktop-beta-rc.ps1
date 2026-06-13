@@ -132,7 +132,7 @@ function Assert-UnsignedBetaReady {
         Get-ArtifactByKind -Evidence $Evidence -Kind $kind | Out-Null
     }
 
-    $allowed = @('artifact-signature-missing', 'signing-certificate-missing')
+    $allowed = @('artifact-signature-missing', 'signing-certificate-missing', 'machine-takeover-smoke-not-run')
     $blockers = @(Get-StringArrayProperty -InputObject $Evidence -Name 'public_release_blockers')
     $unexpected = @($blockers | Where-Object { $allowed -notcontains $_ })
     if ($unexpected.Count -gt 0) {
@@ -238,7 +238,7 @@ try {
         Write-Output 'require desktop_mvp_ready true'
         Write-Output 'require release evidence status passed'
         Write-Output 'require artifacts desktop-shell-exe portable-zip desktop-msi with sha256'
-        Write-Output 'allow public_release_blockers artifact-signature-missing signing-certificate-missing only'
+        Write-Output 'allow public_release_blockers artifact-signature-missing signing-certificate-missing machine-takeover-smoke-not-run only'
         Write-Output "write $manifestRelativePath"
         Write-Output "write $notesRelativePath"
         Write-Output 'output unsigned beta rc ready'

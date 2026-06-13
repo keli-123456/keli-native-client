@@ -24,7 +24,7 @@ $expectedPlan = @(
     'require desktop_mvp_ready true',
     'require release evidence status passed',
     'require artifacts desktop-shell-exe portable-zip desktop-msi with sha256',
-    'allow public_release_blockers artifact-signature-missing signing-certificate-missing only',
+    'allow public_release_blockers artifact-signature-missing signing-certificate-missing machine-takeover-smoke-not-run only',
     'write target\desktop\keli-desktop-unsigned-beta-manifest.json',
     'write target\desktop\keli-desktop-unsigned-beta-release-notes.md',
     'output unsigned beta rc ready'
@@ -140,7 +140,7 @@ foreach ($item in @(
     'unsigned_beta_rc_ready true',
     'version 0.1.425',
     'channel unsigned-beta',
-    'allowed_public_release_blockers artifact-signature-missing,signing-certificate-missing'
+    'allowed_public_release_blockers artifact-signature-missing,signing-certificate-missing,machine-takeover-smoke-not-run'
 )) {
     if (!$text.Contains($item)) {
         throw "desktop beta RC output missing: $item"
@@ -163,7 +163,7 @@ if ($manifest.version -ne '0.1.425') {
 if ($manifest.unsigned -ne $true) {
     throw 'manifest unsigned must be true'
 }
-if (($manifest.allowed_public_release_blockers -join ',') -ne 'artifact-signature-missing,signing-certificate-missing') {
+if (($manifest.allowed_public_release_blockers -join ',') -ne 'artifact-signature-missing,signing-certificate-missing,machine-takeover-smoke-not-run') {
     throw "manifest allowed blockers mismatch: $($manifest.allowed_public_release_blockers -join ',')"
 }
 if ($manifest.artifacts.Count -ne 3) {
@@ -182,9 +182,35 @@ foreach ($item in @(
     'scripts\desktop-beta-rc.ps1',
     'Support bundles'
 )) {
-    if (!$notes.Contains($item)) {
+if (!$notes.Contains($item)) {
         throw "desktop beta RC release notes missing: $item"
     }
+}
+
+$safeProbeFixturePath = Join-Path $tempDir 'release-evidence-safe-probe-machine-not-run.json'
+$safeProbeManifestPath = Join-Path $tempDir 'keli-desktop-safe-probe-unsigned-beta-manifest.json'
+$safeProbeNotesPath = Join-Path $tempDir 'keli-desktop-safe-probe-unsigned-beta-release-notes.md'
+$safeProbeFixture = Get-Content -Raw -LiteralPath $fixturePath | ConvertFrom-Json
+$safeProbeFixture.public_release_blockers = @('artifact-signature-missing', 'signing-certificate-missing', 'machine-takeover-smoke-not-run')
+$safeProbeFixture.smoke.machine = [pscustomobject][ordered]@{
+    status = 'passed'
+    native_core_default = $true
+    machine_takeover_status = 'not-run'
+    blockers = @('machine-takeover-smoke-not-run')
+}
+$safeProbeFixture | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $safeProbeFixturePath -Encoding ASCII
+
+$safeProbeOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $betaScript -EvidencePath $safeProbeFixturePath -ManifestPath $safeProbeManifestPath -ReleaseNotesPath $safeProbeNotesPath
+if ($LASTEXITCODE -ne 0) {
+    throw "desktop-beta-rc.ps1 safe-probe fixture exited with $LASTEXITCODE"
+}
+$safeProbeText = $safeProbeOutput -join "`n"
+if (!$safeProbeText.Contains('allowed_public_release_blockers artifact-signature-missing,signing-certificate-missing,machine-takeover-smoke-not-run')) {
+    throw "safe-probe beta RC output missing machine-takeover-smoke-not-run allowance: $safeProbeText"
+}
+$safeProbeManifest = Get-Content -Raw -LiteralPath $safeProbeManifestPath | ConvertFrom-Json
+if (($safeProbeManifest.allowed_public_release_blockers -join ',') -ne 'artifact-signature-missing,signing-certificate-missing,machine-takeover-smoke-not-run') {
+    throw "safe-probe manifest allowed blockers mismatch: $($safeProbeManifest.allowed_public_release_blockers -join ',')"
 }
 
 $blockedFixturePath = Join-Path $tempDir 'release-evidence-extra-blocker.json'

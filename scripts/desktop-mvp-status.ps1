@@ -170,6 +170,22 @@ function Test-MsiSupportExportEvidence {
     )
 }
 
+function Test-MachineSmokeEvidence {
+    param(
+        [AllowNull()]
+        [object]$MachineSmoke
+    )
+
+    if ($null -eq $MachineSmoke) {
+        return $false
+    }
+
+    return (
+        ([string]$MachineSmoke.status -eq 'passed') -and
+        (Get-BoolProperty -InputObject $MachineSmoke -Name 'native_core_default')
+    )
+}
+
 function New-Requirement {
     param(
         [Parameter(Mandatory = $true)]
@@ -241,7 +257,7 @@ function New-DesktopMvpStatus {
         (Test-StringArrayContainsAll -Values $msiSmoke.manual_smoke_cases -Expected $expectedWorkflows)
     )
     $msiSupportBundleReady = Test-MsiSupportExportEvidence -MsiSmoke $msiSmoke
-    $machineReady = ([string]$machineSmoke.machine_takeover_status -eq 'ready')
+    $machineReady = Test-MachineSmokeEvidence -MachineSmoke $machineSmoke
     $nativeCoreReady = Get-BoolProperty -InputObject $Evidence -Name 'native_core_default'
 
     $publicReleaseBlockers = Get-StringArrayProperty -InputObject $Evidence -Name 'public_release_blockers'

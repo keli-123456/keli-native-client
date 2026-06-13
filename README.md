@@ -956,7 +956,10 @@ Use `scripts\desktop-beta-rc.ps1` after `scripts\desktop-mvp-gate.ps1` to write
 `target\desktop\keli-desktop-unsigned-beta-manifest.json` and
 `target\desktop\keli-desktop-unsigned-beta-release-notes.md`. The Beta RC gate
 passes only when the desktop MVP is ready and the public-release blockers are
-limited to `artifact-signature-missing` and `signing-certificate-missing`.
+limited to `artifact-signature-missing`, `signing-certificate-missing`, and
+`machine-takeover-smoke-not-run`. The machine-takeover blocker keeps public
+release gated until target-machine certification runs, but it does not block
+unsigned Beta tester artifacts.
 
 Pushing a `v*` tag runs `.github\workflows\windows-unsigned-beta-release.yml`.
 The workflow runs the desktop MVP gate, regenerates the unsigned Beta manifest
