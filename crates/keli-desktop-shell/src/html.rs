@@ -47,6 +47,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let selected_node_title = selected_node_title(snapshot.subscription.as_ref());
     let selected_node_detail = selected_node_detail(snapshot.subscription.as_ref());
     let nodes_connection_error = nodes_connection_error(snapshot);
+    let connection_diagnosis = connection_diagnosis(snapshot);
     let nodes_connection_actions = dependency_action_buttons(snapshot);
     let dependency_summary = dependency_summary(snapshot);
     let system_proxy_dependency = system_proxy_dependency(snapshot);
@@ -504,6 +505,29 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       gap: 8px;
       border-top: 1px solid #edf0f3;
       padding-top: 10px;
+    }}
+    .connection-diagnosis {{
+      display: grid;
+      gap: 4px;
+      border-left: 3px solid #b8c0cc;
+      background: #f6f8fa;
+      padding: 8px 10px;
+      font-size: 13px;
+      color: #3d4652;
+    }}
+    .connection-diagnosis strong {{
+      color: #171a1f;
+    }}
+    .connection-diagnosis[data-diagnosis-level="error"],
+    .connection-diagnosis[data-diagnosis-level="blocked"],
+    .connection-diagnosis[data-diagnosis-level="node-warning"] {{
+      border-left-color: #b42318;
+      background: #fff4f2;
+    }}
+    .connection-diagnosis[data-diagnosis-level="ready"],
+    .connection-diagnosis[data-diagnosis-level="healthy"] {{
+      border-left-color: #138a3d;
+      background: #f2fbf5;
     }}
     .detail-list {{
       display: grid;
@@ -1272,6 +1296,11 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
               <div><span>状态</span><strong id="nodes-connection-primary-state">{primary_state}</strong></div>
             </div>
             <div class="muted" id="nodes-connection-error">{nodes_connection_error}</div>
+            <div class="connection-diagnosis" id="nodes-connection-diagnosis" data-diagnosis-level="{connection_diagnosis_level}">
+              <strong id="nodes-connection-diagnosis-title">{connection_diagnosis_title}</strong>
+              <span id="nodes-connection-diagnosis-detail">{connection_diagnosis_detail}</span>
+              <span id="nodes-connection-diagnosis-action">{connection_diagnosis_action}</span>
+            </div>
             <div class="actions" id="nodes-connection-actions">{nodes_connection_actions}</div>
             <div class="actions">
               <button id="nodes-primary-button" class="primary" onclick="postOperation('primary', primaryOperationPending())"{primary_disabled}>{primary_label}</button>
@@ -1887,6 +1916,76 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       if (!snapshot.subscription) return "请先登录面板或导入订阅";
       return "连接条件已就绪";
     }}
+    function connectionDiagnosis(snapshot) {{
+      const status = snapshot.status || {{}};
+      if (status.last_error) {{
+        return {{
+          level: "error",
+          title: "核心失败",
+          detail: status.last_error,
+          action: "查看诊断或刷新状态"
+        }};
+      }}
+      const dependencies = snapshot.dependencies || {{}};
+      const firstRun = dependencies.first_run || {{}};
+      const blockers = firstRun.blockers || [];
+      if (blockers.length) {{
+        return {{
+          level: "blocked",
+          title: "依赖阻塞",
+          detail: blockers.map((blocker) => blocker.message || blocker.code || "依赖阻塞").join("；"),
+          action: "先处理依赖动作"
+        }};
+      }}
+      const subscription = snapshot.subscription;
+      if (!subscription) {{
+        return {{
+          level: "missing-subscription",
+          title: "未配置订阅",
+          detail: "请先登录面板或导入订阅后再启动核心",
+          action: "登录面板或导入订阅"
+        }};
+      }}
+      const node = selectedNode(subscription);
+      if (!node) {{
+        return {{
+          level: "missing-node",
+          title: "没有可用节点",
+          detail: "当前订阅没有可连接节点",
+          action: "更新订阅或导入其他配置"
+        }};
+      }}
+      if (node.tcp_available === false || node.health_error) {{
+        return {{
+          level: "node-warning",
+          title: "节点健康异常",
+          detail: nodeHealthDetail(node),
+          action: "测试节点或切换到推荐节点"
+        }};
+      }}
+      if (status.run_state === "running") {{
+        return {{
+          level: "healthy",
+          title: "连接正常",
+          detail: `当前节点 ${{node.tag}}，监听 ${{status.listen || "未监听"}}`,
+          action: "需要切换时先测试节点健康"
+        }};
+      }}
+      return {{
+        level: "ready",
+        title: "可以启动",
+        detail: `当前节点 ${{node.tag}}，连接条件已就绪`,
+        action: "点击启动核心"
+      }};
+    }}
+    function syncConnectionDiagnosis(snapshot) {{
+      const diagnosis = connectionDiagnosis(snapshot);
+      const container = document.getElementById("nodes-connection-diagnosis");
+      if (container) container.dataset.diagnosisLevel = diagnosis.level;
+      setText("nodes-connection-diagnosis-title", diagnosis.title);
+      setText("nodes-connection-diagnosis-detail", diagnosis.detail);
+      setText("nodes-connection-diagnosis-action", diagnosis.action);
+    }}
     window.keliSyncNodeConnection = (snapshot) => {{
       const status = snapshot.status;
       const primary = snapshot.primary_action;
@@ -1896,6 +1995,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setText("nodes-connection-mode", trafficModeLabels[status.traffic_mode] || status.traffic_mode);
       setText("nodes-connection-primary-state", primary.reason || (primary.enabled ? "可用" : "不可用"));
       setText("nodes-connection-error", nodeConnectionError(snapshot));
+      syncConnectionDiagnosis(snapshot);
       renderDependencyActionsInto("nodes-connection-actions", snapshot);
       syncPrimaryButton("nodes-primary-button", primary);
     }};
@@ -2548,6 +2648,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         selected_node_title = escape_html(&selected_node_title),
         selected_node_detail = selected_node_detail,
         nodes_connection_error = escape_html(&nodes_connection_error),
+        connection_diagnosis_level = escape_html(connection_diagnosis.level),
+        connection_diagnosis_title = escape_html(connection_diagnosis.title),
+        connection_diagnosis_detail = escape_html(&connection_diagnosis.detail),
+        connection_diagnosis_action = escape_html(connection_diagnosis.action),
         nodes_connection_actions = nodes_connection_actions,
         local_inbound_pressed = local_inbound_pressed,
         system_proxy_pressed = system_proxy_pressed,
@@ -2885,6 +2989,81 @@ fn nodes_connection_error(snapshot: &DesktopShellState) -> String {
         return "请先登录面板或导入订阅".to_string();
     }
     "连接条件已就绪".to_string()
+}
+
+struct ConnectionDiagnosis {
+    level: &'static str,
+    title: &'static str,
+    detail: String,
+    action: &'static str,
+}
+
+fn connection_diagnosis(snapshot: &DesktopShellState) -> ConnectionDiagnosis {
+    if let Some(error) = snapshot.status.last_error.as_deref() {
+        return ConnectionDiagnosis {
+            level: "error",
+            title: "核心失败",
+            detail: error.to_string(),
+            action: "查看诊断或刷新状态",
+        };
+    }
+    if !snapshot.dependencies.first_run.blockers.is_empty() {
+        return ConnectionDiagnosis {
+            level: "blocked",
+            title: "依赖阻塞",
+            detail: snapshot
+                .dependencies
+                .first_run
+                .blockers
+                .iter()
+                .map(|blocker| blocker.message.as_str())
+                .collect::<Vec<_>>()
+                .join("；"),
+            action: "先处理依赖动作",
+        };
+    }
+    let Some(subscription) = snapshot.subscription.as_ref() else {
+        return ConnectionDiagnosis {
+            level: "missing-subscription",
+            title: "未配置订阅",
+            detail: "请先登录面板或导入订阅后再启动核心".to_string(),
+            action: "登录面板或导入订阅",
+        };
+    };
+    let Some(node) = selected_node(Some(subscription)) else {
+        return ConnectionDiagnosis {
+            level: "missing-node",
+            title: "没有可用节点",
+            detail: "当前订阅没有可连接节点".to_string(),
+            action: "更新订阅或导入其他配置",
+        };
+    };
+    if node.tcp_available == Some(false) || node.health_error.is_some() {
+        return ConnectionDiagnosis {
+            level: "node-warning",
+            title: "节点健康异常",
+            detail: node_health_detail(node),
+            action: "测试节点或切换到推荐节点",
+        };
+    }
+    if snapshot.status.run_state == DesktopRunState::Running {
+        return ConnectionDiagnosis {
+            level: "healthy",
+            title: "连接正常",
+            detail: format!(
+                "当前节点 {}，监听 {}",
+                node.tag,
+                snapshot.status.listen.as_deref().unwrap_or("未监听")
+            ),
+            action: "需要切换时先测试节点健康",
+        };
+    }
+    ConnectionDiagnosis {
+        level: "ready",
+        title: "可以启动",
+        detail: format!("当前节点 {}，连接条件已就绪", node.tag),
+        action: "点击启动核心",
+    }
 }
 
 fn diagnostics_connection_metrics(snapshot: &DesktopShellState) -> String {
@@ -3790,6 +3969,35 @@ mod tests {
         assert!(html.contains("刷新状态"));
         assert!(html.contains("function nodeConnectionError"));
         assert!(html.contains("renderDependencyActionsInto(\"nodes-connection-actions\""));
+    }
+
+    #[test]
+    fn nodes_connection_panel_renders_diagnostic_layer_by_severity() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("id=\"nodes-connection-diagnosis\""));
+        assert!(html.contains("data-diagnosis-level=\"missing-subscription\""));
+        assert!(html.contains("id=\"nodes-connection-diagnosis-title\">未配置订阅</strong>"));
+        assert!(html.contains("id=\"nodes-connection-diagnosis-action\">登录面板或导入订阅</span>"));
+
+        let mut failed = snapshot();
+        failed.status.last_error = Some("Managed(\"dial failed\")".to_string());
+        failed.dependencies.first_run.tun_ready = false;
+        failed.dependencies.first_run.can_start_tun_mode = false;
+        failed.dependencies.first_run.blockers = vec![keli_desktop::DesktopBlocker {
+            code: "wintun-missing".to_string(),
+            message: "Wintun 驱动缺失".to_string(),
+            action: Some("install-wintun".to_string()),
+        }];
+
+        let html = render_shell_html(&failed);
+
+        assert!(html.contains("data-diagnosis-level=\"error\""));
+        assert!(html.contains("id=\"nodes-connection-diagnosis-title\">核心失败</strong>"));
+        assert!(html.contains("Managed(&quot;dial failed&quot;)"));
+        assert!(html.contains("id=\"nodes-connection-diagnosis-action\">查看诊断或刷新状态</span>"));
+        assert!(html.contains("function connectionDiagnosis(snapshot)"));
+        assert!(html.contains("function syncConnectionDiagnosis(snapshot)"));
     }
 
     #[test]
