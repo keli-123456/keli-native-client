@@ -41,6 +41,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let nodes_healthy_count = nodes_healthy_count(snapshot.subscription.as_ref());
     let nodes_udp_ready_count = nodes_udp_ready_count(snapshot.subscription.as_ref());
     let nodes_recommended = nodes_recommended(snapshot.subscription.as_ref());
+    let nodes_health_overview = nodes_health_overview(snapshot.subscription.as_ref());
+    let nodes_latency_overview = nodes_latency_overview(snapshot.subscription.as_ref());
     let nodes_table_rows = nodes_table_rows(snapshot.subscription.as_ref());
     let selected_node_title = selected_node_title(snapshot.subscription.as_ref());
     let selected_node_detail = selected_node_detail(snapshot.subscription.as_ref());
@@ -357,6 +359,43 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       color: #657386;
       font-size: 12px;
       font-weight: 650;
+    }}
+    .nodes-status-strip {{
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .nodes-status-card {{
+      min-height: 76px;
+      padding: 11px;
+      border: 1px solid #d9dee5;
+      border-radius: 8px;
+      background: #ffffff;
+      overflow: hidden;
+    }}
+    .nodes-status-card[data-emphasis="current"] {{
+      border-color: #9bc9ad;
+      background: #f2fbf5;
+    }}
+    .nodes-status-label {{
+      color: #657386;
+      font-size: 12px;
+      font-weight: 700;
+    }}
+    .nodes-status-value {{
+      margin-top: 5px;
+      color: #171a1f;
+      font-size: 17px;
+      font-weight: 750;
+      overflow-wrap: anywhere;
+    }}
+    .nodes-status-note {{
+      margin-top: 4px;
+      color: #657386;
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }}
     .nodes-content {{
       min-height: 0;
@@ -908,6 +947,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       .settings-strip,
       .nodes-toolbar,
       .nodes-table-tools,
+      .nodes-status-strip,
       .nodes-summary-strip,
       .nodes-content {{
         grid-template-columns: 1fr;
@@ -1153,6 +1193,28 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="nodes-summary-item">
           <div class="nodes-summary-value" id="nodes-recommended">{nodes_recommended}</div>
           <div class="nodes-summary-label">推荐</div>
+        </div>
+      </div>
+      <div class="nodes-status-strip" id="nodes-status-strip" aria-label="节点状态">
+        <div class="nodes-status-card" id="nodes-current-card" data-emphasis="current">
+          <div class="nodes-status-label">当前节点</div>
+          <div class="nodes-status-value" id="nodes-current-value">{selected_node_title}</div>
+          <div class="nodes-status-note">选择后会同步到核心</div>
+        </div>
+        <div class="nodes-status-card" id="nodes-recommended-card">
+          <div class="nodes-status-label">推荐节点</div>
+          <div class="nodes-status-value" id="nodes-recommended-value">{nodes_recommended}</div>
+          <div class="nodes-status-note">来自订阅预检</div>
+        </div>
+        <div class="nodes-status-card" id="nodes-health-card">
+          <div class="nodes-status-label">健康概况</div>
+          <div class="nodes-status-value" id="nodes-health-value">{nodes_health_overview}</div>
+          <div class="nodes-status-note">刷新健康后更新</div>
+        </div>
+        <div class="nodes-status-card" id="nodes-latency-card">
+          <div class="nodes-status-label">延迟概况</div>
+          <div class="nodes-status-value" id="nodes-latency-value">{nodes_latency_overview}</div>
+          <div class="nodes-status-note">优先显示当前节点</div>
         </div>
       </div>
       <div class="nodes-content">
@@ -1721,12 +1783,36 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     function nodesRecommended(subscription) {{
       return subscription && subscription.recommended_outbound ? subscription.recommended_outbound : "无";
     }}
+    function nodesHealthOverview(subscription) {{
+      if (!subscription) return "0 / 0 健康";
+      return `${{nodesHealthyCount(subscription)}} / ${{subscription.supported_count || 0}} 健康`;
+    }}
     function selectedNode(subscription) {{
       if (!subscription || !subscription.nodes.length) return null;
       return subscription.nodes.find((node) => node.selected)
         || subscription.nodes.find((node) => node.tag === subscription.selected_outbound)
         || subscription.nodes[0];
     }}
+    function nodesLatencyOverview(subscription) {{
+      if (!subscription || !subscription.nodes.length) return "未测试";
+      const selected = selectedNode(subscription);
+      if (selected && selected.latency_ms !== null && selected.latency_ms !== undefined) {{
+        return `${{selected.latency_ms}} ms`;
+      }}
+      const latencies = subscription.nodes
+        .map((node) => node.latency_ms)
+        .filter((latency) => latency !== null && latency !== undefined);
+      if (!latencies.length) return "未测试";
+      return `${{Math.min(...latencies)}} ms`;
+    }}
+    window.keliSyncNodeStatusCards = (snapshot) => {{
+      const subscription = snapshot.subscription;
+      const node = selectedNode(subscription);
+      setText("nodes-current-value", node ? node.tag : "未选择节点");
+      setText("nodes-recommended-value", nodesRecommended(subscription));
+      setText("nodes-health-value", nodesHealthOverview(subscription));
+      setText("nodes-latency-value", nodesLatencyOverview(subscription));
+    }};
     function nodeSearchText(node) {{
       return [
         node.tag,
@@ -1880,6 +1966,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setText("nodes-healthy-count", nodesHealthyCount(subscription));
       setText("nodes-udp-ready-count", nodesUdpReadyCount(subscription));
       setText("nodes-recommended", nodesRecommended(subscription));
+      window.keliSyncNodeStatusCards(snapshot);
       const importUrlButton = document.getElementById("nodes-import-url-button");
       const updateUrlButton = document.getElementById("nodes-update-url-button");
       if (importUrlButton) importUrlButton.disabled = snapshot.status.run_state === "running";
@@ -2367,6 +2454,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         nodes_healthy_count = nodes_healthy_count,
         nodes_udp_ready_count = nodes_udp_ready_count,
         nodes_recommended = escape_html(&nodes_recommended),
+        nodes_health_overview = escape_html(&nodes_health_overview),
+        nodes_latency_overview = escape_html(&nodes_latency_overview),
         nodes_table_rows = nodes_table_rows,
         selected_node_title = escape_html(&selected_node_title),
         selected_node_detail = selected_node_detail,
@@ -2958,6 +3047,17 @@ fn nodes_recommended(subscription: Option<&DesktopSubscriptionSummary>) -> Strin
         .to_string()
 }
 
+fn nodes_health_overview(subscription: Option<&DesktopSubscriptionSummary>) -> String {
+    let Some(subscription) = subscription else {
+        return "0 / 0 健康".to_string();
+    };
+    format!(
+        "{} / {} 健康",
+        nodes_healthy_count(Some(subscription)),
+        subscription.supported_count
+    )
+}
+
 fn selected_node(
     subscription: Option<&DesktopSubscriptionSummary>,
 ) -> Option<&keli_desktop::DesktopNodeSummary> {
@@ -2973,6 +3073,22 @@ fn selected_node(
                 .and_then(|selected| subscription.nodes.iter().find(|node| node.tag == selected))
         })
         .or_else(|| subscription.nodes.first())
+}
+
+fn nodes_latency_overview(subscription: Option<&DesktopSubscriptionSummary>) -> String {
+    let Some(subscription) = subscription else {
+        return "未测试".to_string();
+    };
+    if let Some(latency) = selected_node(Some(subscription)).and_then(|node| node.latency_ms) {
+        return format!("{latency} ms");
+    }
+    subscription
+        .nodes
+        .iter()
+        .filter_map(|node| node.latency_ms)
+        .min()
+        .map(|latency| format!("{latency} ms"))
+        .unwrap_or_else(|| "未测试".to_string())
 }
 
 fn nodes_table_rows(subscription: Option<&DesktopSubscriptionSummary>) -> String {
@@ -3479,6 +3595,32 @@ mod tests {
         assert!(html.contains("id=\"selected-node-title\""));
         assert!(html.contains("42 ms"));
         assert!(html.contains("window.keliSyncNodes"));
+    }
+
+    #[test]
+    fn nodes_status_strip_highlights_current_recommended_health_and_latency() {
+        let mut snapshot = snapshot();
+        let mut summary = subscription("SS-READY");
+        summary.nodes[0].health_state = Some("healthy".to_string());
+        summary.nodes[0].tcp_available = Some(true);
+        summary.nodes[0].latency_ms = Some(42);
+        snapshot.refresh_subscription(Some(summary));
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("id=\"nodes-status-strip\""));
+        assert!(html.contains("id=\"nodes-current-card\""));
+        assert!(html.contains("id=\"nodes-recommended-card\""));
+        assert!(html.contains("id=\"nodes-health-card\""));
+        assert!(html.contains("id=\"nodes-latency-card\""));
+        assert!(html.contains("当前节点"));
+        assert!(html.contains("推荐节点"));
+        assert!(html.contains("健康概况"));
+        assert!(html.contains("延迟概况"));
+        assert!(html.contains("SS-READY"));
+        assert!(html.contains("1 / 1 健康"));
+        assert!(html.contains("42 ms"));
+        assert!(html.contains("window.keliSyncNodeStatusCards"));
     }
 
     #[test]
