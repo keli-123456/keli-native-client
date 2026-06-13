@@ -56,6 +56,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     if is_support_export_smoke_mode(std::env::args()) {
         return run_support_export_smoke();
     }
+    if is_startup_connect_smoke_mode(std::env::args()) {
+        return run_startup_connect_smoke();
+    }
     if is_startup_restore_smoke_mode(std::env::args()) {
         return run_startup_restore_smoke();
     }
@@ -889,6 +892,19 @@ struct DesktopShellStartupRestoreSmokeReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct DesktopShellStartupConnectSmokeReport {
+    status: String,
+    run_state: DesktopRunState,
+    selected_outbound: Option<String>,
+    listen: Option<String>,
+    auto_started: bool,
+    primary_action_id: String,
+    html_ready: bool,
+    snapshot_script_ready: bool,
+    stopped_after_smoke: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct DesktopShellSupportExportSmokeReport {
     status: String,
     path: String,
@@ -930,6 +946,16 @@ where
         .any(|arg| arg.as_ref() == "--startup-restore-smoke")
 }
 
+fn is_startup_connect_smoke_mode<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter()
+        .skip(1)
+        .any(|arg| arg.as_ref() == "--startup-connect-smoke")
+}
+
 fn support_export_smoke_dir_arg<I, S>(args: I) -> Option<String>
 where
     I: IntoIterator<Item = S>,
@@ -942,6 +968,48 @@ where
         }
     }
     None
+}
+
+fn run_startup_connect_smoke() -> Result<(), Box<dyn Error>> {
+    let store_path = startup_restore_smoke_store_path();
+    let store = DesktopSubscriptionStore::new(&store_path);
+    store.save(&DesktopPersistedSubscription {
+        config_text: startup_restore_smoke_config(),
+        selected_outbound: Some(STARTUP_RESTORE_SMOKE_SELECTED_OUTBOUND.to_string()),
+    })?;
+
+    let mut controller = DesktopShellController::new_with_subscription_store(
+        DesktopNativeCommandService::new(),
+        store,
+    );
+    let started_shell =
+        apply_desktop_startup_settings(&mut controller, &startup_connect_smoke_settings())
+            .map_err(|error| format!("{} {} {}", error.operation, error.kind, error.message))?;
+    let html = render_shell_html(&started_shell);
+    let script = shell_snapshot_script(&started_shell)?;
+    let stopped_after_smoke = stop_smoke_core_if_running(&mut controller, &started_shell);
+    let report = build_startup_connect_smoke_report(
+        &started_shell,
+        &html,
+        &script,
+        STARTUP_RESTORE_SMOKE_SELECTED_OUTBOUND,
+        stopped_after_smoke,
+    );
+    let passed = report.status == "passed";
+
+    println!("{}", serde_json::to_string_pretty(&report)?);
+
+    if let Err(error) = fs::remove_file(&store_path) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            eprintln!("startup connect smoke cleanup failed: {error}");
+        }
+    }
+
+    if passed {
+        Ok(())
+    } else {
+        Err("desktop startup connect smoke report failed".into())
+    }
 }
 
 fn run_startup_restore_smoke() -> Result<(), Box<dyn Error>> {
@@ -1023,6 +1091,33 @@ fn run_support_export_smoke() -> Result<(), Box<dyn Error>> {
         Ok(())
     } else {
         Err("desktop support export smoke report failed".into())
+    }
+}
+
+fn startup_connect_smoke_settings() -> DesktopShellSettings {
+    let mut settings = DesktopShellSettings::default();
+    settings.auto_start_core = true;
+    settings.mixed_port = 0;
+    settings.traffic_mode = keli_desktop::DesktopTrafficMode::MixedInboundOnly;
+    settings
+}
+
+fn stop_smoke_core_if_running(
+    controller: &mut DesktopShellController<DesktopNativeCommandService>,
+    shell: &DesktopShellState,
+) -> bool {
+    if shell.status.run_state != DesktopRunState::Running {
+        return false;
+    }
+    match controller.dispatch(DesktopShellAction::RequestStop) {
+        Ok(stopped) => stopped.status.run_state == DesktopRunState::Stopped,
+        Err(error) => {
+            eprintln!(
+                "startup connect smoke stop failed: {} {} {}",
+                error.operation, error.kind, error.message
+            );
+            false
+        }
     }
 }
 
@@ -1147,6 +1242,49 @@ fn build_startup_restore_smoke_report(
         primary_action_id: snapshot.primary_action.id.clone(),
         html_ready,
         snapshot_script_ready,
+    }
+}
+
+fn build_startup_connect_smoke_report(
+    snapshot: &DesktopShellState,
+    html: &str,
+    snapshot_script: &str,
+    expected_selected_outbound: &str,
+    stopped_after_smoke: bool,
+) -> DesktopShellStartupConnectSmokeReport {
+    let selected_outbound = snapshot.status.selected_outbound.clone();
+    let listen = snapshot.status.listen.clone();
+    let auto_started = snapshot.status.run_state == DesktopRunState::Running
+        && selected_outbound.as_deref() == Some(expected_selected_outbound)
+        && listen
+            .as_deref()
+            .is_some_and(|listen| listen.starts_with("127.0.0.1:"));
+    let html_ready = html.contains("id=\"primary-button\"")
+        && html.contains(&format!("data-node-tag=\"{expected_selected_outbound}\""));
+    let snapshot_script_ready = snapshot_script.contains("window.keliSetShell")
+        && snapshot_script.contains(expected_selected_outbound)
+        && snapshot_script.contains("\"running\"");
+    let status = if auto_started
+        && snapshot.primary_action.id == "stop-service"
+        && html_ready
+        && snapshot_script_ready
+        && stopped_after_smoke
+    {
+        "passed"
+    } else {
+        "failed"
+    };
+
+    DesktopShellStartupConnectSmokeReport {
+        status: status.to_string(),
+        run_state: snapshot.status.run_state,
+        selected_outbound,
+        listen,
+        auto_started,
+        primary_action_id: snapshot.primary_action.id.clone(),
+        html_ready,
+        snapshot_script_ready,
+        stopped_after_smoke,
     }
 }
 
@@ -1452,6 +1590,18 @@ mod tests {
     }
 
     #[test]
+    fn startup_connect_smoke_arg_detection_accepts_flag() {
+        assert!(is_startup_connect_smoke_mode([
+            "keli-desktop-shell",
+            "--startup-connect-smoke",
+        ]));
+        assert!(!is_startup_connect_smoke_mode([
+            "keli-desktop-shell",
+            "--startup-restore-smoke",
+        ]));
+    }
+
+    #[test]
     fn support_export_smoke_report_confirms_bundle_shape() {
         let report = build_support_export_smoke_report(
             &support::SupportBundleSaveSummary {
@@ -1515,6 +1665,32 @@ mod tests {
         assert!(report.can_start_after_restore);
         assert!(report.html_ready);
         assert!(report.snapshot_script_ready);
+    }
+
+    #[test]
+    fn startup_connect_smoke_report_confirms_auto_started_connection() {
+        let mut snapshot = smoke_snapshot();
+        snapshot.status.run_state = DesktopRunState::Running;
+        snapshot.status.traffic_mode = DesktopTrafficMode::MixedInboundOnly;
+        snapshot.status.selected_outbound = Some("SS-RESTORED".to_string());
+        snapshot.status.listen = Some("127.0.0.1:45678".to_string());
+        snapshot.refresh_status(snapshot.status.clone());
+        snapshot.refresh_subscription(Some(usable_subscription_with_tag("SS-RESTORED")));
+        let html = render_shell_html(&snapshot);
+        let script = shell_snapshot_script(&snapshot).expect("snapshot script");
+
+        let report =
+            build_startup_connect_smoke_report(&snapshot, &html, &script, "SS-RESTORED", true);
+
+        assert_eq!(report.status, "passed");
+        assert_eq!(report.run_state, DesktopRunState::Running);
+        assert_eq!(report.selected_outbound.as_deref(), Some("SS-RESTORED"));
+        assert_eq!(report.listen.as_deref(), Some("127.0.0.1:45678"));
+        assert!(report.auto_started);
+        assert_eq!(report.primary_action_id, "stop-service");
+        assert!(report.html_ready);
+        assert!(report.snapshot_script_ready);
+        assert!(report.stopped_after_smoke);
     }
 
     #[test]
