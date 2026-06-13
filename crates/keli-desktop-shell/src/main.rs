@@ -64,7 +64,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let settings = load_desktop_settings();
     let mut controller = DesktopShellController::new_native();
-    controller.set_traffic_mode(settings.traffic_mode);
+    apply_desktop_settings(&mut controller, &settings);
     let initial_html = render_shell_html(controller.snapshot());
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let window = WindowBuilder::new()
@@ -405,6 +405,18 @@ fn load_desktop_settings() -> DesktopShellSettings {
     }
 }
 
+fn desktop_settings_listen_address(settings: &DesktopShellSettings) -> String {
+    format!("127.0.0.1:{}", settings.mixed_port)
+}
+
+fn apply_desktop_settings(
+    controller: &mut DesktopShellController<keli_desktop::DesktopNativeCommandService>,
+    settings: &DesktopShellSettings,
+) -> DesktopShellState {
+    controller.set_traffic_mode(settings.traffic_mode);
+    controller.set_listen(desktop_settings_listen_address(settings))
+}
+
 fn sync_desktop_settings(webview: &WebView, settings: &DesktopShellSettings) {
     let summary = DesktopShellSettingsSaveSummary {
         status: "restored".to_string(),
@@ -432,7 +444,7 @@ fn save_desktop_settings(
 ) -> Result<DesktopShellState, String> {
     let summary = write_desktop_shell_settings(default_desktop_shell_settings_path(), &settings)
         .map_err(|error| format!("write desktop settings failed: {error}"))?;
-    let shell = controller.set_traffic_mode(settings.traffic_mode);
+    let shell = apply_desktop_settings(controller, &settings);
     let script = desktop_settings_status_script(&summary)
         .map_err(|error| format!("desktop settings status serialization failed: {error}"))?;
     webview
@@ -819,6 +831,7 @@ struct DesktopShellSmokeReport {
     html_ready: bool,
     snapshot_script_ready: bool,
     settings_persistence_ready: bool,
+    settings_runtime_ready: bool,
     ui_workflow_entrypoints: Vec<String>,
 }
 
@@ -978,6 +991,9 @@ fn build_smoke_report(
     let settings_persistence_ready = html.contains("id=\"settings-save-button\"")
         && html.contains("save-desktop-settings")
         && html.contains("window.keliSetDesktopSettings");
+    let settings_runtime_ready = settings_persistence_ready
+        && html.contains("id=\"settings-mixed-port\"")
+        && html.contains("mixed_port");
     let first_run_blockers = smoke_first_run_blockers(snapshot);
     let dependency_action_entrypoints = smoke_dependency_action_entrypoints(snapshot, html);
     let workflows_ready = expected_smoke_workflows().iter().all(|workflow| {
@@ -985,12 +1001,16 @@ fn build_smoke_report(
             .iter()
             .any(|entry| entry == workflow)
     });
-    let status =
-        if html_ready && snapshot_script_ready && workflows_ready && settings_persistence_ready {
-            "passed"
-        } else {
-            "failed"
-        };
+    let status = if html_ready
+        && snapshot_script_ready
+        && workflows_ready
+        && settings_persistence_ready
+        && settings_runtime_ready
+    {
+        "passed"
+    } else {
+        "failed"
+    };
 
     DesktopShellSmokeReport {
         status: status.to_string(),
@@ -1007,6 +1027,7 @@ fn build_smoke_report(
         html_ready,
         snapshot_script_ready,
         settings_persistence_ready,
+        settings_runtime_ready,
         ui_workflow_entrypoints,
     }
 }
@@ -1245,6 +1266,7 @@ mod tests {
         assert!(report.html_ready);
         assert!(report.snapshot_script_ready);
         assert!(report.settings_persistence_ready);
+        assert!(report.settings_runtime_ready);
         assert_eq!(
             report.ui_workflow_entrypoints,
             vec![
@@ -1350,6 +1372,17 @@ mod tests {
             operation_success_message(&DesktopShellUiEvent::SelectNode("SS-READY".to_string()))
                 .as_deref(),
             Some("已应用节点 SS-READY")
+        );
+    }
+
+    #[test]
+    fn desktop_settings_listen_address_uses_mixed_port() {
+        let mut settings = DesktopShellSettings::default();
+        settings.mixed_port = 17890;
+
+        assert_eq!(
+            desktop_settings_listen_address(&settings),
+            "127.0.0.1:17890"
         );
     }
 

@@ -64,6 +64,7 @@ pub trait DesktopShellCommandHost {
     ) -> Result<DesktopSubscriptionSummary, DesktopCommandError>;
     fn refresh_node_health(&mut self) -> Result<DesktopSubscriptionSummary, DesktopCommandError>;
     fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode);
+    fn set_listen(&mut self, listen: String);
     fn persisted_subscription(&self) -> Option<DesktopPersistedSubscription>;
     fn export_support_bundle(&self) -> Result<DesktopSupportBundleExport, DesktopCommandError>;
     fn install_wintun_from_path(
@@ -159,6 +160,10 @@ impl DesktopShellCommandHost for DesktopNativeCommandService {
 
     fn set_traffic_mode(&mut self, traffic_mode: DesktopTrafficMode) {
         self.set_traffic_mode(traffic_mode);
+    }
+
+    fn set_listen(&mut self, listen: String) {
+        self.set_listen(listen);
     }
 
     fn persisted_subscription(&self) -> Option<DesktopPersistedSubscription> {
@@ -394,6 +399,12 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         self.shell.clone()
     }
 
+    pub fn set_listen(&mut self, listen: impl Into<String>) -> DesktopShellState {
+        self.host.set_listen(listen.into());
+        self.shell.refresh_status(self.host.status());
+        self.shell.clone()
+    }
+
     pub fn export_support_bundle(
         &self,
     ) -> Result<DesktopSupportBundleExport, DesktopShellControllerError> {
@@ -544,6 +555,7 @@ mod tests {
         imports: usize,
         selects: usize,
         modes: Vec<DesktopTrafficMode>,
+        listens: Vec<String>,
         subscription: DesktopSubscriptionSummary,
         subscription_config: Option<String>,
         url_imports: Vec<String>,
@@ -566,6 +578,7 @@ mod tests {
                     imports: 0,
                     selects: 0,
                     modes: Vec::new(),
+                    listens: Vec::new(),
                     subscription: subscription("SS-READY"),
                     subscription_config: None,
                     url_imports: Vec::new(),
@@ -597,6 +610,10 @@ mod tests {
 
         fn modes(&self) -> Vec<DesktopTrafficMode> {
             self.inner.borrow().modes.clone()
+        }
+
+        fn listens(&self) -> Vec<String> {
+            self.inner.borrow().listens.clone()
         }
 
         fn exports(&self) -> usize {
@@ -823,6 +840,12 @@ mod tests {
             let mut inner = self.inner.borrow_mut();
             inner.modes.push(traffic_mode);
             inner.status.traffic_mode = traffic_mode;
+        }
+
+        fn set_listen(&mut self, listen: String) {
+            let mut inner = self.inner.borrow_mut();
+            inner.listens.push(listen.clone());
+            inner.status.listen = Some(listen);
         }
 
         fn persisted_subscription(&self) -> Option<DesktopPersistedSubscription> {
@@ -1602,6 +1625,18 @@ mod tests {
 
         assert_eq!(observed.modes(), vec![DesktopTrafficMode::Tun]);
         assert_eq!(shell.status.traffic_mode, DesktopTrafficMode::Tun);
+    }
+
+    #[test]
+    fn shell_subscription_listen_setter_refreshes_status() {
+        let host = FakeHost::new(status(DesktopRunState::Stopped), ready_dependencies());
+        let observed = host.clone();
+        let mut controller = DesktopShellController::new(host);
+
+        let shell = controller.set_listen("127.0.0.1:17890");
+
+        assert_eq!(observed.listens(), vec!["127.0.0.1:17890".to_string()]);
+        assert_eq!(shell.status.listen.as_deref(), Some("127.0.0.1:17890"));
     }
 
     #[test]
