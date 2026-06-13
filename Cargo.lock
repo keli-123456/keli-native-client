@@ -1506,6 +1506,9 @@ name = "keli-client-core"
 version = "0.1.425"
 dependencies = [
  "keli-protocol",
+ "serde",
+ "serde_json",
+ "url",
 ]
 
 [[package]]

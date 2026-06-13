@@ -5,6 +5,8 @@ use keli_protocol::{
     TransportKind,
 };
 
+pub mod panel;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectionPhase {
     Idle,
