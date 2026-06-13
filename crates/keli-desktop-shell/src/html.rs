@@ -36,6 +36,14 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     });
     let subscription_summary = subscription_summary(snapshot.subscription.as_ref());
     let node_buttons = node_buttons(snapshot.subscription.as_ref());
+    let nodes_supported_count = nodes_supported_count(snapshot.subscription.as_ref());
+    let nodes_skipped_count = nodes_skipped_count(snapshot.subscription.as_ref());
+    let nodes_healthy_count = nodes_healthy_count(snapshot.subscription.as_ref());
+    let nodes_udp_ready_count = nodes_udp_ready_count(snapshot.subscription.as_ref());
+    let nodes_recommended = nodes_recommended(snapshot.subscription.as_ref());
+    let nodes_table_rows = nodes_table_rows(snapshot.subscription.as_ref());
+    let selected_node_title = selected_node_title(snapshot.subscription.as_ref());
+    let selected_node_detail = selected_node_detail(snapshot.subscription.as_ref());
     let dependency_summary = dependency_summary(snapshot);
     let system_proxy_dependency = system_proxy_dependency(snapshot);
     let tun_dependency = tun_dependency(snapshot);
@@ -287,6 +295,101 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     .dashboard-view {{
       display: grid;
       gap: 14px;
+    }}
+    .app-view[hidden] {{
+      display: none;
+    }}
+    .nodes-view {{
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 14px;
+    }}
+    .nodes-toolbar {{
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      gap: 10px;
+      align-items: end;
+    }}
+    .nodes-summary-strip {{
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .nodes-summary-item {{
+      min-height: 76px;
+      padding: 12px;
+      border: 1px solid #d9dee5;
+      border-radius: 8px;
+      background: #ffffff;
+    }}
+    .nodes-summary-value {{
+      color: #171a1f;
+      font-size: 24px;
+      font-weight: 750;
+    }}
+    .nodes-summary-label {{
+      margin-top: 4px;
+      color: #657386;
+      font-size: 12px;
+      font-weight: 650;
+    }}
+    .nodes-content {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+      gap: 14px;
+      align-items: start;
+    }}
+    .node-filter-tabs {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 10px;
+    }}
+    .node-filter-tabs button[aria-pressed="true"] {{
+      border-color: #277d56;
+      background: #e6f4ec;
+      color: #145a32;
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }}
+    th,
+    td {{
+      min-height: 38px;
+      padding: 10px 8px;
+      border-bottom: 1px solid #edf0f3;
+      color: #4d5968;
+      text-align: left;
+      vertical-align: middle;
+      overflow-wrap: anywhere;
+    }}
+    th {{
+      color: #657386;
+      font-size: 12px;
+      font-weight: 700;
+    }}
+    tr[data-selected="true"] td {{
+      background: #f2fbf5;
+      color: #145a32;
+    }}
+    .selected-node-detail {{
+      display: grid;
+      gap: 12px;
+    }}
+    .detail-list {{
+      display: grid;
+      gap: 8px;
+      color: #4d5968;
+      font-size: 13px;
+    }}
+    .detail-list div {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid #edf0f3;
+      padding-bottom: 7px;
     }}
     .dashboard-row {{
       display: grid;
@@ -568,7 +671,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       }}
       .grid,
       .quick-status,
-      .dashboard-row {{
+      .dashboard-row,
+      .nodes-toolbar,
+      .nodes-summary-strip,
+      .nodes-content {{
         grid-template-columns: 1fr;
       }}
       .command-panel {{
@@ -763,6 +869,76 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       </section>
     </div>
     </div>
+    <section class="app-view nodes-view" id="nodes-view" data-app-view hidden>
+      <section>
+        <h2>Subscription URL</h2>
+        <div class="nodes-toolbar">
+          <input id="nodes-subscription-url" type="url" placeholder="https://example.com/subscription" />
+          <div class="actions">
+            <button id="nodes-import-url-button" class="primary" onclick="postImportNodesSubscriptionUrl()"{import_subscription_url_disabled}>Import URL</button>
+            <button id="nodes-update-url-button" onclick="postUpdateNodesSubscriptionUrl()"{update_subscription_url_disabled}>Update URL</button>
+            <button id="nodes-refresh-health-button" onclick="postRefreshNodeHealth()">Refresh health</button>
+          </div>
+        </div>
+        <div class="muted" id="nodes-subscription-url-status">No subscription URL imported</div>
+      </section>
+      <div class="nodes-summary-strip" id="nodes-summary-strip">
+        <div class="nodes-summary-item">
+          <div class="nodes-summary-value" id="nodes-supported-count">{nodes_supported_count}</div>
+          <div class="nodes-summary-label">Supported nodes</div>
+        </div>
+        <div class="nodes-summary-item">
+          <div class="nodes-summary-value" id="nodes-skipped-count">{nodes_skipped_count}</div>
+          <div class="nodes-summary-label">Skipped nodes</div>
+        </div>
+        <div class="nodes-summary-item">
+          <div class="nodes-summary-value" id="nodes-healthy-count">{nodes_healthy_count}</div>
+          <div class="nodes-summary-label">Healthy</div>
+        </div>
+        <div class="nodes-summary-item">
+          <div class="nodes-summary-value" id="nodes-udp-ready-count">{nodes_udp_ready_count}</div>
+          <div class="nodes-summary-label">UDP ready</div>
+        </div>
+        <div class="nodes-summary-item">
+          <div class="nodes-summary-value" id="nodes-recommended">{nodes_recommended}</div>
+          <div class="nodes-summary-label">Recommended</div>
+        </div>
+      </div>
+      <div class="nodes-content">
+        <section>
+          <div class="node-filter-tabs" id="node-filter-tabs" role="group" aria-label="Node filters">
+            <button data-node-filter="all" aria-pressed="true" onclick="postNodeFilter('all')">All</button>
+            <button data-node-filter="healthy" aria-pressed="false" onclick="postNodeFilter('healthy')">Healthy</button>
+            <button data-node-filter="failed" aria-pressed="false" onclick="postNodeFilter('failed')">Failed</button>
+            <button data-node-filter="udp-ready" aria-pressed="false" onclick="postNodeFilter('udp-ready')">UDP ready</button>
+            <button data-node-filter="skipped" aria-pressed="false" onclick="postNodeFilter('skipped')">Skipped</button>
+          </div>
+          <table aria-label="Nodes">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Protocol</th>
+                <th>Transport</th>
+                <th>Latency</th>
+                <th>TCP</th>
+                <th>UDP</th>
+                <th>Health</th>
+              </tr>
+            </thead>
+            <tbody id="nodes-table-body">{nodes_table_rows}</tbody>
+          </table>
+        </section>
+        <section class="selected-node-detail" id="selected-node-detail">
+          <h2>Selected node</h2>
+          <div class="value" id="selected-node-title">{selected_node_title}</div>
+          <div class="detail-list" id="selected-node-detail-list">{selected_node_detail}</div>
+          <div class="actions">
+            <button class="primary" onclick="postSelectNode(document.getElementById('selected-node-title').textContent)">Select</button>
+            <button onclick="postRefreshNodeHealth()">Test</button>
+          </div>
+        </section>
+      </div>
+    </section>
     <pre id="snapshot-json">{snapshot_json}</pre>
   </main>
   </div>
@@ -787,6 +963,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       document.querySelectorAll("[data-view-target]").forEach((button) => {{
         button.setAttribute("aria-current", button.dataset.viewTarget === viewId ? "page" : "false");
       }});
+      document.querySelectorAll("[data-app-view]").forEach((view) => {{
+        view.hidden = view.id !== viewId;
+      }});
       if (viewId !== "dashboard-view") {{
         window.keliSetOperationStatus({{
           kind: "info",
@@ -804,6 +983,18 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       postJson({{
         type: "import-subscription-url",
         subscriptionUrl: document.getElementById("subscription-url").value
+      }});
+    }}
+    function postImportNodesSubscriptionUrl() {{
+      postJson({{
+        type: "import-subscription-url",
+        subscriptionUrl: document.getElementById("nodes-subscription-url").value
+      }});
+    }}
+    function postUpdateNodesSubscriptionUrl() {{
+      postJson({{
+        type: "update-subscription-url",
+        subscriptionUrl: document.getElementById("nodes-subscription-url").value
       }});
     }}
     function postUpdateSubscriptionUrl() {{
@@ -827,6 +1018,11 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       postJson({{
         type: "select-node",
         outboundTag
+      }});
+    }}
+    function postNodeFilter(filter) {{
+      document.querySelectorAll("[data-node-filter]").forEach((button) => {{
+        button.setAttribute("aria-pressed", button.dataset.nodeFilter === filter ? "true" : "false");
       }});
     }}
     const dependencyActionLabels = {{
@@ -951,6 +1147,96 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       if (node.health_error) parts.push(`Last failure ${{node.health_error}}`);
       return parts.length ? parts.join(", ") : "Health unknown";
     }}
+    function nodesHealthyCount(subscription) {{
+      if (!subscription) return 0;
+      return subscription.nodes.filter((node) => node.health_state === "healthy" || node.tcp_available === true).length;
+    }}
+    function nodesUdpReadyCount(subscription) {{
+      if (!subscription) return 0;
+      return subscription.nodes.filter((node) => node.udp_supported || node.udp_available === true).length;
+    }}
+    function nodesRecommended(subscription) {{
+      return subscription && subscription.recommended_outbound ? subscription.recommended_outbound : "None";
+    }}
+    function selectedNode(subscription) {{
+      if (!subscription || !subscription.nodes.length) return null;
+      return subscription.nodes.find((node) => node.selected)
+        || subscription.nodes.find((node) => node.tag === subscription.selected_outbound)
+        || subscription.nodes[0];
+    }}
+    function renderNodesTable(subscription) {{
+      const body = document.getElementById("nodes-table-body");
+      if (!body) return;
+      body.replaceChildren();
+      if (!subscription || !subscription.nodes.length) {{
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 7;
+        cell.textContent = "No nodes";
+        row.appendChild(cell);
+        body.appendChild(row);
+        return;
+      }}
+      for (const node of subscription.nodes) {{
+        const row = document.createElement("tr");
+        row.dataset.selected = node.selected ? "true" : "false";
+        row.onclick = () => postSelectNode(node.tag);
+        const values = [
+          node.tag,
+          node.protocol || "unknown",
+          node.transport || "unknown",
+          node.latency_ms === null || node.latency_ms === undefined ? "-" : `${{node.latency_ms}} ms`,
+          node.tcp_available === false ? "Failed" : "Ready",
+          node.udp_supported || node.udp_available === true ? "Ready" : "Unavailable",
+          nodeHealthDetail(node)
+        ];
+        for (const value of values) {{
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          row.appendChild(cell);
+        }}
+        body.appendChild(row);
+      }}
+    }}
+    function renderSelectedNodeDetail(subscription) {{
+      const node = selectedNode(subscription);
+      setText("selected-node-title", node ? node.tag : "No node selected");
+      const detail = document.getElementById("selected-node-detail-list");
+      if (!detail) return;
+      detail.replaceChildren();
+      const pairs = node ? [
+        ["Protocol", node.protocol || "unknown"],
+        ["Transport", node.transport || "unknown"],
+        ["Security", node.security || "unknown"],
+        ["Latency", node.latency_ms === null || node.latency_ms === undefined ? "-" : `${{node.latency_ms}} ms`],
+        ["TCP", node.tcp_available === false ? "Failed" : "Ready"],
+        ["UDP", node.udp_supported || node.udp_available === true ? "Ready" : "Unavailable"],
+        ["Health", nodeHealthDetail(node)]
+      ] : [["Status", "Import a subscription to select a node"]];
+      for (const [label, value] of pairs) {{
+        const row = document.createElement("div");
+        const labelElement = document.createElement("span");
+        const valueElement = document.createElement("strong");
+        labelElement.textContent = label;
+        valueElement.textContent = value;
+        row.append(labelElement, valueElement);
+        detail.appendChild(row);
+      }}
+    }}
+    window.keliSyncNodes = (snapshot) => {{
+      const subscription = snapshot.subscription;
+      setText("nodes-supported-count", subscription ? subscription.supported_count : 0);
+      setText("nodes-skipped-count", subscription ? subscription.skipped_count : 0);
+      setText("nodes-healthy-count", nodesHealthyCount(subscription));
+      setText("nodes-udp-ready-count", nodesUdpReadyCount(subscription));
+      setText("nodes-recommended", nodesRecommended(subscription));
+      const importUrlButton = document.getElementById("nodes-import-url-button");
+      const updateUrlButton = document.getElementById("nodes-update-url-button");
+      if (importUrlButton) importUrlButton.disabled = snapshot.status.run_state === "running";
+      if (updateUrlButton) updateUrlButton.disabled = snapshot.status.run_state !== "running";
+      renderNodesTable(subscription);
+      renderSelectedNodeDetail(subscription);
+    }};
     window.keliSetOperationStatus = (summary) => {{
       const status = document.getElementById("operation-status");
       const kind = summary.kind || "info";
@@ -987,6 +1273,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         : `Imported ${{summary.subscription ? summary.subscription.supported_count : 0}} nodes from ${{source}}`;
       const kind = summary.error ? "error" : "success";
       document.getElementById("subscription-url-status").textContent = label;
+      setText("nodes-subscription-url-status", label);
       window.keliSetOperationStatus({{ kind: kind, message: label }});
     }};
     window.keliSetSubscriptionUrlUpdate = (summary) => {{
@@ -1004,6 +1291,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
           : `Update not applied from ${{source}}: ${{fetch.error_kind || "unknown"}}`;
       const kind = summary.error || !summary.applied ? "error" : "success";
       document.getElementById("subscription-url-status").textContent = label;
+      setText("nodes-subscription-url-status", label);
       window.keliSetOperationStatus({{ kind: kind, message: label }});
     }};
     window.keliSetSubscriptionConfigImport = (summary) => {{
@@ -1188,6 +1476,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const primary = snapshot.primary_action;
       window.keliSyncOverview(snapshot);
       window.keliSyncDashboard(snapshot);
+      window.keliSyncNodes(snapshot);
       document.getElementById("run-state").textContent = runStateLabels[status.run_state] || status.run_state;
       document.getElementById("traffic-mode").textContent = trafficModeLabels[status.traffic_mode] || status.traffic_mode;
       document.getElementById("listen-address").textContent = status.listen || "Not listening";
@@ -1257,6 +1546,14 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         diagnostics_tun = escape_html(&diagnostics_tun),
         diagnostics_default_core = escape_html(&diagnostics_default_core),
         activity_summary = escape_html(&activity_summary),
+        nodes_supported_count = nodes_supported_count,
+        nodes_skipped_count = nodes_skipped_count,
+        nodes_healthy_count = nodes_healthy_count,
+        nodes_udp_ready_count = nodes_udp_ready_count,
+        nodes_recommended = escape_html(&nodes_recommended),
+        nodes_table_rows = nodes_table_rows,
+        selected_node_title = escape_html(&selected_node_title),
+        selected_node_detail = selected_node_detail,
         local_inbound_pressed = local_inbound_pressed,
         system_proxy_pressed = system_proxy_pressed,
         tun_pressed = tun_pressed,
@@ -1724,6 +2021,155 @@ fn node_buttons(subscription: Option<&DesktopSubscriptionSummary>) -> String {
     nodes.join("")
 }
 
+fn nodes_supported_count(subscription: Option<&DesktopSubscriptionSummary>) -> usize {
+    subscription
+        .map(|subscription| subscription.supported_count)
+        .unwrap_or(0)
+}
+
+fn nodes_skipped_count(subscription: Option<&DesktopSubscriptionSummary>) -> usize {
+    subscription
+        .map(|subscription| subscription.skipped_count)
+        .unwrap_or(0)
+}
+
+fn nodes_healthy_count(subscription: Option<&DesktopSubscriptionSummary>) -> usize {
+    subscription
+        .map(|subscription| {
+            subscription
+                .nodes
+                .iter()
+                .filter(|node| {
+                    node.health_state.as_deref() == Some("healthy")
+                        || node.tcp_available == Some(true)
+                })
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+fn nodes_udp_ready_count(subscription: Option<&DesktopSubscriptionSummary>) -> usize {
+    subscription
+        .map(|subscription| {
+            subscription
+                .nodes
+                .iter()
+                .filter(|node| node.udp_supported || node.udp_available == Some(true))
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+fn nodes_recommended(subscription: Option<&DesktopSubscriptionSummary>) -> String {
+    subscription
+        .and_then(|subscription| subscription.recommended_outbound.as_deref())
+        .unwrap_or("None")
+        .to_string()
+}
+
+fn selected_node(
+    subscription: Option<&DesktopSubscriptionSummary>,
+) -> Option<&keli_desktop::DesktopNodeSummary> {
+    let subscription = subscription?;
+    subscription
+        .nodes
+        .iter()
+        .find(|node| node.selected)
+        .or_else(|| {
+            subscription
+                .selected_outbound
+                .as_deref()
+                .and_then(|selected| subscription.nodes.iter().find(|node| node.tag == selected))
+        })
+        .or_else(|| subscription.nodes.first())
+}
+
+fn nodes_table_rows(subscription: Option<&DesktopSubscriptionSummary>) -> String {
+    let Some(subscription) = subscription else {
+        return r#"<tr><td colspan="7">No nodes</td></tr>"#.to_string();
+    };
+    if subscription.nodes.is_empty() {
+        return r#"<tr><td colspan="7">No nodes</td></tr>"#.to_string();
+    }
+
+    subscription
+        .nodes
+        .iter()
+        .map(|node| {
+            let selected = if node.selected { "true" } else { "false" };
+            let tag = escape_html(&node.tag);
+            let protocol = escape_html(&node.protocol);
+            let transport = escape_html(&node.transport);
+            let latency = node
+                .latency_ms
+                .map(|latency| format!("{latency} ms"))
+                .unwrap_or_else(|| "-".to_string());
+            let tcp = if node.tcp_available == Some(false) {
+                "Failed"
+            } else {
+                "Ready"
+            };
+            let udp = if node.udp_supported || node.udp_available == Some(true) {
+                "Ready"
+            } else {
+                "Unavailable"
+            };
+            let health = escape_html(&node_health_detail(node));
+            format!(
+                r#"<tr data-selected="{selected}" onclick="postSelectNode(this.dataset.nodeTag)" data-node-tag="{tag}"><td>{tag}</td><td>{protocol}</td><td>{transport}</td><td>{latency}</td><td>{tcp}</td><td>{udp}</td><td>{health}</td></tr>"#
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn selected_node_title(subscription: Option<&DesktopSubscriptionSummary>) -> String {
+    selected_node(subscription)
+        .map(|node| node.tag.clone())
+        .unwrap_or_else(|| "No node selected".to_string())
+}
+
+fn selected_node_detail(subscription: Option<&DesktopSubscriptionSummary>) -> String {
+    let Some(node) = selected_node(subscription) else {
+        return r#"<div><span>Status</span><strong>Import a subscription to select a node</strong></div>"#
+            .to_string();
+    };
+
+    let latency = node
+        .latency_ms
+        .map(|latency| format!("{latency} ms"))
+        .unwrap_or_else(|| "-".to_string());
+    let tcp = if node.tcp_available == Some(false) {
+        "Failed"
+    } else {
+        "Ready"
+    };
+    let udp = if node.udp_supported || node.udp_available == Some(true) {
+        "Ready"
+    } else {
+        "Unavailable"
+    };
+    [
+        ("Protocol", node.protocol.as_str()),
+        ("Transport", node.transport.as_str()),
+        ("Security", node.security.as_str()),
+        ("Latency", latency.as_str()),
+        ("TCP", tcp),
+        ("UDP", udp),
+        ("Health", node_health_detail(node).as_str()),
+    ]
+    .iter()
+    .map(|(label, value)| {
+        format!(
+            r#"<div><span>{}</span><strong>{}</strong></div>"#,
+            escape_html(label),
+            escape_html(value)
+        )
+    })
+    .collect::<Vec<_>>()
+    .join("")
+}
+
 fn node_health_detail(node: &keli_desktop::DesktopNodeSummary) -> String {
     let mut parts = Vec::new();
     if let Some(state) = node.health_state.as_deref() {
@@ -1922,6 +2368,50 @@ mod tests {
         assert!(html.contains("id=\"support-actions-panel\""));
         assert!(html.contains("id=\"dashboard-export-support-button\""));
         assert!(html.contains("window.keliSyncDashboard"));
+    }
+
+    #[test]
+    fn nodes_baseline_includes_subscription_toolbar_summary_and_filters() {
+        let mut snapshot = snapshot();
+        snapshot.refresh_subscription(Some(subscription("SS-READY")));
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("id=\"nodes-view\""));
+        assert!(html.contains("id=\"nodes-subscription-url\""));
+        assert!(html.contains("postImportNodesSubscriptionUrl()"));
+        assert!(html.contains("postUpdateNodesSubscriptionUrl()"));
+        assert!(html.contains("id=\"nodes-summary-strip\""));
+        assert!(html.contains("id=\"nodes-supported-count\""));
+        assert!(html.contains("id=\"nodes-skipped-count\""));
+        assert!(html.contains("id=\"nodes-healthy-count\""));
+        assert!(html.contains("id=\"nodes-udp-ready-count\""));
+        assert!(html.contains("id=\"node-filter-tabs\""));
+        assert!(html.contains("data-node-filter=\"udp-ready\""));
+    }
+
+    #[test]
+    fn nodes_baseline_renders_table_detail_and_live_sync() {
+        let mut snapshot = snapshot();
+        let mut summary = subscription("SS-READY");
+        summary.nodes[0].health_state = Some("healthy".to_string());
+        summary.nodes[0].tcp_available = Some(true);
+        summary.nodes[0].udp_available = Some(true);
+        summary.nodes[0].latency_ms = Some(42);
+        snapshot.refresh_subscription(Some(summary));
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("id=\"nodes-table-body\""));
+        assert!(html.contains("Name"));
+        assert!(html.contains("Protocol"));
+        assert!(html.contains("Transport"));
+        assert!(html.contains("Latency"));
+        assert!(html.contains("SS-READY"));
+        assert!(html.contains("id=\"selected-node-detail\""));
+        assert!(html.contains("id=\"selected-node-title\""));
+        assert!(html.contains("42 ms"));
+        assert!(html.contains("window.keliSyncNodes"));
     }
 
     #[test]
