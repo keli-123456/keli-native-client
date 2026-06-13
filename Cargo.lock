@@ -1506,9 +1506,11 @@ name = "keli-client-core"
 version = "0.1.425"
 dependencies = [
  "keli-protocol",
+ "rustls",
  "serde",
  "serde_json",
  "url",
+ "webpki-roots",
 ]
 
 [[package]]
