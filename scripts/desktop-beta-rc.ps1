@@ -167,6 +167,16 @@ function New-BetaManifest {
                 sha256 = [string]$artifact.sha256
             }
         })
+        smoke_evidence = [ordered]@{
+            install = [ordered]@{
+                support_export_smoke = [string]$Evidence.smoke.install.support_export_smoke
+                running_support_smoke = [string]$Evidence.smoke.install.running_support_smoke
+            }
+            msi = [ordered]@{
+                support_export_smoke = [string]$Evidence.smoke.msi.support_export_smoke
+                running_support_smoke = [string]$Evidence.smoke.msi.running_support_smoke
+            }
+        }
         verification_commands = @(
             'scripts\desktop-mvp-gate.ps1',
             'scripts\desktop-public-release-gate.ps1 -SkipGate',
@@ -203,6 +213,7 @@ function Write-BetaReleaseNotes {
         '- Microsoft Edge WebView2 Runtime is required.',
         '- TUN mode requires Wintun; system proxy mode can be tested first.',
         '- Support bundles are exported from Diagnostics under the user Documents Keli Support directory.',
+        '- The manifest lists packaged support export and running support smoke evidence.',
         '',
         '## Verification Commands',
         '- `scripts\desktop-mvp-gate.ps1`',
@@ -239,6 +250,7 @@ try {
         Write-Output 'require release evidence status passed'
         Write-Output 'require artifacts desktop-shell-exe portable-zip desktop-msi with sha256'
         Write-Output 'allow public_release_blockers artifact-signature-missing signing-certificate-missing machine-takeover-smoke-not-run only'
+        Write-Output 'include smoke_evidence running_support_smoke'
         Write-Output "write $manifestRelativePath"
         Write-Output "write $notesRelativePath"
         Write-Output 'output unsigned beta rc ready'

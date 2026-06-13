@@ -26,6 +26,7 @@ $expected = @(
     'check target\desktop-install-smoke\Keli\keli-desktop-manifest.json',
     'run target\desktop-install-smoke\Keli\keli-desktop-shell.exe --smoke',
     'run target\desktop-install-smoke\Keli\keli-desktop-shell.exe --support-export-smoke target\desktop-install-smoke\support-export',
+    'run target\desktop-install-smoke\Keli\keli-desktop-shell.exe --startup-connect-support-smoke',
     'manifest native_core_default true',
     'manifest manual_smoke import-subscription',
     'launch_smoke ui_workflow_entrypoint open-desktop-shell',
@@ -39,8 +40,13 @@ $expected = @(
     'support_export_smoke status passed',
     'support_export_smoke kind keli_desktop_support_bundle',
     'support_export_smoke desktop_dependencies true',
+    'running_support_smoke status passed',
+    'running_support_smoke desktop_status_running true',
+    'running_support_smoke diagnosis_selected true',
+    'running_support_smoke stopped_after_smoke true',
     'result target\desktop-install-smoke\desktop-shell-launch-smoke.json',
     'result target\desktop-install-smoke\desktop-support-export-smoke.json',
+    'result target\desktop-install-smoke\desktop-startup-connect-support-smoke.json',
     'result target\desktop-install-smoke\desktop-install-smoke.json'
 )
 

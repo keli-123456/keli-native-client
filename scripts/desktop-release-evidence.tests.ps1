@@ -32,8 +32,10 @@ $expected = @(
     'metadata install_smoke_first_run_dependency_actions',
     'metadata install_smoke_readme_subscription_import',
     'metadata install_smoke_support_export_smoke',
+    'metadata install_smoke_running_support_smoke',
     'metadata msi_smoke_manual_smoke_cases',
     'metadata msi_smoke_readme_subscription_import',
+    'metadata msi_smoke_running_support_smoke',
     'metadata public_release_ready false_when_unsigned',
     'metadata public_release_ready false_when_machine_takeover_missing',
     'metadata public_release_ready false_when_signing_missing',
@@ -61,11 +63,14 @@ foreach ($item in $expected) {
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $scriptDir '..')).Path
 $installSmokePath = Join-Path $repoRoot 'target\desktop-install-smoke\desktop-install-smoke.json'
 $backupInstallSmokePath = Join-Path $repoRoot 'target\desktop-release-evidence-tests\desktop-install-smoke.backup.json'
+$msiSmokePath = Join-Path $repoRoot 'target\desktop\keli-desktop-msi-smoke.json'
+$backupMsiSmokePath = Join-Path $repoRoot 'target\desktop-release-evidence-tests\desktop-msi-smoke.backup.json'
 $signingPath = Join-Path $repoRoot 'target\desktop\keli-desktop-signing.json'
 $backupSigningPath = Join-Path $repoRoot 'target\desktop-release-evidence-tests\keli-desktop-signing.backup.json'
 $backupDir = Split-Path -Parent $backupSigningPath
 New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
 Copy-Item -LiteralPath $installSmokePath -Destination $backupInstallSmokePath -Force
+Copy-Item -LiteralPath $msiSmokePath -Destination $backupMsiSmokePath -Force
 try {
     $installSmoke = Get-Content -Raw -LiteralPath $installSmokePath | ConvertFrom-Json
     $installSmoke | Add-Member -NotePropertyName first_run_system_proxy_ready -NotePropertyValue $true -Force
@@ -81,7 +86,24 @@ try {
     $installSmoke | Add-Member -NotePropertyName support_export_smoke -NotePropertyValue 'target\desktop-install-smoke\desktop-support-export-smoke.json' -Force
     $installSmoke | Add-Member -NotePropertyName support_export_kind -NotePropertyValue 'keli_desktop_support_bundle' -Force
     $installSmoke | Add-Member -NotePropertyName support_export_desktop_dependencies -NotePropertyValue $true -Force
+    $installSmoke | Add-Member -NotePropertyName running_support_smoke -NotePropertyValue 'target\desktop-install-smoke\desktop-startup-connect-support-smoke.json' -Force
+    $installSmoke | Add-Member -NotePropertyName running_support_desktop_status_running -NotePropertyValue $true -Force
+    $installSmoke | Add-Member -NotePropertyName running_support_desktop_status_selected -NotePropertyValue $true -Force
+    $installSmoke | Add-Member -NotePropertyName running_support_managed_status_selected -NotePropertyValue $true -Force
+    $installSmoke | Add-Member -NotePropertyName running_support_diagnosis_selected -NotePropertyValue $true -Force
+    $installSmoke | Add-Member -NotePropertyName running_support_redaction_ready -NotePropertyValue $true -Force
+    $installSmoke | Add-Member -NotePropertyName running_support_stopped_after_smoke -NotePropertyValue $true -Force
     $installSmoke | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $installSmokePath -Encoding ASCII
+
+    $msiSmoke = Get-Content -Raw -LiteralPath $msiSmokePath | ConvertFrom-Json
+    $msiSmoke | Add-Member -NotePropertyName running_support_smoke -NotePropertyValue 'target\desktop\keli-desktop-msi-startup-connect-support-smoke.json' -Force
+    $msiSmoke | Add-Member -NotePropertyName running_support_desktop_status_running -NotePropertyValue $true -Force
+    $msiSmoke | Add-Member -NotePropertyName running_support_desktop_status_selected -NotePropertyValue $true -Force
+    $msiSmoke | Add-Member -NotePropertyName running_support_managed_status_selected -NotePropertyValue $true -Force
+    $msiSmoke | Add-Member -NotePropertyName running_support_diagnosis_selected -NotePropertyValue $true -Force
+    $msiSmoke | Add-Member -NotePropertyName running_support_redaction_ready -NotePropertyValue $true -Force
+    $msiSmoke | Add-Member -NotePropertyName running_support_stopped_after_smoke -NotePropertyValue $true -Force
+    $msiSmoke | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $msiSmokePath -Encoding ASCII
 
     & powershell -NoProfile -ExecutionPolicy Bypass -File $releaseScript
     if ($LASTEXITCODE -ne 0) {
@@ -105,8 +127,21 @@ try {
     if ($dependencyReleaseEvidence.smoke.install.support_export_desktop_dependencies -ne $true) {
         throw 'release evidence support export desktop dependency evidence must be true'
     }
+    if ($dependencyReleaseEvidence.smoke.install.running_support_smoke -ne 'target\desktop-install-smoke\desktop-startup-connect-support-smoke.json') {
+        throw "release evidence install running support smoke mismatch: $($dependencyReleaseEvidence.smoke.install.running_support_smoke)"
+    }
+    if ($dependencyReleaseEvidence.smoke.install.running_support_diagnosis_selected -ne $true) {
+        throw 'release evidence install running support diagnosis evidence must be true'
+    }
+    if ($dependencyReleaseEvidence.smoke.msi.running_support_smoke -ne 'target\desktop\keli-desktop-msi-startup-connect-support-smoke.json') {
+        throw "release evidence MSI running support smoke mismatch: $($dependencyReleaseEvidence.smoke.msi.running_support_smoke)"
+    }
+    if ($dependencyReleaseEvidence.smoke.msi.running_support_stopped_after_smoke -ne $true) {
+        throw 'release evidence MSI running support stop evidence must be true'
+    }
 } finally {
     Copy-Item -LiteralPath $backupInstallSmokePath -Destination $installSmokePath -Force
+    Copy-Item -LiteralPath $backupMsiSmokePath -Destination $msiSmokePath -Force
 }
 if (!(Test-Path -LiteralPath $signingPath)) {
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptDir 'desktop-signing.ps1')

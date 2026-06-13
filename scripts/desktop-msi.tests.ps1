@@ -31,6 +31,10 @@ $expected = @(
     'admin_extract support_export_smoke target\desktop\keli-desktop-msi-support-export-smoke.json',
     'admin_extract support_export_kind keli_desktop_support_bundle',
     'admin_extract support_export_desktop_dependencies true',
+    'admin_extract running_support_smoke target\desktop\keli-desktop-msi-startup-connect-support-smoke.json',
+    'admin_extract running_support_desktop_status_running true',
+    'admin_extract running_support_diagnosis_selected true',
+    'admin_extract running_support_stopped_after_smoke true',
     'smoke target\desktop\keli-desktop-msi-smoke.json'
 )
 

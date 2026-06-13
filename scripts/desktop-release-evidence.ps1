@@ -155,6 +155,11 @@ function Read-SmokeStatus {
         $supportExportDesktopDependencies = [bool]$smoke.support_export_desktop_dependencies
     }
 
+    $runningSupportSmoke = $null
+    if ($null -ne $smoke.PSObject.Properties['running_support_smoke']) {
+        $runningSupportSmoke = [string]$smoke.running_support_smoke
+    }
+
     $status = [ordered]@{
         path = $RelativePath
         status = [string]$smoke.status
@@ -192,6 +197,21 @@ function Read-SmokeStatus {
     }
     if ($null -ne $supportExportDesktopDependencies) {
         $status['support_export_desktop_dependencies'] = $supportExportDesktopDependencies
+    }
+    if (![string]::IsNullOrWhiteSpace($runningSupportSmoke)) {
+        $status['running_support_smoke'] = $runningSupportSmoke
+    }
+    foreach ($field in @(
+        'running_support_desktop_status_running',
+        'running_support_desktop_status_selected',
+        'running_support_managed_status_selected',
+        'running_support_diagnosis_selected',
+        'running_support_redaction_ready',
+        'running_support_stopped_after_smoke'
+    )) {
+        if ($null -ne $smoke.PSObject.Properties[$field]) {
+            $status[$field] = [bool]$smoke.$field
+        }
     }
     return $status
 }
@@ -422,8 +442,10 @@ try {
         Write-Output 'metadata install_smoke_first_run_dependency_actions'
         Write-Output 'metadata install_smoke_readme_subscription_import'
         Write-Output 'metadata install_smoke_support_export_smoke'
+        Write-Output 'metadata install_smoke_running_support_smoke'
         Write-Output 'metadata msi_smoke_manual_smoke_cases'
         Write-Output 'metadata msi_smoke_readme_subscription_import'
+        Write-Output 'metadata msi_smoke_running_support_smoke'
         Write-Output 'metadata public_release_ready false_when_unsigned'
         Write-Output 'metadata public_release_ready false_when_machine_takeover_missing'
         Write-Output 'metadata public_release_ready false_when_signing_missing'

@@ -170,6 +170,30 @@ function Test-MsiSupportExportEvidence {
     )
 }
 
+function Test-RunningSupportEvidence {
+    param(
+        [AllowNull()]
+        [object]$Smoke,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedSmokePath
+    )
+
+    if ($null -eq $Smoke) {
+        return $false
+    }
+
+    return (
+        ([string]$Smoke.running_support_smoke -eq $ExpectedSmokePath) -and
+        (Get-BoolProperty -InputObject $Smoke -Name 'running_support_desktop_status_running') -and
+        (Get-BoolProperty -InputObject $Smoke -Name 'running_support_desktop_status_selected') -and
+        (Get-BoolProperty -InputObject $Smoke -Name 'running_support_managed_status_selected') -and
+        (Get-BoolProperty -InputObject $Smoke -Name 'running_support_diagnosis_selected') -and
+        (Get-BoolProperty -InputObject $Smoke -Name 'running_support_redaction_ready') -and
+        (Get-BoolProperty -InputObject $Smoke -Name 'running_support_stopped_after_smoke')
+    )
+}
+
 function Test-MachineSmokeEvidence {
     param(
         [AllowNull()]
@@ -250,6 +274,9 @@ function New-DesktopMvpStatus {
         (Test-StringArrayContainsAll -Values $installSmoke.verified_ui_workflow_entrypoints -Expected $expectedWorkflows)
     )
     $supportBundleReady = Test-SupportExportEvidence -InstallSmoke $installSmoke
+    $runningSupportBundleReady = Test-RunningSupportEvidence `
+        -Smoke $installSmoke `
+        -ExpectedSmokePath 'target\desktop-install-smoke\desktop-startup-connect-support-smoke.json'
     $installFirstRunDependencyReady = Test-InstallFirstRunDependencyEvidence -InstallSmoke $installSmoke
     $msiWorkflowReady = (
         (Get-BoolProperty -InputObject $msiSmoke -Name 'native_core_default') -and
@@ -257,6 +284,9 @@ function New-DesktopMvpStatus {
         (Test-StringArrayContainsAll -Values $msiSmoke.manual_smoke_cases -Expected $expectedWorkflows)
     )
     $msiSupportBundleReady = Test-MsiSupportExportEvidence -MsiSmoke $msiSmoke
+    $msiRunningSupportBundleReady = Test-RunningSupportEvidence `
+        -Smoke $msiSmoke `
+        -ExpectedSmokePath 'target\desktop\keli-desktop-msi-startup-connect-support-smoke.json'
     $machineReady = Test-MachineSmokeEvidence -MachineSmoke $machineSmoke
     $nativeCoreReady = Get-BoolProperty -InputObject $Evidence -Name 'native_core_default'
 
@@ -268,9 +298,11 @@ function New-DesktopMvpStatus {
         (New-Requirement -Id 'package-artifacts' -Ready $artifactReady -Evidence 'release.artifacts'),
         (New-Requirement -Id 'install-smoke-workflows' -Ready $installWorkflowReady -Evidence 'release.smoke.install'),
         (New-Requirement -Id 'support-bundle-export' -Ready $supportBundleReady -Evidence 'release.smoke.install.support_export_smoke'),
+        (New-Requirement -Id 'running-support-bundle-export' -Ready $runningSupportBundleReady -Evidence 'release.smoke.install.running_support_smoke'),
         (New-Requirement -Id 'install-first-run-dependencies' -Ready $installFirstRunDependencyReady -Evidence 'release.smoke.install.first_run_blockers'),
         (New-Requirement -Id 'msi-smoke-workflows' -Ready $msiWorkflowReady -Evidence 'release.smoke.msi'),
         (New-Requirement -Id 'msi-support-bundle-export' -Ready $msiSupportBundleReady -Evidence 'release.smoke.msi.support_export_smoke'),
+        (New-Requirement -Id 'msi-running-support-bundle-export' -Ready $msiRunningSupportBundleReady -Evidence 'release.smoke.msi.running_support_smoke'),
         (New-Requirement -Id 'machine-takeover' -Ready $machineReady -Evidence 'release.smoke.machine')
     )
     $requirements = @($localRequirements + (New-Requirement -Id 'public-release-signing' -Ready $publicReleaseReady -Evidence 'release.public_release_ready' -Blockers $publicReleaseBlockers))
@@ -325,6 +357,7 @@ try {
         Write-Output 'read native_core_default artifacts smoke.install smoke.msi smoke.machine signing public_release_blockers public_release_next_steps'
         Write-Output 'require workflow ids open-desktop-shell import-subscription select-node start-stop-system-proxy tun-preflight export-support-bundle'
         Write-Output 'require support-bundle-export workflow and export smoke evidence'
+        Write-Output 'require running-support-bundle-export smoke evidence'
         Write-Output 'require msi-support-bundle-export smoke evidence'
         Write-Output 'require install first_run dependency blockers have action entrypoints'
         Write-Output 'output desktop_mvp_ready and public_release_ready'

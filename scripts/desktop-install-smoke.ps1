@@ -84,6 +84,56 @@ function Require-LaunchSmokeEntrypoint {
     }
 }
 
+function Convert-SmokeOutputToJsonText {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$Output,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    $text = ($Output | ForEach-Object { [string]$_ }) -join "`n"
+    $start = $text.IndexOf('{')
+    $end = $text.LastIndexOf('}')
+    if ($start -lt 0 -or $end -lt $start) {
+        throw "$Name smoke JSON output was not found"
+    }
+    return $text.Substring($start, $end - $start + 1)
+}
+
+function Require-RunningSupportSmokeEvidence {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Smoke,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if ($Smoke.status -ne 'passed') {
+        throw "$Name running support smoke status mismatch: $($Smoke.status)"
+    }
+    if ($Smoke.desktop_status_running -ne $true) {
+        throw "$Name running support smoke desktop_status_running must be true"
+    }
+    if ($Smoke.desktop_status_selected -ne $true) {
+        throw "$Name running support smoke desktop_status_selected must be true"
+    }
+    if ($Smoke.managed_status_selected -ne $true) {
+        throw "$Name running support smoke managed_status_selected must be true"
+    }
+    if ($Smoke.diagnosis_selected -ne $true) {
+        throw "$Name running support smoke diagnosis_selected must be true"
+    }
+    if ($Smoke.redaction_ready -ne $true) {
+        throw "$Name running support smoke redaction_ready must be true"
+    }
+    if ($Smoke.stopped_after_smoke -ne $true) {
+        throw "$Name running support smoke stopped_after_smoke must be true"
+    }
+}
+
 $repoRoot = Resolve-RepoRoot
 $zipPath = Join-Path $repoRoot 'target\desktop\keli-desktop-mvp-windows-x64.zip'
 $smokeRoot = Join-Path $repoRoot 'target\desktop-install-smoke'
@@ -94,6 +144,7 @@ $manifestPath = Join-Path $installDir 'keli-desktop-manifest.json'
 $launchSmokePath = Join-Path $smokeRoot 'desktop-shell-launch-smoke.json'
 $supportExportSmokeDir = Join-Path $smokeRoot 'support-export'
 $supportExportSmokePath = Join-Path $smokeRoot 'desktop-support-export-smoke.json'
+$runningSupportSmokePath = Join-Path $smokeRoot 'desktop-startup-connect-support-smoke.json'
 $resultPath = Join-Path $smokeRoot 'desktop-install-smoke.json'
 
 Push-Location $repoRoot
@@ -107,6 +158,7 @@ try {
         Write-Output 'check target\desktop-install-smoke\Keli\keli-desktop-manifest.json'
         Write-Output 'run target\desktop-install-smoke\Keli\keli-desktop-shell.exe --smoke'
         Write-Output 'run target\desktop-install-smoke\Keli\keli-desktop-shell.exe --support-export-smoke target\desktop-install-smoke\support-export'
+        Write-Output 'run target\desktop-install-smoke\Keli\keli-desktop-shell.exe --startup-connect-support-smoke'
         Write-Output 'manifest native_core_default true'
         Write-Output 'manifest manual_smoke import-subscription'
         Write-Output 'launch_smoke ui_workflow_entrypoint open-desktop-shell'
@@ -120,8 +172,13 @@ try {
         Write-Output 'support_export_smoke status passed'
         Write-Output 'support_export_smoke kind keli_desktop_support_bundle'
         Write-Output 'support_export_smoke desktop_dependencies true'
+        Write-Output 'running_support_smoke status passed'
+        Write-Output 'running_support_smoke desktop_status_running true'
+        Write-Output 'running_support_smoke diagnosis_selected true'
+        Write-Output 'running_support_smoke stopped_after_smoke true'
         Write-Output 'result target\desktop-install-smoke\desktop-shell-launch-smoke.json'
         Write-Output 'result target\desktop-install-smoke\desktop-support-export-smoke.json'
+        Write-Output 'result target\desktop-install-smoke\desktop-startup-connect-support-smoke.json'
         Write-Output 'result target\desktop-install-smoke\desktop-install-smoke.json'
         return
     }
@@ -189,6 +246,15 @@ try {
         throw 'desktop shell support export smoke desktop_dependencies must be true'
     }
 
+    $runningSupportOutput = & $exePath --startup-connect-support-smoke
+    if ($LASTEXITCODE -ne 0) {
+        throw "desktop shell running support smoke failed with exit code $LASTEXITCODE"
+    }
+    $runningSupportJson = Convert-SmokeOutputToJsonText -Output $runningSupportOutput -Name 'desktop shell running support'
+    $runningSupportJson | Set-Content -LiteralPath $runningSupportSmokePath -Encoding ASCII
+    $runningSupportSmoke = $runningSupportJson | ConvertFrom-Json
+    Require-RunningSupportSmokeEvidence -Smoke $runningSupportSmoke -Name 'desktop shell'
+
     $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
     if ($manifest.executable -ne 'keli-desktop-shell.exe') {
         throw "manifest executable mismatch: $($manifest.executable)"
@@ -215,6 +281,13 @@ try {
         support_export_path = [string]$supportExportSmoke.path
         support_export_kind = [string]$supportExportSmoke.kind
         support_export_desktop_dependencies = [bool]$supportExportSmoke.desktop_dependencies
+        running_support_smoke = 'target\desktop-install-smoke\desktop-startup-connect-support-smoke.json'
+        running_support_desktop_status_running = [bool]$runningSupportSmoke.desktop_status_running
+        running_support_desktop_status_selected = [bool]$runningSupportSmoke.desktop_status_selected
+        running_support_managed_status_selected = [bool]$runningSupportSmoke.managed_status_selected
+        running_support_diagnosis_selected = [bool]$runningSupportSmoke.diagnosis_selected
+        running_support_redaction_ready = [bool]$runningSupportSmoke.redaction_ready
+        running_support_stopped_after_smoke = [bool]$runningSupportSmoke.stopped_after_smoke
         readme_subscription_import = 'subscription-url-or-config'
         manual_smoke_cases = $manifest.manual_smoke
         verified_ui_workflow_entrypoints = $launchSmoke.ui_workflow_entrypoints

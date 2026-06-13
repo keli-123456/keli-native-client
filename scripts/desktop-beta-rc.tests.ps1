@@ -25,6 +25,7 @@ $expectedPlan = @(
     'require release evidence status passed',
     'require artifacts desktop-shell-exe portable-zip desktop-msi with sha256',
     'allow public_release_blockers artifact-signature-missing signing-certificate-missing machine-takeover-smoke-not-run only',
+    'include smoke_evidence running_support_smoke',
     'write target\desktop\keli-desktop-unsigned-beta-manifest.json',
     'write target\desktop\keli-desktop-unsigned-beta-release-notes.md',
     'output unsigned beta rc ready'
@@ -112,6 +113,13 @@ $fixture = [ordered]@{
             support_export_smoke = 'target\desktop-install-smoke\desktop-support-export-smoke.json'
             support_export_kind = 'keli_desktop_support_bundle'
             support_export_desktop_dependencies = $true
+            running_support_smoke = 'target\desktop-install-smoke\desktop-startup-connect-support-smoke.json'
+            running_support_desktop_status_running = $true
+            running_support_desktop_status_selected = $true
+            running_support_managed_status_selected = $true
+            running_support_diagnosis_selected = $true
+            running_support_redaction_ready = $true
+            running_support_stopped_after_smoke = $true
         }
         msi = [ordered]@{
             status = 'passed'
@@ -121,6 +129,13 @@ $fixture = [ordered]@{
             support_export_smoke = 'target\desktop\keli-desktop-msi-support-export-smoke.json'
             support_export_kind = 'keli_desktop_support_bundle'
             support_export_desktop_dependencies = $true
+            running_support_smoke = 'target\desktop\keli-desktop-msi-startup-connect-support-smoke.json'
+            running_support_desktop_status_running = $true
+            running_support_desktop_status_selected = $true
+            running_support_managed_status_selected = $true
+            running_support_diagnosis_selected = $true
+            running_support_redaction_ready = $true
+            running_support_stopped_after_smoke = $true
         }
         machine = [ordered]@{
             status = 'passed'
@@ -171,6 +186,12 @@ if ($manifest.artifacts.Count -ne 3) {
 }
 if (($manifest.verification_commands -join "`n") -notlike '*scripts\desktop-beta-rc.ps1*') {
     throw 'manifest verification commands must include beta RC gate'
+}
+if ($manifest.smoke_evidence.install.running_support_smoke -ne 'target\desktop-install-smoke\desktop-startup-connect-support-smoke.json') {
+    throw "manifest install running support smoke mismatch: $($manifest.smoke_evidence.install.running_support_smoke)"
+}
+if ($manifest.smoke_evidence.msi.running_support_smoke -ne 'target\desktop\keli-desktop-msi-startup-connect-support-smoke.json') {
+    throw "manifest MSI running support smoke mismatch: $($manifest.smoke_evidence.msi.running_support_smoke)"
 }
 
 $notes = Get-Content -Raw -LiteralPath $notesPath
