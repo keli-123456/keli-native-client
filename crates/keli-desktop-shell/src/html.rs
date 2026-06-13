@@ -56,6 +56,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let diagnostics_node_health = diagnostics_node_health(snapshot);
     let diagnostics_recent_event = diagnostics_recent_event(snapshot);
     let runtime_event_items = runtime_event_items(snapshot);
+    let diagnostics_runtime_log_rows = diagnostics_runtime_log_rows(snapshot);
     let diagnostics_system_proxy = diagnostics_system_proxy(snapshot);
     let diagnostics_tun = diagnostics_tun(snapshot);
     let diagnostics_default_core = diagnostics_default_core(snapshot);
@@ -391,6 +392,88 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       border-bottom: 1px solid #edf0f3;
       padding-bottom: 7px;
     }}
+    .diagnostics-view {{
+      display: grid;
+      gap: 14px;
+    }}
+    .readiness-list {{
+      display: grid;
+      border-top: 1px solid #edf0f3;
+    }}
+    .readiness-row {{
+      min-height: 48px;
+      display: grid;
+      grid-template-columns: minmax(160px, 1fr) minmax(100px, auto) minmax(220px, 2fr) auto;
+      gap: 10px;
+      align-items: center;
+      border-bottom: 1px solid #edf0f3;
+      color: #4d5968;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }}
+    .readiness-row strong {{
+      color: #171a1f;
+      font-weight: 650;
+    }}
+    .status-warning {{
+      color: #9a5b00;
+      font-weight: 700;
+    }}
+    .diagnostics-grid {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 0.85fr);
+      gap: 14px;
+      align-items: start;
+    }}
+    .metrics-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .metric-tile {{
+      min-height: 76px;
+      padding: 12px;
+      border: 1px solid #d9dee5;
+      border-radius: 8px;
+      background: #ffffff;
+    }}
+    .metric-value {{
+      color: #171a1f;
+      font-size: 19px;
+      font-weight: 750;
+      overflow-wrap: anywhere;
+    }}
+    .metric-label {{
+      margin-top: 4px;
+      color: #657386;
+      font-size: 12px;
+      font-weight: 650;
+    }}
+    .settings-strip {{
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .settings-field label {{
+      display: block;
+      margin-bottom: 6px;
+      color: #657386;
+      font-size: 12px;
+      font-weight: 650;
+    }}
+    .toggle-row {{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      color: #4d5968;
+      font-size: 13px;
+      font-weight: 650;
+    }}
+    .toggle-row input {{
+      width: auto;
+      min-height: 0;
+    }}
     .dashboard-row {{
       display: grid;
       grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
@@ -672,10 +755,18 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       .grid,
       .quick-status,
       .dashboard-row,
+      .diagnostics-grid,
+      .metrics-grid,
+      .settings-strip,
       .nodes-toolbar,
       .nodes-summary-strip,
       .nodes-content {{
         grid-template-columns: 1fr;
+      }}
+      .readiness-row {{
+        grid-template-columns: 1fr;
+        gap: 4px;
+        padding: 10px 0;
       }}
       .command-panel {{
         grid-template-columns: 1fr;
@@ -939,6 +1030,118 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         </section>
       </div>
     </section>
+    <div class="app-view diagnostics-view" id="diagnostics-view" data-app-view hidden>
+      <section id="readiness-checklist">
+        <h2>Readiness checklist</h2>
+        <div class="readiness-list">
+          <div class="readiness-row" id="readiness-system-proxy">
+            <strong>System proxy</strong>
+            <span class="status-ok" id="readiness-system-proxy-state">Tracked</span>
+            <span id="readiness-system-proxy-detail">{system_proxy_dependency}</span>
+            <button onclick="postDependencyAction('refresh-system-proxy')">Check</button>
+          </div>
+          <div class="readiness-row" id="readiness-tun-wintun">
+            <strong>TUN / Wintun</strong>
+            <span class="status-ok" id="readiness-tun-wintun-state">Tracked</span>
+            <span id="readiness-tun-wintun-detail">{tun_dependency}</span>
+            <button onclick="postDependencyAction('install-wintun')">Install</button>
+          </div>
+          <div class="readiness-row" id="readiness-dns-policy">
+            <strong>DNS policy</strong>
+            <span class="status-ok">Ready</span>
+            <span id="readiness-dns-policy-detail">Runtime DNS policy smoke evidence available</span>
+            <button onclick="window.ipc.postMessage('refresh')">Refresh</button>
+          </div>
+          <div class="readiness-row" id="readiness-route-takeover">
+            <strong>Route takeover</strong>
+            <span class="status-ok">Ready</span>
+            <span id="readiness-route-takeover-detail">Current mode: {traffic_mode}</span>
+            <button onclick="postTrafficMode('tun')">TUN</button>
+          </div>
+          <div class="readiness-row" id="readiness-subscription-updater">
+            <strong>Subscription updater</strong>
+            <span class="status-ok">Ready</span>
+            <span id="readiness-subscription-updater-detail">{subscription_summary}</span>
+            <button onclick="postRefreshNodeHealth()">Health</button>
+          </div>
+          <div class="readiness-row" id="readiness-signing-status">
+            <strong>Signing status</strong>
+            <span class="status-warning">Unsigned beta</span>
+            <span id="readiness-signing-status-detail">Release chain can publish unsigned builds while certificate procurement is pending</span>
+            <button onclick="window.ipc.postMessage('refresh')">Check</button>
+          </div>
+        </div>
+      </section>
+      <div class="diagnostics-grid">
+        <section id="diagnostics-runtime-log-panel">
+          <h2>Runtime events</h2>
+          <table aria-label="Diagnostics runtime log">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>State</th>
+                <th>Note</th>
+              </tr>
+            </thead>
+            <tbody id="diagnostics-runtime-log-body">{diagnostics_runtime_log_rows}</tbody>
+          </table>
+        </section>
+        <section id="diagnostics-metrics-panel">
+          <h2>Metrics</h2>
+          <div class="metrics-grid">
+            <div class="metric-tile">
+              <div class="metric-value" id="diagnostics-metric-connections">{diagnostics_connection_metrics}</div>
+              <div class="metric-label">Connections</div>
+            </div>
+            <div class="metric-tile">
+              <div class="metric-value" id="diagnostics-metric-node-health">{diagnostics_node_health}</div>
+              <div class="metric-label">Node health</div>
+            </div>
+            <div class="metric-tile">
+              <div class="metric-value" id="diagnostics-metric-last-error">{diagnostics_last_error}</div>
+              <div class="metric-label">Last error</div>
+            </div>
+            <div class="metric-tile">
+              <div class="metric-value" id="diagnostics-metric-activity">{activity_summary}</div>
+              <div class="metric-label">Activity</div>
+            </div>
+          </div>
+        </section>
+      </div>
+      <div class="diagnostics-grid">
+        <section id="diagnostics-support-panel">
+          <h2>Support bundle</h2>
+          <div class="value">Diagnostics export</div>
+          <div class="muted" id="diagnostics-support-status">No support bundle exported</div>
+          <div class="support-actions">
+            <button id="diagnostics-export-button" class="primary" onclick="window.ipc.postMessage('export-support-bundle')">Export diagnostics</button>
+            <button id="diagnostics-copy-logs-button" onclick="postCopyDiagnosticsLogs()">Copy logs</button>
+            <label class="toggle-row"><input id="include-certification-toggle" type="checkbox" checked /> Include certification</label>
+          </div>
+        </section>
+        <section id="diagnostics-settings-panel">
+          <h2>Settings</h2>
+          <div class="settings-strip">
+            <div class="settings-field">
+              <label for="diagnostics-mixed-port">Mixed port</label>
+              <input id="diagnostics-mixed-port" type="number" inputmode="numeric" value="7890" />
+            </div>
+            <div class="settings-field">
+              <label for="diagnostics-socks-port">SOCKS port</label>
+              <input id="diagnostics-socks-port" type="number" inputmode="numeric" value="7891" />
+            </div>
+            <div class="settings-field">
+              <label for="diagnostics-http-port">HTTP port</label>
+              <input id="diagnostics-http-port" type="number" inputmode="numeric" value="7892" />
+            </div>
+            <div class="settings-field">
+              <label for="diagnostics-max-workers">Workers</label>
+              <input id="diagnostics-max-workers" type="number" inputmode="numeric" value="4" />
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
     <pre id="snapshot-json">{snapshot_json}</pre>
   </main>
   </div>
@@ -1007,6 +1210,18 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       postJson({{
         type: "refresh-node-health"
       }});
+    }}
+    function postCopyDiagnosticsLogs() {{
+      const snapshot = document.getElementById("snapshot-json");
+      const text = snapshot ? snapshot.textContent : "";
+      if (navigator.clipboard && navigator.clipboard.writeText) {{
+        navigator.clipboard.writeText(text).then(
+          () => window.keliSetOperationStatus({{ kind: "success", message: "Diagnostics snapshot copied" }}),
+          () => window.keliSetOperationStatus({{ kind: "error", message: "Unable to copy diagnostics snapshot" }})
+        );
+        return;
+      }}
+      window.keliSetOperationStatus({{ kind: "info", message: "Diagnostics snapshot is available below" }});
     }}
     function postTrafficMode(trafficMode) {{
       postJson({{
@@ -1249,6 +1464,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         : `${{summary.status}}: ${{summary.path || ""}}`;
       const kind = summary.status === "saved" ? "success" : "error";
       document.getElementById("support-export-status").textContent = label;
+      setText("diagnostics-support-status", label);
       window.keliSetOperationStatus({{ kind: kind, message: label }});
     }};
     window.keliSetWintunInstall = (summary) => {{
@@ -1404,6 +1620,33 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       renderRuntimeEventListInto("runtime-event-list", snapshot);
       renderRuntimeEventListInto("dashboard-runtime-event-list", snapshot);
     }}
+    function appendDiagnosticsRuntimeLogRow(container, index, status, note) {{
+      const row = document.createElement("tr");
+      for (const value of [index, status, note]) {{
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        row.appendChild(cell);
+      }}
+      container.appendChild(row);
+    }}
+    function renderDiagnosticsRuntimeLog(snapshot) {{
+      const body = document.getElementById("diagnostics-runtime-log-body");
+      if (!body) return;
+      body.replaceChildren();
+      const events = (snapshot.status.recent_events || []).slice(0, 8);
+      if (!events.length) {{
+        appendDiagnosticsRuntimeLogRow(body, "Idle", "core", "No runtime events");
+        return;
+      }}
+      events.forEach((event, index) => {{
+        appendDiagnosticsRuntimeLogRow(
+          body,
+          index + 1,
+          runStateLabels[event.status] || event.status,
+          event.note || "No event detail"
+        );
+      }});
+    }}
     function diagnosticsSystemProxy(snapshot) {{
       return `System proxy: ${{systemProxyDependency(snapshot)}}`;
     }}
@@ -1441,6 +1684,14 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         ? "Dependencies ready"
         : "Dependencies need attention";
     }}
+    function setReadiness(prefix, ready, detail) {{
+      const state = document.getElementById(`${{prefix}}-state`);
+      if (state) {{
+        state.textContent = ready ? "Ready" : "Needs action";
+        state.className = ready ? "status-ok" : "status-warning";
+      }}
+      setText(`${{prefix}}-detail`, detail);
+    }}
     window.keliSyncDashboard = (snapshot) => {{
       const status = snapshot.status;
       setText("nav-run-state", runStateLabels[status.run_state] || status.run_state);
@@ -1456,6 +1707,21 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setText("dashboard-blockers", dependencyBlockers(snapshot));
       renderRuntimeEventList(snapshot);
       renderDependencyActions(snapshot);
+    }};
+    window.keliSyncDiagnosticsView = (snapshot) => {{
+      const firstRun = snapshot.dependencies.first_run;
+      setReadiness("readiness-system-proxy", firstRun.system_proxy_ready, systemProxyDependency(snapshot));
+      setReadiness("readiness-tun-wintun", firstRun.tun_ready, tunDependency(snapshot));
+      setText(
+        "readiness-route-takeover-detail",
+        `Current mode: ${{trafficModeLabels[snapshot.status.traffic_mode] || snapshot.status.traffic_mode}}`
+      );
+      setText("readiness-subscription-updater-detail", subscriptionSummary(snapshot.subscription));
+      setText("diagnostics-metric-connections", diagnosticsConnectionMetrics(snapshot));
+      setText("diagnostics-metric-node-health", diagnosticsNodeHealth(snapshot));
+      setText("diagnostics-metric-last-error", diagnosticsLastError(snapshot));
+      setText("diagnostics-metric-activity", overviewActivity(snapshot));
+      renderDiagnosticsRuntimeLog(snapshot);
     }};
     window.keliSyncOverview = (snapshot) => {{
       const status = snapshot.status;
@@ -1477,6 +1743,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       window.keliSyncOverview(snapshot);
       window.keliSyncDashboard(snapshot);
       window.keliSyncNodes(snapshot);
+      window.keliSyncDiagnosticsView(snapshot);
       document.getElementById("run-state").textContent = runStateLabels[status.run_state] || status.run_state;
       document.getElementById("traffic-mode").textContent = trafficModeLabels[status.traffic_mode] || status.traffic_mode;
       document.getElementById("listen-address").textContent = status.listen || "Not listening";
@@ -1542,6 +1809,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         diagnostics_node_health = escape_html(&diagnostics_node_health),
         diagnostics_recent_event = escape_html(&diagnostics_recent_event),
         runtime_event_items = runtime_event_items,
+        diagnostics_runtime_log_rows = diagnostics_runtime_log_rows,
         diagnostics_system_proxy = escape_html(&diagnostics_system_proxy),
         diagnostics_tun = escape_html(&diagnostics_tun),
         diagnostics_default_core = escape_html(&diagnostics_default_core),
@@ -1906,6 +2174,27 @@ fn runtime_event_items(snapshot: &DesktopShellState) -> String {
             format!(
                 r#"<div class="event-row"><span class="event-state">{status}</span><span>{note}</span></div>"#
             )
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn diagnostics_runtime_log_rows(snapshot: &DesktopShellState) -> String {
+    if snapshot.status.recent_events.is_empty() {
+        return r#"<tr><td>Idle</td><td>core</td><td>No runtime events</td></tr>"#.to_string();
+    }
+
+    snapshot
+        .status
+        .recent_events
+        .iter()
+        .take(8)
+        .enumerate()
+        .map(|(index, event)| {
+            let number = index + 1;
+            let status = escape_html(run_state_label(event.status));
+            let note = escape_html(event.note.as_deref().unwrap_or("No event detail"));
+            format!(r#"<tr><td>{number}</td><td>{status}</td><td>{note}</td></tr>"#)
         })
         .collect::<Vec<_>>()
         .join("")
@@ -2412,6 +2701,50 @@ mod tests {
         assert!(html.contains("id=\"selected-node-title\""));
         assert!(html.contains("42 ms"));
         assert!(html.contains("window.keliSyncNodes"));
+    }
+
+    #[test]
+    fn diagnostics_baseline_includes_readiness_runtime_and_metrics_panels() {
+        let mut snapshot = snapshot();
+        snapshot.status.connection_metrics.total = 12;
+        snapshot.status.connection_metrics.success = 11;
+        snapshot.status.connection_metrics.failure = 1;
+        snapshot.status.connection_metrics.average_connect_ms = Some(18);
+        snapshot.status.recent_events = vec![DesktopRecentRuntimeEvent {
+            status: DesktopRunState::Running,
+            note: Some("listener ready".to_string()),
+        }];
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("id=\"diagnostics-view\""));
+        assert!(html.contains("id=\"readiness-checklist\""));
+        assert!(html.contains("id=\"readiness-system-proxy\""));
+        assert!(html.contains("id=\"readiness-tun-wintun\""));
+        assert!(html.contains("id=\"readiness-dns-policy\""));
+        assert!(html.contains("id=\"readiness-route-takeover\""));
+        assert!(html.contains("id=\"readiness-signing-status\""));
+        assert!(html.contains("id=\"diagnostics-runtime-log-panel\""));
+        assert!(html.contains("id=\"diagnostics-runtime-log-body\""));
+        assert!(html.contains("listener ready"));
+        assert!(html.contains("id=\"diagnostics-metrics-panel\""));
+        assert!(html.contains("Connections 12 total, 11 ok, 1 failed, avg connect 18 ms"));
+    }
+
+    #[test]
+    fn diagnostics_baseline_includes_support_settings_and_live_sync() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("id=\"diagnostics-support-panel\""));
+        assert!(html.contains("id=\"diagnostics-export-button\""));
+        assert!(html.contains("id=\"diagnostics-copy-logs-button\""));
+        assert!(html.contains("id=\"include-certification-toggle\""));
+        assert!(html.contains("id=\"diagnostics-settings-panel\""));
+        assert!(html.contains("id=\"diagnostics-mixed-port\""));
+        assert!(html.contains("id=\"diagnostics-socks-port\""));
+        assert!(html.contains("id=\"diagnostics-http-port\""));
+        assert!(html.contains("id=\"diagnostics-max-workers\""));
+        assert!(html.contains("window.keliSyncDiagnosticsView"));
     }
 
     #[test]
