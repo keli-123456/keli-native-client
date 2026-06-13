@@ -71,6 +71,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let diagnostics_default_core = diagnostics_default_core(snapshot);
     let readiness_system_proxy_detail = readiness_system_proxy_detail(snapshot);
     let readiness_tun_detail = readiness_tun_detail(snapshot);
+    let (core_connection_kind, core_connection_status) = core_connection_status(snapshot);
     let activity_summary = format!("{diagnostics_runtime_events}；{diagnostics_recent_event}");
     let panel_account = panel_account_summary(snapshot);
     let panel_subscription = panel_subscription_summary(snapshot);
@@ -764,11 +765,15 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       color: #8f2618;
     }}
     #nodes-health-refresh-status[data-kind="success"],
+    #quick-connection-status[data-kind="success"],
+    #nodes-connection-verification-status[data-kind="success"],
     #nodes-selection-status[data-kind="success"] {{
       color: #145a32;
       font-weight: 650;
     }}
     #nodes-health-refresh-status[data-kind="error"],
+    #quick-connection-status[data-kind="error"],
+    #nodes-connection-verification-status[data-kind="error"],
     #nodes-selection-status[data-kind="error"] {{
       color: #8f2618;
       font-weight: 650;
@@ -1079,6 +1084,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <button data-traffic-mode-button="system-proxy" aria-pressed="{system_proxy_pressed}" onclick="postTrafficMode('system-proxy')">系统代理</button>
         <button data-traffic-mode-button="tun" aria-pressed="{tun_pressed}" onclick="postTrafficMode('tun')">TUN</button>
       </div>
+      <div class="activity-strip" id="quick-connection-status" data-kind="{core_connection_kind}">{core_connection_status}</div>
       <div class="activity-strip" id="activity-summary">{activity_summary}</div>
     </section>
     <section id="dashboard-panel-account">
@@ -1309,6 +1315,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
               <div><span>状态</span><strong id="nodes-connection-primary-state">{primary_state}</strong></div>
             </div>
             <div class="muted" id="nodes-connection-error">{nodes_connection_error}</div>
+            <div class="muted" id="nodes-connection-verification-status" data-kind="{core_connection_kind}">{core_connection_status}</div>
             <div class="connection-diagnosis" id="nodes-connection-diagnosis" data-diagnosis-level="{connection_diagnosis_level}">
               <strong id="nodes-connection-diagnosis-title">{connection_diagnosis_title}</strong>
               <span id="nodes-connection-diagnosis-detail">{connection_diagnosis_detail}</span>
@@ -1592,11 +1599,13 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let pendingAutoHealthAfterSync = false;
     let pendingNodeHealthRefresh = false;
     let pendingSelectedNodeTag = "";
+    let pendingCoreConnectionIntent = "";
     let lastAutoHealthSubscriptionKey = "";
     function setOperationPending(message) {{
       window.keliSetOperationStatus({{ kind: "info", message: message || "正在处理操作" }});
     }}
     function postOperation(message, pendingMessage) {{
+      if (message === "primary") markCoreConnectionPending(pendingMessage);
       setOperationPending(pendingMessage);
       window.ipc.postMessage(message);
     }}
@@ -1627,6 +1636,67 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       if (!status) return;
       status.dataset.kind = kind || "info";
       status.textContent = message || "节点应用状态未知";
+    }}
+    function setCoreConnectionStatus(kind, message) {{
+      for (const id of ["quick-connection-status", "nodes-connection-verification-status"]) {{
+        const status = document.getElementById(id);
+        if (!status) continue;
+        status.dataset.kind = kind || "info";
+        status.textContent = message || "连接状态未知";
+      }}
+    }}
+    function primaryConnectionIntent(pendingMessage) {{
+      const message = pendingMessage || "";
+      if (message.includes("停止")) return "stop";
+      if (message.includes("启动") || message.includes("重试")) return "start";
+      return "";
+    }}
+    function markCoreConnectionPending(pendingMessage) {{
+      const intent = primaryConnectionIntent(pendingMessage);
+      if (!intent) return;
+      pendingCoreConnectionIntent = intent;
+      const message = intent === "stop" ? "正在停止核心" : "正在启动核心并验证连接";
+      setCoreConnectionStatus("info", message);
+    }}
+    function coreConnectionSummary(snapshot) {{
+      const status = snapshot.status || {{}};
+      const mode = trafficModeLabels[status.traffic_mode] || status.traffic_mode || "未知模式";
+      const node = status.selected_outbound || "未选择节点";
+      const listen = status.listen || "未监听";
+      if (status.last_error) {{
+        return {{ kind: "error", message: `连接失败：${{status.last_error}}` }};
+      }}
+      if (status.run_state === "running" && status.listen) {{
+        return {{ kind: "success", message: `连接已建立：${{mode}}，节点 ${{node}}，监听 ${{listen}}` }};
+      }}
+      if (status.run_state === "running") {{
+        return {{ kind: "info", message: `核心已运行，等待监听地址：${{mode}}，节点 ${{node}}` }};
+      }}
+      if (status.run_state === "starting" || status.run_state === "reloading") {{
+        return {{ kind: "info", message: `正在启动核心并验证连接：${{mode}}，节点 ${{node}}` }};
+      }}
+      if (status.run_state === "stopping") {{
+        return {{ kind: "info", message: "正在停止核心" }};
+      }}
+      if (status.run_state === "failed") {{
+        return {{ kind: "error", message: "连接失败：核心失败" }};
+      }}
+      return {{ kind: "info", message: "核心已停止" }};
+    }}
+    function coreConnectionReachedTerminal(status) {{
+      if (!pendingCoreConnectionIntent) return false;
+      if (status.last_error || status.run_state === "failed") return true;
+      if (pendingCoreConnectionIntent === "start") return status.run_state === "running" && Boolean(status.listen);
+      if (pendingCoreConnectionIntent === "stop") return status.run_state === "stopped";
+      return false;
+    }}
+    function syncCoreConnectionStatus(snapshot) {{
+      const summary = coreConnectionSummary(snapshot);
+      setCoreConnectionStatus(summary.kind, summary.message);
+      if (coreConnectionReachedTerminal(snapshot.status || {{}})) {{
+        pendingCoreConnectionIntent = "";
+        window.keliSetOperationStatus(summary);
+      }}
     }}
     function completeNodeSelection(snapshot) {{
       const requestedTag = pendingSelectedNodeTag;
@@ -2760,6 +2830,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setText("quick-dependency-summary", dependencySummary(snapshot));
       setText("quick-subscription-summary", subscriptionSummary(snapshot.subscription));
       setText("activity-summary", overviewActivity(snapshot));
+      syncCoreConnectionStatus(snapshot);
       syncPrimaryButton("quick-primary-button", primary);
       syncTrafficModeButtons(status.traffic_mode);
     }};
@@ -2851,6 +2922,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         panel_notice = escape_html(&panel_notice),
         readiness_system_proxy_detail = escape_html(&readiness_system_proxy_detail),
         readiness_tun_detail = escape_html(&readiness_tun_detail),
+        core_connection_kind = core_connection_kind,
+        core_connection_status = escape_html(&core_connection_status),
         activity_summary = escape_html(&activity_summary),
         nodes_supported_count = nodes_supported_count,
         nodes_skipped_count = nodes_skipped_count,
@@ -3060,6 +3133,33 @@ fn traffic_mode_label(traffic_mode: DesktopTrafficMode) -> &'static str {
         DesktopTrafficMode::SystemProxy => "系统代理",
         DesktopTrafficMode::Tun => "TUN",
         DesktopTrafficMode::MixedInboundOnly => "本地入站",
+    }
+}
+
+fn core_connection_status(snapshot: &DesktopShellState) -> (&'static str, String) {
+    let status = &snapshot.status;
+    let mode = traffic_mode_label(status.traffic_mode);
+    let node = status.selected_outbound.as_deref().unwrap_or("未选择节点");
+    let listen = status.listen.as_deref().unwrap_or("未监听");
+    if let Some(error) = status.last_error.as_deref() {
+        return ("error", format!("连接失败：{error}"));
+    }
+    match status.run_state {
+        DesktopRunState::Running if status.listen.is_some() => (
+            "success",
+            format!("连接已建立：{mode}，节点 {node}，监听 {listen}"),
+        ),
+        DesktopRunState::Running => (
+            "info",
+            format!("核心已运行，等待监听地址：{mode}，节点 {node}"),
+        ),
+        DesktopRunState::Starting | DesktopRunState::Reloading => (
+            "info",
+            format!("正在启动核心并验证连接：{mode}，节点 {node}"),
+        ),
+        DesktopRunState::Stopping => ("info", "正在停止核心".to_string()),
+        DesktopRunState::Failed => ("error", "连接失败：核心失败".to_string()),
+        DesktopRunState::Stopped => ("info", "核心已停止".to_string()),
     }
 }
 
@@ -4298,6 +4398,36 @@ mod tests {
         assert!(html.contains("id=\"nodes-primary-button\""));
         assert!(html.contains("postOperation('primary', primaryOperationPending())"));
         assert!(html.contains("window.keliSyncNodeConnection"));
+    }
+
+    #[test]
+    fn one_click_connection_status_confirms_running_and_failures() {
+        let mut running = snapshot();
+        running.refresh_subscription(Some(subscription("SS-READY")));
+        running.status.run_state = DesktopRunState::Running;
+        running.status.traffic_mode = DesktopTrafficMode::SystemProxy;
+        running.status.selected_outbound = Some("SS-READY".to_string());
+        running.status.listen = Some("127.0.0.1:7890".to_string());
+
+        let html = render_shell_html(&running);
+
+        assert!(html.contains("id=\"quick-connection-status\""));
+        assert!(html.contains("id=\"nodes-connection-verification-status\""));
+        assert!(html.contains("连接已建立：系统代理，节点 SS-READY，监听 127.0.0.1:7890"));
+        assert!(html.contains("pendingCoreConnectionIntent"));
+        assert!(html.contains("function markCoreConnectionPending"));
+        assert!(html.contains("function coreConnectionSummary(snapshot)"));
+        assert!(html.contains("function syncCoreConnectionStatus(snapshot)"));
+        assert!(html.contains("正在启动核心并验证连接"));
+        assert!(html.contains("连接失败"));
+
+        let mut failed = running;
+        failed.status.run_state = DesktopRunState::Failed;
+        failed.status.last_error = Some("Managed(\"dial failed\")".to_string());
+
+        let html = render_shell_html(&failed);
+
+        assert!(html.contains("连接失败：Managed(&quot;dial failed&quot;)"));
     }
 
     #[test]
