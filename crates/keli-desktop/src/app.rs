@@ -427,6 +427,8 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         }
         let status = self.host.start()?;
         self.shell.refresh_status(status);
+        self.shell
+            .refresh_dependencies(self.host.dependency_report());
         Ok(self.shell.clone())
     }
 
@@ -443,6 +445,8 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         }
         let status = self.host.stop()?;
         self.shell.refresh_status(status);
+        self.shell
+            .refresh_dependencies(self.host.dependency_report());
         Ok(self.shell.clone())
     }
 
@@ -923,6 +927,13 @@ mod tests {
         }
     }
 
+    fn system_proxy_enabled_dependencies(server: &str) -> DesktopDependencyReport {
+        let mut dependencies = ready_dependencies();
+        dependencies.system_proxy.enabled = Some(true);
+        dependencies.system_proxy.server = Some(server.to_string());
+        dependencies
+    }
+
     fn blocked_dependencies() -> DesktopDependencyReport {
         let mut dependencies = ready_dependencies();
         dependencies.first_run.system_proxy_ready = false;
@@ -1118,6 +1129,30 @@ mod tests {
     }
 
     #[test]
+    fn shell_controller_request_start_refreshes_dependencies_after_lifecycle() {
+        let host = FakeHost::new(status(DesktopRunState::Stopped), ready_dependencies());
+        let observed = host.clone();
+        let mut controller = DesktopShellController::new(host);
+
+        controller
+            .import_subscription_config("proxies: []")
+            .expect("import subscription");
+        observed.set_dependencies(system_proxy_enabled_dependencies("127.0.0.1:7890"));
+
+        let shell = controller
+            .dispatch(DesktopShellAction::RequestStart)
+            .expect("request start");
+
+        assert_eq!(observed.starts(), 1);
+        assert_eq!(shell.status.run_state, DesktopRunState::Running);
+        assert_eq!(shell.dependencies.system_proxy.enabled, Some(true));
+        assert_eq!(
+            shell.dependencies.system_proxy.server.as_deref(),
+            Some("127.0.0.1:7890")
+        );
+    }
+
+    #[test]
     fn shell_controller_request_stop_updates_to_stopped() {
         let host = FakeHost::new(status(DesktopRunState::Running), ready_dependencies());
         let observed = host.clone();
@@ -1136,6 +1171,30 @@ mod tests {
             shell.primary_action.command,
             DesktopShellPrimaryCommand::Start
         );
+    }
+
+    #[test]
+    fn shell_controller_request_stop_refreshes_dependencies_after_lifecycle() {
+        let host = FakeHost::new(
+            status(DesktopRunState::Running),
+            system_proxy_enabled_dependencies("127.0.0.1:7890"),
+        );
+        let observed = host.clone();
+        let mut controller = DesktopShellController::new(host);
+
+        controller
+            .import_subscription_config("proxies: []")
+            .expect("import subscription");
+        observed.set_dependencies(ready_dependencies());
+
+        let shell = controller
+            .dispatch(DesktopShellAction::RequestStop)
+            .expect("request stop");
+
+        assert_eq!(observed.stops(), 1);
+        assert_eq!(shell.status.run_state, DesktopRunState::Stopped);
+        assert_eq!(shell.dependencies.system_proxy.enabled, Some(false));
+        assert_eq!(shell.dependencies.system_proxy.server, None);
     }
 
     #[test]
