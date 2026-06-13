@@ -143,11 +143,10 @@ try {
     Copy-Item -LiteralPath $backupInstallSmokePath -Destination $installSmokePath -Force
     Copy-Item -LiteralPath $backupMsiSmokePath -Destination $msiSmokePath -Force
 }
-if (!(Test-Path -LiteralPath $signingPath)) {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptDir 'desktop-signing.ps1')
-    if ($LASTEXITCODE -ne 0) {
-        throw "desktop-signing.ps1 setup exited with $LASTEXITCODE"
-    }
+$signingScript = Join-Path $scriptDir 'desktop-signing.ps1'
+& powershell -NoProfile -ExecutionPolicy Bypass -File $signingScript -SignToolPath ' ' -CertificatePath ' ' -CertificatePassword ' ' -CertificateSubject ' ' -SkipCertificateStoreDiscovery
+if ($LASTEXITCODE -ne 0) {
+    throw "desktop-signing.ps1 clean setup exited with $LASTEXITCODE"
 }
 Copy-Item -LiteralPath $signingPath -Destination $backupSigningPath -Force
 try {

@@ -966,6 +966,23 @@ The workflow runs the desktop MVP gate, regenerates the unsigned Beta manifest
 and release notes, writes `target\desktop\SHA256SUMS`, uploads the payload as a
 workflow artifact, and publishes a GitHub prerelease for tag runs.
 
+## Windows Signed Public Release
+
+Use `scripts\desktop-signed-release.ps1` for a signed public Windows release.
+It requires Windows SDK `signtool.exe` and either `KELI_SIGN_CERT_PATH` plus
+`KELI_SIGN_CERT_PASSWORD`, or a certificate-store subject through
+`KELI_SIGN_CERT_SUBJECT`. The script signs the EXE before rebuilding the
+portable ZIP and MSI, signs the final MSI, regenerates release evidence, and
+then runs `scripts\desktop-public-release-gate.ps1 -SkipGate` against the
+signed artifacts.
+
+GitHub Actions workflow `.github\workflows\windows-signed-public-release.yml`
+expects repository secrets `KELI_SIGN_CERT_PFX_BASE64` and
+`KELI_SIGN_CERT_PASSWORD`. The workflow decodes the PFX into the runner temp
+directory, exports `KELI_SIGN_CERT_PATH` for the job, runs the signed release
+script, uploads the signed release payload, and deletes the temporary PFX in a
+cleanup step.
+
 ## Verify
 
 ```powershell
@@ -1001,4 +1018,6 @@ scripts\desktop-mvp-gate.ps1
 scripts\desktop-public-release-gate.ps1 -SkipGate
 scripts\desktop-beta-rc.ps1
 powershell -ExecutionPolicy Bypass -File scripts\desktop-github-release-workflow.tests.ps1
+powershell -ExecutionPolicy Bypass -File scripts\desktop-signed-release.tests.ps1
+powershell -ExecutionPolicy Bypass -File scripts\desktop-signed-release-workflow.tests.ps1
 ```
