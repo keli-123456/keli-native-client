@@ -882,7 +882,7 @@ mod tests {
         );
         assert_eq!(
             controller.snapshot().primary_action.reason.as_deref(),
-            Some("Import a subscription before starting Keli")
+            Some("请先导入订阅，再启动 Keli")
         );
     }
 

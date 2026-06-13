@@ -13,8 +13,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         .status
         .selected_outbound
         .as_deref()
-        .unwrap_or("No node selected");
-    let listen = snapshot.status.listen.as_deref().unwrap_or("Not listening");
+        .unwrap_or("未选择节点");
+    let listen = snapshot.status.listen.as_deref().unwrap_or("未监听");
     let primary = &snapshot.primary_action;
     let tray_ids = snapshot
         .tray_menu
@@ -30,9 +30,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let import_subscription_url_disabled = if is_running { " disabled" } else { "" };
     let update_subscription_url_disabled = if is_running { "" } else { " disabled" };
     let primary_state = primary.reason.as_deref().unwrap_or(if primary.enabled {
-        "Enabled"
+        "可用"
     } else {
-        "Disabled"
+        "不可用"
     });
     let subscription_summary = subscription_summary(snapshot.subscription.as_ref());
     let node_buttons = node_buttons(snapshot.subscription.as_ref());
@@ -65,15 +65,15 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let diagnostics_default_core = diagnostics_default_core(snapshot);
     let readiness_system_proxy_detail = readiness_system_proxy_detail(snapshot);
     let readiness_tun_detail = readiness_tun_detail(snapshot);
-    let activity_summary = format!("{diagnostics_runtime_events}; {diagnostics_recent_event}");
-    let top_core_status = format!("Core status: {run_state}");
+    let activity_summary = format!("{diagnostics_runtime_events}；{diagnostics_recent_event}");
+    let top_core_status = format!("核心状态：{run_state}");
     let top_dependency_status = if snapshot.dependencies.first_run.blockers.is_empty()
         && snapshot.dependencies.first_run.system_proxy_ready
         && snapshot.dependencies.first_run.tun_ready
     {
-        "Dependencies ready"
+        "依赖已就绪"
     } else {
-        "Dependencies need attention"
+        "依赖需要处理"
     };
     let local_inbound_pressed =
         aria_pressed(snapshot.status.traffic_mode == DesktopTrafficMode::MixedInboundOnly);
@@ -83,7 +83,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
 
     format!(
         r#"<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -518,6 +518,15 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     #settings-network-panel .settings-strip {{
       grid-template-columns: repeat(5, minmax(0, 1fr));
     }}
+    .settings-subscription-status-row {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 16px;
+      margin-top: 8px;
+    }}
+    .settings-subscription-status-row .muted {{
+      margin-top: 0;
+    }}
     .settings-field label {{
       display: block;
       margin-bottom: 6px;
@@ -862,16 +871,16 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
 </head>
 <body>
   <div class="desktop-layout">
-    <aside class="nav-rail" id="app-navigation" aria-label="Keli navigation">
+    <aside class="nav-rail" id="app-navigation" aria-label="Keli 导航">
       <div class="nav-brand"><span class="nav-mark" aria-hidden="true">K</span><span>Keli</span></div>
       <nav class="nav-list">
-        <button class="nav-item" data-view-target="dashboard-view" aria-current="page" onclick="postViewTarget('dashboard-view')">Dashboard</button>
-        <button class="nav-item" data-view-target="nodes-view" onclick="postViewTarget('nodes-view')">Nodes</button>
-        <button class="nav-item" data-view-target="diagnostics-view" onclick="postViewTarget('diagnostics-view')">Diagnostics</button>
-        <button class="nav-item" data-view-target="settings-view" onclick="postViewTarget('settings-view')">Settings</button>
+        <button class="nav-item" data-view-target="dashboard-view" aria-current="page" onclick="postViewTarget('dashboard-view')">概览</button>
+        <button class="nav-item" data-view-target="nodes-view" onclick="postViewTarget('nodes-view')">节点</button>
+        <button class="nav-item" data-view-target="diagnostics-view" onclick="postViewTarget('diagnostics-view')">诊断</button>
+        <button class="nav-item" data-view-target="settings-view" onclick="postViewTarget('settings-view')">设置</button>
       </nav>
       <div class="nav-footer">
-        <span>Core: native Rust</span>
+        <span>核心：原生 Rust</span>
         <span id="nav-run-state">{run_state}</span>
       </div>
     </aside>
@@ -880,114 +889,114 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="top-status-group">
           <span class="pill" id="run-state">{run_state}</span>
           <span class="top-status-item" id="top-core-status"><span class="status-dot" aria-hidden="true"></span>{top_core_status}</span>
-          <span class="top-status-item">Mode: <strong id="top-traffic-mode">{traffic_mode}</strong></span>
-          <span class="top-status-item">Node: <strong id="top-selected-node">{selected}</strong></span>
+          <span class="top-status-item">模式：<strong id="top-traffic-mode">{traffic_mode}</strong></span>
+          <span class="top-status-item">节点：<strong id="top-selected-node">{selected}</strong></span>
         </div>
         <div class="top-status-group">
           <span class="top-status-item" id="top-dependency-status"><span class="status-dot" aria-hidden="true"></span>{top_dependency_status}</span>
           <span class="top-status-item" id="top-activity-status">{activity_summary}</span>
         </div>
       </header>
-    <div class="operation-status" id="operation-status" data-kind="info">Ready</div>
+    <div class="operation-status" id="operation-status" data-kind="info">就绪</div>
     <div class="app-view dashboard-view" id="dashboard-view" data-app-view>
     <section class="command-panel" id="core-command-panel">
       <div>
-        <h2>Core</h2>
-        <div class="command-title"><span id="quick-run-state">{run_state}</span> via <span id="quick-traffic-mode">{traffic_mode}</span></div>
+        <h2>核心</h2>
+        <div class="command-title"><span id="quick-run-state">{run_state}</span> · <span id="quick-traffic-mode">{traffic_mode}</span></div>
         <div class="muted" id="quick-primary-state">{primary_state}</div>
       </div>
       <div class="actions command-actions">
         <button id="quick-primary-button" class="primary" onclick="window.ipc.postMessage('primary')"{primary_disabled}>{primary_label}</button>
-        <button id="quick-refresh-button" onclick="window.ipc.postMessage('refresh')">Refresh</button>
+        <button id="quick-refresh-button" onclick="window.ipc.postMessage('refresh')">刷新</button>
       </div>
-      <div class="quick-status" aria-label="Core status">
+      <div class="quick-status" aria-label="核心状态">
         <div class="quick-status-item">
-          <div class="quick-label">Node</div>
+          <div class="quick-label">节点</div>
           <div class="quick-value" id="quick-selected-node">{selected}</div>
         </div>
         <div class="quick-status-item">
-          <div class="quick-label">Listen</div>
+          <div class="quick-label">监听</div>
           <div class="quick-value" id="quick-listen-address">{listen}</div>
         </div>
         <div class="quick-status-item">
-          <div class="quick-label">Dependencies</div>
+          <div class="quick-label">依赖</div>
           <div class="quick-value" id="quick-dependency-summary">{dependency_summary}</div>
         </div>
         <div class="quick-status-item">
-          <div class="quick-label">Subscription</div>
+          <div class="quick-label">订阅</div>
           <div class="quick-value" id="quick-subscription-summary">{subscription_summary}</div>
         </div>
       </div>
-      <div class="segmented-control" id="mode-segmented-control" role="group" aria-label="Traffic mode">
-        <button data-traffic-mode-button="mixed-inbound-only" aria-pressed="{local_inbound_pressed}" onclick="postTrafficMode('mixed-inbound-only')">Local inbound</button>
-        <button data-traffic-mode-button="system-proxy" aria-pressed="{system_proxy_pressed}" onclick="postTrafficMode('system-proxy')">System proxy</button>
+      <div class="segmented-control" id="mode-segmented-control" role="group" aria-label="流量模式">
+        <button data-traffic-mode-button="mixed-inbound-only" aria-pressed="{local_inbound_pressed}" onclick="postTrafficMode('mixed-inbound-only')">本地入站</button>
+        <button data-traffic-mode-button="system-proxy" aria-pressed="{system_proxy_pressed}" onclick="postTrafficMode('system-proxy')">系统代理</button>
         <button data-traffic-mode-button="tun" aria-pressed="{tun_pressed}" onclick="postTrafficMode('tun')">TUN</button>
       </div>
       <div class="activity-strip" id="activity-summary">{activity_summary}</div>
     </section>
     <section id="connection-activity-panel">
       <div class="activity-header">
-        <h2>Connection activity</h2>
+        <h2>连接活动</h2>
         <div class="activity-metrics" id="activity-metrics">{diagnostics_connection_metrics}</div>
       </div>
-      <div class="activity-rail" aria-label="Connection activity summary">
-        <div class="activity-line"><span>Recent runtime generation</span><strong>{generation}</strong></div>
-        <div class="activity-line"><span>Runtime events</span><strong>{events}</strong></div>
-        <div class="activity-line"><span>Selected route mode</span><strong>{traffic_mode}</strong></div>
+      <div class="activity-rail" aria-label="连接活动摘要">
+        <div class="activity-line"><span>最近运行代次</span><strong>{generation}</strong></div>
+        <div class="activity-line"><span>运行事件</span><strong>{events}</strong></div>
+        <div class="activity-line"><span>当前流量模式</span><strong>{traffic_mode}</strong></div>
       </div>
     </section>
     <div class="dashboard-row">
       <section id="dashboard-events-panel">
-        <h2>Recent events</h2>
+        <h2>最近事件</h2>
         <div class="event-list" id="dashboard-runtime-event-list">{runtime_event_items}</div>
       </section>
       <section id="dashboard-dependencies-panel">
-        <h2>Dependency status</h2>
+        <h2>依赖状态</h2>
         <div class="value" id="dashboard-dependency-summary">{dependency_summary}</div>
         <div class="status-list">
-          <div class="status-row"><strong>System proxy</strong><span class="status-ok" id="dashboard-system-proxy-status">{dashboard_system_proxy_status}</span></div>
+          <div class="status-row"><strong>系统代理</strong><span class="status-ok" id="dashboard-system-proxy-status">{dashboard_system_proxy_status}</span></div>
           <div class="status-row"><strong>TUN / Wintun</strong><span class="status-ok" id="dashboard-tun-status">{dashboard_tun_status}</span></div>
-          <div class="status-row"><strong>Blockers</strong><span id="dashboard-blockers">{dashboard_dependency_blockers}</span></div>
+          <div class="status-row"><strong>阻塞项</strong><span id="dashboard-blockers">{dashboard_dependency_blockers}</span></div>
         </div>
         <div class="actions" id="dashboard-dependency-actions">{dependency_actions}</div>
       </section>
     </div>
     <section id="support-actions-panel" hidden>
-      <h2>Support bundle</h2>
-      <div class="value">Diagnostics export</div>
-      <div class="muted">Export redacted runtime state, dependency checks, and core support evidence.</div>
+      <h2>支持包</h2>
+      <div class="value">诊断导出</div>
+      <div class="muted">导出脱敏后的运行状态、依赖检查和核心支持证据。</div>
       <div class="support-actions">
-        <button id="dashboard-export-support-button" class="primary" onclick="window.ipc.postMessage('export-support-bundle')">Export diagnostics</button>
-        <button onclick="window.ipc.postMessage('refresh')">Refresh status</button>
+        <button id="dashboard-export-support-button" class="primary" onclick="window.ipc.postMessage('export-support-bundle')">导出诊断</button>
+        <button onclick="window.ipc.postMessage('refresh')">刷新状态</button>
       </div>
     </section>
     <div class="grid legacy-workflow-surface" hidden>
       <section>
-        <h2>Mode</h2>
+        <h2>模式</h2>
         <div class="value" id="traffic-mode">{traffic_mode}</div>
         <div class="muted" id="listen-address">{listen}</div>
       </section>
       <section>
-        <h2>Node</h2>
+        <h2>节点</h2>
         <div class="value" id="selected-outbound">{selected}</div>
-        <div class="muted" id="runtime-meta">Generation {generation}, events {events}</div>
+        <div class="muted" id="runtime-meta">代次 {generation}，事件 {events}</div>
       </section>
       <section>
-        <h2>Primary</h2>
+        <h2>主操作</h2>
         <div class="value" id="primary-label">{primary_label}</div>
         <div class="muted" id="primary-state">{primary_state}</div>
         <div class="actions">
           <button id="primary-button" class="primary" onclick="window.ipc.postMessage('primary')"{primary_disabled}>{primary_label}</button>
-          <button id="refresh-button" onclick="window.ipc.postMessage('refresh')">Refresh</button>
+          <button id="refresh-button" onclick="window.ipc.postMessage('refresh')">刷新</button>
         </div>
       </section>
       <section>
-        <h2>Tray</h2>
+        <h2>托盘</h2>
         <div class="value" id="tray-ids">{tray_ids}</div>
-        <div class="muted" id="window-visible">Window visible: {window_visible}</div>
+        <div class="muted" id="window-visible">窗口可见：{window_visible}</div>
       </section>
       <section class="wide">
-        <h2>Dependencies</h2>
+        <h2>依赖</h2>
         <div class="value" id="dependency-summary">{dependency_summary}</div>
         <div class="muted" id="system-proxy-dependency">{system_proxy_dependency}</div>
         <div class="muted" id="tun-dependency">{tun_dependency}</div>
@@ -995,32 +1004,32 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="actions" id="dependency-actions">{dependency_actions}</div>
         <input id="wintun-source-path" type="text" placeholder="C:\Downloads\wintun or C:\Downloads\wintun.dll" />
         <div class="actions">
-          <button id="install-wintun-path-button" onclick="postInstallWintunPath()">Install Wintun from path</button>
+          <button id="install-wintun-path-button" onclick="postInstallWintunPath()">从路径安装 Wintun</button>
         </div>
-        <div class="muted" id="wintun-install-status">No local Wintun install attempted</div>
+        <div class="muted" id="wintun-install-status">尚未尝试本地 Wintun 安装</div>
       </section>
       <section class="wide">
-        <h2>Subscription</h2>
+        <h2>订阅</h2>
         <input id="subscription-url" type="url" placeholder="https://example.com/subscription" />
         <div class="actions">
-          <button id="import-subscription-url-button" class="primary" onclick="postImportSubscriptionUrl()"{import_subscription_url_disabled}>Import URL</button>
-          <button id="update-subscription-url-button" onclick="postUpdateSubscriptionUrl()"{update_subscription_url_disabled}>Update URL</button>
-          <button id="refresh-node-health-button" onclick="postRefreshNodeHealth()">Refresh health</button>
+          <button id="import-subscription-url-button" class="primary" onclick="postImportSubscriptionUrl()"{import_subscription_url_disabled}>导入 URL</button>
+          <button id="update-subscription-url-button" onclick="postUpdateSubscriptionUrl()"{update_subscription_url_disabled}>更新 URL</button>
+          <button id="refresh-node-health-button" onclick="postRefreshNodeHealth()">刷新健康</button>
         </div>
-        <div class="muted" id="subscription-url-status">No subscription URL imported</div>
+        <div class="muted" id="subscription-url-status">尚未导入订阅 URL</div>
         <textarea id="subscription-config" spellcheck="false"></textarea>
-        <div class="muted" id="subscription-config-status">No local subscription config imported</div>
+        <div class="muted" id="subscription-config-status">尚未导入本地订阅配置</div>
         <div class="actions">
-          <button id="import-subscription-button" class="primary" onclick="postImportSubscription()">Import</button>
-          <button onclick="postTrafficMode('mixed-inbound-only')">Local inbound</button>
-          <button onclick="postTrafficMode('system-proxy')">System proxy</button>
+          <button id="import-subscription-button" class="primary" onclick="postImportSubscription()">导入</button>
+          <button onclick="postTrafficMode('mixed-inbound-only')">本地入站</button>
+          <button onclick="postTrafficMode('system-proxy')">系统代理</button>
           <button onclick="postTrafficMode('tun')">TUN</button>
         </div>
         <div class="muted" id="subscription-summary">{subscription_summary}</div>
         <div class="node-list" id="node-list">{node_buttons}</div>
       </section>
       <section class="wide">
-        <h2>Diagnostics</h2>
+        <h2>诊断</h2>
         <div class="value" id="diagnostics-core-status">{diagnostics_core_status}</div>
         <div class="muted" id="diagnostics-runtime-events">{diagnostics_runtime_events}</div>
         <div class="muted" id="diagnostics-last-error">{diagnostics_last_error}</div>
@@ -1031,178 +1040,178 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="muted" id="diagnostics-system-proxy">{diagnostics_system_proxy}</div>
         <div class="muted" id="diagnostics-tun">{diagnostics_tun}</div>
         <div class="muted" id="diagnostics-default-core">{diagnostics_default_core}</div>
-        <div class="value">Support bundle</div>
-        <div class="muted" id="support-export-status">No support bundle exported</div>
+        <div class="value">支持包</div>
+        <div class="muted" id="support-export-status">尚未导出支持包</div>
         <div class="actions">
-          <button id="export-support-button" onclick="window.ipc.postMessage('export-support-bundle')">Export support bundle</button>
+          <button id="export-support-button" onclick="window.ipc.postMessage('export-support-bundle')">导出支持包</button>
         </div>
       </section>
     </div>
     </div>
     <section class="app-view nodes-view" id="nodes-view" data-app-view hidden>
       <section>
-        <h2>Subscription URL</h2>
+        <h2>订阅 URL</h2>
         <div class="nodes-toolbar">
           <input id="nodes-subscription-url" type="url" placeholder="https://example.com/subscription" />
           <div class="actions">
-            <button id="nodes-import-url-button" class="primary" onclick="postImportNodesSubscriptionUrl()"{import_subscription_url_disabled}>Import URL</button>
-            <button id="nodes-update-url-button" onclick="postUpdateNodesSubscriptionUrl()"{update_subscription_url_disabled}>Update URL</button>
-            <button id="nodes-refresh-health-button" onclick="postRefreshNodeHealth()">Refresh health</button>
+            <button id="nodes-import-url-button" class="primary" onclick="postImportNodesSubscriptionUrl()"{import_subscription_url_disabled}>导入 URL</button>
+            <button id="nodes-update-url-button" onclick="postUpdateNodesSubscriptionUrl()"{update_subscription_url_disabled}>更新 URL</button>
+            <button id="nodes-refresh-health-button" onclick="postRefreshNodeHealth()">刷新健康</button>
           </div>
         </div>
-        <div class="muted" id="nodes-subscription-url-status">No subscription URL imported</div>
+        <div class="muted" id="nodes-subscription-url-status">尚未导入订阅 URL</div>
       </section>
       <div class="nodes-summary-strip" id="nodes-summary-strip">
         <div class="nodes-summary-item">
           <div class="nodes-summary-value" id="nodes-supported-count">{nodes_supported_count}</div>
-          <div class="nodes-summary-label">Supported nodes</div>
+          <div class="nodes-summary-label">支持节点</div>
         </div>
         <div class="nodes-summary-item">
           <div class="nodes-summary-value" id="nodes-skipped-count">{nodes_skipped_count}</div>
-          <div class="nodes-summary-label">Skipped nodes</div>
+          <div class="nodes-summary-label">跳过节点</div>
         </div>
         <div class="nodes-summary-item">
           <div class="nodes-summary-value" id="nodes-healthy-count">{nodes_healthy_count}</div>
-          <div class="nodes-summary-label">Healthy</div>
+          <div class="nodes-summary-label">健康</div>
         </div>
         <div class="nodes-summary-item">
           <div class="nodes-summary-value" id="nodes-udp-ready-count">{nodes_udp_ready_count}</div>
-          <div class="nodes-summary-label">UDP ready</div>
+          <div class="nodes-summary-label">UDP 就绪</div>
         </div>
         <div class="nodes-summary-item">
           <div class="nodes-summary-value" id="nodes-recommended">{nodes_recommended}</div>
-          <div class="nodes-summary-label">Recommended</div>
+          <div class="nodes-summary-label">推荐</div>
         </div>
       </div>
       <div class="nodes-content">
         <section>
-          <div class="node-filter-tabs" id="node-filter-tabs" role="group" aria-label="Node filters">
-            <button data-node-filter="all" aria-pressed="true" onclick="postNodeFilter('all')">All</button>
-            <button data-node-filter="healthy" aria-pressed="false" onclick="postNodeFilter('healthy')">Healthy</button>
-            <button data-node-filter="failed" aria-pressed="false" onclick="postNodeFilter('failed')">Failed</button>
-            <button data-node-filter="udp-ready" aria-pressed="false" onclick="postNodeFilter('udp-ready')">UDP ready</button>
-            <button data-node-filter="skipped" aria-pressed="false" onclick="postNodeFilter('skipped')">Skipped</button>
+          <div class="node-filter-tabs" id="node-filter-tabs" role="group" aria-label="节点筛选">
+            <button data-node-filter="all" aria-pressed="true" onclick="postNodeFilter('all')">全部</button>
+            <button data-node-filter="healthy" aria-pressed="false" onclick="postNodeFilter('healthy')">健康</button>
+            <button data-node-filter="failed" aria-pressed="false" onclick="postNodeFilter('failed')">失败</button>
+            <button data-node-filter="udp-ready" aria-pressed="false" onclick="postNodeFilter('udp-ready')">UDP 就绪</button>
+            <button data-node-filter="skipped" aria-pressed="false" onclick="postNodeFilter('skipped')">已跳过</button>
           </div>
-          <table aria-label="Nodes">
+          <table aria-label="节点">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Protocol</th>
-                <th>Transport</th>
-                <th>Latency</th>
+                <th>名称</th>
+                <th>协议</th>
+                <th>传输</th>
+                <th>延迟</th>
                 <th>TCP</th>
                 <th>UDP</th>
-                <th>Health</th>
+                <th>健康</th>
               </tr>
             </thead>
             <tbody id="nodes-table-body">{nodes_table_rows}</tbody>
           </table>
         </section>
         <section class="selected-node-detail" id="selected-node-detail">
-          <h2>Selected node</h2>
+          <h2>当前节点</h2>
           <div class="value" id="selected-node-title">{selected_node_title}</div>
           <div class="detail-list" id="selected-node-detail-list">{selected_node_detail}</div>
           <div class="actions">
-            <button class="primary" onclick="postSelectNode(document.getElementById('selected-node-title').textContent)">Select</button>
-            <button onclick="postRefreshNodeHealth()">Test</button>
+            <button class="primary" onclick="postSelectNode(document.getElementById('selected-node-title').textContent)">选择</button>
+            <button onclick="postRefreshNodeHealth()">测试</button>
           </div>
         </section>
       </div>
     </section>
     <div class="app-view diagnostics-view" id="diagnostics-view" data-app-view hidden>
       <section id="readiness-checklist">
-        <h2>Readiness checklist</h2>
+        <h2>就绪检查</h2>
         <div class="readiness-list">
           <div class="readiness-row" id="readiness-system-proxy">
-            <strong>System proxy</strong>
-            <span class="status-ok" id="readiness-system-proxy-state">Tracked</span>
+            <strong>系统代理</strong>
+            <span class="status-ok" id="readiness-system-proxy-state">已跟踪</span>
             <span id="readiness-system-proxy-detail">{readiness_system_proxy_detail}</span>
-            <button onclick="postDependencyAction('refresh-system-proxy')">Check</button>
+            <button onclick="postDependencyAction('refresh-system-proxy')">检查</button>
           </div>
           <div class="readiness-row" id="readiness-tun-wintun">
             <strong>TUN / Wintun</strong>
-            <span class="status-ok" id="readiness-tun-wintun-state">Tracked</span>
+            <span class="status-ok" id="readiness-tun-wintun-state">已跟踪</span>
             <span id="readiness-tun-wintun-detail">{readiness_tun_detail}</span>
-            <button onclick="postDependencyAction('install-wintun')">Install</button>
+            <button onclick="postDependencyAction('install-wintun')">安装</button>
           </div>
           <div class="readiness-row" id="readiness-dns-policy">
-            <strong>DNS policy</strong>
-            <span class="status-ok">Ready</span>
-            <span id="readiness-dns-policy-detail">Runtime DNS policy smoke evidence available</span>
-            <button onclick="window.ipc.postMessage('refresh')">Refresh</button>
+            <strong>DNS 策略</strong>
+            <span class="status-ok">就绪</span>
+            <span id="readiness-dns-policy-detail">已有运行时 DNS 策略冒烟证据</span>
+            <button onclick="window.ipc.postMessage('refresh')">刷新</button>
           </div>
           <div class="readiness-row" id="readiness-route-takeover">
-            <strong>Route takeover</strong>
-            <span class="status-ok">Ready</span>
-            <span id="readiness-route-takeover-detail">Current mode: {traffic_mode}</span>
+            <strong>路由接管</strong>
+            <span class="status-ok">就绪</span>
+            <span id="readiness-route-takeover-detail">当前模式：{traffic_mode}</span>
             <button onclick="postTrafficMode('tun')">TUN</button>
           </div>
           <div class="readiness-row" id="readiness-subscription-updater">
-            <strong>Subscription updater</strong>
-            <span class="status-ok">Ready</span>
+            <strong>订阅更新</strong>
+            <span class="status-ok">就绪</span>
             <span id="readiness-subscription-updater-detail">{subscription_summary}</span>
-            <button onclick="postRefreshNodeHealth()">Health</button>
+            <button onclick="postRefreshNodeHealth()">健康</button>
           </div>
           <div class="readiness-row" id="readiness-signing-status">
-            <strong>Signing status</strong>
-            <span class="status-warning">Unsigned beta</span>
-            <span id="readiness-signing-status-detail">Release chain can publish unsigned builds while certificate procurement is pending</span>
-            <button onclick="window.ipc.postMessage('refresh')">Check</button>
+            <strong>签名状态</strong>
+            <span class="status-warning">未签名测试版</span>
+            <span id="readiness-signing-status-detail">证书采购完成前，发布链可先发布未签名构建</span>
+            <button onclick="window.ipc.postMessage('refresh')">检查</button>
           </div>
         </div>
       </section>
       <div class="diagnostics-grid">
         <section id="diagnostics-runtime-log-panel">
-          <h2>Runtime events</h2>
-          <table aria-label="Diagnostics runtime log">
+          <h2>运行事件</h2>
+          <table aria-label="诊断运行日志">
             <thead>
               <tr>
                 <th>#</th>
-                <th>State</th>
-                <th>Note</th>
+                <th>状态</th>
+                <th>说明</th>
               </tr>
             </thead>
             <tbody id="diagnostics-runtime-log-body">{diagnostics_runtime_log_rows}</tbody>
           </table>
         </section>
         <section id="diagnostics-metrics-panel">
-          <h2>Metrics</h2>
+          <h2>指标</h2>
           <div class="metrics-grid">
             <div class="metric-tile">
               <div class="metric-value" id="diagnostics-metric-connections">{diagnostics_connection_metrics}</div>
-              <div class="metric-label">Connections</div>
+              <div class="metric-label">连接</div>
             </div>
             <div class="metric-tile">
               <div class="metric-value" id="diagnostics-metric-node-health">{diagnostics_node_health}</div>
-              <div class="metric-label">Node health</div>
+              <div class="metric-label">节点健康</div>
             </div>
             <div class="metric-tile">
               <div class="metric-value" id="diagnostics-metric-last-error">{diagnostics_last_error}</div>
-              <div class="metric-label">Last error</div>
+              <div class="metric-label">最后错误</div>
             </div>
             <div class="metric-tile">
               <div class="metric-value" id="diagnostics-metric-activity">{activity_summary}</div>
-              <div class="metric-label">Activity</div>
+              <div class="metric-label">活动</div>
             </div>
           </div>
         </section>
       </div>
       <div class="diagnostics-grid">
         <section id="diagnostics-support-panel">
-          <h2>Support bundle</h2>
-          <div class="value">Diagnostics export</div>
-          <div class="muted" id="diagnostics-support-status">No support bundle exported</div>
+          <h2>支持包</h2>
+          <div class="value">诊断导出</div>
+          <div class="muted" id="diagnostics-support-status">尚未导出支持包</div>
           <div class="support-actions">
-            <button id="diagnostics-export-button" class="primary" onclick="window.ipc.postMessage('export-support-bundle')">Export diagnostics</button>
-            <button id="diagnostics-copy-logs-button" onclick="postCopyDiagnosticsLogs()">Copy logs</button>
-            <label class="toggle-row"><input id="include-certification-toggle" type="checkbox" checked /> Include certification</label>
+            <button id="diagnostics-export-button" class="primary" onclick="window.ipc.postMessage('export-support-bundle')">导出诊断</button>
+            <button id="diagnostics-copy-logs-button" onclick="postCopyDiagnosticsLogs()">复制日志</button>
+            <label class="toggle-row"><input id="include-certification-toggle" type="checkbox" checked /> 包含认证证据</label>
           </div>
         </section>
         <section id="diagnostics-settings-panel">
-          <h2>Settings</h2>
+          <h2>设置</h2>
           <div class="settings-strip">
             <div class="settings-field">
-              <label for="diagnostics-mixed-port">Mixed port</label>
+              <label for="diagnostics-mixed-port">混合端口</label>
               <input id="diagnostics-mixed-port" type="number" inputmode="numeric" value="7890" />
             </div>
             <div class="settings-field">
@@ -1214,7 +1223,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
               <input id="diagnostics-http-port" type="number" inputmode="numeric" value="7892" />
             </div>
             <div class="settings-field">
-              <label for="diagnostics-max-workers">Workers</label>
+              <label for="diagnostics-max-workers">工作线程</label>
               <input id="diagnostics-max-workers" type="number" inputmode="numeric" value="4" />
             </div>
           </div>
@@ -1224,39 +1233,39 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     <div class="app-view settings-view" id="settings-view" data-app-view hidden>
       <div class="settings-grid">
         <section id="settings-runtime-panel">
-          <h2>Runtime</h2>
+          <h2>运行时</h2>
           <div class="settings-stack">
             <div class="value" id="settings-run-state">{run_state}</div>
-            <div class="muted">Mode: <strong id="settings-traffic-mode">{traffic_mode}</strong></div>
-            <div class="muted">Node: <strong id="settings-selected-node">{selected}</strong></div>
-            <div class="muted">Listen: <strong id="settings-listen-address">{listen}</strong></div>
-            <div class="muted">Dependencies: <strong id="settings-dependency-summary">{dependency_summary}</strong></div>
+            <div class="muted">模式：<strong id="settings-traffic-mode">{traffic_mode}</strong></div>
+            <div class="muted">节点：<strong id="settings-selected-node">{selected}</strong></div>
+            <div class="muted">监听：<strong id="settings-listen-address">{listen}</strong></div>
+            <div class="muted">依赖：<strong id="settings-dependency-summary">{dependency_summary}</strong></div>
             <div class="muted" id="settings-primary-state">{primary_state}</div>
           </div>
           <div class="actions">
             <button id="settings-primary-button" class="primary" onclick="window.ipc.postMessage('primary')"{primary_disabled}>{primary_label}</button>
-            <button id="settings-refresh-button" onclick="window.ipc.postMessage('refresh')">Refresh</button>
+            <button id="settings-refresh-button" onclick="window.ipc.postMessage('refresh')">刷新</button>
           </div>
         </section>
         <section id="settings-startup-panel">
-          <h2>Startup</h2>
+          <h2>启动</h2>
           <div class="settings-toggle-list">
-            <label><input id="settings-start-with-windows" type="checkbox" /> Start with Windows</label>
-            <label><input id="settings-launch-minimized" type="checkbox" checked /> Launch minimized</label>
-            <label><input id="settings-auto-start-core" type="checkbox" /> Auto-start core after launch</label>
+            <label><input id="settings-start-with-windows" type="checkbox" /> 开机启动</label>
+            <label><input id="settings-launch-minimized" type="checkbox" checked /> 启动后最小化</label>
+            <label><input id="settings-auto-start-core" type="checkbox" /> 启动客户端后自动启动核心</label>
           </div>
         </section>
       </div>
       <section id="settings-network-panel">
-        <h2>Network</h2>
-        <div class="segmented-control settings-mode-control" id="settings-traffic-mode-control" role="group" aria-label="Default traffic mode">
-          <button data-settings-traffic-mode="mixed-inbound-only" data-traffic-mode-button="mixed-inbound-only" aria-pressed="{local_inbound_pressed}" onclick="postTrafficMode('mixed-inbound-only')">Local inbound</button>
-          <button data-settings-traffic-mode="system-proxy" data-traffic-mode-button="system-proxy" aria-pressed="{system_proxy_pressed}" onclick="postTrafficMode('system-proxy')">System proxy</button>
+        <h2>网络</h2>
+        <div class="segmented-control settings-mode-control" id="settings-traffic-mode-control" role="group" aria-label="默认流量模式">
+          <button data-settings-traffic-mode="mixed-inbound-only" data-traffic-mode-button="mixed-inbound-only" aria-pressed="{local_inbound_pressed}" onclick="postTrafficMode('mixed-inbound-only')">本地入站</button>
+          <button data-settings-traffic-mode="system-proxy" data-traffic-mode-button="system-proxy" aria-pressed="{system_proxy_pressed}" onclick="postTrafficMode('system-proxy')">系统代理</button>
           <button data-settings-traffic-mode="tun" data-traffic-mode-button="tun" aria-pressed="{tun_pressed}" onclick="postTrafficMode('tun')">TUN</button>
         </div>
         <div class="settings-strip">
           <div class="settings-field">
-            <label for="settings-mixed-port">Mixed port</label>
+            <label for="settings-mixed-port">混合端口</label>
             <input id="settings-mixed-port" type="number" inputmode="numeric" value="7890" />
           </div>
           <div class="settings-field">
@@ -1268,27 +1277,29 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
             <input id="settings-http-port" type="number" inputmode="numeric" value="7892" />
           </div>
           <div class="settings-field">
-            <label for="settings-dns-mode">DNS mode</label>
+            <label for="settings-dns-mode">DNS 模式</label>
             <input id="settings-dns-mode" value="fake-ip" />
           </div>
           <div class="settings-field">
-            <label for="settings-tun-stack">TUN stack</label>
+            <label for="settings-tun-stack">TUN 栈</label>
             <input id="settings-tun-stack" value="system" />
           </div>
         </div>
       </section>
       <section id="settings-subscription-panel">
-        <h2>Subscription</h2>
+        <h2>订阅</h2>
         <div class="nodes-toolbar">
           <input id="settings-subscription-url" type="url" placeholder="https://example.com/subscription" />
           <div class="actions">
-            <button id="settings-import-url-button" class="primary" onclick="postImportSettingsSubscriptionUrl()"{import_subscription_url_disabled}>Import URL</button>
-            <button id="settings-update-url-button" onclick="postUpdateSettingsSubscriptionUrl()"{update_subscription_url_disabled}>Update URL</button>
-            <button id="settings-refresh-health-button" onclick="postRefreshNodeHealth()">Refresh health</button>
+            <button id="settings-import-url-button" class="primary" onclick="postImportSettingsSubscriptionUrl()"{import_subscription_url_disabled}>导入 URL</button>
+            <button id="settings-update-url-button" onclick="postUpdateSettingsSubscriptionUrl()"{update_subscription_url_disabled}>更新 URL</button>
+            <button id="settings-refresh-health-button" onclick="postRefreshNodeHealth()">刷新健康</button>
           </div>
         </div>
-        <div class="muted" id="settings-subscription-url-status">No subscription URL imported</div>
-        <div class="muted" id="settings-subscription-summary">{subscription_summary}</div>
+        <div class="settings-subscription-status-row">
+          <span class="muted" id="settings-subscription-url-status">尚未导入订阅 URL</span>
+          <span class="muted" id="settings-subscription-summary">{subscription_summary}</span>
+        </div>
       </section>
     </div>
     <pre id="snapshot-json" hidden>{snapshot_json}</pre>
@@ -1296,17 +1307,17 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
   </div>
   <script>
     const runStateLabels = {{
-      "stopped": "Stopped",
-      "starting": "Starting",
-      "running": "Running",
-      "reloading": "Reloading",
-      "stopping": "Stopping",
-      "failed": "Failed"
+      "stopped": "已停止",
+      "starting": "启动中",
+      "running": "运行中",
+      "reloading": "更新中",
+      "stopping": "停止中",
+      "failed": "失败"
     }};
     const trafficModeLabels = {{
-      "system-proxy": "System proxy",
+      "system-proxy": "系统代理",
       "tun": "TUN",
-      "mixed-inbound-only": "Local inbound"
+      "mixed-inbound-only": "本地入站"
     }};
     function postJson(payload) {{
       window.ipc.postMessage(JSON.stringify(payload));
@@ -1322,7 +1333,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       if (shell && shell.scrollTo) {{
         shell.scrollTo(0, 0);
       }}
-      window.keliSetOperationStatus({{ kind: "info", message: "Ready" }});
+      window.keliSetOperationStatus({{ kind: "info", message: "就绪" }});
     }}
     function postImportSubscription() {{
       postJson({{
@@ -1376,12 +1387,12 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const text = snapshot ? snapshot.textContent : "";
       if (navigator.clipboard && navigator.clipboard.writeText) {{
         navigator.clipboard.writeText(text).then(
-          () => window.keliSetOperationStatus({{ kind: "success", message: "Diagnostics snapshot copied" }}),
-          () => window.keliSetOperationStatus({{ kind: "error", message: "Unable to copy diagnostics snapshot" }})
+          () => window.keliSetOperationStatus({{ kind: "success", message: "已复制诊断快照" }}),
+          () => window.keliSetOperationStatus({{ kind: "error", message: "无法复制诊断快照" }})
         );
         return;
       }}
-      window.keliSetOperationStatus({{ kind: "info", message: "Diagnostics snapshot is available below" }});
+      window.keliSetOperationStatus({{ kind: "info", message: "诊断快照可在下方查看" }});
     }}
     function postTrafficMode(trafficMode) {{
       postJson({{
@@ -1401,9 +1412,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       }});
     }}
     const dependencyActionLabels = {{
-      "check-system-proxy": "Open proxy settings",
-      "install-wintun": "Open Wintun download",
-      "check-tun": "Open TUN help"
+      "check-system-proxy": "打开代理设置",
+      "install-wintun": "打开 Wintun 下载",
+      "check-tun": "打开 TUN 帮助"
     }};
     function postDependencyAction(action) {{
       postJson({{
@@ -1446,8 +1457,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       renderDependencyActionsInto("dashboard-dependency-actions", snapshot);
     }}
     function subscriptionSummary(subscription) {{
-      if (!subscription) return "No subscription imported";
-      return `Supported ${{subscription.supported_count}}, skipped ${{subscription.skipped_count}}`;
+      if (!subscription) return "没有导入订阅";
+      return `支持 ${{subscription.supported_count}}，跳过 ${{subscription.skipped_count}}`;
     }}
     function renderNodeList(subscription) {{
       const nodeList = document.getElementById("node-list");
@@ -1455,14 +1466,14 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       if (!subscription || (!subscription.nodes.length && !(subscription.skipped || []).length)) {{
         const empty = document.createElement("span");
         empty.className = "muted";
-        empty.textContent = "No nodes";
+        empty.textContent = "没有节点";
         nodeList.appendChild(empty);
         return;
       }}
       if (!subscription.nodes.length) {{
         const empty = document.createElement("span");
         empty.className = "muted";
-        empty.textContent = "No nodes";
+        empty.textContent = "没有节点";
         nodeList.appendChild(empty);
       }}
       for (const node of subscription.nodes) {{
@@ -1478,22 +1489,22 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         tag.className = "node-tag";
         tag.textContent = node.tag;
         meta.className = "node-meta";
-        meta.textContent = `${{node.protocol || "unknown"}} / ${{node.transport || "unknown"}} / ${{node.security || "unknown"}}`;
+        meta.textContent = `${{node.protocol || "未知"}} / ${{node.transport || "未知"}} / ${{node.security || "未知"}}`;
         udp.className = "node-meta";
-        udp.textContent = node.udp_supported ? "UDP ready" : "UDP unavailable";
+        udp.textContent = node.udp_supported ? "UDP 就绪" : "UDP 不可用";
         health.className = "node-meta";
         health.textContent = nodeHealthDetail(node);
         badges.className = "node-badges";
         if (node.selected) {{
           const badge = document.createElement("span");
           badge.className = "node-badge";
-          badge.textContent = "Selected";
+          badge.textContent = "已选择";
           badges.appendChild(badge);
         }}
         if (node.recommended) {{
           const badge = document.createElement("span");
           badge.className = "node-badge";
-          badge.textContent = "Recommended";
+          badge.textContent = "推荐";
           badges.appendChild(badge);
         }}
         button.append(tag, meta, udp, health, badges);
@@ -1505,7 +1516,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         const detail = document.createElement("span");
         item.className = "node-skipped";
         badge.className = "node-badge";
-        badge.textContent = "Skipped";
+        badge.textContent = "已跳过";
         detail.textContent = skipped;
         item.append(badge, detail);
         nodeList.appendChild(item);
@@ -1513,14 +1524,14 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     }}
     function nodeHealthDetail(node) {{
       const parts = [];
-      if (node.health_state) parts.push(`Health ${{node.health_state}}`);
-      if (node.tcp_available === true) parts.push("TCP ready");
-      if (node.tcp_available === false) parts.push("TCP failed");
-      if (node.udp_available === true) parts.push("UDP live");
-      if (node.udp_available === false) parts.push("UDP failed");
+      if (node.health_state) parts.push(`健康状态 ${{node.health_state}}`);
+      if (node.tcp_available === true) parts.push("TCP 就绪");
+      if (node.tcp_available === false) parts.push("TCP 失败");
+      if (node.udp_available === true) parts.push("UDP 在线");
+      if (node.udp_available === false) parts.push("UDP 失败");
       if (node.latency_ms !== null && node.latency_ms !== undefined) parts.push(`${{node.latency_ms}} ms`);
-      if (node.health_error) parts.push(`Last failure ${{node.health_error}}`);
-      return parts.length ? parts.join(", ") : "Health unknown";
+      if (node.health_error) parts.push(`最近失败 ${{node.health_error}}`);
+      return parts.length ? parts.join("，") : "健康未知";
     }}
     function nodesHealthyCount(subscription) {{
       if (!subscription) return 0;
@@ -1531,7 +1542,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       return subscription.nodes.filter((node) => node.udp_supported || node.udp_available === true).length;
     }}
     function nodesRecommended(subscription) {{
-      return subscription && subscription.recommended_outbound ? subscription.recommended_outbound : "None";
+      return subscription && subscription.recommended_outbound ? subscription.recommended_outbound : "无";
     }}
     function selectedNode(subscription) {{
       if (!subscription || !subscription.nodes.length) return null;
@@ -1547,7 +1558,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         const row = document.createElement("tr");
         const cell = document.createElement("td");
         cell.colSpan = 7;
-        cell.textContent = "No nodes";
+        cell.textContent = "没有节点";
         row.appendChild(cell);
         body.appendChild(row);
         return;
@@ -1558,11 +1569,11 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         row.onclick = () => postSelectNode(node.tag);
         const values = [
           node.tag,
-          node.protocol || "unknown",
-          node.transport || "unknown",
+          node.protocol || "未知",
+          node.transport || "未知",
           node.latency_ms === null || node.latency_ms === undefined ? "-" : `${{node.latency_ms}} ms`,
-          node.tcp_available === false ? "Failed" : "Ready",
-          node.udp_supported || node.udp_available === true ? "Ready" : "Unavailable",
+          node.tcp_available === false ? "失败" : "就绪",
+          node.udp_supported || node.udp_available === true ? "就绪" : "不可用",
           nodeHealthDetail(node)
         ];
         for (const value of values) {{
@@ -1575,19 +1586,19 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     }}
     function renderSelectedNodeDetail(subscription) {{
       const node = selectedNode(subscription);
-      setText("selected-node-title", node ? node.tag : "No node selected");
+      setText("selected-node-title", node ? node.tag : "未选择节点");
       const detail = document.getElementById("selected-node-detail-list");
       if (!detail) return;
       detail.replaceChildren();
       const pairs = node ? [
-        ["Protocol", node.protocol || "unknown"],
-        ["Transport", node.transport || "unknown"],
-        ["Security", node.security || "unknown"],
-        ["Latency", node.latency_ms === null || node.latency_ms === undefined ? "-" : `${{node.latency_ms}} ms`],
-        ["TCP", node.tcp_available === false ? "Failed" : "Ready"],
-        ["UDP", node.udp_supported || node.udp_available === true ? "Ready" : "Unavailable"],
-        ["Health", nodeHealthDetail(node)]
-      ] : [["Status", "Import a subscription to select a node"]];
+        ["协议", node.protocol || "未知"],
+        ["传输", node.transport || "未知"],
+        ["安全", node.security || "未知"],
+        ["延迟", node.latency_ms === null || node.latency_ms === undefined ? "-" : `${{node.latency_ms}} ms`],
+        ["TCP", node.tcp_available === false ? "失败" : "就绪"],
+        ["UDP", node.udp_supported || node.udp_available === true ? "就绪" : "不可用"],
+        ["健康", nodeHealthDetail(node)]
+      ] : [["状态", "导入订阅后才能选择节点"]];
       for (const [label, value] of pairs) {{
         const row = document.createElement("div");
         const labelElement = document.createElement("span");
@@ -1616,11 +1627,11 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const status = document.getElementById("operation-status");
       const kind = summary.kind || "info";
       status.dataset.kind = kind;
-      status.textContent = summary.message || "Ready";
+      status.textContent = summary.message || "就绪";
     }};
     window.keliSetSupportExport = (summary) => {{
       const label = summary.status === "saved"
-        ? `Saved ${{summary.byte_count}} bytes to ${{summary.path}}`
+        ? `已保存 ${{summary.byte_count}} 字节到 ${{summary.path}}`
         : `${{summary.status}}: ${{summary.path || ""}}`;
       const kind = summary.status === "saved" ? "success" : "error";
       document.getElementById("support-export-status").textContent = label;
@@ -1630,7 +1641,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     window.keliSetWintunInstall = (summary) => {{
       const label = summary.error
         ? `${{summary.status}}: ${{summary.error}}`
-        : `${{summary.status}}: ${{summary.target_path || ""}} (${{summary.copied_bytes || 0}} bytes)`;
+        : `${{summary.status}}: ${{summary.target_path || ""}} (${{summary.copied_bytes || 0}} 字节)`;
       const kind = summary.error ? "error" : "success";
       document.getElementById("wintun-install-status").textContent = label;
       window.keliSetOperationStatus({{ kind: kind, message: label }});
@@ -1638,15 +1649,15 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     function subscriptionSource(fetch) {{
       const source = fetch.host
         ? `${{fetch.scheme || "url"}}://${{fetch.host}}`
-        : "subscription URL";
+        : "订阅 URL";
       return source;
     }}
     window.keliSetSubscriptionUrlImport = (summary) => {{
       const fetch = summary.fetch || {{}};
       const source = subscriptionSource(fetch);
       const label = summary.error
-        ? `Import failed from ${{source}}: ${{summary.error}}`
-        : `Imported ${{summary.subscription ? summary.subscription.supported_count : 0}} nodes from ${{source}}`;
+        ? `从 ${{source}} 导入失败：${{summary.error}}`
+        : `已从 ${{source}} 导入 ${{summary.subscription ? summary.subscription.supported_count : 0}} 个节点`;
       const kind = summary.error ? "error" : "success";
       document.getElementById("subscription-url-status").textContent = label;
       setText("nodes-subscription-url-status", label);
@@ -1659,13 +1670,13 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const update = summary.update || {{}};
       const reason = update.reason ? `, ${{update.reason}}` : "";
       const selected = summary.runtime_status && summary.runtime_status.selected_outbound
-        ? `, selected ${{summary.runtime_status.selected_outbound}}`
+        ? `，当前节点 ${{summary.runtime_status.selected_outbound}}`
         : "";
       const label = summary.error
-        ? `Update failed from ${{source}}: ${{summary.error}}`
+        ? `从 ${{source}} 更新失败：${{summary.error}}`
         : summary.applied
-          ? `Updated from ${{source}}${{reason}}${{selected}}`
-          : `Update not applied from ${{source}}: ${{fetch.error_kind || "unknown"}}`;
+          ? `已从 ${{source}} 更新${{reason}}${{selected}}`
+          : `未应用来自 ${{source}} 的更新：${{fetch.error_kind || "未知"}}`;
       const kind = summary.error || !summary.applied ? "error" : "success";
       document.getElementById("subscription-url-status").textContent = label;
       setText("nodes-subscription-url-status", label);
@@ -1674,106 +1685,106 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     }};
     window.keliSetSubscriptionConfigImport = (summary) => {{
       const label = summary.error
-        ? `Import failed: ${{summary.error}}`
-        : `Imported ${{summary.supported_count || 0}} nodes, skipped ${{summary.skipped_count || 0}}`;
+        ? `导入失败：${{summary.error}}`
+        : `已导入 ${{summary.supported_count || 0}} 个节点，跳过 ${{summary.skipped_count || 0}} 个`;
       const kind = summary.error ? "error" : "success";
       document.getElementById("subscription-config-status").textContent = label;
       window.keliSetOperationStatus({{ kind: kind, message: label }});
     }};
     function dependencySummary(snapshot) {{
       const firstRun = snapshot.dependencies.first_run;
-      const system = firstRun.system_proxy_ready ? "System proxy ready" : "System proxy blocked";
-      const tun = firstRun.tun_ready ? "TUN ready" : "TUN blocked";
-      return `${{system}}, ${{tun}}`;
+      const system = firstRun.system_proxy_ready ? "系统代理就绪" : "系统代理受阻";
+      const tun = firstRun.tun_ready ? "TUN 就绪" : "TUN 受阻";
+      return `${{system}}，${{tun}}`;
     }}
     function systemProxyDependency(snapshot) {{
       const proxy = snapshot.dependencies.system_proxy;
-      const parts = [`System proxy ${{proxy.state}}`];
-      if (proxy.enabled !== null && proxy.enabled !== undefined) parts.push(`enabled=${{proxy.enabled}}`);
-      if (proxy.server) parts.push(`server=${{proxy.server}}`);
+      const parts = [`系统代理状态：${{proxy.state}}`];
+      if (proxy.enabled !== null && proxy.enabled !== undefined) parts.push(`已启用=${{proxy.enabled}}`);
+      if (proxy.server) parts.push(`服务器=${{proxy.server}}`);
       if (proxy.error) parts.push(proxy.error);
-      if (proxy.action) parts.push(`action=${{proxy.action}}`);
-      return parts.join(", ");
+      if (proxy.action) parts.push(`操作=${{proxy.action}}`);
+      return parts.join("，");
     }}
     function tunDependency(snapshot) {{
       const tun = snapshot.dependencies.tun_backend;
       const parts = [
-        `Wintun ${{tun.state}}`,
-        `driver_present=${{tun.driver_library_present}}`,
-        `api_available=${{tun.driver_api_available}}`
+        `Wintun 状态：${{tun.state}}`,
+        `驱动存在=${{tun.driver_library_present}}`,
+        `API可用=${{tun.driver_api_available}}`
       ];
-      if (tun.driver_library_path) parts.push(`path=${{tun.driver_library_path}}`);
+      if (tun.driver_library_path) parts.push(`路径=${{tun.driver_library_path}}`);
       if (tun.reason) parts.push(tun.reason);
-      if (tun.action) parts.push(`action=${{tun.action}}`);
-      return parts.join(", ");
+      if (tun.action) parts.push(`操作=${{tun.action}}`);
+      return parts.join("，");
     }}
     function dependencyBlockers(snapshot) {{
       const blockers = snapshot.dependencies.first_run.blockers || [];
-      if (!blockers.length) return "No dependency blockers";
+      if (!blockers.length) return "没有依赖阻塞项";
       return blockers.map((blocker) => {{
-        const action = blocker.action ? ` action=${{blocker.action}}` : "";
+        const action = blocker.action ? ` 操作=${{blocker.action}}` : "";
         return `${{blocker.code}}: ${{blocker.message}}${{action}}`;
       }}).join("; ");
     }}
     function dashboardSystemProxyStatus(snapshot) {{
-      return snapshot.dependencies.first_run.system_proxy_ready ? "Ready" : "Needs action";
+      return snapshot.dependencies.first_run.system_proxy_ready ? "就绪" : "需要处理";
     }}
     function dashboardTunStatus(snapshot) {{
-      return snapshot.dependencies.first_run.tun_ready ? "Ready" : "Needs action";
+      return snapshot.dependencies.first_run.tun_ready ? "就绪" : "需要处理";
     }}
     function dashboardDependencyBlockers(snapshot) {{
       const blockers = snapshot.dependencies.first_run.blockers || [];
-      if (!blockers.length) return "No blockers";
-      return `${{blockers.length}} blocker${{blockers.length === 1 ? "" : "s"}}`;
+      if (!blockers.length) return "无阻塞项";
+      return `${{blockers.length}} 个阻塞项`;
     }}
     function readinessSystemProxyDetail(snapshot) {{
       const proxy = snapshot.dependencies.system_proxy;
       if (snapshot.dependencies.first_run.system_proxy_ready) {{
-        return proxy.enabled === true ? "Ready, system proxy enabled" : "Ready, system proxy available";
+        return proxy.enabled === true ? "系统代理已启用" : "系统代理可用";
       }}
-      return proxy.error || "System proxy needs attention";
+      return proxy.error || "系统代理需要处理";
     }}
     function readinessTunDetail(snapshot) {{
       const tun = snapshot.dependencies.tun_backend;
       if (snapshot.dependencies.first_run.tun_ready) {{
-        return "Ready, Wintun driver and packet I/O available";
+        return "Wintun 驱动和包 I/O 已就绪";
       }}
-      return tun.reason || "Wintun needs attention";
+      return tun.reason || "Wintun 需要处理";
     }}
     function diagnosticsCoreStatus(snapshot) {{
       const status = snapshot.status;
       const run = runStateLabels[status.run_state] || status.run_state;
       const mode = trafficModeLabels[status.traffic_mode] || status.traffic_mode;
-      return `Core ${{run.toLowerCase()}} via ${{mode}}`;
+      return `核心${{run}} · ${{mode}}`;
     }}
     function diagnosticsRuntimeEvents(snapshot) {{
       const status = snapshot.status;
-      return `Generation ${{status.generation}}, events ${{status.event_count}}`;
+      return `运行代次 ${{status.generation}}，事件 ${{status.event_count}}`;
     }}
     function diagnosticsLastError(snapshot) {{
-      const lastError = snapshot.status.last_error || "none";
-      return `Last error: ${{lastError}}`;
+      const lastError = snapshot.status.last_error || "无";
+      return `最后错误：${{lastError}}`;
     }}
     function diagnosticsConnectionMetrics(snapshot) {{
       const metrics = snapshot.status.connection_metrics || {{}};
       const average = metrics.average_connect_ms === null || metrics.average_connect_ms === undefined
-        ? "n/a"
+        ? "无"
         : `${{metrics.average_connect_ms}} ms`;
-      return `Connections ${{metrics.total || 0}} total, ${{metrics.success || 0}} ok, ${{metrics.failure || 0}} failed, avg connect ${{average}}`;
+      return `连接 ${{metrics.total || 0}} 次，成功 ${{metrics.success || 0}}，失败 ${{metrics.failure || 0}}，平均连接 ${{average}}`;
     }}
     function diagnosticsNodeHealth(snapshot) {{
       const health = snapshot.status.node_health || {{}};
       const nodeCount = health.node_count || 0;
-      if (!nodeCount) return "No runtime health evidence yet";
-      const selected = health.selected_state || "unknown";
-      return `Node health ${{health.healthy_count || 0}} healthy, ${{health.unhealthy_count || 0}} unhealthy, ${{health.unknown_count || 0}} unknown, checked ${{health.checked_count || 0}}/${{nodeCount}}, selected ${{selected}}`;
+      if (!nodeCount) return "暂无运行健康证据";
+      const selected = health.selected_state || "未知";
+      return `节点健康：${{health.healthy_count || 0}} 健康，${{health.unhealthy_count || 0}} 异常，${{health.unknown_count || 0}} 未知，已检查 ${{health.checked_count || 0}}/${{nodeCount}}，当前 ${{selected}}`;
     }}
     function diagnosticsRecentEvent(snapshot) {{
       const event = (snapshot.status.recent_events || [])[0];
-      if (!event) return "Recent event: none";
+      if (!event) return "最近事件：无";
       const status = runStateLabels[event.status] || event.status;
       const note = event.note ? ` - ${{event.note}}` : "";
-      return `Recent event: ${{status}}${{note}}`;
+      return `最近事件：${{status}}${{note}}`;
     }}
     function appendRuntimeEventRow(container, status, note) {{
       const row = document.createElement("div");
@@ -1792,14 +1803,14 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       container.replaceChildren();
       const events = (snapshot.status.recent_events || []).slice(0, 6);
       if (!events.length) {{
-        appendRuntimeEventRow(container, "Idle", "No runtime events");
+        appendRuntimeEventRow(container, "空闲", "暂无运行事件");
         return;
       }}
       for (const event of events) {{
         appendRuntimeEventRow(
           container,
           runStateLabels[event.status] || event.status,
-          event.note || "No event detail"
+          event.note || "无事件详情"
         );
       }}
     }}
@@ -1822,7 +1833,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       body.replaceChildren();
       const events = (snapshot.status.recent_events || []).slice(0, 8);
       if (!events.length) {{
-        appendDiagnosticsRuntimeLogRow(body, "Idle", "core", "No runtime events");
+        appendDiagnosticsRuntimeLogRow(body, "空闲", "核心", "暂无运行事件");
         return;
       }}
       events.forEach((event, index) => {{
@@ -1830,18 +1841,18 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
           body,
           index + 1,
           runStateLabels[event.status] || event.status,
-          event.note || "No event detail"
+          event.note || "无事件详情"
         );
       }});
     }}
     function diagnosticsSystemProxy(snapshot) {{
-      return `System proxy: ${{systemProxyDependency(snapshot)}}`;
+      return `系统代理：${{systemProxyDependency(snapshot)}}`;
     }}
     function diagnosticsTun(snapshot) {{
       return `TUN: ${{tunDependency(snapshot)}}`;
     }}
     function diagnosticsDefaultCore(snapshot) {{
-      return snapshot ? "Native core default, support bundle includes certification evidence" : "Native core default";
+      return snapshot ? "默认使用原生核心，支持包包含认证证据" : "默认使用原生核心";
     }}
     function setText(id, value) {{
       const element = document.getElementById(id);
@@ -1859,22 +1870,22 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       }});
     }}
     function overviewActivity(snapshot) {{
-      return `${{diagnosticsRuntimeEvents(snapshot)}}; ${{diagnosticsRecentEvent(snapshot)}}`;
+      return `${{diagnosticsRuntimeEvents(snapshot)}}；${{diagnosticsRecentEvent(snapshot)}}`;
     }}
     function topCoreStatus(snapshot) {{
       const run = runStateLabels[snapshot.status.run_state] || snapshot.status.run_state;
-      return `Core status: ${{run}}`;
+      return `核心状态：${{run}}`;
     }}
     function topDependencyStatus(snapshot) {{
       const firstRun = snapshot.dependencies.first_run;
       return firstRun.system_proxy_ready && firstRun.tun_ready && !(firstRun.blockers || []).length
-        ? "Dependencies ready"
-        : "Dependencies need attention";
+        ? "依赖已就绪"
+        : "依赖需要处理";
     }}
     function setReadiness(prefix, ready, detail) {{
       const state = document.getElementById(`${{prefix}}-state`);
       if (state) {{
-        state.textContent = ready ? "Ready" : "Needs action";
+        state.textContent = ready ? "就绪" : "需要处理";
         state.className = ready ? "status-ok" : "status-warning";
       }}
       setText(`${{prefix}}-detail`, detail);
@@ -1884,7 +1895,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setText("nav-run-state", runStateLabels[status.run_state] || status.run_state);
       setText("top-core-status", topCoreStatus(snapshot));
       setText("top-traffic-mode", trafficModeLabels[status.traffic_mode] || status.traffic_mode);
-      setText("top-selected-node", status.selected_outbound || "No node selected");
+      setText("top-selected-node", status.selected_outbound || "未选择节点");
       setText("top-dependency-status", topDependencyStatus(snapshot));
       setText("top-activity-status", overviewActivity(snapshot));
       setText("activity-metrics", diagnosticsConnectionMetrics(snapshot));
@@ -1905,7 +1916,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setReadiness("readiness-tun-wintun", firstRun.tun_ready, readinessTunDetail(snapshot));
       setText(
         "readiness-route-takeover-detail",
-        `Current mode: ${{trafficModeLabels[snapshot.status.traffic_mode] || snapshot.status.traffic_mode}}`
+        `当前模式：${{trafficModeLabels[snapshot.status.traffic_mode] || snapshot.status.traffic_mode}}`
       );
       setText("readiness-subscription-updater-detail", subscriptionSummary(snapshot.subscription));
       setText("diagnostics-metric-connections", diagnosticsConnectionMetrics(snapshot));
@@ -1919,10 +1930,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const primary = snapshot.primary_action;
       setText("settings-run-state", runStateLabels[status.run_state] || status.run_state);
       setText("settings-traffic-mode", trafficModeLabels[status.traffic_mode] || status.traffic_mode);
-      setText("settings-selected-node", status.selected_outbound || "No node selected");
-      setText("settings-listen-address", status.listen || "Not listening");
+      setText("settings-selected-node", status.selected_outbound || "未选择节点");
+      setText("settings-listen-address", status.listen || "未监听");
       setText("settings-dependency-summary", dependencySummary(snapshot));
-      setText("settings-primary-state", primary.reason || (primary.enabled ? "Enabled" : "Disabled"));
+      setText("settings-primary-state", primary.reason || (primary.enabled ? "可用" : "不可用"));
       setText("settings-subscription-summary", subscriptionSummary(snapshot.subscription));
       syncPrimaryButton("settings-primary-button", primary);
       syncTrafficModeButtons(status.traffic_mode);
@@ -1936,9 +1947,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const primary = snapshot.primary_action;
       setText("quick-run-state", runStateLabels[status.run_state] || status.run_state);
       setText("quick-traffic-mode", trafficModeLabels[status.traffic_mode] || status.traffic_mode);
-      setText("quick-selected-node", status.selected_outbound || "No node selected");
-      setText("quick-listen-address", status.listen || "Not listening");
-      setText("quick-primary-state", primary.reason || (primary.enabled ? "Enabled" : "Disabled"));
+      setText("quick-selected-node", status.selected_outbound || "未选择节点");
+      setText("quick-listen-address", status.listen || "未监听");
+      setText("quick-primary-state", primary.reason || (primary.enabled ? "可用" : "不可用"));
       setText("quick-dependency-summary", dependencySummary(snapshot));
       setText("quick-subscription-summary", subscriptionSummary(snapshot.subscription));
       setText("activity-summary", overviewActivity(snapshot));
@@ -1955,11 +1966,11 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       window.keliSyncSettings(snapshot);
       document.getElementById("run-state").textContent = runStateLabels[status.run_state] || status.run_state;
       document.getElementById("traffic-mode").textContent = trafficModeLabels[status.traffic_mode] || status.traffic_mode;
-      document.getElementById("listen-address").textContent = status.listen || "Not listening";
-      document.getElementById("selected-outbound").textContent = status.selected_outbound || "No node selected";
-      document.getElementById("runtime-meta").textContent = `Generation ${{status.generation}}, events ${{status.event_count}}`;
+      document.getElementById("listen-address").textContent = status.listen || "未监听";
+      document.getElementById("selected-outbound").textContent = status.selected_outbound || "未选择节点";
+      document.getElementById("runtime-meta").textContent = `代次 ${{status.generation}}，事件 ${{status.event_count}}`;
       document.getElementById("primary-label").textContent = primary.label;
-      document.getElementById("primary-state").textContent = primary.reason || (primary.enabled ? "Enabled" : "Disabled");
+      document.getElementById("primary-state").textContent = primary.reason || (primary.enabled ? "可用" : "不可用");
       const primaryButton = document.getElementById("primary-button");
       primaryButton.textContent = primary.label;
       primaryButton.disabled = !primary.enabled;
@@ -1968,7 +1979,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       importUrlButton.disabled = status.run_state === "running";
       updateUrlButton.disabled = status.run_state !== "running";
       document.getElementById("tray-ids").textContent = snapshot.tray_menu.items.map((item) => item.id).join(", ");
-      document.getElementById("window-visible").textContent = `Window visible: ${{snapshot.window.main_visible}}`;
+      document.getElementById("window-visible").textContent = `窗口可见：${{snapshot.window.main_visible}}`;
       document.getElementById("dependency-summary").textContent = dependencySummary(snapshot);
       document.getElementById("system-proxy-dependency").textContent = systemProxyDependency(snapshot);
       document.getElementById("tun-dependency").textContent = tunDependency(snapshot);
@@ -2213,20 +2224,20 @@ pub fn subscription_url_update_failure_status_script(error: &str) -> serde_json:
 
 fn run_state_label(run_state: DesktopRunState) -> &'static str {
     match run_state {
-        DesktopRunState::Stopped => "Stopped",
-        DesktopRunState::Starting => "Starting",
-        DesktopRunState::Running => "Running",
-        DesktopRunState::Reloading => "Reloading",
-        DesktopRunState::Stopping => "Stopping",
-        DesktopRunState::Failed => "Failed",
+        DesktopRunState::Stopped => "已停止",
+        DesktopRunState::Starting => "启动中",
+        DesktopRunState::Running => "运行中",
+        DesktopRunState::Reloading => "更新中",
+        DesktopRunState::Stopping => "停止中",
+        DesktopRunState::Failed => "失败",
     }
 }
 
 fn traffic_mode_label(traffic_mode: DesktopTrafficMode) -> &'static str {
     match traffic_mode {
-        DesktopTrafficMode::SystemProxy => "System proxy",
+        DesktopTrafficMode::SystemProxy => "系统代理",
         DesktopTrafficMode::Tun => "TUN",
-        DesktopTrafficMode::MixedInboundOnly => "Local inbound",
+        DesktopTrafficMode::MixedInboundOnly => "本地入站",
     }
 }
 
@@ -2240,56 +2251,56 @@ fn aria_pressed(pressed: bool) -> &'static str {
 
 fn dependency_summary(snapshot: &DesktopShellState) -> String {
     let system = if snapshot.dependencies.first_run.system_proxy_ready {
-        "System proxy ready"
+        "系统代理就绪"
     } else {
-        "System proxy blocked"
+        "系统代理受阻"
     };
     let tun = if snapshot.dependencies.first_run.tun_ready {
-        "TUN ready"
+        "TUN 就绪"
     } else {
-        "TUN blocked"
+        "TUN 受阻"
     };
-    format!("{system}, {tun}")
+    format!("{system}，{tun}")
 }
 
 fn system_proxy_dependency(snapshot: &DesktopShellState) -> String {
     let proxy = &snapshot.dependencies.system_proxy;
-    let mut parts = vec![format!("System proxy {}", proxy.state)];
+    let mut parts = vec![format!("系统代理状态：{}", proxy.state)];
     if let Some(enabled) = proxy.enabled {
-        parts.push(format!("enabled={enabled}"));
+        parts.push(format!("已启用={enabled}"));
     }
     if let Some(server) = proxy.server.as_deref() {
-        parts.push(format!("server={server}"));
+        parts.push(format!("服务器={server}"));
     }
     if let Some(error) = proxy.error.as_deref() {
         parts.push(error.to_string());
     }
     if let Some(action) = proxy.action.as_deref() {
-        parts.push(format!("action={action}"));
+        parts.push(format!("操作={action}"));
     }
-    parts.join(", ")
+    parts.join("，")
 }
 
 fn tun_dependency(snapshot: &DesktopShellState) -> String {
     let tun = &snapshot.dependencies.tun_backend;
-    let mut parts = vec![format!("Wintun {}", tun.state)];
-    parts.push(format!("driver_present={}", tun.driver_library_present));
-    parts.push(format!("api_available={}", tun.driver_api_available));
+    let mut parts = vec![format!("Wintun 状态：{}", tun.state)];
+    parts.push(format!("驱动存在={}", tun.driver_library_present));
+    parts.push(format!("API可用={}", tun.driver_api_available));
     if let Some(path) = tun.driver_library_path.as_deref() {
-        parts.push(format!("path={path}"));
+        parts.push(format!("路径={path}"));
     }
     if let Some(reason) = tun.reason.as_deref() {
         parts.push(reason.to_string());
     }
     if let Some(action) = tun.action.as_deref() {
-        parts.push(format!("action={action}"));
+        parts.push(format!("操作={action}"));
     }
-    parts.join(", ")
+    parts.join("，")
 }
 
 fn dependency_blockers(snapshot: &DesktopShellState) -> String {
     if snapshot.dependencies.first_run.blockers.is_empty() {
-        return "No dependency blockers".to_string();
+        return "没有依赖阻塞项".to_string();
     }
     snapshot
         .dependencies
@@ -2300,7 +2311,7 @@ fn dependency_blockers(snapshot: &DesktopShellState) -> String {
             let action = blocker
                 .action
                 .as_deref()
-                .map(|action| format!(" action={action}"))
+                .map(|action| format!(" 操作={action}"))
                 .unwrap_or_default();
             format!("{}: {}{}", blocker.code, blocker.message, action)
         })
@@ -2310,48 +2321,47 @@ fn dependency_blockers(snapshot: &DesktopShellState) -> String {
 
 fn dashboard_system_proxy_status(snapshot: &DesktopShellState) -> &'static str {
     if snapshot.dependencies.first_run.system_proxy_ready {
-        "Ready"
+        "就绪"
     } else {
-        "Needs action"
+        "需要处理"
     }
 }
 
 fn dashboard_tun_status(snapshot: &DesktopShellState) -> &'static str {
     if snapshot.dependencies.first_run.tun_ready {
-        "Ready"
+        "就绪"
     } else {
-        "Needs action"
+        "需要处理"
     }
 }
 
 fn dashboard_dependency_blockers(snapshot: &DesktopShellState) -> String {
     let count = snapshot.dependencies.first_run.blockers.len();
     match count {
-        0 => "No blockers".to_string(),
-        1 => "1 blocker".to_string(),
-        _ => format!("{count} blockers"),
+        0 => "无阻塞项".to_string(),
+        _ => format!("{count} 个阻塞项"),
     }
 }
 
 fn diagnostics_core_status(snapshot: &DesktopShellState) -> String {
     format!(
-        "Core {} via {}",
-        run_state_label(snapshot.status.run_state).to_ascii_lowercase(),
+        "核心{} · {}",
+        run_state_label(snapshot.status.run_state),
         traffic_mode_label(snapshot.status.traffic_mode)
     )
 }
 
 fn diagnostics_runtime_events(snapshot: &DesktopShellState) -> String {
     format!(
-        "Generation {}, events {}",
+        "运行代次 {}，事件 {}",
         snapshot.status.generation, snapshot.status.event_count
     )
 }
 
 fn diagnostics_last_error(snapshot: &DesktopShellState) -> String {
     format!(
-        "Last error: {}",
-        snapshot.status.last_error.as_deref().unwrap_or("none")
+        "最后错误：{}",
+        snapshot.status.last_error.as_deref().unwrap_or("无")
     )
 }
 
@@ -2360,9 +2370,9 @@ fn diagnostics_connection_metrics(snapshot: &DesktopShellState) -> String {
     let average = metrics
         .average_connect_ms
         .map(|value| format!("{value} ms"))
-        .unwrap_or_else(|| "n/a".to_string());
+        .unwrap_or_else(|| "无".to_string());
     format!(
-        "Connections {} total, {} ok, {} failed, avg connect {}",
+        "连接 {} 次，成功 {}，失败 {}，平均连接 {}",
         metrics.total, metrics.success, metrics.failure, average
     )
 }
@@ -2370,35 +2380,35 @@ fn diagnostics_connection_metrics(snapshot: &DesktopShellState) -> String {
 fn diagnostics_node_health(snapshot: &DesktopShellState) -> String {
     let health = &snapshot.status.node_health;
     if health.node_count == 0 {
-        return "No runtime health evidence yet".to_string();
+        return "暂无运行健康证据".to_string();
     }
 
     format!(
-        "Node health {} healthy, {} unhealthy, {} unknown, checked {}/{}, selected {}",
+        "节点健康：{} 健康，{} 异常，{} 未知，已检查 {}/{}，当前 {}",
         health.healthy_count,
         health.unhealthy_count,
         health.unknown_count,
         health.checked_count,
         health.node_count,
-        health.selected_state.as_deref().unwrap_or("unknown")
+        health.selected_state.as_deref().unwrap_or("未知")
     )
 }
 
 fn diagnostics_recent_event(snapshot: &DesktopShellState) -> String {
     let Some(event) = snapshot.status.recent_events.first() else {
-        return "Recent event: none".to_string();
+        return "最近事件：无".to_string();
     };
     let note = event
         .note
         .as_deref()
         .map(|note| format!(" - {note}"))
         .unwrap_or_default();
-    format!("Recent event: {}{}", run_state_label(event.status), note)
+    format!("最近事件：{}{}", run_state_label(event.status), note)
 }
 
 fn runtime_event_items(snapshot: &DesktopShellState) -> String {
     if snapshot.status.recent_events.is_empty() {
-        return r#"<div class="event-row"><span class="event-state">Idle</span><span>No runtime events</span></div>"#
+        return r#"<div class="event-row"><span class="event-state">空闲</span><span>暂无运行事件</span></div>"#
             .to_string();
     }
 
@@ -2409,7 +2419,7 @@ fn runtime_event_items(snapshot: &DesktopShellState) -> String {
         .take(6)
         .map(|event| {
             let status = escape_html(run_state_label(event.status));
-            let note = escape_html(event.note.as_deref().unwrap_or("No event detail"));
+            let note = escape_html(event.note.as_deref().unwrap_or("无事件详情"));
             format!(
                 r#"<div class="event-row"><span class="event-state">{status}</span><span>{note}</span></div>"#
             )
@@ -2420,7 +2430,7 @@ fn runtime_event_items(snapshot: &DesktopShellState) -> String {
 
 fn diagnostics_runtime_log_rows(snapshot: &DesktopShellState) -> String {
     if snapshot.status.recent_events.is_empty() {
-        return r#"<tr><td>Idle</td><td>core</td><td>No runtime events</td></tr>"#.to_string();
+        return r#"<tr><td>空闲</td><td>核心</td><td>暂无运行事件</td></tr>"#.to_string();
     }
 
     snapshot
@@ -2432,7 +2442,7 @@ fn diagnostics_runtime_log_rows(snapshot: &DesktopShellState) -> String {
         .map(|(index, event)| {
             let number = index + 1;
             let status = escape_html(run_state_label(event.status));
-            let note = escape_html(event.note.as_deref().unwrap_or("No event detail"));
+            let note = escape_html(event.note.as_deref().unwrap_or("无事件详情"));
             format!(r#"<tr><td>{number}</td><td>{status}</td><td>{note}</td></tr>"#)
         })
         .collect::<Vec<_>>()
@@ -2440,7 +2450,7 @@ fn diagnostics_runtime_log_rows(snapshot: &DesktopShellState) -> String {
 }
 
 fn diagnostics_system_proxy(snapshot: &DesktopShellState) -> String {
-    format!("System proxy: {}", system_proxy_dependency(snapshot))
+    format!("系统代理：{}", system_proxy_dependency(snapshot))
 }
 
 fn diagnostics_tun(snapshot: &DesktopShellState) -> String {
@@ -2448,15 +2458,15 @@ fn diagnostics_tun(snapshot: &DesktopShellState) -> String {
 }
 
 fn diagnostics_default_core(_snapshot: &DesktopShellState) -> String {
-    "Native core default, support bundle includes certification evidence".to_string()
+    "默认使用原生核心，支持包包含认证证据".to_string()
 }
 
 fn readiness_system_proxy_detail(snapshot: &DesktopShellState) -> String {
     if snapshot.dependencies.first_run.system_proxy_ready {
         if snapshot.dependencies.system_proxy.enabled == Some(true) {
-            "Ready, system proxy enabled".to_string()
+            "系统代理已启用".to_string()
         } else {
-            "Ready, system proxy available".to_string()
+            "系统代理可用".to_string()
         }
     } else {
         snapshot
@@ -2464,20 +2474,20 @@ fn readiness_system_proxy_detail(snapshot: &DesktopShellState) -> String {
             .system_proxy
             .error
             .clone()
-            .unwrap_or_else(|| "System proxy needs attention".to_string())
+            .unwrap_or_else(|| "系统代理需要处理".to_string())
     }
 }
 
 fn readiness_tun_detail(snapshot: &DesktopShellState) -> String {
     if snapshot.dependencies.first_run.tun_ready {
-        "Ready, Wintun driver and packet I/O available".to_string()
+        "Wintun 驱动和包 I/O 已就绪".to_string()
     } else {
         snapshot
             .dependencies
             .tun_backend
             .reason
             .clone()
-            .unwrap_or_else(|| "Wintun needs attention".to_string())
+            .unwrap_or_else(|| "Wintun 需要处理".to_string())
     }
 }
 
@@ -2520,9 +2530,9 @@ fn add_dependency_action(actions: &mut Vec<String>, action: Option<&str>) {
 
 fn dependency_action_label(action: &str) -> &str {
     match action {
-        "check-system-proxy" => "Open proxy settings",
-        "install-wintun" => "Open Wintun download",
-        "check-tun" => "Open TUN help",
+        "check-system-proxy" => "打开代理设置",
+        "install-wintun" => "打开 Wintun 下载",
+        "check-tun" => "打开 TUN 帮助",
         _ => action,
     }
 }
@@ -2530,20 +2540,20 @@ fn dependency_action_label(action: &str) -> &str {
 fn subscription_summary(subscription: Option<&DesktopSubscriptionSummary>) -> String {
     match subscription {
         Some(subscription) => format!(
-            "Supported {}, skipped {}",
+            "支持 {}，跳过 {}",
             subscription.supported_count, subscription.skipped_count
         ),
-        None => "No subscription imported".to_string(),
+        None => "没有导入订阅".to_string(),
     }
 }
 
 fn node_buttons(subscription: Option<&DesktopSubscriptionSummary>) -> String {
     let Some(subscription) = subscription else {
-        return r#"<span class="muted">No nodes</span>"#.to_string();
+        return r#"<span class="muted">没有节点</span>"#.to_string();
     };
     let mut nodes = Vec::new();
     if subscription.nodes.is_empty() {
-        nodes.push(r#"<span class="muted">No nodes</span>"#.to_string());
+        nodes.push(r#"<span class="muted">没有节点</span>"#.to_string());
     }
     nodes.extend(subscription.nodes.iter().map(|node| {
         let selected = if node.selected { "true" } else { "false" };
@@ -2553,17 +2563,17 @@ fn node_buttons(subscription: Option<&DesktopSubscriptionSummary>) -> String {
             node.protocol, node.transport, node.security
         ));
         let udp = if node.udp_supported {
-            "UDP ready"
+            "UDP 就绪"
         } else {
-            "UDP unavailable"
+            "UDP 不可用"
         };
         let health = escape_html(&node_health_detail(node));
         let mut badges = Vec::new();
         if node.selected {
-            badges.push(r#"<span class="node-badge">Selected</span>"#.to_string());
+            badges.push(r#"<span class="node-badge">已选择</span>"#.to_string());
         }
         if node.recommended {
-            badges.push(r#"<span class="node-badge">Recommended</span>"#.to_string());
+            badges.push(r#"<span class="node-badge">推荐</span>"#.to_string());
         }
         let badges = badges.join("");
         format!(
@@ -2573,7 +2583,7 @@ fn node_buttons(subscription: Option<&DesktopSubscriptionSummary>) -> String {
     nodes.extend(subscription.skipped.iter().map(|skipped| {
         let skipped = escape_html(skipped);
         format!(
-            r#"<div class="node-skipped"><span class="node-badge">Skipped</span><span>{skipped}</span></div>"#
+            r#"<div class="node-skipped"><span class="node-badge">已跳过</span><span>{skipped}</span></div>"#
         )
     }));
     nodes.join("")
@@ -2621,7 +2631,7 @@ fn nodes_udp_ready_count(subscription: Option<&DesktopSubscriptionSummary>) -> u
 fn nodes_recommended(subscription: Option<&DesktopSubscriptionSummary>) -> String {
     subscription
         .and_then(|subscription| subscription.recommended_outbound.as_deref())
-        .unwrap_or("None")
+        .unwrap_or("无")
         .to_string()
 }
 
@@ -2644,10 +2654,10 @@ fn selected_node(
 
 fn nodes_table_rows(subscription: Option<&DesktopSubscriptionSummary>) -> String {
     let Some(subscription) = subscription else {
-        return r#"<tr><td colspan="7">No nodes</td></tr>"#.to_string();
+        return r#"<tr><td colspan="7">没有节点</td></tr>"#.to_string();
     };
     if subscription.nodes.is_empty() {
-        return r#"<tr><td colspan="7">No nodes</td></tr>"#.to_string();
+        return r#"<tr><td colspan="7">没有节点</td></tr>"#.to_string();
     }
 
     subscription
@@ -2663,14 +2673,14 @@ fn nodes_table_rows(subscription: Option<&DesktopSubscriptionSummary>) -> String
                 .map(|latency| format!("{latency} ms"))
                 .unwrap_or_else(|| "-".to_string());
             let tcp = if node.tcp_available == Some(false) {
-                "Failed"
+                "失败"
             } else {
-                "Ready"
+                "就绪"
             };
             let udp = if node.udp_supported || node.udp_available == Some(true) {
-                "Ready"
+                "就绪"
             } else {
-                "Unavailable"
+                "不可用"
             };
             let health = escape_html(&node_health_detail(node));
             format!(
@@ -2684,12 +2694,12 @@ fn nodes_table_rows(subscription: Option<&DesktopSubscriptionSummary>) -> String
 fn selected_node_title(subscription: Option<&DesktopSubscriptionSummary>) -> String {
     selected_node(subscription)
         .map(|node| node.tag.clone())
-        .unwrap_or_else(|| "No node selected".to_string())
+        .unwrap_or_else(|| "未选择节点".to_string())
 }
 
 fn selected_node_detail(subscription: Option<&DesktopSubscriptionSummary>) -> String {
     let Some(node) = selected_node(subscription) else {
-        return r#"<div><span>Status</span><strong>Import a subscription to select a node</strong></div>"#
+        return r#"<div><span>状态</span><strong>导入订阅后才能选择节点</strong></div>"#
             .to_string();
     };
 
@@ -2698,23 +2708,23 @@ fn selected_node_detail(subscription: Option<&DesktopSubscriptionSummary>) -> St
         .map(|latency| format!("{latency} ms"))
         .unwrap_or_else(|| "-".to_string());
     let tcp = if node.tcp_available == Some(false) {
-        "Failed"
+        "失败"
     } else {
-        "Ready"
+        "就绪"
     };
     let udp = if node.udp_supported || node.udp_available == Some(true) {
-        "Ready"
+        "就绪"
     } else {
-        "Unavailable"
+        "不可用"
     };
     [
-        ("Protocol", node.protocol.as_str()),
-        ("Transport", node.transport.as_str()),
-        ("Security", node.security.as_str()),
-        ("Latency", latency.as_str()),
+        ("协议", node.protocol.as_str()),
+        ("传输", node.transport.as_str()),
+        ("安全", node.security.as_str()),
+        ("延迟", latency.as_str()),
         ("TCP", tcp),
         ("UDP", udp),
-        ("Health", node_health_detail(node).as_str()),
+        ("健康", node_health_detail(node).as_str()),
     ]
     .iter()
     .map(|(label, value)| {
@@ -2731,28 +2741,28 @@ fn selected_node_detail(subscription: Option<&DesktopSubscriptionSummary>) -> St
 fn node_health_detail(node: &keli_desktop::DesktopNodeSummary) -> String {
     let mut parts = Vec::new();
     if let Some(state) = node.health_state.as_deref() {
-        parts.push(format!("Health {state}"));
+        parts.push(format!("健康状态 {state}"));
     }
     match node.tcp_available {
-        Some(true) => parts.push("TCP ready".to_string()),
-        Some(false) => parts.push("TCP failed".to_string()),
+        Some(true) => parts.push("TCP 就绪".to_string()),
+        Some(false) => parts.push("TCP 失败".to_string()),
         None => {}
     }
     match node.udp_available {
-        Some(true) => parts.push("UDP live".to_string()),
-        Some(false) => parts.push("UDP failed".to_string()),
+        Some(true) => parts.push("UDP 在线".to_string()),
+        Some(false) => parts.push("UDP 失败".to_string()),
         None => {}
     }
     if let Some(latency_ms) = node.latency_ms {
         parts.push(format!("{latency_ms} ms"));
     }
     if let Some(error) = node.health_error.as_deref() {
-        parts.push(format!("Last failure {error}"));
+        parts.push(format!("最近失败 {error}"));
     }
     if parts.is_empty() {
-        "Health unknown".to_string()
+        "健康未知".to_string()
     } else {
-        parts.join(", ")
+        parts.join("，")
     }
 }
 
@@ -2863,7 +2873,7 @@ mod tests {
         assert!(html.contains("Keli"));
         assert!(html.contains("window.ipc.postMessage('primary')"));
         assert!(html.contains("id=\"run-state\""));
-        assert!(html.contains("Stopped"));
+        assert!(html.contains("已停止"));
         assert!(html.contains("SS-READY"));
         assert!(html.contains("show-main-window"));
         assert!(html.contains("toggle-service"));
@@ -2909,6 +2919,28 @@ mod tests {
     }
 
     #[test]
+    fn desktop_shell_renders_chinese_user_facing_copy() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains(r#"<html lang="zh-CN">"#));
+        assert!(html.contains(">概览</button>"));
+        assert!(html.contains(">节点</button>"));
+        assert!(html.contains(">诊断</button>"));
+        assert!(html.contains(">设置</button>"));
+        assert!(html.contains("核心状态：已停止"));
+        assert!(html.contains("模式："));
+        assert!(html.contains("节点："));
+        assert!(html.contains("依赖已就绪"));
+        assert!(html.contains("未选择节点"));
+        assert!(html.contains("没有导入订阅"));
+        assert!(html.contains("启动受阻"));
+        assert!(html.contains("刷新"));
+        assert!(html.contains("就绪"));
+        assert!(!html.contains(">Dashboard</button>"));
+        assert!(!html.contains(">Refresh</button>"));
+    }
+
+    #[test]
     fn desktop_shell_keeps_primary_views_inside_default_window() {
         let html = render_shell_html(&snapshot());
 
@@ -2931,7 +2963,7 @@ mod tests {
         assert!(html.contains("class=\"grid legacy-workflow-surface\" hidden"));
         assert!(html.contains("#connection-activity-panel,"));
         assert!(html.contains("<pre id=\"snapshot-json\" hidden>"));
-        assert!(html.contains("id=\"dashboard-tun-status\">Ready</span>"));
+        assert!(html.contains("id=\"dashboard-tun-status\">就绪</span>"));
         assert!(!html.contains("id=\"dashboard-tun-status\">Wintun ready"));
     }
 
@@ -2988,10 +3020,10 @@ mod tests {
         let html = render_shell_html(&snapshot);
 
         assert!(html.contains("id=\"nodes-table-body\""));
-        assert!(html.contains("Name"));
-        assert!(html.contains("Protocol"));
-        assert!(html.contains("Transport"));
-        assert!(html.contains("Latency"));
+        assert!(html.contains("名称"));
+        assert!(html.contains("协议"));
+        assert!(html.contains("传输"));
+        assert!(html.contains("延迟"));
         assert!(html.contains("SS-READY"));
         assert!(html.contains("id=\"selected-node-detail\""));
         assert!(html.contains("id=\"selected-node-title\""));
@@ -3024,7 +3056,7 @@ mod tests {
         assert!(html.contains("id=\"diagnostics-runtime-log-body\""));
         assert!(html.contains("listener ready"));
         assert!(html.contains("id=\"diagnostics-metrics-panel\""));
-        assert!(html.contains("Connections 12 total, 11 ok, 1 failed, avg connect 18 ms"));
+        assert!(html.contains("连接 12 次，成功 11，失败 1，平均连接 18 ms"));
     }
 
     #[test]
@@ -3087,20 +3119,27 @@ mod tests {
     }
 
     #[test]
+    fn settings_subscription_status_is_compact_for_default_window() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("class=\"settings-subscription-status-row\""));
+        assert!(html.contains(".settings-subscription-status-row {\n      display: flex;"));
+        assert!(html.contains(".settings-subscription-status-row .muted {\n      margin-top: 0;"));
+    }
+
+    #[test]
     fn shell_html_shows_primary_blocked_reason_before_subscription() {
         let html = render_shell_html(&snapshot());
 
-        assert!(
-            html.contains("id=\"primary-state\">Import a subscription before starting Keli</div>")
-        );
-        assert!(html.contains("id=\"primary-button\" class=\"primary\" onclick=\"window.ipc.postMessage('primary')\" disabled>Start Blocked</button>"));
+        assert!(html.contains("id=\"primary-state\">请先导入订阅，再启动 Keli</div>"));
+        assert!(html.contains("id=\"primary-button\" class=\"primary\" onclick=\"window.ipc.postMessage('primary')\" disabled>启动受阻</button>"));
     }
 
     #[test]
     fn shell_html_live_update_prefers_primary_reason() {
         let html = render_shell_html(&snapshot());
 
-        assert!(html.contains("primary.reason || (primary.enabled ? \"Enabled\" : \"Disabled\")"));
+        assert!(html.contains("primary.reason || (primary.enabled ? \"可用\" : \"不可用\")"));
     }
 
     #[test]
@@ -3214,10 +3253,10 @@ mod tests {
         let html = render_shell_html(&snapshot());
 
         assert!(html.contains(
-            "id=\"import-subscription-url-button\" class=\"primary\" onclick=\"postImportSubscriptionUrl()\">Import URL</button>"
+            "id=\"import-subscription-url-button\" class=\"primary\" onclick=\"postImportSubscriptionUrl()\">导入 URL</button>"
         ));
         assert!(html.contains(
-            "id=\"update-subscription-url-button\" onclick=\"postUpdateSubscriptionUrl()\" disabled>Update URL</button>"
+            "id=\"update-subscription-url-button\" onclick=\"postUpdateSubscriptionUrl()\" disabled>更新 URL</button>"
         ));
     }
 
@@ -3232,10 +3271,10 @@ mod tests {
         let html = render_shell_html(&snapshot);
 
         assert!(html.contains(
-            "id=\"import-subscription-url-button\" class=\"primary\" onclick=\"postImportSubscriptionUrl()\" disabled>Import URL</button>"
+            "id=\"import-subscription-url-button\" class=\"primary\" onclick=\"postImportSubscriptionUrl()\" disabled>导入 URL</button>"
         ));
         assert!(html.contains(
-            "id=\"update-subscription-url-button\" onclick=\"postUpdateSubscriptionUrl()\">Update URL</button>"
+            "id=\"update-subscription-url-button\" onclick=\"postUpdateSubscriptionUrl()\">更新 URL</button>"
         ));
     }
 
@@ -3253,7 +3292,7 @@ mod tests {
         let html = render_shell_html(&snapshot());
 
         assert!(html.contains("postTrafficMode('mixed-inbound-only')"));
-        assert!(html.contains("Local inbound"));
+        assert!(html.contains("本地入站"));
     }
 
     #[test]
@@ -3374,8 +3413,8 @@ mod tests {
         assert!(html.contains("id=\"system-proxy-dependency\""));
         assert!(html.contains("id=\"tun-dependency\""));
         assert!(html.contains("id=\"dependency-blockers\""));
-        assert!(html.contains("System proxy ready"));
-        assert!(html.contains("TUN ready"));
+        assert!(html.contains("系统代理就绪"));
+        assert!(html.contains("TUN 就绪"));
     }
 
     #[test]
@@ -3399,11 +3438,11 @@ mod tests {
 
         assert!(html.contains("id=\"dependency-actions\""));
         assert!(html.contains("dependency-action"));
-        assert!(html.contains("Open Wintun download"));
-        assert!(html.contains("Wintun install-required"));
+        assert!(html.contains("打开 Wintun 下载"));
+        assert!(html.contains("Wintun 状态：install-required"));
         assert!(html.contains("Wintun library was not found"));
         assert!(html.contains("install-wintun"));
-        assert!(html.contains("System proxy ready"));
+        assert!(html.contains("系统代理就绪"));
     }
 
     #[test]
@@ -3427,7 +3466,7 @@ mod tests {
 
         assert!(html.contains("id=\"dependency-actions\""));
         assert!(html.contains("check-system-proxy"));
-        assert!(html.contains("Open proxy settings"));
+        assert!(html.contains("打开代理设置"));
     }
 
     #[test]
@@ -3445,7 +3484,7 @@ mod tests {
 
         let html = render_shell_html(&snapshot);
 
-        assert!(html.contains("Supported 1"));
+        assert!(html.contains("支持 1"));
         assert!(html.contains("SS-READY"));
         assert!(html.contains("data-node-tag=\"SS-READY\""));
     }
@@ -3464,13 +3503,13 @@ mod tests {
 
         assert!(html.contains("SS-READY"));
         assert!(html.contains("ss / tcp / none"));
-        assert!(html.contains("UDP ready"));
-        assert!(html.contains("Health healthy"));
-        assert!(html.contains("TCP ready"));
-        assert!(html.contains("UDP live"));
+        assert!(html.contains("UDP 就绪"));
+        assert!(html.contains("健康状态 healthy"));
+        assert!(html.contains("TCP 就绪"));
+        assert!(html.contains("UDP 在线"));
         assert!(html.contains("42 ms"));
-        assert!(html.contains("Selected"));
-        assert!(html.contains("Recommended"));
+        assert!(html.contains("已选择"));
+        assert!(html.contains("推荐"));
     }
 
     #[test]
@@ -3483,7 +3522,7 @@ mod tests {
 
         let html = render_shell_html(&snapshot);
 
-        assert!(html.contains("Skipped"));
+        assert!(html.contains("已跳过"));
         assert!(html.contains("BROKEN: unsupported protocol"));
     }
 
@@ -3530,18 +3569,16 @@ mod tests {
         let html = render_shell_html(&snapshot);
 
         assert!(html.contains("id=\"diagnostics-core-status\""));
-        assert!(html.contains("Core stopped via System proxy"));
+        assert!(html.contains("核心已停止 · 系统代理"));
         assert!(html.contains("id=\"diagnostics-runtime-events\""));
-        assert!(html.contains("Generation 3, events 5"));
-        assert!(html.contains("Last error: Managed(&quot;bind failed&quot;)"));
+        assert!(html.contains("运行代次 3，事件 5"));
+        assert!(html.contains("最后错误：Managed(&quot;bind failed&quot;)"));
         assert!(html.contains("id=\"diagnostics-system-proxy\""));
         assert!(html.contains("id=\"diagnostics-tun\""));
-        assert!(html.contains("Connections 3 total, 2 ok, 1 failed, avg connect 25 ms"));
-        assert!(html.contains(
-            "Node health 1 healthy, 1 unhealthy, 0 unknown, checked 2/2, selected healthy"
-        ));
-        assert!(html.contains("Recent event: Running - runtime running"));
-        assert!(html.contains("Native core default"));
+        assert!(html.contains("连接 3 次，成功 2，失败 1，平均连接 25 ms"));
+        assert!(html.contains("节点健康：1 健康，1 异常，0 未知，已检查 2/2，当前 healthy"));
+        assert!(html.contains("最近事件：运行中 - runtime running"));
+        assert!(html.contains("默认使用原生核心"));
     }
 
     #[test]

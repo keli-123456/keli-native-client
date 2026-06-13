@@ -4,7 +4,7 @@ use crate::dependencies::DesktopDependencyReport;
 use crate::status::{DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode};
 use crate::subscription::DesktopSubscriptionSummary;
 
-const MISSING_SUBSCRIPTION_REASON: &str = "Import a subscription before starting Keli";
+const MISSING_SUBSCRIPTION_REASON: &str = "请先导入订阅，再启动 Keli";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -177,7 +177,7 @@ fn derive_primary_action(
                 primary_action(
                     "start-service",
                     DesktopShellPrimaryCommand::Start,
-                    "Start Keli",
+                    "启动 Keli",
                     true,
                     None,
                 )
@@ -190,19 +190,19 @@ fn derive_primary_action(
         DesktopRunState::Running => primary_action(
             "stop-service",
             DesktopShellPrimaryCommand::Stop,
-            "Stop Keli",
+            "停止 Keli",
             true,
             None,
         ),
-        DesktopRunState::Starting => busy_primary_action("Starting Keli"),
-        DesktopRunState::Reloading => busy_primary_action("Updating Keli"),
-        DesktopRunState::Stopping => busy_primary_action("Stopping Keli"),
+        DesktopRunState::Starting => busy_primary_action("正在启动"),
+        DesktopRunState::Reloading => busy_primary_action("正在更新"),
+        DesktopRunState::Stopping => busy_primary_action("正在停止"),
         DesktopRunState::Failed => {
             if can_start {
                 primary_action(
                     "retry-service",
                     DesktopShellPrimaryCommand::Retry,
-                    "Retry Keli",
+                    "重试",
                     true,
                     status.last_error.clone(),
                 )
@@ -245,7 +245,7 @@ fn missing_subscription_primary_action() -> DesktopShellPrimaryAction {
     primary_action(
         "blocked-service",
         DesktopShellPrimaryCommand::Blocked,
-        "Start Blocked",
+        "启动受阻",
         false,
         Some(MISSING_SUBSCRIPTION_REASON.to_string()),
     )
@@ -255,7 +255,7 @@ fn blocked_primary_action(dependencies: &DesktopDependencyReport) -> DesktopShel
     primary_action(
         "blocked-service",
         DesktopShellPrimaryCommand::Blocked,
-        "Start Blocked",
+        "启动受阻",
         false,
         Some(blocked_reason(dependencies)),
     )
@@ -263,7 +263,7 @@ fn blocked_primary_action(dependencies: &DesktopDependencyReport) -> DesktopShel
 
 fn blocked_reason(dependencies: &DesktopDependencyReport) -> String {
     if dependencies.first_run.blockers.is_empty() {
-        return "No desktop traffic mode is ready".to_string();
+        return "没有可用的流量模式".to_string();
     }
     dependencies
         .first_run
@@ -283,9 +283,9 @@ fn derive_tray_menu(
             DesktopShellTrayItem {
                 id: "show-main-window".to_string(),
                 label: if window.main_visible {
-                    "Hide Keli"
+                    "隐藏 Keli"
                 } else {
-                    "Show Keli"
+                    "显示 Keli"
                 }
                 .to_string(),
                 enabled: true,
@@ -313,14 +313,14 @@ fn derive_tray_menu(
             },
             DesktopShellTrayItem {
                 id: "open-diagnostics".to_string(),
-                label: "Diagnostics".to_string(),
+                label: "诊断".to_string(),
                 enabled: true,
                 checked: window.diagnostics_visible,
                 action: DesktopShellAction::OpenDiagnostics,
             },
             DesktopShellTrayItem {
                 id: "quit".to_string(),
-                label: "Quit Keli".to_string(),
+                label: "退出 Keli".to_string(),
                 enabled: true,
                 checked: false,
                 action: DesktopShellAction::RequestQuit,
@@ -486,8 +486,28 @@ mod tests {
         assert!(!shell.can_start);
         assert_eq!(
             shell.primary_action.reason.as_deref(),
-            Some("Import a subscription before starting Keli")
+            Some("请先导入订阅，再启动 Keli")
         );
+    }
+
+    #[test]
+    fn primary_action_copy_is_localized_for_chinese_desktop_ui() {
+        let blocked =
+            DesktopShellState::new(status(DesktopRunState::Stopped), ready_dependencies());
+        assert_eq!(blocked.primary_action.label, "启动受阻");
+        assert_eq!(
+            blocked.primary_action.reason.as_deref(),
+            Some("请先导入订阅，再启动 Keli")
+        );
+
+        let mut startable =
+            DesktopShellState::new(status(DesktopRunState::Stopped), ready_dependencies());
+        startable.refresh_subscription(Some(subscription("SS-READY")));
+        assert_eq!(startable.primary_action.label, "启动 Keli");
+
+        let running =
+            DesktopShellState::new(status(DesktopRunState::Running), ready_dependencies());
+        assert_eq!(running.primary_action.label, "停止 Keli");
     }
 
     #[test]

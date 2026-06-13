@@ -219,7 +219,7 @@ fn handle_ui_event(
             Ok(()) => (
                 "success",
                 operation_success_message(&event)
-                    .unwrap_or_else(|| format!("Dependency action opened: {action}")),
+                    .unwrap_or_else(|| format!("已打开依赖操作：{action}")),
             ),
             Err(message) => {
                 eprintln!("desktop shell dependency action failed: {message}");
@@ -458,32 +458,28 @@ fn sync_webview(webview: &WebView, shell: &DesktopShellState) {
 fn operation_success_message(event: &DesktopShellUiEvent) -> Option<String> {
     match event {
         DesktopShellUiEvent::Action(DesktopShellAction::RequestStart) => {
-            Some("Start requested".to_string())
+            Some("已请求启动".to_string())
         }
         DesktopShellUiEvent::Action(DesktopShellAction::RequestStop) => {
-            Some("Stop requested".to_string())
+            Some("已请求停止".to_string())
         }
-        DesktopShellUiEvent::Refresh => Some("Status refreshed".to_string()),
-        DesktopShellUiEvent::RefreshNodeHealth => Some("Node health refreshed".to_string()),
-        DesktopShellUiEvent::SelectNode(outbound_tag) => {
-            Some(format!("Selected node {outbound_tag}"))
-        }
+        DesktopShellUiEvent::Refresh => Some("状态已刷新".to_string()),
+        DesktopShellUiEvent::RefreshNodeHealth => Some("节点健康已刷新".to_string()),
+        DesktopShellUiEvent::SelectNode(outbound_tag) => Some(format!("已选择节点 {outbound_tag}")),
         DesktopShellUiEvent::SetTrafficMode(traffic_mode) => Some(format!(
-            "Traffic mode set to {}",
+            "流量模式已切换为 {}",
             traffic_mode_label(*traffic_mode)
         )),
-        DesktopShellUiEvent::DependencyAction(action) => {
-            Some(format!("Dependency action opened: {action}"))
-        }
+        DesktopShellUiEvent::DependencyAction(action) => Some(format!("已打开依赖操作：{action}")),
         _ => None,
     }
 }
 
 fn traffic_mode_label(traffic_mode: keli_desktop::DesktopTrafficMode) -> &'static str {
     match traffic_mode {
-        keli_desktop::DesktopTrafficMode::SystemProxy => "System proxy",
+        keli_desktop::DesktopTrafficMode::SystemProxy => "系统代理",
         keli_desktop::DesktopTrafficMode::Tun => "TUN",
-        keli_desktop::DesktopTrafficMode::MixedInboundOnly => "Local inbound",
+        keli_desktop::DesktopTrafficMode::MixedInboundOnly => "本地入站",
     }
 }
 
@@ -1045,30 +1041,30 @@ mod tests {
     fn operation_success_message_covers_generic_actions() {
         assert_eq!(
             operation_success_message(&DesktopShellUiEvent::Refresh).as_deref(),
-            Some("Status refreshed")
+            Some("状态已刷新")
         );
         assert_eq!(
             operation_success_message(&DesktopShellUiEvent::RefreshNodeHealth).as_deref(),
-            Some("Node health refreshed")
+            Some("节点健康已刷新")
         );
         assert_eq!(
             operation_success_message(&DesktopShellUiEvent::Action(
                 DesktopShellAction::RequestStart
             ))
             .as_deref(),
-            Some("Start requested")
+            Some("已请求启动")
         );
         assert_eq!(
             operation_success_message(&DesktopShellUiEvent::Action(
                 DesktopShellAction::RequestStop
             ))
             .as_deref(),
-            Some("Stop requested")
+            Some("已请求停止")
         );
         assert_eq!(
             operation_success_message(&DesktopShellUiEvent::SelectNode("SS-READY".to_string()))
                 .as_deref(),
-            Some("Selected node SS-READY")
+            Some("已选择节点 SS-READY")
         );
     }
 
@@ -1079,14 +1075,14 @@ mod tests {
                 DesktopTrafficMode::Tun
             ))
             .as_deref(),
-            Some("Traffic mode set to TUN")
+            Some("流量模式已切换为 TUN")
         );
         assert_eq!(
             operation_success_message(&DesktopShellUiEvent::DependencyAction(
                 "install-wintun".to_string()
             ))
             .as_deref(),
-            Some("Dependency action opened: install-wintun")
+            Some("已打开依赖操作：install-wintun")
         );
     }
 
