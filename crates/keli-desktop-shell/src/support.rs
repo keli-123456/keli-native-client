@@ -10,6 +10,7 @@ use serde::Serialize;
 pub struct SupportBundleSaveSummary {
     pub status: String,
     pub path: String,
+    pub directory: String,
     pub byte_count: usize,
 }
 
@@ -34,6 +35,7 @@ pub fn write_support_bundle_export(
     Ok(SupportBundleSaveSummary {
         status: "saved".to_string(),
         path: path.to_string_lossy().into_owned(),
+        directory: directory.to_string_lossy().into_owned(),
         byte_count: export.bytes.len(),
     })
 }
@@ -74,6 +76,7 @@ mod tests {
         let summary = write_support_bundle_export(&export(), &dir).expect("write support bundle");
 
         assert!(summary.path.ends_with(".json"));
+        assert_eq!(summary.directory, dir.to_string_lossy().as_ref());
         assert_eq!(summary.byte_count, 15);
         assert_eq!(
             fs::read_to_string(&summary.path).expect("read support bundle"),

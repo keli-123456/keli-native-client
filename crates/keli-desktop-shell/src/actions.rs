@@ -29,6 +29,7 @@ pub enum DesktopShellUiEvent {
     SelectNode(String),
     SetTrafficMode(DesktopTrafficMode),
     ExportSupportBundle,
+    OpenSupportExportDirectory,
     DependencyAction(String),
     InstallWintunPath(String),
 }
@@ -69,6 +70,7 @@ pub fn ipc_event_for_message(
             DesktopShellAction::OpenDiagnostics,
         )),
         "export-support-bundle" => Some(DesktopShellUiEvent::ExportSupportBundle),
+        "open-support-export-dir" => Some(DesktopShellUiEvent::OpenSupportExportDirectory),
         "quit" => Some(DesktopShellUiEvent::Action(DesktopShellAction::RequestQuit)),
         _ => json_ipc_event(message),
     }
@@ -423,6 +425,17 @@ mod tests {
                 &shell(DesktopRunState::Stopped, true)
             ),
             Some(DesktopShellUiEvent::ExportSupportBundle)
+        );
+    }
+
+    #[test]
+    fn support_export_open_directory_ipc_maps_to_open_event() {
+        assert_eq!(
+            ipc_event_for_message(
+                "open-support-export-dir",
+                &shell(DesktopRunState::Stopped, true)
+            ),
+            Some(DesktopShellUiEvent::OpenSupportExportDirectory)
         );
     }
 

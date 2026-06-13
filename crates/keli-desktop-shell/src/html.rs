@@ -1206,10 +1206,13 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="muted" id="diagnostics-default-core">{diagnostics_default_core}</div>
         <div class="value">支持包</div>
         <div class="muted" id="support-export-status">尚未导出支持包</div>
+        <div class="muted" id="support-export-file">文件：尚未生成</div>
+        <div class="muted" id="support-export-directory">目录：尚未生成</div>
         <div class="muted" id="support-export-diagnosis">{support_diagnosis_summary}</div>
         <div class="muted" id="support-export-action">{support_diagnosis_action}</div>
         <div class="actions">
           <button id="export-support-button" onclick="window.ipc.postMessage('export-support-bundle')">导出支持包</button>
+          <button id="open-support-directory-button" onclick="postOpenSupportExportDirectory()" disabled>打开目录</button>
         </div>
       </section>
     </div>
@@ -1479,10 +1482,13 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
           <h2>支持包</h2>
           <div class="value">诊断导出</div>
           <div class="muted" id="diagnostics-support-status">尚未导出支持包</div>
+          <div class="muted" id="diagnostics-support-file">文件：尚未生成</div>
+          <div class="muted" id="diagnostics-support-directory">目录：尚未生成</div>
           <div class="muted" id="diagnostics-support-diagnosis">{support_diagnosis_summary}</div>
           <div class="muted" id="diagnostics-support-action">{support_diagnosis_action}</div>
           <div class="support-actions">
             <button id="diagnostics-export-button" class="primary" onclick="window.ipc.postMessage('export-support-bundle')">导出诊断</button>
+            <button id="diagnostics-open-support-directory-button" onclick="postOpenSupportExportDirectory()" disabled>打开目录</button>
             <button id="diagnostics-copy-logs-button" onclick="postCopyDiagnosticsLogs()">复制日志</button>
             <label class="toggle-row"><input id="include-certification-toggle" type="checkbox" checked /> 包含认证证据</label>
           </div>
@@ -2621,11 +2627,41 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         setNodeSelectionStatus("error", message);
       }}
     }};
+    let lastSupportExportDirectory = "";
+    function setSupportExportLocation(file, directory) {{
+      setText("support-export-file", `文件：${{file}}`);
+      setText("support-export-directory", `目录：${{directory}}`);
+      setText("diagnostics-support-file", `文件：${{file}}`);
+      setText("diagnostics-support-directory", `目录：${{directory}}`);
+    }}
+    function setSupportExportDirectoryEnabled(enabled) {{
+      for (const id of ["open-support-directory-button", "diagnostics-open-support-directory-button"]) {{
+        const button = document.getElementById(id);
+        if (button) {{
+          button.disabled = !enabled;
+        }}
+      }}
+    }}
+    function postOpenSupportExportDirectory() {{
+      if (!lastSupportExportDirectory) {{
+        window.keliSetOperationStatus({{ kind: "error", message: "请先导出支持包" }});
+        return;
+      }}
+      window.ipc.postMessage("open-support-export-dir");
+      window.keliSetOperationStatus({{ kind: "info", message: "正在打开支持包目录" }});
+    }}
     window.keliSetSupportExport = (summary) => {{
-      const label = summary.status === "saved"
+      const saved = summary.status === "saved";
+      const label = saved
         ? `已保存 ${{summary.byte_count}} 字节到 ${{summary.path}}`
-        : `${{summary.status}}: ${{summary.path || ""}}`;
-      const kind = summary.status === "saved" ? "success" : "error";
+        : `${{summary.status}}: ${{summary.error || summary.path || ""}}`;
+      const kind = saved ? "success" : "error";
+      lastSupportExportDirectory = saved ? (summary.directory || "") : "";
+      setSupportExportLocation(
+        saved ? (summary.path || "未返回文件路径") : "尚未生成",
+        saved ? (summary.directory || "未返回目录") : "尚未生成"
+      );
+      setSupportExportDirectoryEnabled(Boolean(lastSupportExportDirectory));
       document.getElementById("support-export-status").textContent = label;
       setText("diagnostics-support-status", label);
       window.keliSetOperationStatus({{ kind: kind, message: label }});
@@ -5160,7 +5196,10 @@ mod tests {
         assert!(html.contains("id=\"diagnostics-support-panel\""));
         assert!(html.contains("id=\"diagnostics-support-diagnosis\""));
         assert!(html.contains("id=\"diagnostics-support-action\""));
+        assert!(html.contains("id=\"diagnostics-support-file\""));
+        assert!(html.contains("id=\"diagnostics-support-directory\""));
         assert!(html.contains("id=\"diagnostics-export-button\""));
+        assert!(html.contains("id=\"diagnostics-open-support-directory-button\""));
         assert!(html.contains("id=\"diagnostics-copy-logs-button\""));
         assert!(html.contains("id=\"include-certification-toggle\""));
         assert!(html.contains("id=\"diagnostics-settings-panel\""));
@@ -5658,12 +5697,17 @@ mod tests {
         let html = render_shell_html(&snapshot());
 
         assert!(html.contains("export-support-bundle"));
+        assert!(html.contains("open-support-export-dir"));
         assert!(html.contains("id=\"support-export-status\""));
+        assert!(html.contains("id=\"support-export-file\""));
+        assert!(html.contains("id=\"support-export-directory\""));
+        assert!(html.contains("id=\"open-support-directory-button\""));
         assert!(html.contains("id=\"support-export-diagnosis\""));
         assert!(html.contains("id=\"support-export-action\""));
         assert!(html.contains("支持包将包含：未配置订阅"));
         assert!(html.contains("建议动作：登录面板或导入订阅"));
         assert!(html.contains("window.keliSetSupportExport"));
+        assert!(html.contains("function postOpenSupportExportDirectory()"));
     }
 
     #[test]
@@ -5757,6 +5801,7 @@ mod tests {
             status: "saved".to_string(),
             path: "C:\\Users\\Administrator\\Documents\\Keli\\Support\\keli-support.json"
                 .to_string(),
+            directory: "C:\\Users\\Administrator\\Documents\\Keli\\Support".to_string(),
             byte_count: 15,
         };
 
@@ -5764,6 +5809,7 @@ mod tests {
 
         assert!(script.contains("window.keliSetSupportExport"));
         assert!(script.contains("keli-support.json"));
+        assert!(script.contains("Documents\\\\Keli\\\\Support"));
     }
 
     #[test]

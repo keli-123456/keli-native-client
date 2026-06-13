@@ -4,6 +4,7 @@ mod support;
 
 use std::error::Error;
 use std::fs;
+use std::path::Path;
 
 use actions::{ipc_event_for_message, tray_event_for_id, DesktopShellUiEvent};
 use html::{
@@ -196,6 +197,24 @@ fn handle_ui_event(
         return;
     }
 
+    if matches!(event, DesktopShellUiEvent::OpenSupportExportDirectory) {
+        let operation_status = match open_support_export_directory() {
+            Ok(()) => ("success", "已打开支持包目录".to_string()),
+            Err(message) => {
+                eprintln!("desktop shell open support export directory failed: {message}");
+                ("error", message)
+            }
+        };
+        let shell = controller.refresh();
+        window.set_visible(shell.window.main_visible);
+        sync_webview(webview, &shell);
+        sync_operation_status(webview, operation_status.0, &operation_status.1);
+        if shell.quit_requested {
+            *control_flow = ControlFlow::Exit;
+        }
+        return;
+    }
+
     if let DesktopShellUiEvent::InstallWintunPath(path) = &event {
         match install_wintun_path(controller, path.clone(), webview) {
             Ok(shell) => {
@@ -297,6 +316,7 @@ fn dispatch_ui_event(
             Ok(controller.set_traffic_mode(traffic_mode))
         }
         DesktopShellUiEvent::ExportSupportBundle => Ok(controller.refresh()),
+        DesktopShellUiEvent::OpenSupportExportDirectory => Ok(controller.refresh()),
         DesktopShellUiEvent::DependencyAction(_) => Ok(controller.refresh()),
         DesktopShellUiEvent::InstallWintunPath(_) => Ok(controller.refresh()),
     }
@@ -536,6 +556,47 @@ fn open_dependency_action(action: &str) -> Result<(), String> {
     let target = dependency_action_launch_target(action)
         .ok_or_else(|| format!("unknown dependency action: {action}"))?;
     open_launch_target(target.target).map_err(|error| format!("open {}: {error}", target.target))
+}
+
+fn open_support_export_directory() -> Result<(), String> {
+    let directory = default_support_export_dir();
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("create support export dir {}: {error}", directory.display()))?;
+    open_directory_target(&directory)
+        .map_err(|error| format!("open support export dir {}: {error}", directory.display()))
+}
+
+fn open_directory_target(directory: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer.exe")
+            .arg(directory)
+            .spawn()?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(directory).spawn()?;
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(directory)
+            .spawn()?;
+        return Ok(());
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", unix)))]
+    {
+        let _ = directory;
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "opening support export directory is unsupported on this platform",
+        ))
+    }
 }
 
 fn open_launch_target(target: &str) -> std::io::Result<()> {
@@ -953,6 +1014,7 @@ mod tests {
             &support::SupportBundleSaveSummary {
                 status: "saved".to_string(),
                 path: "C:\\Temp\\KeliSupport\\keli-support-1.json".to_string(),
+                directory: "C:\\Temp\\KeliSupport".to_string(),
                 byte_count: 42,
             },
             "json",
