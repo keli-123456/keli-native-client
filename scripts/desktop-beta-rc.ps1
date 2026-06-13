@@ -94,6 +94,22 @@ function Read-DesktopMvpStatus {
     return ($jsonOutput -join "`n" | ConvertFrom-Json)
 }
 
+function Get-BlockedDesktopMvpRequirements {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$MvpStatus
+    )
+
+    if (!(Test-JsonProperty -InputObject $MvpStatus -Name 'requirements')) {
+        return @()
+    }
+
+    return @($MvpStatus.requirements |
+        Where-Object { [string]$_.id -ne 'public-release-signing' -and [string]$_.status -ne 'ready' } |
+        ForEach-Object { [string]$_.id } |
+        Where-Object { ![string]::IsNullOrWhiteSpace($_) })
+}
+
 function Assert-UnsignedBetaReady {
     param(
         [Parameter(Mandatory = $true)]
@@ -107,7 +123,9 @@ function Assert-UnsignedBetaReady {
         throw "Desktop unsigned beta RC blocked: release-evidence-status-$($Evidence.status)"
     }
     if ($MvpStatus.desktop_mvp_ready -ne $true) {
-        throw 'Desktop unsigned beta RC blocked: desktop-mvp-not-ready'
+        $blockedRequirements = @(Get-BlockedDesktopMvpRequirements -MvpStatus $MvpStatus)
+        $suffix = if ($blockedRequirements.Count -gt 0) { " $($blockedRequirements -join ',')" } else { '' }
+        throw "Desktop unsigned beta RC blocked: desktop-mvp-not-ready$suffix"
     }
 
     foreach ($kind in @('desktop-shell-exe', 'portable-zip', 'desktop-msi')) {

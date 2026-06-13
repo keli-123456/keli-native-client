@@ -243,8 +243,8 @@ $mvpFailureText = @(
         Get-Content -LiteralPath $mvpStderrPath
     }
 ) -join "`n"
-if (!$mvpFailureText.Contains('Desktop unsigned beta RC blocked: desktop-mvp-not-ready')) {
-    throw "MVP blocked failure did not name desktop-mvp-not-ready: $mvpFailureText"
+if (!$mvpFailureText.Contains('Desktop unsigned beta RC blocked: desktop-mvp-not-ready msi-support-bundle-export')) {
+    throw "MVP blocked failure did not name concrete blocked requirement: $mvpFailureText"
 }
 
 Write-Output 'desktop beta RC tests passed'
