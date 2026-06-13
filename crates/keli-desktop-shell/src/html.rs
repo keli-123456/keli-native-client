@@ -1580,6 +1580,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
             <input id="settings-tun-stack" value="system" />
           </div>
         </div>
+        <div class="actions">
+          <button id="settings-save-button" class="primary" onclick="postSaveDesktopSettings()">保存设置</button>
+          <span class="muted" id="settings-save-status">设置尚未保存</span>
+        </div>
       </section>
       <section id="settings-subscription-panel">
         <h2>订阅</h2>
@@ -2019,6 +2023,35 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         return;
       }}
       window.keliSetOperationStatus({{ kind: "info", message: "诊断快照可在下方查看" }});
+    }}
+    function numberFieldValue(id, fallback) {{
+      const field = document.getElementById(id);
+      const value = Number(field ? field.value : fallback);
+      return Number.isFinite(value) && value > 0 ? Math.min(65535, Math.trunc(value)) : fallback;
+    }}
+    function checkedFieldValue(id) {{
+      const field = document.getElementById(id);
+      return Boolean(field && field.checked);
+    }}
+    function collectDesktopSettings() {{
+      const pressed = document.querySelector("[data-settings-traffic-mode][aria-pressed='true']");
+      return {{
+        traffic_mode: pressed ? pressed.dataset.settingsTrafficMode : "mixed-inbound-only",
+        start_with_windows: checkedFieldValue("settings-start-with-windows"),
+        launch_minimized: checkedFieldValue("settings-launch-minimized"),
+        auto_start_core: checkedFieldValue("settings-auto-start-core"),
+        mixed_port: numberFieldValue("settings-mixed-port", 7890),
+        socks_port: numberFieldValue("settings-socks-port", 7891),
+        http_port: numberFieldValue("settings-http-port", 7892),
+        dns_mode: document.getElementById("settings-dns-mode")?.value || "fake-ip",
+        tun_stack: document.getElementById("settings-tun-stack")?.value || "system"
+      }};
+    }}
+    function postSaveDesktopSettings() {{
+      postJson({{
+        type: "save-desktop-settings",
+        settings: collectDesktopSettings()
+      }}, "正在保存设置");
     }}
     function postTrafficMode(trafficMode) {{
       postJson({{
@@ -2721,6 +2754,29 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const kind = summary.error ? "error" : "success";
       document.getElementById("wintun-install-status").textContent = label;
       window.keliSetOperationStatus({{ kind: kind, message: label }});
+    }};
+    window.keliSetDesktopSettings = (summary) => {{
+      const settings = summary.settings || summary;
+      if (!settings) return;
+      syncTrafficModeButtons(settings.traffic_mode);
+      const startWithWindows = document.getElementById("settings-start-with-windows");
+      const launchMinimized = document.getElementById("settings-launch-minimized");
+      const autoStartCore = document.getElementById("settings-auto-start-core");
+      if (startWithWindows) startWithWindows.checked = Boolean(settings.start_with_windows);
+      if (launchMinimized) launchMinimized.checked = Boolean(settings.launch_minimized);
+      if (autoStartCore) autoStartCore.checked = Boolean(settings.auto_start_core);
+      const mixedPort = document.getElementById("settings-mixed-port");
+      const socksPort = document.getElementById("settings-socks-port");
+      const httpPort = document.getElementById("settings-http-port");
+      const dnsMode = document.getElementById("settings-dns-mode");
+      const tunStack = document.getElementById("settings-tun-stack");
+      if (mixedPort) mixedPort.value = settings.mixed_port || 7890;
+      if (socksPort) socksPort.value = settings.socks_port || 7891;
+      if (httpPort) httpPort.value = settings.http_port || 7892;
+      if (dnsMode) dnsMode.value = settings.dns_mode || "fake-ip";
+      if (tunStack) tunStack.value = settings.tun_stack || "system";
+      const label = summary.status === "saved" ? "设置已保存" : "设置已恢复";
+      setText("settings-save-status", label);
     }};
     function subscriptionSource(fetch) {{
       const source = fetch.host
@@ -5303,6 +5359,12 @@ mod tests {
         assert!(html.contains("id=\"settings-http-port\""));
         assert!(html.contains("id=\"settings-dns-mode\""));
         assert!(html.contains("id=\"settings-tun-stack\""));
+        assert!(html.contains("id=\"settings-save-button\""));
+        assert!(html.contains("id=\"settings-save-status\""));
+        assert!(html.contains("postSaveDesktopSettings()"));
+        assert!(html.contains("save-desktop-settings"));
+        assert!(html.contains("window.keliSetDesktopSettings"));
+        assert!(html.contains("collectDesktopSettings()"));
         assert!(html.contains("id=\"settings-load-panel-fixture-button\""));
         assert!(html.contains("load-panel-fixture"));
     }

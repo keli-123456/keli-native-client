@@ -340,6 +340,7 @@ fn dispatch_ui_event(
         DesktopShellUiEvent::SetTrafficMode(traffic_mode) => {
             Ok(controller.set_traffic_mode(traffic_mode))
         }
+        DesktopShellUiEvent::SaveDesktopSettings(_) => Ok(controller.refresh()),
         DesktopShellUiEvent::ExportSupportBundle => Ok(controller.refresh()),
         DesktopShellUiEvent::OpenSupportExportDirectory => Ok(controller.refresh()),
         DesktopShellUiEvent::ClearSupportExports => Ok(controller.refresh()),

@@ -3,6 +3,8 @@ use keli_desktop::{
 };
 use serde::Deserialize;
 
+use crate::settings::DesktopShellSettings;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DesktopShellUiEvent {
     Action(DesktopShellAction),
@@ -28,6 +30,7 @@ pub enum DesktopShellUiEvent {
     UpdateSubscriptionUrl(String),
     SelectNode(String),
     SetTrafficMode(DesktopTrafficMode),
+    SaveDesktopSettings(DesktopShellSettings),
     ExportSupportBundle,
     OpenSupportExportDirectory,
     ClearSupportExports,
@@ -49,6 +52,7 @@ struct IpcCommand {
     server_id: Option<i64>,
     server_name: Option<String>,
     traffic_mode: Option<DesktopTrafficMode>,
+    settings: Option<DesktopShellSettings>,
     action: Option<String>,
     source_path: Option<String>,
 }
@@ -109,6 +113,9 @@ fn json_ipc_event(message: &str) -> Option<DesktopShellUiEvent> {
         "set-traffic-mode" => command
             .traffic_mode
             .map(DesktopShellUiEvent::SetTrafficMode),
+        "save-desktop-settings" => command
+            .settings
+            .map(DesktopShellUiEvent::SaveDesktopSettings),
         "dependency-action" => command.action.map(DesktopShellUiEvent::DependencyAction),
         "install-wintun-path" => command
             .source_path
@@ -154,6 +161,8 @@ mod tests {
         DesktopShellAction, DesktopShellState, DesktopStatusSnapshot, DesktopSubscriptionSummary,
         DesktopSystemProxyDependency, DesktopTrafficMode, DesktopTunBackendDependency,
     };
+
+    use crate::settings::DesktopShellSettings;
 
     fn shell(run_state: DesktopRunState, can_start: bool) -> DesktopShellState {
         let mut shell = DesktopShellState::new(
@@ -416,6 +425,29 @@ mod tests {
                 &shell(DesktopRunState::Stopped, true),
             ),
             Some(DesktopShellUiEvent::SetTrafficMode(DesktopTrafficMode::Tun))
+        );
+    }
+
+    #[test]
+    fn settings_ipc_save_json_maps_to_settings_event() {
+        assert_eq!(
+            ipc_event_for_message(
+                r#"{"type":"save-desktop-settings","settings":{"traffic_mode":"tun","start_with_windows":true,"launch_minimized":false,"auto_start_core":true,"mixed_port":17890,"socks_port":17891,"http_port":17892,"dns_mode":"redir-host","tun_stack":"gvisor"}}"#,
+                &shell(DesktopRunState::Stopped, true),
+            ),
+            Some(DesktopShellUiEvent::SaveDesktopSettings(
+                DesktopShellSettings {
+                    traffic_mode: DesktopTrafficMode::Tun,
+                    start_with_windows: true,
+                    launch_minimized: false,
+                    auto_start_core: true,
+                    mixed_port: 17890,
+                    socks_port: 17891,
+                    http_port: 17892,
+                    dns_mode: "redir-host".to_string(),
+                    tun_stack: "gvisor".to_string(),
+                }
+            ))
         );
     }
 
