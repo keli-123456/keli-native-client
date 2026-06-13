@@ -56,6 +56,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     if is_support_export_smoke_mode(std::env::args()) {
         return run_support_export_smoke();
     }
+    if is_startup_connect_support_smoke_mode(std::env::args()) {
+        return run_startup_connect_support_smoke();
+    }
     if is_startup_connect_smoke_mode(std::env::args()) {
         return run_startup_connect_smoke();
     }
@@ -905,6 +908,23 @@ struct DesktopShellStartupConnectSmokeReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct DesktopShellRunningSupportSmokeReport {
+    status: String,
+    path: String,
+    byte_count: usize,
+    format: String,
+    support_saved: bool,
+    desktop_status_running: bool,
+    desktop_status_selected: bool,
+    managed_status_selected: bool,
+    diagnosis_selected: bool,
+    connection_level: Option<String>,
+    redaction_ready: bool,
+    last_record_matches: bool,
+    stopped_after_smoke: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct DesktopShellSupportExportSmokeReport {
     status: String,
     path: String,
@@ -956,6 +976,16 @@ where
         .any(|arg| arg.as_ref() == "--startup-connect-smoke")
 }
 
+fn is_startup_connect_support_smoke_mode<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter()
+        .skip(1)
+        .any(|arg| arg.as_ref() == "--startup-connect-support-smoke")
+}
+
 fn support_export_smoke_dir_arg<I, S>(args: I) -> Option<String>
 where
     I: IntoIterator<Item = S>,
@@ -968,6 +998,93 @@ where
         }
     }
     None
+}
+
+fn run_startup_connect_support_smoke() -> Result<(), Box<dyn Error>> {
+    let store_path = startup_restore_smoke_store_path();
+    let support_dir = startup_connect_support_smoke_dir();
+    let store = DesktopSubscriptionStore::new(&store_path);
+    store.save(&DesktopPersistedSubscription {
+        config_text: startup_restore_smoke_config(),
+        selected_outbound: Some(STARTUP_RESTORE_SMOKE_SELECTED_OUTBOUND.to_string()),
+    })?;
+
+    let mut controller = DesktopShellController::new_with_subscription_store(
+        DesktopNativeCommandService::new(),
+        store,
+    );
+    let started_shell =
+        apply_desktop_startup_settings(&mut controller, &startup_connect_smoke_settings())
+            .map_err(|error| format!("{} {} {}", error.operation, error.kind, error.message))?;
+    let support_export_result: Result<
+        (
+            String,
+            support::SupportBundleSaveSummary,
+            String,
+            serde_json::Value,
+            bool,
+        ),
+        String,
+    > = (|| {
+        let export = controller
+            .export_support_bundle()
+            .map_err(|error| format!("{} {} {}", error.operation, error.kind, error.message))?;
+        let summary = write_support_bundle_export(&export, &support_dir)
+            .map_err(|error| format!("write running support bundle failed: {error}"))?;
+        let bundle_text = fs::read_to_string(&summary.path)
+            .map_err(|error| format!("read running support bundle failed: {error}"))?;
+        let bundle: serde_json::Value = serde_json::from_str(&bundle_text)
+            .map_err(|error| format!("running support bundle JSON parse failed: {error}"))?;
+        let last_record_matches = last_support_export_record_matches(&summary);
+        Ok((
+            export.format,
+            summary,
+            bundle_text,
+            bundle,
+            last_record_matches,
+        ))
+    })();
+    let stopped_after_smoke = stop_smoke_core_if_running(&mut controller, &started_shell);
+    let (format, summary, bundle_text, bundle, last_record_matches) = match support_export_result {
+        Ok(result) => result,
+        Err(message) => {
+            cleanup_startup_connect_support_smoke_artifacts(&store_path, &support_dir);
+            return Err(message.into());
+        }
+    };
+    let report = build_running_support_smoke_report(
+        &summary,
+        &format,
+        &bundle,
+        &bundle_text,
+        last_record_matches,
+        stopped_after_smoke,
+        STARTUP_RESTORE_SMOKE_SELECTED_OUTBOUND,
+    );
+    let passed = report.status == "passed";
+
+    println!("{}", serde_json::to_string_pretty(&report)?);
+
+    cleanup_startup_connect_support_smoke_artifacts(&store_path, &support_dir);
+
+    if passed {
+        Ok(())
+    } else {
+        Err("desktop startup connect support smoke report failed".into())
+    }
+}
+
+fn cleanup_startup_connect_support_smoke_artifacts(store_path: &Path, support_dir: &Path) {
+    if let Err(error) = fs::remove_file(store_path) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            eprintln!("startup connect support smoke store cleanup failed: {error}");
+        }
+    }
+    if let Err(error) = fs::remove_dir_all(support_dir) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            eprintln!("startup connect support smoke export cleanup failed: {error}");
+        }
+    }
 }
 
 fn run_startup_connect_smoke() -> Result<(), Box<dyn Error>> {
@@ -1129,6 +1246,16 @@ fn startup_restore_smoke_store_path() -> std::path::PathBuf {
     std::env::temp_dir().join(format!("keli-desktop-startup-restore-smoke-{unique}.json"))
 }
 
+fn startup_connect_support_smoke_dir() -> std::path::PathBuf {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    std::env::temp_dir().join(format!(
+        "keli-desktop-startup-connect-support-smoke-{unique}"
+    ))
+}
+
 fn startup_restore_smoke_config() -> String {
     r#"proxies:
   - name: SS-OLD
@@ -1180,6 +1307,69 @@ fn build_support_export_smoke_report(
         desktop_dependencies,
         core_support_bundle,
         last_record_matches,
+    }
+}
+
+fn build_running_support_smoke_report(
+    summary: &support::SupportBundleSaveSummary,
+    format: &str,
+    bundle: &serde_json::Value,
+    bundle_text: &str,
+    last_record_matches: bool,
+    stopped_after_smoke: bool,
+    expected_selected_outbound: &str,
+) -> DesktopShellRunningSupportSmokeReport {
+    let support_saved = summary.status == "saved"
+        && summary.byte_count > 0
+        && format == "json"
+        && bundle["kind"].as_str() == Some("keli_desktop_support_bundle");
+    let desktop_status_running = bundle["desktop_status"]["run_state"].as_str() == Some("running");
+    let desktop_status_selected =
+        bundle["desktop_status"]["selected_outbound"].as_str() == Some(expected_selected_outbound);
+    let managed_status_selected = bundle["managed_runtime_status"]["selected_outbound"].as_str()
+        == Some(expected_selected_outbound);
+    let diagnosis_selected =
+        bundle["desktop_diagnosis"]["connection"]["evidence"]["selected_outbound"].as_str()
+            == Some(expected_selected_outbound);
+    let connection_level = bundle["desktop_diagnosis"]["connection"]["level"]
+        .as_str()
+        .filter(|level| !level.trim().is_empty())
+        .map(ToString::to_string);
+    let redaction_ready = bundle["core_support_bundle"]["kind"].as_str()
+        == Some("keli_support_bundle")
+        && bundle["core_support_bundle"]["redaction"]["profile_config_text"].as_str()
+            == Some("omitted")
+        && !bundle_text.contains("password: pass")
+        && !bundle_text.contains("\"password\"");
+    let status = if support_saved
+        && desktop_status_running
+        && desktop_status_selected
+        && managed_status_selected
+        && diagnosis_selected
+        && connection_level.is_some()
+        && redaction_ready
+        && last_record_matches
+        && stopped_after_smoke
+    {
+        "passed"
+    } else {
+        "failed"
+    };
+
+    DesktopShellRunningSupportSmokeReport {
+        status: status.to_string(),
+        path: summary.path.clone(),
+        byte_count: summary.byte_count,
+        format: format.to_string(),
+        support_saved,
+        desktop_status_running,
+        desktop_status_selected,
+        managed_status_selected,
+        diagnosis_selected,
+        connection_level,
+        redaction_ready,
+        last_record_matches,
+        stopped_after_smoke,
     }
 }
 
@@ -1602,6 +1792,18 @@ mod tests {
     }
 
     #[test]
+    fn startup_connect_support_smoke_arg_detection_accepts_flag() {
+        assert!(is_startup_connect_support_smoke_mode([
+            "keli-desktop-shell",
+            "--startup-connect-support-smoke",
+        ]));
+        assert!(!is_startup_connect_support_smoke_mode([
+            "keli-desktop-shell",
+            "--startup-connect-smoke",
+        ]));
+    }
+
+    #[test]
     fn support_export_smoke_report_confirms_bundle_shape() {
         let report = build_support_export_smoke_report(
             &support::SupportBundleSaveSummary {
@@ -1637,6 +1839,63 @@ mod tests {
         assert!(report.desktop_dependencies);
         assert!(report.core_support_bundle);
         assert!(report.last_record_matches);
+    }
+
+    #[test]
+    fn running_support_smoke_report_confirms_running_diagnostics() {
+        let bundle = serde_json::json!({
+            "kind": "keli_desktop_support_bundle",
+            "desktop_status": {
+                "run_state": "running",
+                "selected_outbound": "SS-RESTORED",
+                "listen": "127.0.0.1:45678"
+            },
+            "managed_runtime_status": {
+                "selected_outbound": "SS-RESTORED",
+                "listen": "127.0.0.1:45678"
+            },
+            "desktop_diagnosis": {
+                "connection": {
+                    "level": "healthy",
+                    "evidence": {
+                        "selected_outbound": "SS-RESTORED",
+                        "listen": "127.0.0.1:45678"
+                    }
+                }
+            },
+            "core_support_bundle": {
+                "kind": "keli_support_bundle",
+                "redaction": {
+                    "profile_config_text": "omitted"
+                }
+            }
+        });
+        let bundle_text = serde_json::to_string(&bundle).expect("bundle text");
+        let report = build_running_support_smoke_report(
+            &support::SupportBundleSaveSummary {
+                status: "saved".to_string(),
+                path: "C:\\Temp\\KeliSupport\\keli-support-1.json".to_string(),
+                directory: "C:\\Temp\\KeliSupport".to_string(),
+                byte_count: bundle_text.len(),
+            },
+            "json",
+            &bundle,
+            &bundle_text,
+            true,
+            true,
+            "SS-RESTORED",
+        );
+
+        assert_eq!(report.status, "passed");
+        assert!(report.support_saved);
+        assert!(report.desktop_status_running);
+        assert!(report.desktop_status_selected);
+        assert!(report.managed_status_selected);
+        assert!(report.diagnosis_selected);
+        assert_eq!(report.connection_level.as_deref(), Some("healthy"));
+        assert!(report.redaction_ready);
+        assert!(report.last_record_matches);
+        assert!(report.stopped_after_smoke);
     }
 
     #[test]
