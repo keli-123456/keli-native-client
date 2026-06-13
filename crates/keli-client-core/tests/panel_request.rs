@@ -51,6 +51,23 @@ fn config_request_builds_sing_box_windows_query() {
 }
 
 #[test]
+fn batch_config_request_omits_server_id_for_all_nodes() {
+    let request = PanelRequest::sing_box_batch_config("windows", Some("1.13.11"));
+
+    assert_eq!(request.method, PanelHttpMethod::Get);
+    assert_eq!(request.path, "/app/config");
+    assert_eq!(
+        request.query,
+        vec![
+            ("core".to_string(), "sing-box".to_string()),
+            ("platform".to_string(), "windows".to_string()),
+            ("core_version".to_string(), "1.13.11".to_string())
+        ]
+    );
+    assert!(request.authenticated);
+}
+
+#[test]
 fn store_and_notice_requests_match_keliboard_routes() {
     assert_eq!(PanelRequest::plans().path, "/user/plan/fetch");
     assert_eq!(

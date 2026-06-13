@@ -178,6 +178,29 @@ impl DesktopNativeCommandService {
         self.import_panel_config(server_id, server_name, config_text)
     }
 
+    pub fn import_panel_session_batch_config(
+        &mut self,
+    ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
+        let session = self
+            .panel_session
+            .clone()
+            .ok_or_else(|| DesktopCommandError {
+                operation: "import-panel-session-batch-config".to_string(),
+                kind: "panel-session".to_string(),
+                message: "请先登录面板".to_string(),
+            })?;
+        let transport = PanelHttpTransport::default();
+        let client = PanelApiClient::new(&session.api_base, &transport).map_err(|error| {
+            DesktopCommandError::panel("import-panel-session-batch-config", error)
+        })?;
+        let config_text = client
+            .sing_box_batch_config(&session, "windows", None)
+            .map_err(|error| {
+                DesktopCommandError::panel("import-panel-session-batch-config", error)
+            })?;
+        self.import_subscription_config(config_text)
+    }
+
     pub fn import_subscription_url(
         &mut self,
         url: &str,

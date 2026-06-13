@@ -488,7 +488,9 @@ fn operation_success_message(event: &DesktopShellUiEvent) -> Option<String> {
         DesktopShellUiEvent::Refresh => Some("状态已刷新".to_string()),
         DesktopShellUiEvent::LoadPanelFixture => Some("已加载面板示例数据".to_string()),
         DesktopShellUiEvent::RefreshNodeHealth => Some("节点健康已刷新".to_string()),
-        DesktopShellUiEvent::PanelLogin { .. } => Some("面板登录成功".to_string()),
+        DesktopShellUiEvent::PanelLogin { .. } => {
+            Some("面板登录成功，已同步全部节点配置".to_string())
+        }
         DesktopShellUiEvent::PanelFetchConfig { server_name, .. } => {
             Some(format!("已拉取并导入面板节点配置：{server_name}"))
         }
@@ -1138,7 +1140,7 @@ mod tests {
                 password: "secret".to_string(),
             })
             .as_deref(),
-            Some("面板登录成功")
+            Some("面板登录成功，已同步全部节点配置")
         );
         assert_eq!(
             operation_success_message(&DesktopShellUiEvent::PanelFetchConfig {

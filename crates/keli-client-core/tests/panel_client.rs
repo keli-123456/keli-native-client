@@ -151,6 +151,37 @@ fn fetch_sing_box_config_returns_text_without_logging_token() {
 }
 
 #[test]
+fn fetch_sing_box_batch_config_requests_all_panel_nodes() {
+    let transport = FakeTransport::with_responses(vec![PanelApiResponse::text(
+        200,
+        "proxies:\n  - name: JP Tokyo 01\n    type: ss\n    server: ss.example.com\n    port: 8388\n    cipher: aes-128-gcm\n    password: pass\n  - name: SG 02\n    type: ss\n    server: sg.example.com\n    port: 8388\n    cipher: aes-128-gcm\n    password: pass\n",
+    )]);
+    let client = PanelApiClient::new("https://api.example.com", &transport).expect("client");
+    let session = PanelSession::new(
+        "https://api.example.com",
+        "/api/v1",
+        "token-secret",
+        Some("user@example.com".to_string()),
+    );
+
+    let config = client
+        .sing_box_batch_config(&session, "windows", Some("1.13.11"))
+        .expect("batch config");
+
+    let request = &transport.requests.borrow()[0];
+    assert_eq!(
+        request.url,
+        "https://api.example.com/api/v1/app/config?core=sing-box&platform=windows&core_version=1.13.11"
+    );
+    assert_eq!(
+        request.authorization.as_deref(),
+        Some("Bearer token-secret")
+    );
+    assert!(config.contains("JP Tokyo 01"));
+    assert!(config.contains("SG 02"));
+}
+
+#[test]
 fn http_transport_posts_login_json_to_panel() {
     let (base_url, request_thread) =
         spawn_panel_http_server(200, r#"{"data":{"auth_data":"token-secret"}}"#);

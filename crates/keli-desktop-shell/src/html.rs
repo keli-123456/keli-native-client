@@ -983,9 +983,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     <section id="dashboard-panel-account">
       <h2>账号</h2>
       <div class="panel-kpi-row">
-        <div class="panel-kpi"><div class="metric-label">账号</div><strong>{panel_account}</strong></div>
-        <div class="panel-kpi"><div class="metric-label">订阅</div><strong>{panel_subscription}</strong></div>
-        <div class="panel-kpi"><div class="metric-label">公告</div><strong>{panel_notice}</strong></div>
+        <div class="panel-kpi"><div class="metric-label">账号</div><strong id="dashboard-panel-account-email">{panel_account}</strong></div>
+        <div class="panel-kpi"><div class="metric-label">订阅</div><strong id="dashboard-panel-subscription">{panel_subscription}</strong></div>
+        <div class="panel-kpi"><div class="metric-label">公告</div><strong id="dashboard-panel-notice">{panel_notice}</strong></div>
       </div>
     </section>
     <section id="connection-activity-panel">
@@ -1176,8 +1176,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       <div class="panel-grid">
         <section>
           <h2>订阅</h2>
-          <div class="value">{panel_subscription}</div>
-          <div class="muted">账号模式优先；订阅 URL 导入保留为兼容入口。</div>
+          <div class="value" id="panel-subscription-summary">{panel_subscription}</div>
+          <div class="muted">登录后自动同步全部节点配置；订阅 URL 导入保留为兼容入口。</div>
           <div class="panel-login-grid">
             <div class="settings-field">
               <label for="panel-endpoint">面板地址</label>
@@ -1207,13 +1207,13 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
             </div>
           </div>
           <div class="actions">
-            <button id="panel-login-button" onclick="postPanelLogin()">登录面板</button>
-            <button id="panel-import-config-button" class="primary" onclick="postPanelImportConfig()">拉取当前节点配置</button>
+            <button id="panel-login-button" class="primary" onclick="postPanelLogin()">登录并同步全部节点</button>
+            <button id="panel-import-config-button" onclick="postPanelImportConfig()">开发兜底：导入单节点</button>
           </div>
         </section>
         <section>
           <h2>面板节点</h2>
-          <div class="bounded-list">{panel_nodes}</div>
+          <div class="bounded-list" id="panel-nodes-list">{panel_nodes}</div>
         </section>
       </div>
     </div>
@@ -2002,6 +2002,60 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const element = document.getElementById(id);
       if (element) element.textContent = value;
     }}
+    function panelBytesLabel(value) {{
+      const gb = Number(value || 0) / 1024 / 1024 / 1024;
+      return `${{gb.toFixed(1)}} GB`;
+    }}
+    function panelAccountSummary(panel) {{
+      return panel ? panel.account.email_redacted : "未登录面板";
+    }}
+    function panelSubscriptionSummary(panel) {{
+      if (!panel) return "未加载订阅";
+      const plan = panel.subscription.plan_name || "未命名套餐";
+      return `${{plan}}，已用 ${{panelBytesLabel(panel.subscription.used_bytes)}} / ${{panelBytesLabel(panel.subscription.total_bytes)}}`;
+    }}
+    function panelNoticeSummary(panel) {{
+      if (!panel) return "暂无公告";
+      const notice = (panel.notices || []).find((item) => item.show);
+      return notice ? notice.title : "暂无公告";
+    }}
+    function appendPanelNodesEmpty(list, text) {{
+      const empty = document.createElement("div");
+      empty.className = "muted";
+      empty.textContent = text;
+      list.appendChild(empty);
+    }}
+    function renderPanelNodes(panel) {{
+      const list = document.getElementById("panel-nodes-list");
+      if (!list) return;
+      list.replaceChildren();
+      if (!panel) {{
+        appendPanelNodesEmpty(list, "未加载面板节点");
+        return;
+      }}
+      if (!panel.nodes || !panel.nodes.length) {{
+        appendPanelNodesEmpty(list, "没有可用节点");
+        return;
+      }}
+      for (const node of panel.nodes) {{
+        const row = document.createElement("div");
+        const name = document.createElement("strong");
+        const protocol = document.createElement("span");
+        row.className = "status-row";
+        name.textContent = node.name;
+        protocol.textContent = node.protocol || "未知协议";
+        row.append(name, protocol);
+        list.appendChild(row);
+      }}
+    }}
+    window.keliSyncPanel = (snapshot) => {{
+      const panel = snapshot.panel;
+      setText("dashboard-panel-account-email", panelAccountSummary(panel));
+      setText("dashboard-panel-subscription", panelSubscriptionSummary(panel));
+      setText("dashboard-panel-notice", panelNoticeSummary(panel));
+      setText("panel-subscription-summary", panelSubscriptionSummary(panel));
+      renderPanelNodes(panel);
+    }};
     function syncPrimaryButton(id, primary) {{
       const button = document.getElementById(id);
       if (!button) return;
@@ -2105,6 +2159,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const primary = snapshot.primary_action;
       window.keliSyncOverview(snapshot);
       window.keliSyncDashboard(snapshot);
+      window.keliSyncPanel(snapshot);
       window.keliSyncNodes(snapshot);
       window.keliSyncDiagnosticsView(snapshot);
       window.keliSyncSettings(snapshot);
@@ -3180,13 +3235,17 @@ mod tests {
         assert!(html.contains("面板地址"));
         assert!(html.contains("账号"));
         assert!(html.contains("密码"));
-        assert!(html.contains("登录面板"));
-        assert!(html.contains("拉取当前节点配置"));
+        assert!(html.contains("登录并同步全部节点"));
+        assert!(html.contains("登录后自动同步全部节点配置"));
+        assert!(html.contains("开发兜底：导入单节点"));
         assert!(html.contains("panel-login"));
         assert!(html.contains("panel-fetch-config"));
         assert!(html.contains("panel-import-config"));
         assert!(html.contains("id=\"panel-endpoint\""));
+        assert!(html.contains("id=\"panel-subscription-summary\""));
+        assert!(html.contains("id=\"panel-nodes-list\""));
         assert!(html.contains("id=\"panel-config-text\""));
+        assert!(html.contains("window.keliSyncPanel"));
         assert!(!html.contains("auth_data"));
         assert!(!html.contains("token-secret"));
         assert!(!html.contains("https://panel.example.com/s/token"));

@@ -43,6 +43,9 @@ pub trait DesktopShellCommandHost {
         server_id: i64,
         server_name: String,
     ) -> Result<DesktopPanelConfigImportSummary, DesktopCommandError>;
+    fn import_panel_session_batch_config(
+        &mut self,
+    ) -> Result<DesktopSubscriptionSummary, DesktopCommandError>;
     fn import_subscription_url(
         &mut self,
         url: String,
@@ -117,6 +120,12 @@ impl DesktopShellCommandHost for DesktopNativeCommandService {
         server_name: String,
     ) -> Result<DesktopPanelConfigImportSummary, DesktopCommandError> {
         self.import_panel_session_config(server_id, server_name)
+    }
+
+    fn import_panel_session_batch_config(
+        &mut self,
+    ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
+        self.import_panel_session_batch_config()
     }
 
     fn import_subscription_url(
@@ -286,6 +295,10 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
             .host
             .connect_panel(endpoint.into(), email.into(), password.into())?;
         self.shell.refresh_panel(Some(panel));
+        let subscription = self.host.import_panel_session_batch_config()?;
+        self.shell.refresh_subscription(Some(subscription));
+        self.shell.refresh_status(self.host.status());
+        self.persist_current_subscription();
         Ok(self.shell.clone())
     }
 
@@ -533,6 +546,7 @@ mod tests {
         url_updates: Vec<String>,
         panel_logins: Vec<(String, String)>,
         panel_config_fetches: Vec<(i64, String)>,
+        panel_batch_config_fetches: usize,
         exports: usize,
         wintun_installs: Vec<String>,
     }
@@ -554,6 +568,7 @@ mod tests {
                     url_updates: Vec::new(),
                     panel_logins: Vec::new(),
                     panel_config_fetches: Vec::new(),
+                    panel_batch_config_fetches: 0,
                     exports: 0,
                     wintun_installs: Vec::new(),
                 })),
@@ -602,6 +617,10 @@ mod tests {
 
         fn panel_config_fetches(&self) -> Vec<(i64, String)> {
             self.inner.borrow().panel_config_fetches.clone()
+        }
+
+        fn panel_batch_config_fetches(&self) -> usize {
+            self.inner.borrow().panel_batch_config_fetches
         }
 
         fn set_status(&self, status: DesktopStatusSnapshot) {
@@ -692,6 +711,18 @@ mod tests {
                 server_name,
                 inner.subscription.clone(),
             ))
+        }
+
+        fn import_panel_session_batch_config(
+            &mut self,
+        ) -> Result<DesktopSubscriptionSummary, DesktopCommandError> {
+            let mut inner = self.inner.borrow_mut();
+            inner.panel_batch_config_fetches += 1;
+            inner.imports += 1;
+            inner.subscription_config = Some(ss_config_with_tags(&["JP Tokyo 01", "SG 02"]));
+            inner.subscription = subscription_with_tags(&["JP Tokyo 01", "SG 02"], "JP Tokyo 01");
+            inner.status.selected_outbound = Some("JP Tokyo 01".to_string());
+            Ok(inner.subscription.clone())
         }
 
         fn import_subscription_url(
@@ -914,27 +945,34 @@ mod tests {
     }
 
     fn subscription(tag: &str) -> DesktopSubscriptionSummary {
+        subscription_with_tags(&[tag], tag)
+    }
+
+    fn subscription_with_tags(tags: &[&str], selected: &str) -> DesktopSubscriptionSummary {
         DesktopSubscriptionSummary {
             usable: true,
-            supported_count: 1,
+            supported_count: tags.len(),
             skipped_count: 0,
-            default_outbound: Some(tag.to_string()),
-            selected_outbound: Some(tag.to_string()),
-            recommended_outbound: Some(tag.to_string()),
-            nodes: vec![DesktopNodeSummary {
-                tag: tag.to_string(),
-                protocol: "ss".to_string(),
-                transport: "tcp".to_string(),
-                security: "none".to_string(),
-                udp_supported: true,
-                selected: true,
-                recommended: true,
-                health_state: Some("unknown".to_string()),
-                tcp_available: None,
-                udp_available: None,
-                latency_ms: None,
-                health_error: None,
-            }],
+            default_outbound: tags.first().map(|tag| (*tag).to_string()),
+            selected_outbound: Some(selected.to_string()),
+            recommended_outbound: tags.first().map(|tag| (*tag).to_string()),
+            nodes: tags
+                .iter()
+                .map(|tag| DesktopNodeSummary {
+                    tag: (*tag).to_string(),
+                    protocol: "ss".to_string(),
+                    transport: "tcp".to_string(),
+                    security: "none".to_string(),
+                    udp_supported: true,
+                    selected: *tag == selected,
+                    recommended: Some(*tag) == tags.first().copied(),
+                    health_state: Some("unknown".to_string()),
+                    tcp_available: None,
+                    udp_available: None,
+                    latency_ms: None,
+                    health_error: None,
+                })
+                .collect(),
             skipped: Vec::new(),
         }
     }
@@ -1384,6 +1422,47 @@ mod tests {
             Some("u***@example.com")
         );
         assert!(!format!("{shell:?}").contains("secret"));
+    }
+
+    #[test]
+    fn shell_controller_connect_panel_auto_imports_all_panel_nodes_for_selection() {
+        let store = DesktopSubscriptionStore::new(test_path("panel-batch-import"));
+        let host = FakeHost::new(status(DesktopRunState::Stopped), ready_dependencies());
+        let observed = host.clone();
+        let mut controller =
+            DesktopShellController::new_with_subscription_store(host, store.clone());
+
+        let shell = controller
+            .connect_panel("https://panel.example.com", "user@example.com", "secret")
+            .expect("connect panel");
+
+        assert_eq!(observed.panel_batch_config_fetches(), 1);
+        assert_eq!(observed.panel_config_fetches(), Vec::<(i64, String)>::new());
+        assert_eq!(observed.imports(), 1);
+        let subscription = shell.subscription.as_ref().expect("subscription");
+        assert_eq!(subscription.supported_count, 2);
+        assert_eq!(
+            subscription
+                .nodes
+                .iter()
+                .map(|node| node.tag.as_str())
+                .collect::<Vec<_>>(),
+            vec!["JP Tokyo 01", "SG 02"]
+        );
+        assert_eq!(
+            subscription.selected_outbound.as_deref(),
+            Some("JP Tokyo 01")
+        );
+
+        let persisted = store
+            .load()
+            .expect("load store")
+            .expect("persisted subscription");
+        assert!(persisted.config_text.contains("JP Tokyo 01"));
+        assert!(persisted.config_text.contains("SG 02"));
+        assert_eq!(persisted.selected_outbound.as_deref(), Some("JP Tokyo 01"));
+
+        let _ = std::fs::remove_file(store.path());
     }
 
     #[test]

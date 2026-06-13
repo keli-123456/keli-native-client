@@ -202,6 +202,20 @@ impl<'a, T: PanelApiTransport + ?Sized> PanelApiClient<'a, T> {
         Ok(response.body().to_string())
     }
 
+    pub fn sing_box_batch_config(
+        &self,
+        session: &PanelSession,
+        platform: &str,
+        core_version: Option<&str>,
+    ) -> Result<String, PanelApiError> {
+        let response = self.send_request(
+            Some(session),
+            PanelRequest::sing_box_batch_config(platform, core_version),
+        )?;
+        require_success("config", &response)?;
+        Ok(response.body().to_string())
+    }
+
     fn legacy_bootstrap(
         &self,
         session: &PanelSession,
