@@ -14,16 +14,17 @@ The missing piece is orchestration. A signed public release must build the execu
 
 Add `scripts/desktop-signed-release.ps1` as the signed release source of truth. It should run the same verification and smoke steps as the desktop MVP gate, but it must own the signing order:
 
-1. Run format, diff, tests, check, and release build.
-2. Build an initial portable package and MSI so the current signing script can sign both known artifact paths.
-3. Run install smoke and machine takeover smoke.
-4. Run `scripts\desktop-signing.ps1 -Sign` to sign the release EXE and current MSI.
-5. Rebuild the portable package from the signed release EXE so the zip contains the signed executable.
-6. Rebuild the MSI from the signed staged executable.
-7. Run `scripts\desktop-signing.ps1 -Sign` again so the final MSI container is signed and signing evidence is refreshed.
-8. Regenerate release evidence.
-9. Run `scripts\desktop-public-release-gate.ps1 -SkipGate` so the gate validates the just-signed evidence without rebuilding over signed artifacts.
-10. Emit a signed release report at `target\desktop\keli-desktop-signed-release.json`.
+1. Preflight signing configuration and fail before build work when neither `KELI_SIGN_CERT_PATH` nor `KELI_SIGN_CERT_SUBJECT` is configured.
+2. Run format, diff, tests, check, and release build.
+3. Build an initial portable package and MSI so the current signing script can sign both known artifact paths.
+4. Run install smoke and machine takeover smoke.
+5. Run `scripts\desktop-signing.ps1 -Sign` to sign the release EXE and current MSI.
+6. Rebuild the portable package from the signed release EXE so the zip contains the signed executable.
+7. Rebuild the MSI from the signed staged executable.
+8. Run `scripts\desktop-signing.ps1 -Sign` again so the final MSI container is signed and signing evidence is refreshed.
+9. Regenerate release evidence.
+10. Run `scripts\desktop-public-release-gate.ps1 -SkipGate` so the gate validates the just-signed evidence without rebuilding over signed artifacts.
+11. Emit a signed release report at `target\desktop\keli-desktop-signed-release.json`.
 
 The double signing call is intentionally conservative because `desktop-signing.ps1` currently signs both fixed artifact paths. This avoids introducing a partial-signing API in the signing script and keeps the change focused on orchestration.
 

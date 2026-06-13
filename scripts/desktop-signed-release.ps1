@@ -104,6 +104,116 @@ function Get-ArtifactSummary {
     }
 }
 
+function Test-JsonProperty {
+    param(
+        [AllowNull()]
+        [object]$InputObject,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    return ($null -ne $InputObject -and $null -ne $InputObject.PSObject.Properties[$Name])
+}
+
+function Get-StringArrayProperty {
+    param(
+        [AllowNull()]
+        [object]$InputObject,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if (!(Test-JsonProperty -InputObject $InputObject -Name $Name)) {
+        return @()
+    }
+    return @($InputObject.$Name | ForEach-Object { [string]$_ } | Where-Object { ![string]::IsNullOrWhiteSpace($_) })
+}
+
+function Get-BoolProperty {
+    param(
+        [AllowNull()]
+        [object]$InputObject,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if (!(Test-JsonProperty -InputObject $InputObject -Name $Name)) {
+        return $false
+    }
+    return [bool]$InputObject.$Name
+}
+
+function Get-StringProperty {
+    param(
+        [AllowNull()]
+        [object]$InputObject,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [string]$Default = ''
+    )
+
+    if (!(Test-JsonProperty -InputObject $InputObject -Name $Name)) {
+        return $Default
+    }
+    return [string]$InputObject.$Name
+}
+
+function Get-SignedReleaseEvidenceSummary {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot
+    )
+
+    $releaseEvidenceRelativePath = 'target\desktop\keli-desktop-release-evidence.json'
+    $signingEvidenceRelativePath = 'target\desktop\keli-desktop-signing.json'
+    $releaseEvidencePath = Join-Path $RepoRoot $releaseEvidenceRelativePath
+    $signingEvidencePath = Join-Path $RepoRoot $signingEvidenceRelativePath
+    if (!(Test-Path -LiteralPath $releaseEvidencePath -PathType Leaf)) {
+        throw "signed release evidence summary is missing release evidence: $releaseEvidencePath"
+    }
+    if (!(Test-Path -LiteralPath $signingEvidencePath -PathType Leaf)) {
+        throw "signed release evidence summary is missing signing evidence: $signingEvidencePath"
+    }
+
+    $releaseEvidence = Get-Content -Raw -LiteralPath $releaseEvidencePath | ConvertFrom-Json
+    $signingEvidence = Get-Content -Raw -LiteralPath $signingEvidencePath | ConvertFrom-Json
+    $releaseSigning = if (Test-JsonProperty -InputObject $releaseEvidence -Name 'signing') { $releaseEvidence.signing } else { $null }
+    $signedArtifacts = @()
+    if (Test-JsonProperty -InputObject $signingEvidence -Name 'artifacts') {
+        $signedArtifacts = @($signingEvidence.artifacts |
+            Where-Object { (Test-JsonProperty -InputObject $_ -Name 'signature') -and (Get-BoolProperty -InputObject $_.signature -Name 'signed') } |
+            ForEach-Object { [string]$_.path })
+    }
+
+    [ordered]@{
+        path = $releaseEvidenceRelativePath
+        public_release_ready = Get-BoolProperty -InputObject $releaseEvidence -Name 'public_release_ready'
+        public_release_blockers = @(Get-StringArrayProperty -InputObject $releaseEvidence -Name 'public_release_blockers')
+        signing_status = Get-StringProperty -InputObject $releaseSigning -Name 'status'
+        signing_mode = Get-StringProperty -InputObject $releaseSigning -Name 'mode'
+        signing_can_sign = Get-BoolProperty -InputObject $releaseSigning -Name 'can_sign'
+        signing_method = Get-StringProperty -InputObject $releaseSigning -Name 'signing_method'
+        signed_artifacts = @($signedArtifacts)
+        sign_verification_failures = @(Get-StringArrayProperty -InputObject $releaseSigning -Name 'sign_verification_failures')
+    }
+}
+
+function Assert-SigningConfigurationReady {
+    $certificatePath = [string]$env:KELI_SIGN_CERT_PATH
+    $certificateSubject = [string]$env:KELI_SIGN_CERT_SUBJECT
+    if ([string]::IsNullOrWhiteSpace($certificatePath) -and [string]::IsNullOrWhiteSpace($certificateSubject)) {
+        throw 'Desktop signed public release blocked: signing-certificate-missing next_steps=configure-code-signing-certificate'
+    }
+    if (![string]::IsNullOrWhiteSpace($certificatePath) -and !(Test-Path -LiteralPath $certificatePath -PathType Leaf)) {
+        throw 'Desktop signed public release blocked: signing-certificate-missing next_steps=fix-certificate-path'
+    }
+}
+
 function Write-SignedReleaseReport {
     param(
         [Parameter(Mandatory = $true)]
@@ -126,6 +236,11 @@ function Write-SignedReleaseReport {
         version = Get-WorkspaceVersion -CargoToml (Join-Path $RepoRoot 'Cargo.toml')
         artifact_count = $artifacts.Count
         artifacts = $artifacts
+        public_gate = [ordered]@{
+            command = 'scripts\desktop-public-release-gate.ps1 -SkipGate'
+            passed = $true
+        }
+        release_evidence = Get-SignedReleaseEvidenceSummary -RepoRoot $RepoRoot
         verification_commands = @(
             'scripts\desktop-signed-release.ps1',
             'scripts\desktop-public-release-gate.ps1 -SkipGate',
@@ -164,6 +279,8 @@ $steps = @(
 Push-Location $repoRoot
 try {
     if ($PlanOnly) {
+        Write-Output 'preflight signing certificate configuration'
+        Write-Output 'failure print signing-certificate-missing before build'
         foreach ($step in $steps) {
             if ($step.Name -eq 'Final portable package from signed EXE') {
                 Write-Output 'rebuild portable package after exe signing'
@@ -177,6 +294,8 @@ try {
         Write-Output 'output signed public release ready'
         return
     }
+
+    Assert-SigningConfigurationReady
 
     foreach ($step in $steps) {
         if ($step.Name -eq 'Final portable package from signed EXE') {

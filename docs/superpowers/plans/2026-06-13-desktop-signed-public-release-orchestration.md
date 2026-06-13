@@ -90,7 +90,7 @@ Get-ArtifactSummary
 
 - [ ] **Step 3: Add execution sequence**
 
-Run the sequence:
+Run the sequence after failing early with `Desktop signed public release blocked: signing-certificate-missing` when neither `KELI_SIGN_CERT_PATH` nor `KELI_SIGN_CERT_SUBJECT` is configured:
 
 ```powershell
 cargo fmt --check

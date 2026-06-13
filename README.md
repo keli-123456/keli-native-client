@@ -974,7 +974,9 @@ It requires Windows SDK `signtool.exe` and either `KELI_SIGN_CERT_PATH` plus
 `KELI_SIGN_CERT_SUBJECT`. The script signs the EXE before rebuilding the
 portable ZIP and MSI, signs the final MSI, regenerates release evidence, and
 then runs `scripts\desktop-public-release-gate.ps1 -SkipGate` against the
-signed artifacts.
+signed artifacts. If neither `KELI_SIGN_CERT_PATH` nor
+`KELI_SIGN_CERT_SUBJECT` is configured, the script fails before build work with
+the external blocker `signing-certificate-missing`.
 
 GitHub Actions workflow `.github\workflows\windows-signed-public-release.yml`
 expects repository secrets `KELI_SIGN_CERT_PFX_BASE64` and
