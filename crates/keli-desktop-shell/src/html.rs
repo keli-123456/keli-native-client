@@ -48,6 +48,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let selected_node_detail = selected_node_detail(snapshot.subscription.as_ref());
     let nodes_connection_error = nodes_connection_error(snapshot);
     let connection_diagnosis = connection_diagnosis(snapshot);
+    let connection_diagnosis_actions = connection_diagnosis_action_buttons(snapshot);
     let nodes_connection_actions = dependency_action_buttons(snapshot);
     let dependency_summary = dependency_summary(snapshot);
     let system_proxy_dependency = system_proxy_dependency(snapshot);
@@ -1300,6 +1301,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
               <strong id="nodes-connection-diagnosis-title">{connection_diagnosis_title}</strong>
               <span id="nodes-connection-diagnosis-detail">{connection_diagnosis_detail}</span>
               <span id="nodes-connection-diagnosis-action">{connection_diagnosis_action}</span>
+              <div class="actions diagnosis-actions" id="nodes-diagnosis-actions">{connection_diagnosis_actions}</div>
             </div>
             <div class="actions" id="nodes-connection-actions">{nodes_connection_actions}</div>
             <div class="actions">
@@ -1985,6 +1987,56 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setText("nodes-connection-diagnosis-title", diagnosis.title);
       setText("nodes-connection-diagnosis-detail", diagnosis.detail);
       setText("nodes-connection-diagnosis-action", diagnosis.action);
+      renderDiagnosisActions(snapshot);
+    }}
+    function appendDiagnosisButton(container, action, label, onClick) {{
+      const button = document.createElement("button");
+      button.dataset.diagnosisAction = action;
+      button.textContent = label;
+      button.onclick = onClick;
+      container.appendChild(button);
+      return button;
+    }}
+    function renderDiagnosisActions(snapshot) {{
+      const container = document.getElementById("nodes-diagnosis-actions");
+      if (!container) return;
+      container.replaceChildren();
+      const diagnosis = connectionDiagnosis(snapshot);
+      if (diagnosis.level === "missing-subscription" || diagnosis.level === "missing-node") {{
+        appendDiagnosisButton(container, "open-subscription", "去订阅", () => postViewTarget("subscription-view"));
+        return;
+      }}
+      if (diagnosis.level === "blocked") {{
+        for (const action of collectDependencyActions(snapshot)) {{
+          const button = appendDiagnosisButton(
+            container,
+            `dependency-${{action}}`,
+            dependencyActionLabels[action] || action,
+            () => postDependencyAction(action)
+          );
+          button.dataset.dependencyAction = action;
+        }}
+        return;
+      }}
+      if (diagnosis.level === "node-warning") {{
+        appendDiagnosisButton(container, "refresh-node-health", "测试节点", () => postRefreshNodeHealth());
+        const recommended = snapshot.subscription && snapshot.subscription.recommended_outbound;
+        if (recommended) {{
+          appendDiagnosisButton(container, "select-recommended-node", "切换推荐节点", () => postSelectNode(recommended));
+        }}
+        return;
+      }}
+      if (diagnosis.level === "error") {{
+        appendDiagnosisButton(container, "open-diagnostics", "打开诊断", () => postViewTarget("diagnostics-view"));
+        appendDiagnosisButton(container, "refresh", "刷新状态", () => postOperation("refresh", "正在刷新状态"));
+        return;
+      }}
+      if (diagnosis.level === "ready") {{
+        appendDiagnosisButton(container, "start-core", "启动核心", () => postOperation("primary", primaryOperationPending()));
+        return;
+      }}
+      appendDiagnosisButton(container, "refresh-node-health", "测试节点", () => postRefreshNodeHealth());
+      appendDiagnosisButton(container, "refresh", "刷新状态", () => postOperation("refresh", "正在刷新状态"));
     }}
     window.keliSyncNodeConnection = (snapshot) => {{
       const status = snapshot.status;
@@ -2652,6 +2704,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         connection_diagnosis_title = escape_html(connection_diagnosis.title),
         connection_diagnosis_detail = escape_html(&connection_diagnosis.detail),
         connection_diagnosis_action = escape_html(connection_diagnosis.action),
+        connection_diagnosis_actions = connection_diagnosis_actions,
         nodes_connection_actions = nodes_connection_actions,
         local_inbound_pressed = local_inbound_pressed,
         system_proxy_pressed = system_proxy_pressed,
@@ -3064,6 +3117,81 @@ fn connection_diagnosis(snapshot: &DesktopShellState) -> ConnectionDiagnosis {
         detail: format!("当前节点 {}，连接条件已就绪", node.tag),
         action: "点击启动核心",
     }
+}
+
+fn connection_diagnosis_action_buttons(snapshot: &DesktopShellState) -> String {
+    match connection_diagnosis(snapshot).level {
+        "missing-subscription" | "missing-node" => {
+            r#"<button data-diagnosis-action="open-subscription" onclick="postViewTarget('subscription-view')">去订阅</button>"#
+                .to_string()
+        }
+        "blocked" => dependency_diagnosis_action_buttons(snapshot),
+        "node-warning" => node_warning_diagnosis_action_buttons(snapshot),
+        "error" => [
+            r#"<button data-diagnosis-action="open-diagnostics" onclick="postViewTarget('diagnostics-view')">打开诊断</button>"#,
+            r#"<button data-diagnosis-action="refresh" onclick="postOperation('refresh', '正在刷新状态')">刷新状态</button>"#,
+        ]
+        .join(""),
+        "ready" => {
+            r#"<button data-diagnosis-action="start-core" onclick="postOperation('primary', primaryOperationPending())">启动核心</button>"#
+                .to_string()
+        }
+        _ => [
+            r#"<button data-diagnosis-action="refresh-node-health" onclick="postRefreshNodeHealth()">测试节点</button>"#,
+            r#"<button data-diagnosis-action="refresh" onclick="postOperation('refresh', '正在刷新状态')">刷新状态</button>"#,
+        ]
+        .join(""),
+    }
+}
+
+fn dependency_diagnosis_action_buttons(snapshot: &DesktopShellState) -> String {
+    let mut actions = Vec::new();
+    add_dependency_action(
+        &mut actions,
+        snapshot.dependencies.system_proxy.action.as_deref(),
+    );
+    add_dependency_action(
+        &mut actions,
+        snapshot.dependencies.tun_backend.action.as_deref(),
+    );
+    for blocker in &snapshot.dependencies.first_run.blockers {
+        add_dependency_action(&mut actions, blocker.action.as_deref());
+    }
+
+    if actions.is_empty() {
+        return r#"<button data-diagnosis-action="refresh" onclick="postOperation('refresh', '正在刷新状态')">刷新状态</button>"#
+            .to_string();
+    }
+
+    actions
+        .iter()
+        .map(|action| {
+            let action_value = escape_html(action);
+            let label = escape_html(dependency_action_label(action));
+            format!(
+                r#"<button data-diagnosis-action="dependency-{action_value}" data-dependency-action="{action_value}" onclick="postDependencyAction(this.dataset.dependencyAction)">{label}</button>"#
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn node_warning_diagnosis_action_buttons(snapshot: &DesktopShellState) -> String {
+    let mut buttons = vec![
+        r#"<button data-diagnosis-action="refresh-node-health" onclick="postRefreshNodeHealth()">测试节点</button>"#
+            .to_string(),
+    ];
+    if let Some(recommended) = snapshot
+        .subscription
+        .as_ref()
+        .and_then(|subscription| subscription.recommended_outbound.as_deref())
+    {
+        let recommended = escape_html(recommended);
+        buttons.push(format!(
+            r#"<button data-diagnosis-action="select-recommended-node" data-node-tag="{recommended}" onclick="postSelectNode(this.dataset.nodeTag)">切换推荐节点</button>"#
+        ));
+    }
+    buttons.join("")
 }
 
 fn diagnostics_connection_metrics(snapshot: &DesktopShellState) -> String {
@@ -3998,6 +4126,34 @@ mod tests {
         assert!(html.contains("id=\"nodes-connection-diagnosis-action\">查看诊断或刷新状态</span>"));
         assert!(html.contains("function connectionDiagnosis(snapshot)"));
         assert!(html.contains("function syncConnectionDiagnosis(snapshot)"));
+    }
+
+    #[test]
+    fn nodes_connection_diagnosis_provides_direct_actions() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("id=\"nodes-diagnosis-actions\""));
+        assert!(html.contains("data-diagnosis-action=\"open-subscription\""));
+        assert!(html.contains("postViewTarget('subscription-view')"));
+        assert!(html.contains(">去订阅</button>"));
+
+        let mut blocked = snapshot();
+        blocked.dependencies.first_run.tun_ready = false;
+        blocked.dependencies.first_run.can_start_tun_mode = false;
+        blocked.dependencies.first_run.blockers = vec![keli_desktop::DesktopBlocker {
+            code: "wintun-missing".to_string(),
+            message: "Wintun 驱动缺失".to_string(),
+            action: Some("install-wintun".to_string()),
+        }];
+
+        let html = render_shell_html(&blocked);
+
+        assert!(html.contains("id=\"nodes-diagnosis-actions\""));
+        assert!(html.contains("data-diagnosis-action=\"dependency-install-wintun\""));
+        assert!(html.contains("data-dependency-action=\"install-wintun\""));
+        assert!(html.contains("打开 Wintun 下载"));
+        assert!(html.contains("function renderDiagnosisActions(snapshot)"));
+        assert!(html.contains("renderDiagnosisActions(snapshot);"));
     }
 
     #[test]
