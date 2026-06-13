@@ -26,6 +26,7 @@ $expectedPlan = @(
     'require artifacts desktop-shell-exe portable-zip desktop-msi with sha256',
     'allow public_release_blockers artifact-signature-missing signing-certificate-missing machine-takeover-smoke-not-run only',
     'include smoke_evidence running_support_smoke',
+    'include verification command scripts\desktop-beta-rc-audit.ps1',
     'write target\desktop\keli-desktop-unsigned-beta-manifest.json',
     'write target\desktop\keli-desktop-unsigned-beta-release-notes.md',
     'output unsigned beta rc ready'
@@ -187,6 +188,9 @@ if ($manifest.artifacts.Count -ne 3) {
 if (($manifest.verification_commands -join "`n") -notlike '*scripts\desktop-beta-rc.ps1*') {
     throw 'manifest verification commands must include beta RC gate'
 }
+if (($manifest.verification_commands -join "`n") -notlike '*scripts\desktop-beta-rc-audit.ps1*') {
+    throw 'manifest verification commands must include beta RC audit'
+}
 if ($manifest.smoke_evidence.install.running_support_smoke -ne 'target\desktop-install-smoke\desktop-startup-connect-support-smoke.json') {
     throw "manifest install running support smoke mismatch: $($manifest.smoke_evidence.install.running_support_smoke)"
 }
@@ -201,6 +205,7 @@ foreach ($item in @(
     'Windows may show SmartScreen or publisher warnings.',
     'Verify SHA256 hashes before running artifacts.',
     'scripts\desktop-beta-rc.ps1',
+    'scripts\desktop-beta-rc-audit.ps1',
     'Support bundles'
 )) {
 if (!$notes.Contains($item)) {

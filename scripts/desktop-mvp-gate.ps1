@@ -59,6 +59,7 @@ function Get-DesktopMvpGateSteps {
         New-GateStep -Name 'Desktop signing evidence' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-signing.ps1')
         New-GateStep -Name 'Desktop release evidence' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-release-evidence.ps1')
         New-GateStep -Name 'Desktop unsigned beta RC' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-beta-rc.ps1')
+        New-GateStep -Name 'Desktop beta RC delivery audit' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-beta-rc-audit.ps1')
         New-GateStep -Name 'Desktop MVP status audit' -Command @('powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\desktop-mvp-status.ps1', '-FailOnMvpBlocked')
     )
 }
@@ -119,6 +120,7 @@ try {
         Write-Output 'artifact target\desktop\keli-desktop-release-evidence.json'
         Write-Output 'artifact target\desktop\keli-desktop-unsigned-beta-manifest.json'
         Write-Output 'artifact target\desktop\keli-desktop-unsigned-beta-release-notes.md'
+        Write-Output 'artifact target\desktop\keli-desktop-beta-rc-audit.json'
         Write-Output 'artifact target\desktop-install-smoke\desktop-install-smoke.json'
         return
     }

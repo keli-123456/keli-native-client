@@ -24,6 +24,7 @@ $expected = @(
     'dtolnay/rust-toolchain@stable',
     '.\scripts\desktop-mvp-gate.ps1',
     '.\scripts\desktop-beta-rc.ps1',
+    '.\scripts\desktop-beta-rc-audit.ps1',
     'target\desktop\SHA256SUMS',
     'Get-FileHash',
     'actions/upload-artifact@v4',
@@ -35,6 +36,7 @@ $expected = @(
     'target/desktop/keli-desktop-release-evidence.json',
     'target/desktop/keli-desktop-unsigned-beta-manifest.json',
     'target/desktop/keli-desktop-unsigned-beta-release-notes.md',
+    'target/desktop/keli-desktop-beta-rc-audit.json',
     'target/desktop/SHA256SUMS'
 )
 

@@ -180,7 +180,8 @@ function New-BetaManifest {
         verification_commands = @(
             'scripts\desktop-mvp-gate.ps1',
             'scripts\desktop-public-release-gate.ps1 -SkipGate',
-            'scripts\desktop-beta-rc.ps1'
+            'scripts\desktop-beta-rc.ps1',
+            'scripts\desktop-beta-rc-audit.ps1'
         )
     }
 }
@@ -219,6 +220,7 @@ function Write-BetaReleaseNotes {
         '- `scripts\desktop-mvp-gate.ps1`',
         '- `scripts\desktop-public-release-gate.ps1 -SkipGate`',
         '- `scripts\desktop-beta-rc.ps1`',
+        '- `scripts\desktop-beta-rc-audit.ps1`',
         '',
         '## Support bundles',
         'Export a support bundle from Diagnostics when reporting Beta issues.'
@@ -251,6 +253,7 @@ try {
         Write-Output 'require artifacts desktop-shell-exe portable-zip desktop-msi with sha256'
         Write-Output 'allow public_release_blockers artifact-signature-missing signing-certificate-missing machine-takeover-smoke-not-run only'
         Write-Output 'include smoke_evidence running_support_smoke'
+        Write-Output 'include verification command scripts\desktop-beta-rc-audit.ps1'
         Write-Output "write $manifestRelativePath"
         Write-Output "write $notesRelativePath"
         Write-Output 'output unsigned beta rc ready'
