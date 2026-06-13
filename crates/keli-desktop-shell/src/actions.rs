@@ -10,6 +10,11 @@ pub enum DesktopShellUiEvent {
     LoadPanelFixture,
     RefreshNodeHealth,
     ImportSubscriptionConfig(String),
+    PanelImportConfig {
+        server_id: i64,
+        server_name: String,
+        config_text: String,
+    },
     ImportSubscriptionUrl(String),
     UpdateSubscriptionUrl(String),
     SelectNode(String),
@@ -27,6 +32,8 @@ struct IpcCommand {
     config_text: Option<String>,
     subscription_url: Option<String>,
     outbound_tag: Option<String>,
+    server_id: Option<i64>,
+    server_name: Option<String>,
     traffic_mode: Option<DesktopTrafficMode>,
     action: Option<String>,
     source_path: Option<String>,
@@ -61,6 +68,11 @@ fn json_ipc_event(message: &str) -> Option<DesktopShellUiEvent> {
         "import-subscription-config" => command
             .config_text
             .map(DesktopShellUiEvent::ImportSubscriptionConfig),
+        "panel-import-config" => Some(DesktopShellUiEvent::PanelImportConfig {
+            server_id: command.server_id?,
+            server_name: command.server_name?,
+            config_text: command.config_text?,
+        }),
         "import-subscription-url" => command
             .subscription_url
             .map(DesktopShellUiEvent::ImportSubscriptionUrl),
@@ -276,6 +288,21 @@ mod tests {
             Some(DesktopShellUiEvent::ImportSubscriptionConfig(
                 "proxies:\n  - name: SS-READY".to_string()
             ))
+        );
+    }
+
+    #[test]
+    fn panel_import_config_json_maps_to_panel_event() {
+        assert_eq!(
+            ipc_event_for_message(
+                r#"{"type":"panel-import-config","serverId":51,"serverName":"JP Tokyo 01","configText":"proxies:\n  - name: JP Tokyo 01"}"#,
+                &shell(DesktopRunState::Stopped, true),
+            ),
+            Some(DesktopShellUiEvent::PanelImportConfig {
+                server_id: 51,
+                server_name: "JP Tokyo 01".to_string(),
+                config_text: "proxies:\n  - name: JP Tokyo 01".to_string(),
+            })
         );
     }
 

@@ -390,6 +390,18 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       background: #ffffff;
       overflow: hidden;
     }}
+    .panel-login-grid {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }}
+    .panel-config-text {{
+      min-height: 72px;
+      max-height: 96px;
+      margin-top: 8px;
+      resize: vertical;
+    }}
     .node-filter-tabs {{
       display: flex;
       flex-wrap: wrap;
@@ -1166,6 +1178,38 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
           <h2>订阅</h2>
           <div class="value">{panel_subscription}</div>
           <div class="muted">账号模式优先；订阅 URL 导入保留为兼容入口。</div>
+          <div class="panel-login-grid">
+            <div class="settings-field">
+              <label for="panel-endpoint">面板地址</label>
+              <input id="panel-endpoint" type="url" placeholder="https://panel.example.com" />
+            </div>
+            <div class="settings-field">
+              <label for="panel-account">账号</label>
+              <input id="panel-account" type="email" autocomplete="username" placeholder="user@example.com" />
+            </div>
+            <div class="settings-field">
+              <label for="panel-password">密码</label>
+              <input id="panel-password" type="password" autocomplete="current-password" />
+            </div>
+          </div>
+          <div class="panel-login-grid">
+            <div class="settings-field">
+              <label for="panel-server-id">节点 ID</label>
+              <input id="panel-server-id" type="number" inputmode="numeric" value="51" />
+            </div>
+            <div class="settings-field">
+              <label for="panel-server-name">节点名称</label>
+              <input id="panel-server-name" value="JP Tokyo 01" />
+            </div>
+            <div class="settings-field">
+              <label for="panel-config-text">配置文本</label>
+              <textarea id="panel-config-text" class="panel-config-text" spellcheck="false"></textarea>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="panel-login-button" onclick="postPanelLogin()">登录面板</button>
+            <button id="panel-import-config-button" class="primary" onclick="postPanelImportConfig()">拉取当前节点配置</button>
+          </div>
         </section>
         <section>
           <h2>面板节点</h2>
@@ -1450,6 +1494,25 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     function postRefreshNodeHealth() {{
       postJson({{
         type: "refresh-node-health"
+      }});
+    }}
+    function postPanelLogin() {{
+      window.keliSetOperationStatus({{
+        kind: "info",
+        message: "面板登录入口已就绪，下一步接入真实网络请求"
+      }});
+    }}
+    function postPanelImportConfig() {{
+      const serverId = Number(document.getElementById("panel-server-id").value || "0");
+      const selectedTitle = document.getElementById("selected-node-title");
+      const serverName = document.getElementById("panel-server-name").value ||
+        (selectedTitle ? selectedTitle.textContent : "") ||
+        "面板节点";
+      postJson({{
+        type: "panel-import-config",
+        serverId,
+        serverName,
+        configText: document.getElementById("panel-config-text").value
       }});
     }}
     function postCopyDiagnosticsLogs() {{
@@ -3093,6 +3156,26 @@ mod tests {
         assert!(html.contains("u***@example.com"));
         assert!(html.contains("Pro，已用 4.0 GB / 10.0 GB"));
         assert!(html.contains("欢迎使用 Keli"));
+        assert!(!html.contains("https://panel.example.com/s/token"));
+    }
+
+    #[test]
+    fn panel_import_controls_are_chinese_and_do_not_render_secrets() {
+        let mut snapshot = snapshot();
+        snapshot.panel = Some(keli_desktop::DesktopPanelSnapshot::fixture_ready());
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("面板地址"));
+        assert!(html.contains("账号"));
+        assert!(html.contains("密码"));
+        assert!(html.contains("登录面板"));
+        assert!(html.contains("拉取当前节点配置"));
+        assert!(html.contains("panel-import-config"));
+        assert!(html.contains("id=\"panel-endpoint\""));
+        assert!(html.contains("id=\"panel-config-text\""));
+        assert!(!html.contains("auth_data"));
+        assert!(!html.contains("token-secret"));
         assert!(!html.contains("https://panel.example.com/s/token"));
     }
 

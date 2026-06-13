@@ -270,6 +270,14 @@ fn dispatch_ui_event(
         DesktopShellUiEvent::ImportSubscriptionConfig(config_text) => {
             controller.import_subscription_config(config_text)
         }
+        DesktopShellUiEvent::PanelImportConfig {
+            server_id,
+            server_name,
+            config_text,
+        } => {
+            controller.import_panel_config(server_id, server_name, config_text)?;
+            Ok(controller.snapshot().clone())
+        }
         DesktopShellUiEvent::ImportSubscriptionUrl(_) => Ok(controller.refresh()),
         DesktopShellUiEvent::UpdateSubscriptionUrl(_) => Ok(controller.refresh()),
         DesktopShellUiEvent::SelectNode(outbound_tag) => controller.select_node(outbound_tag),
@@ -468,6 +476,9 @@ fn operation_success_message(event: &DesktopShellUiEvent) -> Option<String> {
         DesktopShellUiEvent::Refresh => Some("状态已刷新".to_string()),
         DesktopShellUiEvent::LoadPanelFixture => Some("已加载面板示例数据".to_string()),
         DesktopShellUiEvent::RefreshNodeHealth => Some("节点健康已刷新".to_string()),
+        DesktopShellUiEvent::PanelImportConfig { server_name, .. } => {
+            Some(format!("已导入面板节点配置：{server_name}"))
+        }
         DesktopShellUiEvent::SelectNode(outbound_tag) => Some(format!("已选择节点 {outbound_tag}")),
         DesktopShellUiEvent::SetTrafficMode(traffic_mode) => Some(format!(
             "流量模式已切换为 {}",
@@ -1086,6 +1097,19 @@ mod tests {
             ))
             .as_deref(),
             Some("已打开依赖操作：install-wintun")
+        );
+    }
+
+    #[test]
+    fn operation_success_message_covers_panel_config_import() {
+        assert_eq!(
+            operation_success_message(&DesktopShellUiEvent::PanelImportConfig {
+                server_id: 51,
+                server_name: "JP Tokyo 01".to_string(),
+                config_text: "proxies: []".to_string(),
+            })
+            .as_deref(),
+            Some("已导入面板节点配置：JP Tokyo 01")
         );
     }
 
