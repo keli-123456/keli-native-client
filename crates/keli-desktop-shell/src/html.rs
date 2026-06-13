@@ -52,6 +52,15 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let diagnostics_tun = diagnostics_tun(snapshot);
     let diagnostics_default_core = diagnostics_default_core(snapshot);
     let activity_summary = format!("{diagnostics_runtime_events}; {diagnostics_recent_event}");
+    let top_core_status = format!("Core status: {run_state}");
+    let top_dependency_status = if snapshot.dependencies.first_run.blockers.is_empty()
+        && snapshot.dependencies.first_run.system_proxy_ready
+        && snapshot.dependencies.first_run.tun_ready
+    {
+        "Dependencies ready"
+    } else {
+        "Dependencies need attention"
+    };
     let local_inbound_pressed =
         aria_pressed(snapshot.status.traffic_mode == DesktopTrafficMode::MixedInboundOnly);
     let system_proxy_pressed =
@@ -81,25 +90,118 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       min-height: 520px;
       background: #f6f7f8;
     }}
-    main {{
-      width: min(960px, 100vw);
+    .desktop-layout {{
       min-height: 100vh;
-      margin: 0 auto;
-      padding: 20px;
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      background: #f6f7f8;
+    }}
+    .nav-rail {{
+      min-height: 100vh;
       display: grid;
       grid-template-rows: auto 1fr auto;
       gap: 18px;
+      padding: 24px 14px;
+      border-right: 1px solid #d9dee5;
+      background: #ffffff;
     }}
-    header {{
+    .nav-brand {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 42px;
+      padding: 0 8px;
+      color: #171a1f;
+      font-size: 25px;
+      font-weight: 750;
+      letter-spacing: 0;
+    }}
+    .nav-mark {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: #0f8a43;
+      color: #ffffff;
+      font-size: 20px;
+      font-weight: 800;
+    }}
+    .nav-list {{
+      display: grid;
+      align-content: start;
+      gap: 6px;
+      margin-top: 8px;
+    }}
+    .nav-item {{
+      width: 100%;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      border-color: transparent;
+      background: transparent;
+      color: #343b46;
+      text-align: left;
+    }}
+    .nav-item[aria-current="page"] {{
+      border-color: #cde4d6;
+      background: #eaf6ef;
+      color: #0f6b36;
+    }}
+    .nav-footer {{
+      display: grid;
+      gap: 8px;
+      padding: 10px 8px;
+      color: #657386;
+      font-size: 12px;
+    }}
+    .app-shell {{
+      min-height: 100vh;
+      padding: 0 22px 22px;
+      display: grid;
+      grid-template-rows: auto auto auto 1fr auto;
+      gap: 18px;
+      align-content: start;
+    }}
+    .top-status-bar {{
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      padding-bottom: 14px;
+      min-height: 68px;
       border-bottom: 1px solid #d9dee5;
+      background: #f6f7f8;
     }}
-    .app-shell {{
-      align-content: start;
+    .top-status-group {{
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      min-width: 0;
+      color: #4d5968;
+      font-size: 13px;
+      font-weight: 650;
+    }}
+    .top-status-item {{
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 32px;
+      padding: 0 10px;
+      border-left: 1px solid #d9dee5;
+      overflow-wrap: anywhere;
+    }}
+    .top-status-item:first-child {{
+      border-left: 0;
+      padding-left: 0;
+    }}
+    .status-dot {{
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #0f8a43;
     }}
     h1 {{
       margin: 0;
@@ -181,6 +283,71 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       color: #4d5968;
       font-size: 13px;
       overflow-wrap: anywhere;
+    }}
+    .dashboard-view {{
+      display: grid;
+      gap: 14px;
+    }}
+    .dashboard-row {{
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+      gap: 14px;
+    }}
+    .activity-header {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }}
+    .activity-metrics {{
+      color: #4d5968;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }}
+    .activity-rail {{
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }}
+    .activity-line {{
+      min-height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-top: 1px solid #edf0f3;
+      color: #4d5968;
+      font-size: 12px;
+    }}
+    .status-list {{
+      display: grid;
+      gap: 0;
+      border-top: 1px solid #edf0f3;
+    }}
+    .status-row {{
+      min-height: 42px;
+      display: grid;
+      grid-template-columns: minmax(120px, 1fr) minmax(96px, auto);
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid #edf0f3;
+      color: #4d5968;
+      font-size: 13px;
+    }}
+    .status-row strong {{
+      color: #171a1f;
+      font-weight: 650;
+    }}
+    .status-ok {{
+      color: #0f8a43;
+      font-weight: 700;
+    }}
+    .support-actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
     }}
     .operation-status {{
       min-height: 34px;
@@ -375,11 +542,33 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       line-height: 1.45;
     }}
     @media (max-width: 720px) {{
-      main {{
-        padding: 14px;
+      .desktop-layout {{
+        grid-template-columns: 1fr;
+      }}
+      .nav-rail {{
+        min-height: 0;
+        grid-template-rows: auto auto;
+        padding: 12px;
+        border-right: 0;
+        border-bottom: 1px solid #d9dee5;
+      }}
+      .nav-list {{
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }}
+      .nav-footer {{
+        display: none;
+      }}
+      .app-shell {{
+        padding: 0 14px 14px;
+      }}
+      .top-status-bar {{
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 10px 0;
       }}
       .grid,
-      .quick-status {{
+      .quick-status,
+      .dashboard-row {{
         grid-template-columns: 1fr;
       }}
       .command-panel {{
@@ -396,12 +585,35 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
   </style>
 </head>
 <body>
-  <main class="app-shell">
-    <header>
-      <h1>Keli</h1>
-      <span class="pill" id="run-state">{run_state}</span>
-    </header>
+  <div class="desktop-layout">
+    <aside class="nav-rail" id="app-navigation" aria-label="Keli navigation">
+      <div class="nav-brand"><span class="nav-mark" aria-hidden="true">K</span><span>Keli</span></div>
+      <nav class="nav-list">
+        <button class="nav-item" data-view-target="dashboard-view" aria-current="page" onclick="postViewTarget('dashboard-view')">Dashboard</button>
+        <button class="nav-item" data-view-target="nodes-view" onclick="postViewTarget('nodes-view')">Nodes</button>
+        <button class="nav-item" data-view-target="diagnostics-view" onclick="postViewTarget('diagnostics-view')">Diagnostics</button>
+        <button class="nav-item" data-view-target="settings-view" onclick="postViewTarget('settings-view')">Settings</button>
+      </nav>
+      <div class="nav-footer">
+        <span>Core: native Rust</span>
+        <span id="nav-run-state">{run_state}</span>
+      </div>
+    </aside>
+    <main class="app-shell">
+      <header class="top-status-bar" id="top-status-bar">
+        <div class="top-status-group">
+          <span class="pill" id="run-state">{run_state}</span>
+          <span class="top-status-item" id="top-core-status"><span class="status-dot" aria-hidden="true"></span>{top_core_status}</span>
+          <span class="top-status-item">Mode: <strong id="top-traffic-mode">{traffic_mode}</strong></span>
+          <span class="top-status-item">Node: <strong id="top-selected-node">{selected}</strong></span>
+        </div>
+        <div class="top-status-group">
+          <span class="top-status-item" id="top-dependency-status"><span class="status-dot" aria-hidden="true"></span>{top_dependency_status}</span>
+          <span class="top-status-item" id="top-activity-status">{activity_summary}</span>
+        </div>
+      </header>
     <div class="operation-status" id="operation-status" data-kind="info">Ready</div>
+    <div class="dashboard-view" id="dashboard-view">
     <section class="command-panel" id="core-command-panel">
       <div>
         <h2>Core</h2>
@@ -436,6 +648,42 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <button data-traffic-mode-button="tun" aria-pressed="{tun_pressed}" onclick="postTrafficMode('tun')">TUN</button>
       </div>
       <div class="activity-strip" id="activity-summary">{activity_summary}</div>
+    </section>
+    <section id="connection-activity-panel">
+      <div class="activity-header">
+        <h2>Connection activity</h2>
+        <div class="activity-metrics" id="activity-metrics">{diagnostics_connection_metrics}</div>
+      </div>
+      <div class="activity-rail" aria-label="Connection activity summary">
+        <div class="activity-line"><span>Recent runtime generation</span><strong>{generation}</strong></div>
+        <div class="activity-line"><span>Runtime events</span><strong>{events}</strong></div>
+        <div class="activity-line"><span>Selected route mode</span><strong>{traffic_mode}</strong></div>
+      </div>
+    </section>
+    <div class="dashboard-row">
+      <section id="dashboard-events-panel">
+        <h2>Recent events</h2>
+        <div class="event-list" id="dashboard-runtime-event-list">{runtime_event_items}</div>
+      </section>
+      <section id="dashboard-dependencies-panel">
+        <h2>Dependency status</h2>
+        <div class="value" id="dashboard-dependency-summary">{dependency_summary}</div>
+        <div class="status-list">
+          <div class="status-row"><strong>System proxy</strong><span class="status-ok" id="dashboard-system-proxy-status">{system_proxy_dependency}</span></div>
+          <div class="status-row"><strong>TUN / Wintun</strong><span class="status-ok" id="dashboard-tun-status">{tun_dependency}</span></div>
+          <div class="status-row"><strong>Blockers</strong><span id="dashboard-blockers">{dependency_blockers}</span></div>
+        </div>
+        <div class="actions" id="dashboard-dependency-actions">{dependency_actions}</div>
+      </section>
+    </div>
+    <section id="support-actions-panel">
+      <h2>Support bundle</h2>
+      <div class="value">Diagnostics export</div>
+      <div class="muted">Export redacted runtime state, dependency checks, and core support evidence.</div>
+      <div class="support-actions">
+        <button id="dashboard-export-support-button" class="primary" onclick="window.ipc.postMessage('export-support-bundle')">Export diagnostics</button>
+        <button onclick="window.ipc.postMessage('refresh')">Refresh status</button>
+      </div>
     </section>
     <div class="grid">
       <section>
@@ -514,8 +762,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         </div>
       </section>
     </div>
+    </div>
     <pre id="snapshot-json">{snapshot_json}</pre>
   </main>
+  </div>
   <script>
     const runStateLabels = {{
       "stopped": "Stopped",
@@ -532,6 +782,17 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     }};
     function postJson(payload) {{
       window.ipc.postMessage(JSON.stringify(payload));
+    }}
+    function postViewTarget(viewId) {{
+      document.querySelectorAll("[data-view-target]").forEach((button) => {{
+        button.setAttribute("aria-current", button.dataset.viewTarget === viewId ? "page" : "false");
+      }});
+      if (viewId !== "dashboard-view") {{
+        window.keliSetOperationStatus({{
+          kind: "info",
+          message: `${{viewId.replace("-view", "")}} view is part of the UI baseline and will use the same live shell state.`
+        }});
+      }}
     }}
     function postImportSubscription() {{
       postJson({{
@@ -597,8 +858,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       }}
       return actions;
     }}
-    function renderDependencyActions(snapshot) {{
-      const container = document.getElementById("dependency-actions");
+    function renderDependencyActionsInto(containerId, snapshot) {{
+      const container = document.getElementById(containerId);
+      if (!container) return;
       container.replaceChildren();
       for (const action of collectDependencyActions(snapshot)) {{
         const button = document.createElement("button");
@@ -607,6 +869,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         button.onclick = () => postDependencyAction(action);
         container.appendChild(button);
       }}
+    }}
+    function renderDependencyActions(snapshot) {{
+      renderDependencyActionsInto("dependency-actions", snapshot);
+      renderDependencyActionsInto("dashboard-dependency-actions", snapshot);
     }}
     function subscriptionSummary(subscription) {{
       if (!subscription) return "No subscription imported";
@@ -829,8 +1095,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       row.append(state, detail);
       container.appendChild(row);
     }}
-    function renderRuntimeEventList(snapshot) {{
-      const container = document.getElementById("runtime-event-list");
+    function renderRuntimeEventListInto(containerId, snapshot) {{
+      const container = document.getElementById(containerId);
+      if (!container) return;
       container.replaceChildren();
       const events = (snapshot.status.recent_events || []).slice(0, 6);
       if (!events.length) {{
@@ -844,6 +1111,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
           event.note || "No event detail"
         );
       }}
+    }}
+    function renderRuntimeEventList(snapshot) {{
+      renderRuntimeEventListInto("runtime-event-list", snapshot);
+      renderRuntimeEventListInto("dashboard-runtime-event-list", snapshot);
     }}
     function diagnosticsSystemProxy(snapshot) {{
       return `System proxy: ${{systemProxyDependency(snapshot)}}`;
@@ -872,6 +1143,32 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     function overviewActivity(snapshot) {{
       return `${{diagnosticsRuntimeEvents(snapshot)}}; ${{diagnosticsRecentEvent(snapshot)}}`;
     }}
+    function topCoreStatus(snapshot) {{
+      const run = runStateLabels[snapshot.status.run_state] || snapshot.status.run_state;
+      return `Core status: ${{run}}`;
+    }}
+    function topDependencyStatus(snapshot) {{
+      const firstRun = snapshot.dependencies.first_run;
+      return firstRun.system_proxy_ready && firstRun.tun_ready && !(firstRun.blockers || []).length
+        ? "Dependencies ready"
+        : "Dependencies need attention";
+    }}
+    window.keliSyncDashboard = (snapshot) => {{
+      const status = snapshot.status;
+      setText("nav-run-state", runStateLabels[status.run_state] || status.run_state);
+      setText("top-core-status", topCoreStatus(snapshot));
+      setText("top-traffic-mode", trafficModeLabels[status.traffic_mode] || status.traffic_mode);
+      setText("top-selected-node", status.selected_outbound || "No node selected");
+      setText("top-dependency-status", topDependencyStatus(snapshot));
+      setText("top-activity-status", overviewActivity(snapshot));
+      setText("activity-metrics", diagnosticsConnectionMetrics(snapshot));
+      setText("dashboard-dependency-summary", dependencySummary(snapshot));
+      setText("dashboard-system-proxy-status", systemProxyDependency(snapshot));
+      setText("dashboard-tun-status", tunDependency(snapshot));
+      setText("dashboard-blockers", dependencyBlockers(snapshot));
+      renderRuntimeEventList(snapshot);
+      renderDependencyActions(snapshot);
+    }};
     window.keliSyncOverview = (snapshot) => {{
       const status = snapshot.status;
       const primary = snapshot.primary_action;
@@ -890,6 +1187,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const status = snapshot.status;
       const primary = snapshot.primary_action;
       window.keliSyncOverview(snapshot);
+      window.keliSyncDashboard(snapshot);
       document.getElementById("run-state").textContent = runStateLabels[status.run_state] || status.run_state;
       document.getElementById("traffic-mode").textContent = trafficModeLabels[status.traffic_mode] || status.traffic_mode;
       document.getElementById("listen-address").textContent = status.listen || "Not listening";
@@ -929,6 +1227,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
 </body>
 </html>"#,
         run_state = escape_html(run_state),
+        top_core_status = escape_html(&top_core_status),
+        top_dependency_status = escape_html(top_dependency_status),
         traffic_mode = escape_html(traffic_mode),
         listen = escape_html(listen),
         selected = escape_html(selected),
@@ -1585,6 +1885,43 @@ mod tests {
         assert!(html.contains("data-traffic-mode-button=\"system-proxy\""));
         assert!(html.contains("id=\"activity-summary\""));
         assert!(html.contains("window.keliSyncOverview"));
+    }
+
+    #[test]
+    fn dashboard_baseline_includes_shell_navigation_and_top_status() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("class=\"desktop-layout\""));
+        assert!(html.contains("id=\"app-navigation\""));
+        assert!(html.contains("data-view-target=\"dashboard-view\""));
+        assert!(html.contains("data-view-target=\"nodes-view\""));
+        assert!(html.contains("data-view-target=\"diagnostics-view\""));
+        assert!(html.contains("data-view-target=\"settings-view\""));
+        assert!(html.contains("id=\"top-status-bar\""));
+        assert!(html.contains("id=\"top-core-status\""));
+        assert!(html.contains("id=\"top-dependency-status\""));
+        assert!(html.contains("id=\"top-selected-node\""));
+        assert!(html.contains("id=\"dashboard-view\""));
+    }
+
+    #[test]
+    fn dashboard_baseline_includes_activity_dependency_and_support_panels() {
+        let mut snapshot = snapshot();
+        snapshot.status.connection_metrics.total = 12;
+        snapshot.status.connection_metrics.success = 11;
+        snapshot.status.connection_metrics.failure = 1;
+        snapshot.status.connection_metrics.average_connect_ms = Some(18);
+        snapshot.refresh_subscription(Some(subscription("SS-READY")));
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("id=\"connection-activity-panel\""));
+        assert!(html.contains("id=\"activity-metrics\""));
+        assert!(html.contains("id=\"dashboard-events-panel\""));
+        assert!(html.contains("id=\"dashboard-dependencies-panel\""));
+        assert!(html.contains("id=\"support-actions-panel\""));
+        assert!(html.contains("id=\"dashboard-export-support-button\""));
+        assert!(html.contains("window.keliSyncDashboard"));
     }
 
     #[test]

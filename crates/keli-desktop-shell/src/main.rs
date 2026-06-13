@@ -56,8 +56,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let window = WindowBuilder::new()
         .with_title("Keli")
-        .with_inner_size(LogicalSize::new(760.0, 560.0))
-        .with_min_inner_size(LogicalSize::new(420.0, 480.0))
+        .with_inner_size(LogicalSize::new(1180.0, 760.0))
+        .with_min_inner_size(LogicalSize::new(860.0, 620.0))
         .build(&event_loop)?;
     let ipc_proxy = event_loop.create_proxy();
     let webview = WebViewBuilder::new()
