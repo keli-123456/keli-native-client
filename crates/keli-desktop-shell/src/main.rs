@@ -64,8 +64,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let settings = load_desktop_settings();
     let mut controller = DesktopShellController::new_native();
-    apply_desktop_settings(&mut controller, &settings);
-    let initial_html = render_shell_html(controller.snapshot());
+    let initial_shell = match apply_desktop_startup_settings(&mut controller, &settings) {
+        Ok(shell) => shell,
+        Err(error) => {
+            eprintln!(
+                "desktop shell auto-start failed: {} {} {}",
+                error.operation, error.kind, error.message
+            );
+            controller.refresh()
+        }
+    };
+    let initial_html = render_shell_html(&initial_shell);
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let window = WindowBuilder::new()
         .with_title("Keli")
@@ -415,6 +424,29 @@ fn apply_desktop_settings(
 ) -> DesktopShellState {
     controller.set_traffic_mode(settings.traffic_mode);
     controller.set_listen(desktop_settings_listen_address(settings))
+}
+
+fn desktop_settings_auto_start_action(
+    settings: &DesktopShellSettings,
+    shell: &DesktopShellState,
+) -> Option<DesktopShellAction> {
+    if settings.auto_start_core && shell.can_start {
+        Some(DesktopShellAction::RequestStart)
+    } else {
+        None
+    }
+}
+
+fn apply_desktop_startup_settings(
+    controller: &mut DesktopShellController<keli_desktop::DesktopNativeCommandService>,
+    settings: &DesktopShellSettings,
+) -> Result<DesktopShellState, DesktopShellControllerError> {
+    let shell = apply_desktop_settings(controller, settings);
+    if let Some(action) = desktop_settings_auto_start_action(settings, &shell) {
+        controller.dispatch(action)
+    } else {
+        Ok(shell)
+    }
 }
 
 fn sync_desktop_settings(webview: &WebView, settings: &DesktopShellSettings) {
@@ -832,6 +864,7 @@ struct DesktopShellSmokeReport {
     snapshot_script_ready: bool,
     settings_persistence_ready: bool,
     settings_runtime_ready: bool,
+    settings_auto_start_ready: bool,
     ui_workflow_entrypoints: Vec<String>,
 }
 
@@ -994,6 +1027,9 @@ fn build_smoke_report(
     let settings_runtime_ready = settings_persistence_ready
         && html.contains("id=\"settings-mixed-port\"")
         && html.contains("mixed_port");
+    let settings_auto_start_ready = settings_persistence_ready
+        && html.contains("id=\"settings-auto-start-core\"")
+        && html.contains("auto_start_core");
     let first_run_blockers = smoke_first_run_blockers(snapshot);
     let dependency_action_entrypoints = smoke_dependency_action_entrypoints(snapshot, html);
     let workflows_ready = expected_smoke_workflows().iter().all(|workflow| {
@@ -1006,6 +1042,7 @@ fn build_smoke_report(
         && workflows_ready
         && settings_persistence_ready
         && settings_runtime_ready
+        && settings_auto_start_ready
     {
         "passed"
     } else {
@@ -1028,6 +1065,7 @@ fn build_smoke_report(
         snapshot_script_ready,
         settings_persistence_ready,
         settings_runtime_ready,
+        settings_auto_start_ready,
         ui_workflow_entrypoints,
     }
 }
@@ -1138,9 +1176,9 @@ fn add_smoke_dependency_action(actions: &mut Vec<String>, action: Option<&str>) 
 mod tests {
     use super::*;
     use keli_desktop::{
-        DesktopDependencyReport, DesktopFirstRunReport, DesktopRunState, DesktopShellState,
-        DesktopStatusSnapshot, DesktopSystemProxyDependency, DesktopTrafficMode,
-        DesktopTunBackendDependency,
+        DesktopDependencyReport, DesktopFirstRunReport, DesktopNodeSummary, DesktopRunState,
+        DesktopShellState, DesktopStatusSnapshot, DesktopSubscriptionSummary,
+        DesktopSystemProxyDependency, DesktopTrafficMode, DesktopTunBackendDependency,
     };
 
     fn smoke_snapshot() -> DesktopShellState {
@@ -1194,6 +1232,32 @@ mod tests {
                 },
             },
         )
+    }
+
+    fn usable_subscription() -> DesktopSubscriptionSummary {
+        DesktopSubscriptionSummary {
+            usable: true,
+            supported_count: 1,
+            skipped_count: 0,
+            default_outbound: Some("SS-READY".to_string()),
+            selected_outbound: Some("SS-READY".to_string()),
+            recommended_outbound: Some("SS-READY".to_string()),
+            nodes: vec![DesktopNodeSummary {
+                tag: "SS-READY".to_string(),
+                protocol: "ss".to_string(),
+                transport: "tcp".to_string(),
+                security: "none".to_string(),
+                udp_supported: true,
+                selected: true,
+                recommended: true,
+                health_state: None,
+                tcp_available: None,
+                udp_available: None,
+                latency_ms: None,
+                health_error: None,
+            }],
+            skipped: Vec::new(),
+        }
     }
 
     #[test]
@@ -1267,6 +1331,7 @@ mod tests {
         assert!(report.snapshot_script_ready);
         assert!(report.settings_persistence_ready);
         assert!(report.settings_runtime_ready);
+        assert!(report.settings_auto_start_ready);
         assert_eq!(
             report.ui_workflow_entrypoints,
             vec![
@@ -1384,6 +1449,43 @@ mod tests {
             desktop_settings_listen_address(&settings),
             "127.0.0.1:17890"
         );
+    }
+
+    #[test]
+    fn desktop_settings_auto_start_action_requests_start_when_enabled_and_ready() {
+        let mut settings = DesktopShellSettings::default();
+        settings.auto_start_core = true;
+        let mut shell = smoke_snapshot();
+        shell.refresh_subscription(Some(usable_subscription()));
+
+        assert!(shell.can_start);
+        assert_eq!(
+            desktop_settings_auto_start_action(&settings, &shell),
+            Some(DesktopShellAction::RequestStart)
+        );
+    }
+
+    #[test]
+    fn desktop_settings_auto_start_action_skips_start_when_disabled() {
+        let settings = DesktopShellSettings::default();
+        let mut shell = smoke_snapshot();
+        shell.refresh_subscription(Some(usable_subscription()));
+
+        assert!(shell.can_start);
+        assert_eq!(desktop_settings_auto_start_action(&settings, &shell), None);
+    }
+
+    #[test]
+    fn desktop_settings_auto_start_action_skips_start_when_blocked() {
+        let mut settings = DesktopShellSettings::default();
+        settings.auto_start_core = true;
+        let mut shell = smoke_snapshot();
+        shell.dependencies.first_run.can_start_system_proxy_mode = false;
+        shell.refresh_dependencies(shell.dependencies.clone());
+        shell.refresh_subscription(Some(usable_subscription()));
+
+        assert!(!shell.can_start);
+        assert_eq!(desktop_settings_auto_start_action(&settings, &shell), None);
     }
 
     #[test]
