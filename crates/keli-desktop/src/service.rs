@@ -723,6 +723,22 @@ proxies:
                 "install-wintun"
             );
         }
+        let expected_connection_level = if first_run["blockers"]
+            .as_array()
+            .is_some_and(|blockers| !blockers.is_empty())
+        {
+            "blocked"
+        } else {
+            "healthy"
+        };
+        assert_eq!(
+            bundle["desktop_diagnosis"]["connection"]["level"],
+            expected_connection_level
+        );
+        assert_eq!(
+            bundle["desktop_diagnosis"]["connection"]["evidence"]["selected_outbound"],
+            "SS-READY"
+        );
         assert_eq!(bundle["core_support_bundle"]["kind"], "keli_support_bundle");
         assert_eq!(bundle["core_support_bundle"]["profile"]["status"], "ok");
         assert_eq!(
