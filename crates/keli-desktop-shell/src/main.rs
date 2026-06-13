@@ -1,5 +1,6 @@
 mod actions;
 mod html;
+mod settings;
 mod support;
 
 use std::error::Error;
