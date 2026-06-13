@@ -19,8 +19,9 @@ use html::{
     wintun_install_status_script,
 };
 use keli_desktop::{
-    DesktopRunState, DesktopShellAction, DesktopShellController, DesktopShellControllerError,
-    DesktopShellState,
+    DesktopNativeCommandService, DesktopPersistedSubscription, DesktopRunState, DesktopShellAction,
+    DesktopShellController, DesktopShellControllerError, DesktopShellState,
+    DesktopSubscriptionStore,
 };
 use settings::{
     default_desktop_shell_settings_path, read_desktop_shell_settings, write_desktop_shell_settings,
@@ -49,9 +50,14 @@ enum UserEvent {
     Ipc(String),
 }
 
+const STARTUP_RESTORE_SMOKE_SELECTED_OUTBOUND: &str = "SS-RESTORED";
+
 fn main() -> Result<(), Box<dyn Error>> {
     if is_support_export_smoke_mode(std::env::args()) {
         return run_support_export_smoke();
+    }
+    if is_startup_restore_smoke_mode(std::env::args()) {
+        return run_startup_restore_smoke();
     }
     if is_smoke_mode(std::env::args()) {
         return run_smoke();
@@ -869,6 +875,20 @@ struct DesktopShellSmokeReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct DesktopShellStartupRestoreSmokeReport {
+    status: String,
+    restored_subscription: bool,
+    restored_selected_outbound: Option<String>,
+    runtime_selected_outbound: Option<String>,
+    restored_supported_count: usize,
+    restored_selected_matches: bool,
+    can_start_after_restore: bool,
+    primary_action_id: String,
+    html_ready: bool,
+    snapshot_script_ready: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct DesktopShellSupportExportSmokeReport {
     status: String,
     path: String,
@@ -900,6 +920,16 @@ where
         .any(|arg| arg.as_ref() == "--support-export-smoke")
 }
 
+fn is_startup_restore_smoke_mode<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter()
+        .skip(1)
+        .any(|arg| arg.as_ref() == "--startup-restore-smoke")
+}
+
 fn support_export_smoke_dir_arg<I, S>(args: I) -> Option<String>
 where
     I: IntoIterator<Item = S>,
@@ -912,6 +942,44 @@ where
         }
     }
     None
+}
+
+fn run_startup_restore_smoke() -> Result<(), Box<dyn Error>> {
+    let store_path = startup_restore_smoke_store_path();
+    let store = DesktopSubscriptionStore::new(&store_path);
+    store.save(&DesktopPersistedSubscription {
+        config_text: startup_restore_smoke_config(),
+        selected_outbound: Some(STARTUP_RESTORE_SMOKE_SELECTED_OUTBOUND.to_string()),
+    })?;
+
+    let controller = DesktopShellController::new_with_subscription_store(
+        DesktopNativeCommandService::new(),
+        store,
+    );
+    let snapshot = controller.snapshot();
+    let html = render_shell_html(snapshot);
+    let script = shell_snapshot_script(snapshot)?;
+    let report = build_startup_restore_smoke_report(
+        snapshot,
+        &html,
+        &script,
+        STARTUP_RESTORE_SMOKE_SELECTED_OUTBOUND,
+    );
+    let passed = report.status == "passed";
+
+    println!("{}", serde_json::to_string_pretty(&report)?);
+
+    if let Err(error) = fs::remove_file(&store_path) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            eprintln!("startup restore smoke cleanup failed: {error}");
+        }
+    }
+
+    if passed {
+        Ok(())
+    } else {
+        Err("desktop startup restore smoke report failed".into())
+    }
 }
 
 fn run_smoke() -> Result<(), Box<dyn Error>> {
@@ -958,6 +1026,32 @@ fn run_support_export_smoke() -> Result<(), Box<dyn Error>> {
     }
 }
 
+fn startup_restore_smoke_store_path() -> std::path::PathBuf {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    std::env::temp_dir().join(format!("keli-desktop-startup-restore-smoke-{unique}.json"))
+}
+
+fn startup_restore_smoke_config() -> String {
+    r#"proxies:
+  - name: SS-OLD
+    type: ss
+    server: 127.0.0.1
+    port: 8388
+    cipher: aes-128-gcm
+    password: pass
+  - name: SS-RESTORED
+    type: ss
+    server: 127.0.0.1
+    port: 8389
+    cipher: aes-128-gcm
+    password: pass
+"#
+    .to_string()
+}
+
 fn build_support_export_smoke_report(
     summary: &support::SupportBundleSaveSummary,
     format: &str,
@@ -991,6 +1085,68 @@ fn build_support_export_smoke_report(
         desktop_dependencies,
         core_support_bundle,
         last_record_matches,
+    }
+}
+
+fn build_startup_restore_smoke_report(
+    snapshot: &DesktopShellState,
+    html: &str,
+    snapshot_script: &str,
+    expected_selected_outbound: &str,
+) -> DesktopShellStartupRestoreSmokeReport {
+    let subscription = snapshot.subscription.as_ref();
+    let restored_subscription = subscription
+        .map(|subscription| {
+            subscription.usable
+                && subscription.supported_count > 0
+                && !subscription.nodes.is_empty()
+        })
+        .unwrap_or(false);
+    let restored_selected_outbound =
+        subscription.and_then(|subscription| subscription.selected_outbound.clone());
+    let runtime_selected_outbound = snapshot.status.selected_outbound.clone();
+    let restored_supported_count = subscription
+        .map(|subscription| subscription.supported_count)
+        .unwrap_or_default();
+    let selected_node_restored = subscription
+        .map(|subscription| {
+            subscription
+                .nodes
+                .iter()
+                .any(|node| node.tag == expected_selected_outbound && node.selected)
+        })
+        .unwrap_or(false);
+    let restored_selected_matches = restored_selected_outbound.as_deref()
+        == Some(expected_selected_outbound)
+        && runtime_selected_outbound.as_deref() == Some(expected_selected_outbound)
+        && selected_node_restored;
+    let html_ready = html.contains("id=\"primary-button\"")
+        && html.contains(&format!("data-node-tag=\"{expected_selected_outbound}\""));
+    let snapshot_script_ready = snapshot_script.contains("window.keliSetShell")
+        && snapshot_script.contains(expected_selected_outbound);
+    let can_start_after_restore = snapshot.can_start;
+    let status = if restored_subscription
+        && restored_selected_matches
+        && can_start_after_restore
+        && html_ready
+        && snapshot_script_ready
+    {
+        "passed"
+    } else {
+        "failed"
+    };
+
+    DesktopShellStartupRestoreSmokeReport {
+        status: status.to_string(),
+        restored_subscription,
+        restored_selected_outbound,
+        runtime_selected_outbound,
+        restored_supported_count,
+        restored_selected_matches,
+        can_start_after_restore,
+        primary_action_id: snapshot.primary_action.id.clone(),
+        html_ready,
+        snapshot_script_ready,
     }
 }
 
@@ -1235,15 +1391,19 @@ mod tests {
     }
 
     fn usable_subscription() -> DesktopSubscriptionSummary {
+        usable_subscription_with_tag("SS-READY")
+    }
+
+    fn usable_subscription_with_tag(tag: &str) -> DesktopSubscriptionSummary {
         DesktopSubscriptionSummary {
             usable: true,
             supported_count: 1,
             skipped_count: 0,
-            default_outbound: Some("SS-READY".to_string()),
-            selected_outbound: Some("SS-READY".to_string()),
-            recommended_outbound: Some("SS-READY".to_string()),
+            default_outbound: Some(tag.to_string()),
+            selected_outbound: Some(tag.to_string()),
+            recommended_outbound: Some(tag.to_string()),
             nodes: vec![DesktopNodeSummary {
-                tag: "SS-READY".to_string(),
+                tag: tag.to_string(),
                 protocol: "ss".to_string(),
                 transport: "tcp".to_string(),
                 security: "none".to_string(),
@@ -1276,6 +1436,18 @@ mod tests {
         assert!(!is_support_export_smoke_mode([
             "keli-desktop-shell",
             "--smoke",
+        ]));
+    }
+
+    #[test]
+    fn startup_restore_smoke_arg_detection_accepts_flag() {
+        assert!(is_startup_restore_smoke_mode([
+            "keli-desktop-shell",
+            "--startup-restore-smoke",
+        ]));
+        assert!(!is_startup_restore_smoke_mode([
+            "keli-desktop-shell",
+            "--smoke"
         ]));
     }
 
@@ -1315,6 +1487,34 @@ mod tests {
         assert!(report.desktop_dependencies);
         assert!(report.core_support_bundle);
         assert!(report.last_record_matches);
+    }
+
+    #[test]
+    fn startup_restore_smoke_report_confirms_subscription_and_selected_node_restore() {
+        let mut snapshot = smoke_snapshot();
+        snapshot.status.selected_outbound = Some("SS-RESTORED".to_string());
+        snapshot.refresh_status(snapshot.status.clone());
+        snapshot.refresh_subscription(Some(usable_subscription_with_tag("SS-RESTORED")));
+        let html = render_shell_html(&snapshot);
+        let script = shell_snapshot_script(&snapshot).expect("snapshot script");
+
+        let report = build_startup_restore_smoke_report(&snapshot, &html, &script, "SS-RESTORED");
+
+        assert_eq!(report.status, "passed");
+        assert!(report.restored_subscription);
+        assert_eq!(
+            report.restored_selected_outbound.as_deref(),
+            Some("SS-RESTORED")
+        );
+        assert_eq!(
+            report.runtime_selected_outbound.as_deref(),
+            Some("SS-RESTORED")
+        );
+        assert_eq!(report.restored_supported_count, 1);
+        assert!(report.restored_selected_matches);
+        assert!(report.can_start_after_restore);
+        assert!(report.html_ready);
+        assert!(report.snapshot_script_ready);
     }
 
     #[test]

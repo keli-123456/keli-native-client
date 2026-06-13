@@ -395,6 +395,9 @@ where
     pub fn status(&self) -> DesktopStatusSnapshot {
         let mut status = self.core.status();
         status.traffic_mode = self.traffic_mode;
+        if status.selected_outbound.is_none() {
+            status.selected_outbound = self.selected_outbound.clone();
+        }
         status
     }
 }
@@ -766,6 +769,23 @@ proxies:
             DesktopRuntimeError::Client(ClientErrorKind::OutboundNotFound("MISSING".to_string()))
         );
         assert_eq!(service.status().run_state, DesktopRunState::Stopped);
+    }
+
+    #[test]
+    fn stopped_status_exposes_selected_outbound_for_pending_start() {
+        let platform_controller = FakeSystemProxyController::new();
+        let mut service = DesktopRuntimeService::new(&platform_controller);
+        service
+            .import_subscription_config(ss_config_with_tags(&["SS-OLD", "SS-RESTORED"]))
+            .expect("import subscription");
+        service
+            .select_node("SS-RESTORED")
+            .expect("select restored node");
+
+        let status = service.status();
+
+        assert_eq!(status.run_state, DesktopRunState::Stopped);
+        assert_eq!(status.selected_outbound.as_deref(), Some("SS-RESTORED"));
     }
 
     #[test]
