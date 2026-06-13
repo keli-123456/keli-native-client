@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::commands::{DesktopCommandError, DesktopNativeCommandService};
 use crate::dependencies::{DesktopDependencyReport, DesktopWintunInstallSummary};
-use crate::panel::DesktopPanelConfigImportSummary;
+use crate::panel::{DesktopPanelConfigImportSummary, DesktopPanelSnapshot};
 use crate::persistence::{DesktopPersistedSubscription, DesktopSubscriptionStore};
 use crate::shell::{DesktopShellAction, DesktopShellPrimaryCommand, DesktopShellState};
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
@@ -26,11 +26,22 @@ pub trait DesktopShellCommandHost {
         &mut self,
         config_text: String,
     ) -> Result<DesktopSubscriptionSummary, DesktopCommandError>;
+    fn connect_panel(
+        &mut self,
+        endpoint: String,
+        email: String,
+        password: String,
+    ) -> Result<DesktopPanelSnapshot, DesktopCommandError>;
     fn import_panel_config(
         &mut self,
         server_id: i64,
         server_name: String,
         config_text: String,
+    ) -> Result<DesktopPanelConfigImportSummary, DesktopCommandError>;
+    fn import_panel_session_config(
+        &mut self,
+        server_id: i64,
+        server_name: String,
     ) -> Result<DesktopPanelConfigImportSummary, DesktopCommandError>;
     fn import_subscription_url(
         &mut self,
@@ -82,6 +93,15 @@ impl DesktopShellCommandHost for DesktopNativeCommandService {
         self.import_subscription_config(config_text)
     }
 
+    fn connect_panel(
+        &mut self,
+        endpoint: String,
+        email: String,
+        password: String,
+    ) -> Result<DesktopPanelSnapshot, DesktopCommandError> {
+        self.connect_panel(endpoint, email, password)
+    }
+
     fn import_panel_config(
         &mut self,
         server_id: i64,
@@ -89,6 +109,14 @@ impl DesktopShellCommandHost for DesktopNativeCommandService {
         config_text: String,
     ) -> Result<DesktopPanelConfigImportSummary, DesktopCommandError> {
         self.import_panel_config(server_id, server_name, config_text)
+    }
+
+    fn import_panel_session_config(
+        &mut self,
+        server_id: i64,
+        server_name: String,
+    ) -> Result<DesktopPanelConfigImportSummary, DesktopCommandError> {
+        self.import_panel_session_config(server_id, server_name)
     }
 
     fn import_subscription_url(
@@ -248,6 +276,19 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         Ok(self.shell.clone())
     }
 
+    pub fn connect_panel(
+        &mut self,
+        endpoint: impl Into<String>,
+        email: impl Into<String>,
+        password: impl Into<String>,
+    ) -> Result<DesktopShellState, DesktopShellControllerError> {
+        let panel = self
+            .host
+            .connect_panel(endpoint.into(), email.into(), password.into())?;
+        self.shell.refresh_panel(Some(panel));
+        Ok(self.shell.clone())
+    }
+
     pub fn import_panel_config(
         &mut self,
         server_id: i64,
@@ -257,6 +298,20 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         let imported =
             self.host
                 .import_panel_config(server_id, server_name.into(), config_text.into())?;
+        self.shell
+            .refresh_subscription(Some(imported.subscription.clone()));
+        self.shell.refresh_status(self.host.status());
+        Ok(imported)
+    }
+
+    pub fn import_panel_session_config(
+        &mut self,
+        server_id: i64,
+        server_name: impl Into<String>,
+    ) -> Result<DesktopPanelConfigImportSummary, DesktopShellControllerError> {
+        let imported = self
+            .host
+            .import_panel_session_config(server_id, server_name.into())?;
         self.shell
             .refresh_subscription(Some(imported.subscription.clone()));
         self.shell.refresh_status(self.host.status());
@@ -476,6 +531,8 @@ mod tests {
         subscription_config: Option<String>,
         url_imports: Vec<String>,
         url_updates: Vec<String>,
+        panel_logins: Vec<(String, String)>,
+        panel_config_fetches: Vec<(i64, String)>,
         exports: usize,
         wintun_installs: Vec<String>,
     }
@@ -495,6 +552,8 @@ mod tests {
                     subscription_config: None,
                     url_imports: Vec::new(),
                     url_updates: Vec::new(),
+                    panel_logins: Vec::new(),
+                    panel_config_fetches: Vec::new(),
                     exports: 0,
                     wintun_installs: Vec::new(),
                 })),
@@ -535,6 +594,14 @@ mod tests {
 
         fn url_updates(&self) -> Vec<String> {
             self.inner.borrow().url_updates.clone()
+        }
+
+        fn panel_logins(&self) -> Vec<(String, String)> {
+            self.inner.borrow().panel_logins.clone()
+        }
+
+        fn panel_config_fetches(&self) -> Vec<(i64, String)> {
+            self.inner.borrow().panel_config_fetches.clone()
         }
 
         fn set_status(&self, status: DesktopStatusSnapshot) {
@@ -580,6 +647,16 @@ mod tests {
             Ok(inner.subscription.clone())
         }
 
+        fn connect_panel(
+            &mut self,
+            endpoint: String,
+            email: String,
+            _password: String,
+        ) -> Result<DesktopPanelSnapshot, DesktopCommandError> {
+            self.inner.borrow_mut().panel_logins.push((endpoint, email));
+            Ok(DesktopPanelSnapshot::fixture_ready())
+        }
+
         fn import_panel_config(
             &mut self,
             server_id: i64,
@@ -589,6 +666,25 @@ mod tests {
             let mut inner = self.inner.borrow_mut();
             inner.imports += 1;
             inner.subscription_config = Some(config_text);
+            inner.subscription = subscription(&server_name);
+            inner.status.selected_outbound = Some(server_name.clone());
+            Ok(DesktopPanelConfigImportSummary::from_subscription(
+                server_id,
+                server_name,
+                inner.subscription.clone(),
+            ))
+        }
+
+        fn import_panel_session_config(
+            &mut self,
+            server_id: i64,
+            server_name: String,
+        ) -> Result<DesktopPanelConfigImportSummary, DesktopCommandError> {
+            let mut inner = self.inner.borrow_mut();
+            inner
+                .panel_config_fetches
+                .push((server_id, server_name.clone()));
+            inner.subscription_config = Some(ss_config(&server_name));
             inner.subscription = subscription(&server_name);
             inner.status.selected_outbound = Some(server_name.clone());
             Ok(DesktopPanelConfigImportSummary::from_subscription(
@@ -1235,8 +1331,10 @@ mod tests {
         let store = DesktopSubscriptionStore::new(test_path("panel-import"));
         let host = FakeHost::new(status(DesktopRunState::Stopped), ready_dependencies());
         let observed = host.clone();
-        let mut controller = DesktopShellController::new_with_subscription_store(host, store.clone());
-        controller.refresh_panel_snapshot(Some(crate::panel::DesktopPanelSnapshot::fixture_ready()));
+        let mut controller =
+            DesktopShellController::new_with_subscription_store(host, store.clone());
+        controller
+            .refresh_panel_snapshot(Some(crate::panel::DesktopPanelSnapshot::fixture_ready()));
 
         let imported = controller
             .import_panel_config(51, "JP Tokyo 01", ss_config("JP Tokyo 01"))
@@ -1259,6 +1357,59 @@ mod tests {
         assert!(store.load().expect("load store").is_none());
 
         let _ = std::fs::remove_file(store.path());
+    }
+
+    #[test]
+    fn shell_controller_connect_panel_updates_panel_snapshot_without_leaking_password() {
+        let host = FakeHost::new(status(DesktopRunState::Stopped), ready_dependencies());
+        let observed = host.clone();
+        let mut controller = DesktopShellController::new(host);
+
+        let shell = controller
+            .connect_panel("https://panel.example.com", "user@example.com", "secret")
+            .expect("connect panel");
+
+        assert_eq!(
+            observed.panel_logins(),
+            vec![(
+                "https://panel.example.com".to_string(),
+                "user@example.com".to_string()
+            )]
+        );
+        assert_eq!(
+            shell
+                .panel
+                .as_ref()
+                .map(|panel| panel.account.email_redacted.as_str()),
+            Some("u***@example.com")
+        );
+        assert!(!format!("{shell:?}").contains("secret"));
+    }
+
+    #[test]
+    fn shell_controller_import_panel_session_config_updates_subscription() {
+        let host = FakeHost::new(status(DesktopRunState::Stopped), ready_dependencies());
+        let observed = host.clone();
+        let mut controller = DesktopShellController::new(host);
+
+        let imported = controller
+            .import_panel_session_config(51, "JP Tokyo 01")
+            .expect("import panel session config");
+
+        assert_eq!(
+            observed.panel_config_fetches(),
+            vec![(51, "JP Tokyo 01".to_string())]
+        );
+        assert_eq!(imported.selected_outbound.as_deref(), Some("JP Tokyo 01"));
+        assert_eq!(
+            controller
+                .snapshot()
+                .subscription
+                .as_ref()
+                .and_then(|subscription| subscription.selected_outbound.as_deref()),
+            Some("JP Tokyo 01")
+        );
+        assert_eq!(observed.url_imports(), Vec::<String>::new());
     }
 
     #[test]

@@ -32,13 +32,8 @@ impl PanelSession {
         token: impl Into<String>,
         email: Option<String>,
     ) -> Self {
-        let api_base = normalize_base_url(api_base.as_ref()).unwrap_or_else(|| {
-            api_base
-                .as_ref()
-                .trim()
-                .trim_end_matches('/')
-                .to_string()
-        });
+        let api_base = normalize_base_url(api_base.as_ref())
+            .unwrap_or_else(|| api_base.as_ref().trim().trim_end_matches('/').to_string());
         Self {
             api_base,
             api_prefix: normalize_api_prefix(api_prefix.as_ref()),

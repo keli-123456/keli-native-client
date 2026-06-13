@@ -11,8 +11,8 @@ fn parses_login_response_auth_data_into_bearer_session() {
         }
     });
 
-    let session = parse_login_session(&value, "https://api.example.com", "/api/v1")
-        .expect("login session");
+    let session =
+        parse_login_session(&value, "https://api.example.com", "/api/v1").expect("login session");
 
     assert_eq!(session.api_base, "https://api.example.com");
     assert_eq!(session.api_prefix, "/api/v1");
@@ -24,8 +24,8 @@ fn parses_login_response_auth_data_into_bearer_session() {
 fn falls_back_to_token_when_auth_data_is_absent() {
     let value = json!({"data": {"token": "legacy-token"}});
 
-    let session = parse_login_session(&value, "https://api.example.com", "/api/v1")
-        .expect("login session");
+    let session =
+        parse_login_session(&value, "https://api.example.com", "/api/v1").expect("login session");
 
     assert_eq!(session.authorization_header(), "Bearer legacy-token");
 }

@@ -9,6 +9,15 @@ pub enum DesktopShellUiEvent {
     Refresh,
     LoadPanelFixture,
     RefreshNodeHealth,
+    PanelLogin {
+        endpoint: String,
+        email: String,
+        password: String,
+    },
+    PanelFetchConfig {
+        server_id: i64,
+        server_name: String,
+    },
     ImportSubscriptionConfig(String),
     PanelImportConfig {
         server_id: i64,
@@ -30,6 +39,9 @@ struct IpcCommand {
     #[serde(rename = "type")]
     command_type: String,
     config_text: Option<String>,
+    endpoint: Option<String>,
+    email: Option<String>,
+    password: Option<String>,
     subscription_url: Option<String>,
     outbound_tag: Option<String>,
     server_id: Option<i64>,
@@ -68,6 +80,15 @@ fn json_ipc_event(message: &str) -> Option<DesktopShellUiEvent> {
         "import-subscription-config" => command
             .config_text
             .map(DesktopShellUiEvent::ImportSubscriptionConfig),
+        "panel-login" => Some(DesktopShellUiEvent::PanelLogin {
+            endpoint: command.endpoint?,
+            email: command.email?,
+            password: command.password?,
+        }),
+        "panel-fetch-config" => Some(DesktopShellUiEvent::PanelFetchConfig {
+            server_id: command.server_id?,
+            server_name: command.server_name?,
+        }),
         "panel-import-config" => Some(DesktopShellUiEvent::PanelImportConfig {
             server_id: command.server_id?,
             server_name: command.server_name?,
@@ -302,6 +323,35 @@ mod tests {
                 server_id: 51,
                 server_name: "JP Tokyo 01".to_string(),
                 config_text: "proxies:\n  - name: JP Tokyo 01".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn panel_login_json_maps_to_panel_login_event() {
+        assert_eq!(
+            ipc_event_for_message(
+                r#"{"type":"panel-login","endpoint":"https://panel.example.com","email":"user@example.com","password":"secret"}"#,
+                &shell(DesktopRunState::Stopped, true),
+            ),
+            Some(DesktopShellUiEvent::PanelLogin {
+                endpoint: "https://panel.example.com".to_string(),
+                email: "user@example.com".to_string(),
+                password: "secret".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn panel_fetch_config_json_maps_to_session_fetch_event() {
+        assert_eq!(
+            ipc_event_for_message(
+                r#"{"type":"panel-fetch-config","serverId":51,"serverName":"JP Tokyo 01"}"#,
+                &shell(DesktopRunState::Stopped, true),
+            ),
+            Some(DesktopShellUiEvent::PanelFetchConfig {
+                server_id: 51,
+                server_name: "JP Tokyo 01".to_string(),
             })
         );
     }

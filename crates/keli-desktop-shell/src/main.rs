@@ -267,6 +267,18 @@ fn dispatch_ui_event(
         DesktopShellUiEvent::LoadPanelFixture => Ok(controller
             .refresh_panel_snapshot(Some(keli_desktop::DesktopPanelSnapshot::fixture_ready()))),
         DesktopShellUiEvent::RefreshNodeHealth => controller.refresh_node_health(),
+        DesktopShellUiEvent::PanelLogin {
+            endpoint,
+            email,
+            password,
+        } => controller.connect_panel(endpoint, email, password),
+        DesktopShellUiEvent::PanelFetchConfig {
+            server_id,
+            server_name,
+        } => {
+            controller.import_panel_session_config(server_id, server_name)?;
+            Ok(controller.snapshot().clone())
+        }
         DesktopShellUiEvent::ImportSubscriptionConfig(config_text) => {
             controller.import_subscription_config(config_text)
         }
@@ -476,6 +488,10 @@ fn operation_success_message(event: &DesktopShellUiEvent) -> Option<String> {
         DesktopShellUiEvent::Refresh => Some("状态已刷新".to_string()),
         DesktopShellUiEvent::LoadPanelFixture => Some("已加载面板示例数据".to_string()),
         DesktopShellUiEvent::RefreshNodeHealth => Some("节点健康已刷新".to_string()),
+        DesktopShellUiEvent::PanelLogin { .. } => Some("面板登录成功".to_string()),
+        DesktopShellUiEvent::PanelFetchConfig { server_name, .. } => {
+            Some(format!("已拉取并导入面板节点配置：{server_name}"))
+        }
         DesktopShellUiEvent::PanelImportConfig { server_name, .. } => {
             Some(format!("已导入面板节点配置：{server_name}"))
         }
@@ -1110,6 +1126,27 @@ mod tests {
             })
             .as_deref(),
             Some("已导入面板节点配置：JP Tokyo 01")
+        );
+    }
+
+    #[test]
+    fn operation_success_message_covers_panel_login_and_fetch() {
+        assert_eq!(
+            operation_success_message(&DesktopShellUiEvent::PanelLogin {
+                endpoint: "https://panel.example.com".to_string(),
+                email: "user@example.com".to_string(),
+                password: "secret".to_string(),
+            })
+            .as_deref(),
+            Some("面板登录成功")
+        );
+        assert_eq!(
+            operation_success_message(&DesktopShellUiEvent::PanelFetchConfig {
+                server_id: 51,
+                server_name: "JP Tokyo 01".to_string(),
+            })
+            .as_deref(),
+            Some("已拉取并导入面板节点配置：JP Tokyo 01")
         );
     }
 

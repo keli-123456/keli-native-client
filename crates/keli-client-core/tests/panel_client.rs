@@ -142,7 +142,10 @@ fn fetch_sing_box_config_returns_text_without_logging_token() {
         request.url,
         "https://api.example.com/api/v1/app/config?core=sing-box&platform=windows&server_id=51&core_version=1.13.11"
     );
-    assert_eq!(request.authorization.as_deref(), Some("Bearer token-secret"));
+    assert_eq!(
+        request.authorization.as_deref(),
+        Some("Bearer token-secret")
+    );
     assert!(config.contains("JP Tokyo 01"));
     assert!(!format!("{request:?}").contains("token-secret"));
 }

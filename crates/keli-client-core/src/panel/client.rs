@@ -152,7 +152,10 @@ pub struct PanelApiClient<'a, T: PanelApiTransport + ?Sized> {
 impl<'a, T: PanelApiTransport + ?Sized> PanelApiClient<'a, T> {
     pub fn new(api_base: &str, transport: &'a T) -> Result<Self, PanelApiError> {
         let api_base = normalize_base_url(api_base).ok_or_else(|| {
-            PanelApiError::new("endpoint", format!("invalid panel API base URL: {api_base}"))
+            PanelApiError::new(
+                "endpoint",
+                format!("invalid panel API base URL: {api_base}"),
+            )
         })?;
         Ok(Self {
             api_base,
@@ -313,8 +316,10 @@ fn send_blocking_http_request(
             let server_name = ServerName::try_from(host.clone()).map_err(|error| {
                 PanelApiError::new("tls", format!("invalid TLS server name: {error}"))
             })?;
-            let connection = ClientConnection::new(tls_client_config()?, server_name)
-                .map_err(|error| PanelApiError::new("tls", format!("TLS connect failed: {error}")))?;
+            let connection =
+                ClientConnection::new(tls_client_config()?, server_name).map_err(|error| {
+                    PanelApiError::new("tls", format!("TLS connect failed: {error}"))
+                })?;
             let mut tls = StreamOwned::new(connection, tcp);
             write_and_read_http(&mut tls, request, &url, max_bytes)
         }
@@ -353,7 +358,9 @@ fn tls_client_config() -> Result<Arc<ClientConfig>, PanelApiError> {
         .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
         .map_err(|error| PanelApiError::new("tls", format!("TLS versions failed: {error}")))?;
     let roots = RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    Ok(Arc::new(builder.with_root_certificates(roots).with_no_client_auth()))
+    Ok(Arc::new(
+        builder.with_root_certificates(roots).with_no_client_auth(),
+    ))
 }
 
 fn write_and_read_http<S: Read + Write>(
@@ -397,7 +404,10 @@ fn http_request_bytes(request: &PanelApiRequest, url: &Url) -> Result<Vec<u8>, P
     };
     let body = match request.body.as_ref() {
         Some(body) => serde_json::to_string(body).map_err(|error| {
-            PanelApiError::new("json-encode", format!("request JSON encode failed: {error}"))
+            PanelApiError::new(
+                "json-encode",
+                format!("request JSON encode failed: {error}"),
+            )
         })?,
         None => String::new(),
     };
@@ -425,9 +435,9 @@ fn read_limited_response<S: Read>(
     let mut bytes = Vec::new();
     let mut buffer = [0_u8; 8192];
     loop {
-        let read = stream
-            .read(&mut buffer)
-            .map_err(|error| PanelApiError::new("network", format!("read response failed: {error}")))?;
+        let read = stream.read(&mut buffer).map_err(|error| {
+            PanelApiError::new("network", format!("read response failed: {error}"))
+        })?;
         if read == 0 {
             break;
         }
@@ -463,8 +473,9 @@ fn parse_http_response(bytes: &[u8]) -> Result<PanelApiResponse, PanelApiError> 
     {
         body.truncate(content_length.min(body.len()));
     }
-    let body = String::from_utf8(body)
-        .map_err(|error| PanelApiError::new("utf8", format!("response body UTF-8 failed: {error}")))?;
+    let body = String::from_utf8(body).map_err(|error| {
+        PanelApiError::new("utf8", format!("response body UTF-8 failed: {error}"))
+    })?;
     Ok(PanelApiResponse::text(status, body))
 }
 
@@ -484,8 +495,9 @@ fn decode_chunked_body(bytes: &[u8]) -> Result<Vec<u8>, PanelApiError> {
         let line_end = find_crlf(&bytes[cursor..])
             .ok_or_else(|| PanelApiError::new("http", "chunk size is incomplete"))?
             + cursor;
-        let size_line = std::str::from_utf8(&bytes[cursor..line_end])
-            .map_err(|error| PanelApiError::new("utf8", format!("chunk size UTF-8 failed: {error}")))?;
+        let size_line = std::str::from_utf8(&bytes[cursor..line_end]).map_err(|error| {
+            PanelApiError::new("utf8", format!("chunk size UTF-8 failed: {error}"))
+        })?;
         let size_text = size_line.split(';').next().unwrap_or_default().trim();
         let size = usize::from_str_radix(size_text, 16)
             .map_err(|error| PanelApiError::new("http", format!("chunk size invalid: {error}")))?;

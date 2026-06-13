@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use keli_client_core::panel::{PanelApiClient, PanelApiError, PanelHttpTransport, PanelSession};
 use keli_client_core::ClientErrorKind;
 use keli_platform::{
     NativeSystemProxyController, NativeTunDeviceController, PlatformCapabilities,
@@ -13,7 +14,9 @@ use crate::dependencies::{
     install_wintun_from_directory, install_wintun_from_file, DesktopDependencyReport,
     DesktopWintunInstallSummary,
 };
-use crate::panel::DesktopPanelConfigImportSummary;
+use crate::panel::{
+    DesktopPanelConfigImportSummary, DesktopPanelEndpointSummary, DesktopPanelSnapshot,
+};
 use crate::persistence::DesktopPersistedSubscription;
 use crate::service::{DesktopRuntimeError, DesktopRuntimeService};
 use crate::status::{DesktopStatusSnapshot, DesktopTrafficMode};
@@ -56,6 +59,14 @@ impl DesktopCommandError {
             message: format!("{error:?}"),
         }
     }
+
+    fn panel(operation: &'static str, error: PanelApiError) -> Self {
+        Self {
+            operation: operation.to_string(),
+            kind: error.kind,
+            message: error.message,
+        }
+    }
 }
 
 fn client_error_message(error: &ClientErrorKind) -> String {
@@ -84,6 +95,7 @@ fn native_tun_controller() -> &'static NativeTunDeviceController {
 pub struct DesktopNativeCommandService {
     commands:
         DesktopCommandService<'static, NativeSystemProxyController, NativeTunDeviceController>,
+    panel_session: Option<PanelSession>,
 }
 
 impl DesktopNativeCommandService {
@@ -94,7 +106,36 @@ impl DesktopNativeCommandService {
         );
         Self {
             commands: DesktopCommandService::from_runtime(runtime),
+            panel_session: None,
         }
+    }
+
+    pub fn connect_panel(
+        &mut self,
+        endpoint: impl AsRef<str>,
+        email: impl AsRef<str>,
+        password: impl AsRef<str>,
+    ) -> Result<DesktopPanelSnapshot, DesktopCommandError> {
+        let transport = PanelHttpTransport::default();
+        let client = PanelApiClient::new(endpoint.as_ref(), &transport)
+            .map_err(|error| DesktopCommandError::panel("connect-panel", error))?;
+        let session = client
+            .login(email.as_ref(), password.as_ref())
+            .map_err(|error| DesktopCommandError::panel("connect-panel", error))?;
+        let bootstrap = client
+            .bootstrap(&session)
+            .map_err(|error| DesktopCommandError::panel("connect-panel", error))?;
+        let snapshot = DesktopPanelSnapshot::from_bootstrap(
+            DesktopPanelEndpointSummary {
+                panel_host: panel_host_from_api_base(&session.api_base),
+                api_base_redacted: session.api_base.clone(),
+                api_prefix: session.api_prefix.clone(),
+                source: "login".to_string(),
+            },
+            &bootstrap,
+        );
+        self.panel_session = Some(session);
+        Ok(snapshot)
     }
 
     pub fn import_subscription_config(
@@ -112,6 +153,29 @@ impl DesktopNativeCommandService {
     ) -> Result<DesktopPanelConfigImportSummary, DesktopCommandError> {
         self.commands
             .import_panel_config(server_id, server_name, config_text)
+    }
+
+    pub fn import_panel_session_config(
+        &mut self,
+        server_id: i64,
+        server_name: impl Into<String>,
+    ) -> Result<DesktopPanelConfigImportSummary, DesktopCommandError> {
+        let server_name = server_name.into();
+        let session = self
+            .panel_session
+            .clone()
+            .ok_or_else(|| DesktopCommandError {
+                operation: "import-panel-session-config".to_string(),
+                kind: "panel-session".to_string(),
+                message: "请先登录面板".to_string(),
+            })?;
+        let transport = PanelHttpTransport::default();
+        let client = PanelApiClient::new(&session.api_base, &transport)
+            .map_err(|error| DesktopCommandError::panel("import-panel-session-config", error))?;
+        let config_text = client
+            .sing_box_config_for_server(&session, server_id, "windows", None)
+            .map_err(|error| DesktopCommandError::panel("import-panel-session-config", error))?;
+        self.import_panel_config(server_id, server_name, config_text)
     }
 
     pub fn import_subscription_url(
@@ -200,6 +264,18 @@ impl Default for DesktopNativeCommandService {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn panel_host_from_api_base(api_base: &str) -> String {
+    api_base
+        .trim()
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .split('/')
+        .next()
+        .filter(|host| !host.is_empty())
+        .unwrap_or(api_base)
+        .to_string()
 }
 
 impl<'a, C, T> DesktopCommandService<'a, C, T>

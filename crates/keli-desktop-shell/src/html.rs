@@ -1497,9 +1497,11 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       }});
     }}
     function postPanelLogin() {{
-      window.keliSetOperationStatus({{
-        kind: "info",
-        message: "面板登录入口已就绪，下一步接入真实网络请求"
+      postJson({{
+        type: "panel-login",
+        endpoint: document.getElementById("panel-endpoint").value,
+        email: document.getElementById("panel-account").value,
+        password: document.getElementById("panel-password").value
       }});
     }}
     function postPanelImportConfig() {{
@@ -1508,11 +1510,20 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const serverName = document.getElementById("panel-server-name").value ||
         (selectedTitle ? selectedTitle.textContent : "") ||
         "面板节点";
+      const configText = document.getElementById("panel-config-text").value;
+      if (!configText.trim()) {{
+        postJson({{
+          type: "panel-fetch-config",
+          serverId,
+          serverName
+        }});
+        return;
+      }}
       postJson({{
         type: "panel-import-config",
         serverId,
         serverName,
-        configText: document.getElementById("panel-config-text").value
+        configText
       }});
     }}
     function postCopyDiagnosticsLogs() {{
@@ -3171,6 +3182,8 @@ mod tests {
         assert!(html.contains("密码"));
         assert!(html.contains("登录面板"));
         assert!(html.contains("拉取当前节点配置"));
+        assert!(html.contains("panel-login"));
+        assert!(html.contains("panel-fetch-config"));
         assert!(html.contains("panel-import-config"));
         assert!(html.contains("id=\"panel-endpoint\""));
         assert!(html.contains("id=\"panel-config-text\""));
