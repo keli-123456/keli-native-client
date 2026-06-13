@@ -1,8 +1,10 @@
+pub mod auth;
 pub mod endpoint;
 pub mod models;
 pub mod parse;
 pub mod request;
 
+pub use auth::{parse_login_session, PanelSession};
 pub use endpoint::{
     normalize_api_prefix, normalize_base_url, PanelEndpointCandidate, PanelEndpointConfig,
 };
