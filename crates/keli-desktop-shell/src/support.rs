@@ -14,6 +14,24 @@ pub struct SupportBundleSaveSummary {
     pub byte_count: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SupportExportStorageSummary {
+    pub status: String,
+    pub directory: String,
+    pub file_count: usize,
+    pub byte_count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SupportExportCleanupSummary {
+    pub status: String,
+    pub directory: String,
+    pub deleted_count: usize,
+    pub reclaimed_bytes: u64,
+    pub remaining_count: usize,
+    pub remaining_bytes: u64,
+}
+
 pub fn default_support_export_dir() -> PathBuf {
     if let Some(user_profile) = std::env::var_os("USERPROFILE") {
         return PathBuf::from(user_profile)
@@ -65,6 +83,71 @@ fn write_last_support_bundle_export(
     let bytes = serde_json::to_vec_pretty(summary)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     fs::write(path, bytes)
+}
+
+pub fn summarize_support_export_directory(
+    directory: impl AsRef<Path>,
+) -> io::Result<SupportExportStorageSummary> {
+    let directory = directory.as_ref();
+    let artifacts = support_export_artifacts(directory)?;
+    Ok(SupportExportStorageSummary {
+        status: "ready".to_string(),
+        directory: directory.to_string_lossy().into_owned(),
+        file_count: artifacts.len(),
+        byte_count: artifacts.iter().map(|artifact| artifact.byte_count).sum(),
+    })
+}
+
+pub fn clear_support_export_directory(
+    directory: impl AsRef<Path>,
+) -> io::Result<SupportExportCleanupSummary> {
+    let directory = directory.as_ref();
+    let artifacts = support_export_artifacts(directory)?;
+    let mut deleted_count = 0;
+    let mut reclaimed_bytes = 0;
+    for artifact in artifacts {
+        fs::remove_file(&artifact.path)?;
+        deleted_count += 1;
+        reclaimed_bytes += artifact.byte_count;
+    }
+    let remaining = summarize_support_export_directory(directory)?;
+    Ok(SupportExportCleanupSummary {
+        status: "cleared".to_string(),
+        directory: directory.to_string_lossy().into_owned(),
+        deleted_count,
+        reclaimed_bytes,
+        remaining_count: remaining.file_count,
+        remaining_bytes: remaining.byte_count,
+    })
+}
+
+fn support_export_artifacts(directory: &Path) -> io::Result<Vec<SupportExportArtifact>> {
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut artifacts = Vec::new();
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_file() || !is_support_export_artifact(&path) {
+            continue;
+        }
+        let byte_count = entry.metadata().map(|metadata| metadata.len()).unwrap_or(0);
+        artifacts.push(SupportExportArtifact { path, byte_count });
+    }
+    Ok(artifacts)
+}
+
+fn is_support_export_artifact(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    name == "last-support-export.json" || name.starts_with("keli-support-")
+}
+
+struct SupportExportArtifact {
+    path: PathBuf,
+    byte_count: u64,
 }
 
 fn support_bundle_file_name(format: &str) -> String {
@@ -159,6 +242,71 @@ mod tests {
         let restored = read_last_support_bundle_export(&dir).expect("read invalid support record");
 
         assert_eq!(restored, None);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn support_export_directory_summary_counts_only_keli_artifacts() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("keli-support-cleanup-summary-test-{unique}"));
+        fs::create_dir_all(&dir).expect("create dir");
+        fs::write(dir.join("keli-support-a.json"), b"12345").expect("write bundle");
+        fs::write(support_export_record_path(&dir), b"{}").expect("write record");
+        fs::write(dir.join("notes.txt"), b"keep").expect("write unrelated");
+
+        let summary = summarize_support_export_directory(&dir).expect("summarize support dir");
+
+        assert_eq!(summary.status, "ready");
+        assert_eq!(summary.directory, dir.to_string_lossy());
+        assert_eq!(summary.file_count, 2);
+        assert_eq!(summary.byte_count, 7);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn support_export_directory_summary_handles_missing_directory() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("keli-support-cleanup-missing-test-{unique}"));
+
+        let summary =
+            summarize_support_export_directory(&dir).expect("summarize missing support dir");
+
+        assert_eq!(summary.file_count, 0);
+        assert_eq!(summary.byte_count, 0);
+    }
+
+    #[test]
+    fn support_export_cleanup_deletes_only_keli_artifacts() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("keli-support-cleanup-delete-test-{unique}"));
+        fs::create_dir_all(&dir).expect("create dir");
+        let bundle = dir.join("keli-support-a.json");
+        let unrelated = dir.join("notes.txt");
+        fs::write(&bundle, b"12345").expect("write bundle");
+        fs::write(support_export_record_path(&dir), b"{}").expect("write record");
+        fs::write(&unrelated, b"keep").expect("write unrelated");
+
+        let summary = clear_support_export_directory(&dir).expect("clear support dir");
+
+        assert_eq!(summary.status, "cleared");
+        assert_eq!(summary.deleted_count, 2);
+        assert_eq!(summary.reclaimed_bytes, 7);
+        assert_eq!(summary.remaining_count, 0);
+        assert_eq!(summary.remaining_bytes, 0);
+        assert!(!bundle.exists());
+        assert!(unrelated.exists());
+        assert!(!support_export_record_path(&dir).exists());
 
         let _ = fs::remove_dir_all(dir);
     }
