@@ -1314,6 +1314,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
           <div class="actions">
             <button id="settings-primary-button" class="primary" onclick="window.ipc.postMessage('primary')"{primary_disabled}>{primary_label}</button>
             <button id="settings-refresh-button" onclick="window.ipc.postMessage('refresh')">刷新</button>
+            <button id="settings-load-panel-fixture-button" onclick="window.ipc.postMessage('load-panel-fixture')">加载面板示例</button>
           </div>
         </section>
         <section id="settings-startup-panel">
@@ -3262,6 +3263,8 @@ mod tests {
         assert!(html.contains("id=\"settings-http-port\""));
         assert!(html.contains("id=\"settings-dns-mode\""));
         assert!(html.contains("id=\"settings-tun-stack\""));
+        assert!(html.contains("id=\"settings-load-panel-fixture-button\""));
+        assert!(html.contains("load-panel-fixture"));
     }
 
     #[test]

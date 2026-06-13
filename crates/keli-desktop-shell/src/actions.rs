@@ -7,6 +7,7 @@ use serde::Deserialize;
 pub enum DesktopShellUiEvent {
     Action(DesktopShellAction),
     Refresh,
+    LoadPanelFixture,
     RefreshNodeHealth,
     ImportSubscriptionConfig(String),
     ImportSubscriptionUrl(String),
@@ -38,6 +39,7 @@ pub fn ipc_event_for_message(
     match message.trim() {
         "primary" => primary_event(shell),
         "refresh" => Some(DesktopShellUiEvent::Refresh),
+        "load-panel-fixture" => Some(DesktopShellUiEvent::LoadPanelFixture),
         "show-main-window" => Some(DesktopShellUiEvent::Action(
             DesktopShellAction::ShowMainWindow,
         )),
@@ -239,6 +241,14 @@ mod tests {
         assert_eq!(
             ipc_event_for_message("refresh", &shell(DesktopRunState::Stopped, true)),
             Some(DesktopShellUiEvent::Refresh)
+        );
+    }
+
+    #[test]
+    fn ipc_load_panel_fixture_maps_to_preview_event() {
+        assert_eq!(
+            ipc_event_for_message("load-panel-fixture", &shell(DesktopRunState::Stopped, true)),
+            Some(DesktopShellUiEvent::LoadPanelFixture)
         );
     }
 

@@ -199,6 +199,14 @@ impl<H: DesktopShellCommandHost> DesktopShellController<H> {
         self.shell.clone()
     }
 
+    pub fn refresh_panel_snapshot(
+        &mut self,
+        panel: Option<crate::panel::DesktopPanelSnapshot>,
+    ) -> DesktopShellState {
+        self.shell.refresh_panel(panel);
+        self.shell.clone()
+    }
+
     pub fn dispatch(
         &mut self,
         action: DesktopShellAction,
@@ -1154,6 +1162,22 @@ mod tests {
                 .as_ref()
                 .and_then(|subscription| subscription.selected_outbound.as_deref()),
             Some("URL-STAY")
+        );
+    }
+
+    #[test]
+    fn controller_refresh_panel_snapshot_updates_shell_without_touching_subscription_url() {
+        let host = FakeHost::new(status(DesktopRunState::Stopped), ready_dependencies());
+        let mut controller = DesktopShellController::new(host);
+
+        let snapshot = controller
+            .refresh_panel_snapshot(Some(crate::panel::DesktopPanelSnapshot::fixture_ready()));
+
+        assert!(snapshot.panel.is_some());
+        assert!(snapshot.subscription.is_none());
+        assert_eq!(
+            snapshot.panel.as_ref().unwrap().nodes[0].name,
+            "JP Tokyo 01"
         );
     }
 
