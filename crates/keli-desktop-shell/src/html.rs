@@ -1602,6 +1602,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let pendingNodeHealthRefresh = false;
     let pendingSelectedNodeTag = "";
     let pendingCoreConnectionIntent = "";
+    let coreConnectionPollAttempts = 0;
+    let coreConnectionPollTimer = 0;
+    const CORE_CONNECTION_POLL_LIMIT = 5;
+    const CORE_CONNECTION_POLL_INTERVAL_MS = 700;
     let lastAutoHealthSubscriptionKey = "";
     function setOperationPending(message) {{
       window.keliSetOperationStatus({{ kind: "info", message: message || "正在处理操作" }});
@@ -1653,10 +1657,21 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       if (message.includes("启动") || message.includes("重试")) return "start";
       return "";
     }}
+    function resetCoreConnectionPolling() {{
+      if (coreConnectionPollTimer) {{
+        clearTimeout(coreConnectionPollTimer);
+        coreConnectionPollTimer = 0;
+      }}
+      coreConnectionPollAttempts = 0;
+    }}
+    function publishCoreConnectionOperationStatus(summary) {{
+      setTimeout(() => window.keliSetOperationStatus(summary), 0);
+    }}
     function markCoreConnectionPending(pendingMessage) {{
       const intent = primaryConnectionIntent(pendingMessage);
       if (!intent) return;
       pendingCoreConnectionIntent = intent;
+      resetCoreConnectionPolling();
       const message = intent === "stop" ? "正在停止核心" : "正在启动核心并验证连接";
       setCoreConnectionStatus("info", message);
     }}
@@ -1727,21 +1742,57 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       appendDiagnosisButton(container, "refresh", "重试", () => postOperation("refresh", "正在刷新状态"));
       appendDiagnosisButton(container, "local-inbound", "切换本地入站", () => postTrafficMode("mixed-inbound-only"));
     }}
-    function coreConnectionReachedTerminal(status) {{
+    function coreConnectionReachedTerminal(snapshot, summary) {{
       if (!pendingCoreConnectionIntent) return false;
+      const status = snapshot.status || {{}};
       if (status.last_error || status.run_state === "failed") return true;
-      if (pendingCoreConnectionIntent === "start") return status.run_state === "running" && Boolean(status.listen);
-      if (pendingCoreConnectionIntent === "stop") return status.run_state === "stopped";
+      const proxyMode = status.traffic_mode === "system-proxy";
+      if (pendingCoreConnectionIntent === "start") {{
+        if (status.run_state !== "running" || !status.listen) return false;
+        return proxyMode ? summary.kind !== "error" : true;
+      }}
+      if (pendingCoreConnectionIntent === "stop") {{
+        if (status.run_state !== "stopped") return false;
+        return proxyMode ? summary.kind !== "error" : true;
+      }}
       return false;
+    }}
+    function coreConnectionTimeoutSummary(snapshot, summary) {{
+      const status = snapshot.status || {{}};
+      const waitingFor = pendingCoreConnectionIntent === "stop" ? "等待系统代理恢复" : "等待系统代理接管";
+      const detail = summary && summary.message ? `：${{summary.message}}` : "";
+      if (status.last_error) return {{ kind: "error", message: `连接失败：${{status.last_error}}` }};
+      return {{ kind: "error", message: `连接确认超时，${{waitingFor}}${{detail}}` }};
+    }}
+    function scheduleCoreConnectionVerification(snapshot, summary) {{
+      if (!pendingCoreConnectionIntent || coreConnectionPollTimer) return;
+      if (coreConnectionPollAttempts >= CORE_CONNECTION_POLL_LIMIT) {{
+        const timeout = coreConnectionTimeoutSummary(snapshot, summary);
+        pendingCoreConnectionIntent = "";
+        resetCoreConnectionPolling();
+        setCoreConnectionStatus(timeout.kind, timeout.message);
+        publishCoreConnectionOperationStatus(timeout);
+        return;
+      }}
+      coreConnectionPollAttempts += 1;
+      coreConnectionPollTimer = setTimeout(() => {{
+        coreConnectionPollTimer = 0;
+        if (!pendingCoreConnectionIntent) return;
+        window.ipc.postMessage("refresh");
+      }}, CORE_CONNECTION_POLL_INTERVAL_MS);
     }}
     function syncCoreConnectionStatus(snapshot) {{
       const summary = coreConnectionSummary(snapshot);
       setCoreConnectionStatus(summary.kind, summary.message);
       renderCoreConnectionActions(snapshot);
-      if (coreConnectionReachedTerminal(snapshot.status || {{}})) {{
+      if (!pendingCoreConnectionIntent) return;
+      if (coreConnectionReachedTerminal(snapshot, summary)) {{
         pendingCoreConnectionIntent = "";
-        window.keliSetOperationStatus(summary);
+        resetCoreConnectionPolling();
+        publishCoreConnectionOperationStatus(summary);
+        return;
       }}
+      scheduleCoreConnectionVerification(snapshot, summary);
     }}
     function completeNodeSelection(snapshot) {{
       const requestedTag = pendingSelectedNodeTag;
@@ -4579,6 +4630,34 @@ mod tests {
         let html = render_shell_html(&failed);
 
         assert!(html.contains("连接失败：Managed(&quot;dial failed&quot;)"));
+    }
+
+    #[test]
+    fn one_click_connection_status_polls_until_takeover_or_restore_is_confirmed() {
+        let mut snapshot = snapshot();
+        snapshot.refresh_subscription(Some(subscription("SS-READY")));
+        snapshot.status.run_state = DesktopRunState::Running;
+        snapshot.status.traffic_mode = DesktopTrafficMode::SystemProxy;
+        snapshot.status.listen = Some("127.0.0.1:7890".to_string());
+        snapshot.dependencies.system_proxy.enabled = Some(false);
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("const CORE_CONNECTION_POLL_LIMIT = 5"));
+        assert!(html.contains("const CORE_CONNECTION_POLL_INTERVAL_MS = 700"));
+        assert!(html.contains("let coreConnectionPollAttempts = 0"));
+        assert!(html.contains("let coreConnectionPollTimer = 0"));
+        assert!(html.contains("function resetCoreConnectionPolling()"));
+        assert!(html.contains("function publishCoreConnectionOperationStatus(summary)"));
+        assert!(html.contains("function scheduleCoreConnectionVerification(snapshot, summary)"));
+        assert!(html.contains("function coreConnectionTimeoutSummary(snapshot, summary)"));
+        assert!(html.contains("setTimeout(() => window.keliSetOperationStatus(summary), 0)"));
+        assert!(html.contains("window.ipc.postMessage(\"refresh\")"));
+        assert!(html.contains("coreConnectionReachedTerminal(snapshot, summary)"));
+        assert!(html.contains("summary.kind !== \"error\""));
+        assert!(html.contains("连接确认超时"));
+        assert!(html.contains("等待系统代理接管"));
+        assert!(html.contains("等待系统代理恢复"));
     }
 
     #[test]
