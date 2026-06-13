@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::dependencies::DesktopDependencyReport;
+use crate::panel::DesktopPanelSnapshot;
 use crate::status::{DesktopRunState, DesktopStatusSnapshot, DesktopTrafficMode};
 use crate::subscription::DesktopSubscriptionSummary;
 
@@ -64,6 +65,7 @@ pub struct DesktopShellState {
     pub window: DesktopShellWindowState,
     pub status: DesktopStatusSnapshot,
     pub dependencies: DesktopDependencyReport,
+    pub panel: Option<DesktopPanelSnapshot>,
     pub subscription: Option<DesktopSubscriptionSummary>,
     pub primary_action: DesktopShellPrimaryAction,
     pub tray_menu: DesktopShellTrayMenu,
@@ -84,6 +86,7 @@ impl DesktopShellState {
             window,
             status,
             dependencies,
+            panel: None,
             subscription: None,
             primary_action,
             tray_menu,
@@ -123,6 +126,11 @@ impl DesktopShellState {
 
     pub fn refresh_subscription(&mut self, subscription: Option<DesktopSubscriptionSummary>) {
         self.subscription = subscription;
+        self.rebuild_derived();
+    }
+
+    pub fn refresh_panel(&mut self, panel: Option<DesktopPanelSnapshot>) {
+        self.panel = panel;
         self.rebuild_derived();
     }
 
@@ -694,5 +702,22 @@ mod tests {
         );
         assert!(shell.primary_action.enabled);
         assert!(shell.can_start);
+    }
+
+    #[test]
+    fn shell_state_can_include_panel_snapshot_without_breaking_local_only_mode() {
+        let mut shell =
+            DesktopShellState::new(status(DesktopRunState::Stopped), ready_dependencies());
+        assert!(shell.panel.is_none());
+        assert!(!shell.can_start);
+
+        shell.refresh_panel(Some(crate::panel::DesktopPanelSnapshot::fixture_ready()));
+
+        assert!(shell.panel.is_some());
+        assert!(!shell.can_start);
+        assert_eq!(
+            shell.panel.as_ref().unwrap().account.email_redacted,
+            "u***@example.com"
+        );
     }
 }
