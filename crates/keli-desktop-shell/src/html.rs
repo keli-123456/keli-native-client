@@ -48,6 +48,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let system_proxy_dependency = system_proxy_dependency(snapshot);
     let tun_dependency = tun_dependency(snapshot);
     let dependency_blockers = dependency_blockers(snapshot);
+    let dashboard_system_proxy_status = dashboard_system_proxy_status(snapshot);
+    let dashboard_tun_status = dashboard_tun_status(snapshot);
+    let dashboard_dependency_blockers = dashboard_dependency_blockers(snapshot);
     let dependency_actions = dependency_action_buttons(snapshot);
     let diagnostics_core_status = diagnostics_core_status(snapshot);
     let diagnostics_runtime_events = diagnostics_runtime_events(snapshot);
@@ -60,6 +63,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let diagnostics_system_proxy = diagnostics_system_proxy(snapshot);
     let diagnostics_tun = diagnostics_tun(snapshot);
     let diagnostics_default_core = diagnostics_default_core(snapshot);
+    let readiness_system_proxy_detail = readiness_system_proxy_detail(snapshot);
+    let readiness_tun_detail = readiness_tun_detail(snapshot);
     let activity_summary = format!("{diagnostics_runtime_events}; {diagnostics_recent_event}");
     let top_core_status = format!("Core status: {run_state}");
     let top_dependency_status = if snapshot.dependencies.first_run.blockers.is_empty()
@@ -93,26 +98,33 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     * {{
       box-sizing: border-box;
     }}
+    html,
     body {{
       margin: 0;
+      width: 100%;
+      height: 100%;
       min-width: 360px;
-      min-height: 520px;
       background: #f6f7f8;
+      overflow: hidden;
     }}
     .desktop-layout {{
-      min-height: 100vh;
+      height: 100vh;
+      min-height: 0;
       display: grid;
       grid-template-columns: 220px minmax(0, 1fr);
       background: #f6f7f8;
+      overflow: hidden;
     }}
     .nav-rail {{
-      min-height: 100vh;
+      height: 100vh;
+      min-height: 0;
       display: grid;
       grid-template-rows: auto 1fr auto;
       gap: 18px;
       padding: 24px 14px;
       border-right: 1px solid #d9dee5;
       background: #ffffff;
+      overflow: hidden;
     }}
     .nav-brand {{
       display: flex;
@@ -167,12 +179,14 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       font-size: 12px;
     }}
     .app-shell {{
-      min-height: 100vh;
-      padding: 0 22px 22px;
+      height: 100vh;
+      min-height: 0;
+      padding: 0 18px 18px;
       display: grid;
-      grid-template-rows: auto auto auto 1fr auto;
-      gap: 18px;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 12px;
       align-content: start;
+      overflow: hidden;
     }}
     .top-status-bar {{
       display: flex;
@@ -284,18 +298,24 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     }}
     .activity-strip {{
       grid-column: 1 / -1;
-      min-height: 30px;
+      min-height: 26px;
       display: flex;
       align-items: center;
       border-top: 1px solid #d9dee5;
-      padding-top: 10px;
+      padding-top: 8px;
       color: #4d5968;
       font-size: 13px;
       overflow-wrap: anywhere;
     }}
+    .app-view {{
+      min-height: 0;
+      height: 100%;
+      overflow: hidden;
+    }}
     .dashboard-view {{
       display: grid;
-      gap: 14px;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 12px;
     }}
     .app-view[hidden] {{
       display: none;
@@ -303,7 +323,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     .nodes-view {{
       display: grid;
       grid-template-rows: auto auto minmax(0, 1fr);
-      gap: 14px;
+      gap: 12px;
     }}
     .nodes-toolbar {{
       display: grid;
@@ -317,8 +337,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       gap: 10px;
     }}
     .nodes-summary-item {{
-      min-height: 76px;
-      padding: 12px;
+      min-height: 68px;
+      padding: 10px;
       border: 1px solid #d9dee5;
       border-radius: 8px;
       background: #ffffff;
@@ -335,9 +355,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       font-weight: 650;
     }}
     .nodes-content {{
+      min-height: 0;
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
-      gap: 14px;
+      gap: 12px;
       align-items: start;
     }}
     .node-filter-tabs {{
@@ -394,16 +415,19 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     }}
     .diagnostics-view {{
       display: grid;
-      gap: 14px;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 12px;
     }}
     .settings-view {{
       display: grid;
-      gap: 14px;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 12px;
     }}
     .settings-grid {{
+      min-height: 0;
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(320px, 0.78fr);
-      gap: 14px;
+      gap: 12px;
       align-items: start;
     }}
     .settings-stack {{
@@ -435,7 +459,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       border-top: 1px solid #edf0f3;
     }}
     .readiness-row {{
-      min-height: 48px;
+      min-height: 40px;
       display: grid;
       grid-template-columns: minmax(160px, 1fr) minmax(100px, auto) minmax(220px, 2fr) auto;
       gap: 10px;
@@ -454,31 +478,34 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       font-weight: 700;
     }}
     .diagnostics-grid {{
+      min-height: 0;
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(320px, 0.85fr);
-      gap: 14px;
+      gap: 12px;
       align-items: start;
     }}
     .metrics-grid {{
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
     }}
     .metric-tile {{
-      min-height: 76px;
-      padding: 12px;
+      min-height: 64px;
+      padding: 8px;
       border: 1px solid #d9dee5;
       border-radius: 8px;
       background: #ffffff;
+      overflow: hidden;
     }}
     .metric-value {{
       color: #171a1f;
-      font-size: 19px;
+      font-size: 12px;
       font-weight: 750;
+      line-height: 1.25;
       overflow-wrap: anywhere;
     }}
     .metric-label {{
-      margin-top: 4px;
+      margin-top: 3px;
       color: #657386;
       font-size: 12px;
       font-weight: 650;
@@ -487,6 +514,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 10px;
+    }}
+    #settings-network-panel .settings-strip {{
+      grid-template-columns: repeat(5, minmax(0, 1fr));
     }}
     .settings-field label {{
       display: block;
@@ -511,7 +541,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     .dashboard-row {{
       display: grid;
       grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
-      gap: 14px;
+      gap: 12px;
+      min-height: 0;
     }}
     .activity-header {{
       display: flex;
@@ -562,6 +593,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     .status-ok {{
       color: #0f8a43;
       font-weight: 700;
+      overflow-wrap: anywhere;
     }}
     .support-actions {{
       display: flex;
@@ -570,7 +602,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       margin-top: 12px;
     }}
     .operation-status {{
-      min-height: 34px;
+      min-height: 32px;
       display: flex;
       align-items: center;
       padding: 0 12px;
@@ -598,18 +630,30 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       gap: 12px;
       align-content: start;
     }}
+    .legacy-workflow-surface,
+    #connection-activity-panel,
+    #support-actions-panel,
+    pre[hidden] {{
+      display: none;
+    }}
     section {{
-      min-height: 104px;
-      padding: 14px;
+      min-height: 0;
+      padding: 12px;
       border: 1px solid #d9dee5;
       border-radius: 8px;
       background: #ffffff;
+      overflow: hidden;
+    }}
+    .nodes-content > section:first-child,
+    #diagnostics-runtime-log-panel,
+    #readiness-checklist {{
+      overflow: auto;
     }}
     section.wide {{
       grid-column: 1 / -1;
     }}
     h2 {{
-      margin: 0 0 10px;
+      margin: 0 0 8px;
       color: #4d5968;
       font-size: 13px;
       font-weight: 650;
@@ -632,7 +676,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin-top: 12px;
+      margin-top: 10px;
     }}
     button {{
       min-width: 88px;
@@ -845,7 +889,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         </div>
       </header>
     <div class="operation-status" id="operation-status" data-kind="info">Ready</div>
-    <div class="dashboard-view" id="dashboard-view">
+    <div class="app-view dashboard-view" id="dashboard-view" data-app-view>
     <section class="command-panel" id="core-command-panel">
       <div>
         <h2>Core</h2>
@@ -901,14 +945,14 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <h2>Dependency status</h2>
         <div class="value" id="dashboard-dependency-summary">{dependency_summary}</div>
         <div class="status-list">
-          <div class="status-row"><strong>System proxy</strong><span class="status-ok" id="dashboard-system-proxy-status">{system_proxy_dependency}</span></div>
-          <div class="status-row"><strong>TUN / Wintun</strong><span class="status-ok" id="dashboard-tun-status">{tun_dependency}</span></div>
-          <div class="status-row"><strong>Blockers</strong><span id="dashboard-blockers">{dependency_blockers}</span></div>
+          <div class="status-row"><strong>System proxy</strong><span class="status-ok" id="dashboard-system-proxy-status">{dashboard_system_proxy_status}</span></div>
+          <div class="status-row"><strong>TUN / Wintun</strong><span class="status-ok" id="dashboard-tun-status">{dashboard_tun_status}</span></div>
+          <div class="status-row"><strong>Blockers</strong><span id="dashboard-blockers">{dashboard_dependency_blockers}</span></div>
         </div>
         <div class="actions" id="dashboard-dependency-actions">{dependency_actions}</div>
       </section>
     </div>
-    <section id="support-actions-panel">
+    <section id="support-actions-panel" hidden>
       <h2>Support bundle</h2>
       <div class="value">Diagnostics export</div>
       <div class="muted">Export redacted runtime state, dependency checks, and core support evidence.</div>
@@ -917,7 +961,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <button onclick="window.ipc.postMessage('refresh')">Refresh status</button>
       </div>
     </section>
-    <div class="grid">
+    <div class="grid legacy-workflow-surface" hidden>
       <section>
         <h2>Mode</h2>
         <div class="value" id="traffic-mode">{traffic_mode}</div>
@@ -1072,13 +1116,13 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
           <div class="readiness-row" id="readiness-system-proxy">
             <strong>System proxy</strong>
             <span class="status-ok" id="readiness-system-proxy-state">Tracked</span>
-            <span id="readiness-system-proxy-detail">{system_proxy_dependency}</span>
+            <span id="readiness-system-proxy-detail">{readiness_system_proxy_detail}</span>
             <button onclick="postDependencyAction('refresh-system-proxy')">Check</button>
           </div>
           <div class="readiness-row" id="readiness-tun-wintun">
             <strong>TUN / Wintun</strong>
             <span class="status-ok" id="readiness-tun-wintun-state">Tracked</span>
-            <span id="readiness-tun-wintun-detail">{tun_dependency}</span>
+            <span id="readiness-tun-wintun-detail">{readiness_tun_detail}</span>
             <button onclick="postDependencyAction('install-wintun')">Install</button>
           </div>
           <div class="readiness-row" id="readiness-dns-policy">
@@ -1247,7 +1291,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="muted" id="settings-subscription-summary">{subscription_summary}</div>
       </section>
     </div>
-    <pre id="snapshot-json">{snapshot_json}</pre>
+    <pre id="snapshot-json" hidden>{snapshot_json}</pre>
   </main>
   </div>
   <script>
@@ -1274,12 +1318,11 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       document.querySelectorAll("[data-app-view]").forEach((view) => {{
         view.hidden = view.id !== viewId;
       }});
-      if (viewId !== "dashboard-view") {{
-        window.keliSetOperationStatus({{
-          kind: "info",
-          message: `${{viewId.replace("-view", "")}} view is part of the UI baseline and will use the same live shell state.`
-        }});
+      const shell = document.querySelector(".app-shell");
+      if (shell && shell.scrollTo) {{
+        shell.scrollTo(0, 0);
       }}
+      window.keliSetOperationStatus({{ kind: "info", message: "Ready" }});
     }}
     function postImportSubscription() {{
       postJson({{
@@ -1672,6 +1715,31 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         return `${{blocker.code}}: ${{blocker.message}}${{action}}`;
       }}).join("; ");
     }}
+    function dashboardSystemProxyStatus(snapshot) {{
+      return snapshot.dependencies.first_run.system_proxy_ready ? "Ready" : "Needs action";
+    }}
+    function dashboardTunStatus(snapshot) {{
+      return snapshot.dependencies.first_run.tun_ready ? "Ready" : "Needs action";
+    }}
+    function dashboardDependencyBlockers(snapshot) {{
+      const blockers = snapshot.dependencies.first_run.blockers || [];
+      if (!blockers.length) return "No blockers";
+      return `${{blockers.length}} blocker${{blockers.length === 1 ? "" : "s"}}`;
+    }}
+    function readinessSystemProxyDetail(snapshot) {{
+      const proxy = snapshot.dependencies.system_proxy;
+      if (snapshot.dependencies.first_run.system_proxy_ready) {{
+        return proxy.enabled === true ? "Ready, system proxy enabled" : "Ready, system proxy available";
+      }}
+      return proxy.error || "System proxy needs attention";
+    }}
+    function readinessTunDetail(snapshot) {{
+      const tun = snapshot.dependencies.tun_backend;
+      if (snapshot.dependencies.first_run.tun_ready) {{
+        return "Ready, Wintun driver and packet I/O available";
+      }}
+      return tun.reason || "Wintun needs attention";
+    }}
     function diagnosticsCoreStatus(snapshot) {{
       const status = snapshot.status;
       const run = runStateLabels[status.run_state] || status.run_state;
@@ -1821,16 +1889,20 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setText("top-activity-status", overviewActivity(snapshot));
       setText("activity-metrics", diagnosticsConnectionMetrics(snapshot));
       setText("dashboard-dependency-summary", dependencySummary(snapshot));
-      setText("dashboard-system-proxy-status", systemProxyDependency(snapshot));
-      setText("dashboard-tun-status", tunDependency(snapshot));
-      setText("dashboard-blockers", dependencyBlockers(snapshot));
+      setText("dashboard-system-proxy-status", dashboardSystemProxyStatus(snapshot));
+      setText("dashboard-tun-status", dashboardTunStatus(snapshot));
+      setText("dashboard-blockers", dashboardDependencyBlockers(snapshot));
       renderRuntimeEventList(snapshot);
       renderDependencyActions(snapshot);
     }};
     window.keliSyncDiagnosticsView = (snapshot) => {{
       const firstRun = snapshot.dependencies.first_run;
-      setReadiness("readiness-system-proxy", firstRun.system_proxy_ready, systemProxyDependency(snapshot));
-      setReadiness("readiness-tun-wintun", firstRun.tun_ready, tunDependency(snapshot));
+      setReadiness(
+        "readiness-system-proxy",
+        firstRun.system_proxy_ready,
+        readinessSystemProxyDetail(snapshot)
+      );
+      setReadiness("readiness-tun-wintun", firstRun.tun_ready, readinessTunDetail(snapshot));
       setText(
         "readiness-route-takeover-detail",
         `Current mode: ${{trafficModeLabels[snapshot.status.traffic_mode] || snapshot.status.traffic_mode}}`
@@ -1938,6 +2010,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         system_proxy_dependency = escape_html(&system_proxy_dependency),
         tun_dependency = escape_html(&tun_dependency),
         dependency_blockers = escape_html(&dependency_blockers),
+        dashboard_system_proxy_status = escape_html(&dashboard_system_proxy_status),
+        dashboard_tun_status = escape_html(&dashboard_tun_status),
+        dashboard_dependency_blockers = escape_html(&dashboard_dependency_blockers),
         dependency_actions = dependency_actions,
         diagnostics_core_status = escape_html(&diagnostics_core_status),
         diagnostics_runtime_events = escape_html(&diagnostics_runtime_events),
@@ -1950,6 +2025,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         diagnostics_system_proxy = escape_html(&diagnostics_system_proxy),
         diagnostics_tun = escape_html(&diagnostics_tun),
         diagnostics_default_core = escape_html(&diagnostics_default_core),
+        readiness_system_proxy_detail = escape_html(&readiness_system_proxy_detail),
+        readiness_tun_detail = escape_html(&readiness_tun_detail),
         activity_summary = escape_html(&activity_summary),
         nodes_supported_count = nodes_supported_count,
         nodes_skipped_count = nodes_skipped_count,
@@ -2231,6 +2308,31 @@ fn dependency_blockers(snapshot: &DesktopShellState) -> String {
         .join("; ")
 }
 
+fn dashboard_system_proxy_status(snapshot: &DesktopShellState) -> &'static str {
+    if snapshot.dependencies.first_run.system_proxy_ready {
+        "Ready"
+    } else {
+        "Needs action"
+    }
+}
+
+fn dashboard_tun_status(snapshot: &DesktopShellState) -> &'static str {
+    if snapshot.dependencies.first_run.tun_ready {
+        "Ready"
+    } else {
+        "Needs action"
+    }
+}
+
+fn dashboard_dependency_blockers(snapshot: &DesktopShellState) -> String {
+    let count = snapshot.dependencies.first_run.blockers.len();
+    match count {
+        0 => "No blockers".to_string(),
+        1 => "1 blocker".to_string(),
+        _ => format!("{count} blockers"),
+    }
+}
+
 fn diagnostics_core_status(snapshot: &DesktopShellState) -> String {
     format!(
         "Core {} via {}",
@@ -2347,6 +2449,36 @@ fn diagnostics_tun(snapshot: &DesktopShellState) -> String {
 
 fn diagnostics_default_core(_snapshot: &DesktopShellState) -> String {
     "Native core default, support bundle includes certification evidence".to_string()
+}
+
+fn readiness_system_proxy_detail(snapshot: &DesktopShellState) -> String {
+    if snapshot.dependencies.first_run.system_proxy_ready {
+        if snapshot.dependencies.system_proxy.enabled == Some(true) {
+            "Ready, system proxy enabled".to_string()
+        } else {
+            "Ready, system proxy available".to_string()
+        }
+    } else {
+        snapshot
+            .dependencies
+            .system_proxy
+            .error
+            .clone()
+            .unwrap_or_else(|| "System proxy needs attention".to_string())
+    }
+}
+
+fn readiness_tun_detail(snapshot: &DesktopShellState) -> String {
+    if snapshot.dependencies.first_run.tun_ready {
+        "Ready, Wintun driver and packet I/O available".to_string()
+    } else {
+        snapshot
+            .dependencies
+            .tun_backend
+            .reason
+            .clone()
+            .unwrap_or_else(|| "Wintun needs attention".to_string())
+    }
 }
 
 fn dependency_action_buttons(snapshot: &DesktopShellState) -> String {
@@ -2774,6 +2906,33 @@ mod tests {
         assert!(html.contains("id=\"top-dependency-status\""));
         assert!(html.contains("id=\"top-selected-node\""));
         assert!(html.contains("id=\"dashboard-view\""));
+    }
+
+    #[test]
+    fn desktop_shell_keeps_primary_views_inside_default_window() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("html,\n    body {"));
+        assert!(html.contains("height: 100%;"));
+        assert!(html.contains("overflow: hidden;"));
+        assert!(html.contains(".desktop-layout {\n      height: 100vh;"));
+        assert!(html.contains(".app-shell {\n      height: 100vh;"));
+        assert!(html.contains("grid-template-rows: auto auto minmax(0, 1fr);"));
+        assert!(html.contains(".app-view {\n      min-height: 0;"));
+        assert!(
+            html.contains("class=\"app-view dashboard-view\" id=\"dashboard-view\" data-app-view")
+        );
+    }
+
+    #[test]
+    fn dashboard_default_view_hides_legacy_workflow_surface() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("class=\"grid legacy-workflow-surface\" hidden"));
+        assert!(html.contains("#connection-activity-panel,"));
+        assert!(html.contains("<pre id=\"snapshot-json\" hidden>"));
+        assert!(html.contains("id=\"dashboard-tun-status\">Ready</span>"));
+        assert!(!html.contains("id=\"dashboard-tun-status\">Wintun ready"));
     }
 
     #[test]
