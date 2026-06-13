@@ -72,6 +72,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let readiness_system_proxy_detail = readiness_system_proxy_detail(snapshot);
     let readiness_tun_detail = readiness_tun_detail(snapshot);
     let (core_connection_kind, core_connection_status) = core_connection_status(snapshot);
+    let core_connection_actions = core_connection_actions(snapshot);
     let activity_summary = format!("{diagnostics_runtime_events}；{diagnostics_recent_event}");
     let panel_account = panel_account_summary(snapshot);
     let panel_subscription = panel_subscription_summary(snapshot);
@@ -1316,6 +1317,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
             </div>
             <div class="muted" id="nodes-connection-error">{nodes_connection_error}</div>
             <div class="muted" id="nodes-connection-verification-status" data-kind="{core_connection_kind}">{core_connection_status}</div>
+            <div class="actions diagnosis-actions" id="nodes-connection-verification-actions">{core_connection_actions}</div>
             <div class="connection-diagnosis" id="nodes-connection-diagnosis" data-diagnosis-level="{connection_diagnosis_level}">
               <strong id="nodes-connection-diagnosis-title">{connection_diagnosis_title}</strong>
               <span id="nodes-connection-diagnosis-detail">{connection_diagnosis_detail}</span>
@@ -1658,16 +1660,47 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const message = intent === "stop" ? "正在停止核心" : "正在启动核心并验证连接";
       setCoreConnectionStatus("info", message);
     }}
+    function systemProxyTakeoverSummary(snapshot) {{
+      const status = snapshot.status || {{}};
+      if (status.traffic_mode !== "system-proxy") {{
+        return {{ kind: "info", message: "", action: false }};
+      }}
+      const proxy = (snapshot.dependencies && snapshot.dependencies.system_proxy) || {{}};
+      const listen = status.listen || "";
+      if (status.run_state === "stopped") {{
+        if (proxy.enabled === true) {{
+          return {{ kind: "error", message: "系统代理仍启用", action: true }};
+        }}
+        return {{ kind: "success", message: "系统代理已恢复", action: false }};
+      }}
+      if (status.run_state !== "running" || !listen) {{
+        return {{ kind: "info", message: "", action: false }};
+      }}
+      if (proxy.enabled !== true) {{
+        return {{ kind: "error", message: "系统代理未接管：系统代理未启用", action: true }};
+      }}
+      if (!proxy.server) {{
+        return {{ kind: "error", message: "系统代理未接管：没有代理服务器", action: true }};
+      }}
+      if (proxy.server !== listen) {{
+        return {{ kind: "error", message: `系统代理未接管：当前指向 ${{proxy.server}}`, action: true }};
+      }}
+      return {{ kind: "success", message: `系统代理已接管：${{proxy.server}}`, action: false }};
+    }}
     function coreConnectionSummary(snapshot) {{
       const status = snapshot.status || {{}};
       const mode = trafficModeLabels[status.traffic_mode] || status.traffic_mode || "未知模式";
       const node = status.selected_outbound || "未选择节点";
       const listen = status.listen || "未监听";
+      const proxy = systemProxyTakeoverSummary(snapshot);
       if (status.last_error) {{
         return {{ kind: "error", message: `连接失败：${{status.last_error}}` }};
       }}
       if (status.run_state === "running" && status.listen) {{
-        return {{ kind: "success", message: `连接已建立：${{mode}}，节点 ${{node}}，监听 ${{listen}}` }};
+        const message = proxy.message
+          ? `连接已建立：${{mode}}，节点 ${{node}}，监听 ${{listen}}；${{proxy.message}}`
+          : `连接已建立：${{mode}}，节点 ${{node}}，监听 ${{listen}}`;
+        return {{ kind: proxy.kind === "error" ? "error" : "success", message, action: proxy.action }};
       }}
       if (status.run_state === "running") {{
         return {{ kind: "info", message: `核心已运行，等待监听地址：${{mode}}，节点 ${{node}}` }};
@@ -1681,7 +1714,18 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       if (status.run_state === "failed") {{
         return {{ kind: "error", message: "连接失败：核心失败" }};
       }}
-      return {{ kind: "info", message: "核心已停止" }};
+      const stopped = proxy.message ? `核心已停止；${{proxy.message}}` : "核心已停止";
+      return {{ kind: proxy.kind === "error" ? "error" : "info", message: stopped, action: proxy.action }};
+    }}
+    function renderCoreConnectionActions(snapshot) {{
+      const container = document.getElementById("nodes-connection-verification-actions");
+      if (!container) return;
+      container.replaceChildren();
+      const summary = coreConnectionSummary(snapshot);
+      if (!summary.action) return;
+      appendDiagnosisButton(container, "check-system-proxy", "打开代理设置", () => postDependencyAction("check-system-proxy"));
+      appendDiagnosisButton(container, "refresh", "重试", () => postOperation("refresh", "正在刷新状态"));
+      appendDiagnosisButton(container, "local-inbound", "切换本地入站", () => postTrafficMode("mixed-inbound-only"));
     }}
     function coreConnectionReachedTerminal(status) {{
       if (!pendingCoreConnectionIntent) return false;
@@ -1693,6 +1737,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     function syncCoreConnectionStatus(snapshot) {{
       const summary = coreConnectionSummary(snapshot);
       setCoreConnectionStatus(summary.kind, summary.message);
+      renderCoreConnectionActions(snapshot);
       if (coreConnectionReachedTerminal(snapshot.status || {{}})) {{
         pendingCoreConnectionIntent = "";
         window.keliSetOperationStatus(summary);
@@ -2924,6 +2969,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         readiness_tun_detail = escape_html(&readiness_tun_detail),
         core_connection_kind = core_connection_kind,
         core_connection_status = escape_html(&core_connection_status),
+        core_connection_actions = core_connection_actions,
         activity_summary = escape_html(&activity_summary),
         nodes_supported_count = nodes_supported_count,
         nodes_skipped_count = nodes_skipped_count,
@@ -3141,14 +3187,23 @@ fn core_connection_status(snapshot: &DesktopShellState) -> (&'static str, String
     let mode = traffic_mode_label(status.traffic_mode);
     let node = status.selected_outbound.as_deref().unwrap_or("未选择节点");
     let listen = status.listen.as_deref().unwrap_or("未监听");
+    let proxy = system_proxy_takeover_status(snapshot);
     if let Some(error) = status.last_error.as_deref() {
         return ("error", format!("连接失败：{error}"));
     }
     match status.run_state {
-        DesktopRunState::Running if status.listen.is_some() => (
-            "success",
-            format!("连接已建立：{mode}，节点 {node}，监听 {listen}"),
-        ),
+        DesktopRunState::Running if status.listen.is_some() => {
+            let message = if let Some(proxy_message) = proxy.message {
+                format!("连接已建立：{mode}，节点 {node}，监听 {listen}；{proxy_message}")
+            } else {
+                format!("连接已建立：{mode}，节点 {node}，监听 {listen}")
+            };
+            if proxy.kind == "error" {
+                ("error", message)
+            } else {
+                ("success", message)
+            }
+        }
         DesktopRunState::Running => (
             "info",
             format!("核心已运行，等待监听地址：{mode}，节点 {node}"),
@@ -3159,8 +3214,104 @@ fn core_connection_status(snapshot: &DesktopShellState) -> (&'static str, String
         ),
         DesktopRunState::Stopping => ("info", "正在停止核心".to_string()),
         DesktopRunState::Failed => ("error", "连接失败：核心失败".to_string()),
-        DesktopRunState::Stopped => ("info", "核心已停止".to_string()),
+        DesktopRunState::Stopped => {
+            let message = if let Some(proxy_message) = proxy.message {
+                format!("核心已停止；{proxy_message}")
+            } else {
+                "核心已停止".to_string()
+            };
+            if proxy.kind == "error" {
+                ("error", message)
+            } else {
+                ("info", message)
+            }
+        }
     }
+}
+
+struct SystemProxyTakeoverStatus {
+    kind: &'static str,
+    message: Option<String>,
+    action: bool,
+}
+
+fn system_proxy_takeover_status(snapshot: &DesktopShellState) -> SystemProxyTakeoverStatus {
+    let status = &snapshot.status;
+    if status.traffic_mode != DesktopTrafficMode::SystemProxy {
+        return SystemProxyTakeoverStatus {
+            kind: "info",
+            message: None,
+            action: false,
+        };
+    }
+    let proxy = &snapshot.dependencies.system_proxy;
+    if status.run_state == DesktopRunState::Stopped {
+        return if proxy.enabled == Some(true) {
+            SystemProxyTakeoverStatus {
+                kind: "error",
+                message: Some("系统代理仍启用".to_string()),
+                action: true,
+            }
+        } else {
+            SystemProxyTakeoverStatus {
+                kind: "success",
+                message: Some("系统代理已恢复".to_string()),
+                action: false,
+            }
+        };
+    }
+    let Some(listen) = status.listen.as_deref() else {
+        return SystemProxyTakeoverStatus {
+            kind: "info",
+            message: None,
+            action: false,
+        };
+    };
+    if status.run_state != DesktopRunState::Running {
+        return SystemProxyTakeoverStatus {
+            kind: "info",
+            message: None,
+            action: false,
+        };
+    }
+    if proxy.enabled != Some(true) {
+        return SystemProxyTakeoverStatus {
+            kind: "error",
+            message: Some("系统代理未接管：系统代理未启用".to_string()),
+            action: true,
+        };
+    }
+    let Some(server) = proxy.server.as_deref() else {
+        return SystemProxyTakeoverStatus {
+            kind: "error",
+            message: Some("系统代理未接管：没有代理服务器".to_string()),
+            action: true,
+        };
+    };
+    if server != listen {
+        return SystemProxyTakeoverStatus {
+            kind: "error",
+            message: Some(format!("系统代理未接管：当前指向 {server}")),
+            action: true,
+        };
+    }
+    SystemProxyTakeoverStatus {
+        kind: "success",
+        message: Some(format!("系统代理已接管：{server}")),
+        action: false,
+    }
+}
+
+fn core_connection_actions(snapshot: &DesktopShellState) -> String {
+    if !system_proxy_takeover_status(snapshot).action {
+        return String::new();
+    }
+    [
+        r#"<button data-diagnosis-action="check-system-proxy" onclick="postDependencyAction(&quot;check-system-proxy&quot;)">打开代理设置</button>"#,
+        r#"<button data-diagnosis-action="refresh" onclick="postOperation(&quot;refresh&quot;, &quot;正在刷新状态&quot;)">重试</button>"#,
+        r#"<button data-diagnosis-action="local-inbound" onclick="postTrafficMode('mixed-inbound-only')">切换本地入站</button>"#,
+    ]
+    .join("")
 }
 
 fn aria_pressed(pressed: bool) -> &'static str {
@@ -4428,6 +4579,46 @@ mod tests {
         let html = render_shell_html(&failed);
 
         assert!(html.contains("连接失败：Managed(&quot;dial failed&quot;)"));
+    }
+
+    #[test]
+    fn system_proxy_takeover_status_is_unified_with_connection_status() {
+        let mut captured = snapshot();
+        captured.refresh_subscription(Some(subscription("SS-READY")));
+        captured.status.run_state = DesktopRunState::Running;
+        captured.status.traffic_mode = DesktopTrafficMode::SystemProxy;
+        captured.status.listen = Some("127.0.0.1:7890".to_string());
+        captured.dependencies.system_proxy.enabled = Some(true);
+        captured.dependencies.system_proxy.server = Some("127.0.0.1:7890".to_string());
+
+        let html = render_shell_html(&captured);
+
+        assert!(html.contains("系统代理已接管：127.0.0.1:7890"));
+        assert!(html.contains("function systemProxyTakeoverSummary(snapshot)"));
+        assert!(html.contains("function renderCoreConnectionActions(snapshot)"));
+        assert!(html.contains("id=\"nodes-connection-verification-actions\""));
+
+        let mut missing = captured.clone();
+        missing.dependencies.system_proxy.enabled = Some(false);
+        missing.dependencies.system_proxy.server = Some("10.0.0.1:8080".to_string());
+
+        let html = render_shell_html(&missing);
+
+        assert!(html.contains("系统代理未接管：系统代理未启用"));
+        assert!(html.contains("打开代理设置"));
+        assert!(html.contains("重试"));
+        assert!(html.contains("切换本地入站"));
+        assert!(html.contains("postDependencyAction(&quot;check-system-proxy&quot;)"));
+        assert!(html.contains("postTrafficMode('mixed-inbound-only')"));
+
+        let mut restored = captured;
+        restored.status.run_state = DesktopRunState::Stopped;
+        restored.dependencies.system_proxy.enabled = Some(false);
+        restored.dependencies.system_proxy.server = None;
+
+        let html = render_shell_html(&restored);
+
+        assert!(html.contains("核心已停止；系统代理已恢复"));
     }
 
     #[test]
