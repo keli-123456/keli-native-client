@@ -396,6 +396,40 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       display: grid;
       gap: 14px;
     }}
+    .settings-view {{
+      display: grid;
+      gap: 14px;
+    }}
+    .settings-grid {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 0.78fr);
+      gap: 14px;
+      align-items: start;
+    }}
+    .settings-stack {{
+      display: grid;
+      gap: 8px;
+    }}
+    .settings-toggle-list {{
+      display: grid;
+      gap: 8px;
+      color: #4d5968;
+      font-size: 13px;
+    }}
+    .settings-toggle-list label {{
+      min-height: 36px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      border-bottom: 1px solid #edf0f3;
+    }}
+    .settings-toggle-list input {{
+      width: auto;
+      min-height: 0;
+    }}
+    .settings-mode-control {{
+      margin: 10px 0 12px;
+    }}
     .readiness-list {{
       display: grid;
       border-top: 1px solid #edf0f3;
@@ -756,6 +790,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       .quick-status,
       .dashboard-row,
       .diagnostics-grid,
+      .settings-grid,
       .metrics-grid,
       .settings-strip,
       .nodes-toolbar,
@@ -1142,6 +1177,76 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         </section>
       </div>
     </div>
+    <div class="app-view settings-view" id="settings-view" data-app-view hidden>
+      <div class="settings-grid">
+        <section id="settings-runtime-panel">
+          <h2>Runtime</h2>
+          <div class="settings-stack">
+            <div class="value" id="settings-run-state">{run_state}</div>
+            <div class="muted">Mode: <strong id="settings-traffic-mode">{traffic_mode}</strong></div>
+            <div class="muted">Node: <strong id="settings-selected-node">{selected}</strong></div>
+            <div class="muted">Listen: <strong id="settings-listen-address">{listen}</strong></div>
+            <div class="muted">Dependencies: <strong id="settings-dependency-summary">{dependency_summary}</strong></div>
+            <div class="muted" id="settings-primary-state">{primary_state}</div>
+          </div>
+          <div class="actions">
+            <button id="settings-primary-button" class="primary" onclick="window.ipc.postMessage('primary')"{primary_disabled}>{primary_label}</button>
+            <button id="settings-refresh-button" onclick="window.ipc.postMessage('refresh')">Refresh</button>
+          </div>
+        </section>
+        <section id="settings-startup-panel">
+          <h2>Startup</h2>
+          <div class="settings-toggle-list">
+            <label><input id="settings-start-with-windows" type="checkbox" /> Start with Windows</label>
+            <label><input id="settings-launch-minimized" type="checkbox" checked /> Launch minimized</label>
+            <label><input id="settings-auto-start-core" type="checkbox" /> Auto-start core after launch</label>
+          </div>
+        </section>
+      </div>
+      <section id="settings-network-panel">
+        <h2>Network</h2>
+        <div class="segmented-control settings-mode-control" id="settings-traffic-mode-control" role="group" aria-label="Default traffic mode">
+          <button data-settings-traffic-mode="mixed-inbound-only" data-traffic-mode-button="mixed-inbound-only" aria-pressed="{local_inbound_pressed}" onclick="postTrafficMode('mixed-inbound-only')">Local inbound</button>
+          <button data-settings-traffic-mode="system-proxy" data-traffic-mode-button="system-proxy" aria-pressed="{system_proxy_pressed}" onclick="postTrafficMode('system-proxy')">System proxy</button>
+          <button data-settings-traffic-mode="tun" data-traffic-mode-button="tun" aria-pressed="{tun_pressed}" onclick="postTrafficMode('tun')">TUN</button>
+        </div>
+        <div class="settings-strip">
+          <div class="settings-field">
+            <label for="settings-mixed-port">Mixed port</label>
+            <input id="settings-mixed-port" type="number" inputmode="numeric" value="7890" />
+          </div>
+          <div class="settings-field">
+            <label for="settings-socks-port">SOCKS port</label>
+            <input id="settings-socks-port" type="number" inputmode="numeric" value="7891" />
+          </div>
+          <div class="settings-field">
+            <label for="settings-http-port">HTTP port</label>
+            <input id="settings-http-port" type="number" inputmode="numeric" value="7892" />
+          </div>
+          <div class="settings-field">
+            <label for="settings-dns-mode">DNS mode</label>
+            <input id="settings-dns-mode" value="fake-ip" />
+          </div>
+          <div class="settings-field">
+            <label for="settings-tun-stack">TUN stack</label>
+            <input id="settings-tun-stack" value="system" />
+          </div>
+        </div>
+      </section>
+      <section id="settings-subscription-panel">
+        <h2>Subscription</h2>
+        <div class="nodes-toolbar">
+          <input id="settings-subscription-url" type="url" placeholder="https://example.com/subscription" />
+          <div class="actions">
+            <button id="settings-import-url-button" class="primary" onclick="postImportSettingsSubscriptionUrl()"{import_subscription_url_disabled}>Import URL</button>
+            <button id="settings-update-url-button" onclick="postUpdateSettingsSubscriptionUrl()"{update_subscription_url_disabled}>Update URL</button>
+            <button id="settings-refresh-health-button" onclick="postRefreshNodeHealth()">Refresh health</button>
+          </div>
+        </div>
+        <div class="muted" id="settings-subscription-url-status">No subscription URL imported</div>
+        <div class="muted" id="settings-subscription-summary">{subscription_summary}</div>
+      </section>
+    </div>
     <pre id="snapshot-json">{snapshot_json}</pre>
   </main>
   </div>
@@ -1198,6 +1303,18 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       postJson({{
         type: "update-subscription-url",
         subscriptionUrl: document.getElementById("nodes-subscription-url").value
+      }});
+    }}
+    function postImportSettingsSubscriptionUrl() {{
+      postJson({{
+        type: "import-subscription-url",
+        subscriptionUrl: document.getElementById("settings-subscription-url").value
+      }});
+    }}
+    function postUpdateSettingsSubscriptionUrl() {{
+      postJson({{
+        type: "update-subscription-url",
+        subscriptionUrl: document.getElementById("settings-subscription-url").value
       }});
     }}
     function postUpdateSubscriptionUrl() {{
@@ -1490,6 +1607,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const kind = summary.error ? "error" : "success";
       document.getElementById("subscription-url-status").textContent = label;
       setText("nodes-subscription-url-status", label);
+      setText("settings-subscription-url-status", label);
       window.keliSetOperationStatus({{ kind: kind, message: label }});
     }};
     window.keliSetSubscriptionUrlUpdate = (summary) => {{
@@ -1508,6 +1626,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const kind = summary.error || !summary.applied ? "error" : "success";
       document.getElementById("subscription-url-status").textContent = label;
       setText("nodes-subscription-url-status", label);
+      setText("settings-subscription-url-status", label);
       window.keliSetOperationStatus({{ kind: kind, message: label }});
     }};
     window.keliSetSubscriptionConfigImport = (summary) => {{
@@ -1723,6 +1842,23 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setText("diagnostics-metric-activity", overviewActivity(snapshot));
       renderDiagnosticsRuntimeLog(snapshot);
     }};
+    window.keliSyncSettings = (snapshot) => {{
+      const status = snapshot.status;
+      const primary = snapshot.primary_action;
+      setText("settings-run-state", runStateLabels[status.run_state] || status.run_state);
+      setText("settings-traffic-mode", trafficModeLabels[status.traffic_mode] || status.traffic_mode);
+      setText("settings-selected-node", status.selected_outbound || "No node selected");
+      setText("settings-listen-address", status.listen || "Not listening");
+      setText("settings-dependency-summary", dependencySummary(snapshot));
+      setText("settings-primary-state", primary.reason || (primary.enabled ? "Enabled" : "Disabled"));
+      setText("settings-subscription-summary", subscriptionSummary(snapshot.subscription));
+      syncPrimaryButton("settings-primary-button", primary);
+      syncTrafficModeButtons(status.traffic_mode);
+      const importUrlButton = document.getElementById("settings-import-url-button");
+      const updateUrlButton = document.getElementById("settings-update-url-button");
+      if (importUrlButton) importUrlButton.disabled = status.run_state === "running";
+      if (updateUrlButton) updateUrlButton.disabled = status.run_state !== "running";
+    }};
     window.keliSyncOverview = (snapshot) => {{
       const status = snapshot.status;
       const primary = snapshot.primary_action;
@@ -1744,6 +1880,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       window.keliSyncDashboard(snapshot);
       window.keliSyncNodes(snapshot);
       window.keliSyncDiagnosticsView(snapshot);
+      window.keliSyncSettings(snapshot);
       document.getElementById("run-state").textContent = runStateLabels[status.run_state] || status.run_state;
       document.getElementById("traffic-mode").textContent = trafficModeLabels[status.traffic_mode] || status.traffic_mode;
       document.getElementById("listen-address").textContent = status.listen || "Not listening";
@@ -2745,6 +2882,49 @@ mod tests {
         assert!(html.contains("id=\"diagnostics-http-port\""));
         assert!(html.contains("id=\"diagnostics-max-workers\""));
         assert!(html.contains("window.keliSyncDiagnosticsView"));
+    }
+
+    #[test]
+    fn settings_baseline_includes_runtime_startup_and_network_controls() {
+        let html = render_shell_html(&snapshot());
+
+        assert!(html.contains("id=\"settings-view\""));
+        assert!(html.contains("id=\"settings-runtime-panel\""));
+        assert!(html.contains("id=\"settings-primary-button\""));
+        assert!(html.contains("id=\"settings-refresh-button\""));
+        assert!(html.contains("id=\"settings-traffic-mode-control\""));
+        assert!(html.contains("data-settings-traffic-mode=\"mixed-inbound-only\""));
+        assert!(html.contains("data-settings-traffic-mode=\"system-proxy\""));
+        assert!(html.contains("data-settings-traffic-mode=\"tun\""));
+        assert!(html.contains("id=\"settings-startup-panel\""));
+        assert!(html.contains("id=\"settings-start-with-windows\""));
+        assert!(html.contains("id=\"settings-launch-minimized\""));
+        assert!(html.contains("id=\"settings-auto-start-core\""));
+        assert!(html.contains("id=\"settings-network-panel\""));
+        assert!(html.contains("id=\"settings-mixed-port\""));
+        assert!(html.contains("id=\"settings-socks-port\""));
+        assert!(html.contains("id=\"settings-http-port\""));
+        assert!(html.contains("id=\"settings-dns-mode\""));
+        assert!(html.contains("id=\"settings-tun-stack\""));
+    }
+
+    #[test]
+    fn settings_baseline_includes_subscription_status_and_live_sync() {
+        let mut snapshot = snapshot();
+        snapshot.refresh_subscription(Some(subscription("SS-READY")));
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("id=\"settings-subscription-panel\""));
+        assert!(html.contains("id=\"settings-subscription-url\""));
+        assert!(html.contains("postImportSettingsSubscriptionUrl()"));
+        assert!(html.contains("postUpdateSettingsSubscriptionUrl()"));
+        assert!(html.contains("id=\"settings-subscription-summary\""));
+        assert!(html.contains("id=\"settings-selected-node\""));
+        assert!(html.contains("id=\"settings-listen-address\""));
+        assert!(html.contains("id=\"settings-dependency-summary\""));
+        assert!(html.contains("SS-READY"));
+        assert!(html.contains("window.keliSyncSettings"));
     }
 
     #[test]
