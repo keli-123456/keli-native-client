@@ -46,6 +46,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let nodes_table_rows = nodes_table_rows(snapshot.subscription.as_ref());
     let selected_node_title = selected_node_title(snapshot.subscription.as_ref());
     let selected_node_detail = selected_node_detail(snapshot.subscription.as_ref());
+    let nodes_connection_error = nodes_connection_error(snapshot);
+    let nodes_connection_actions = dependency_action_buttons(snapshot);
     let dependency_summary = dependency_summary(snapshot);
     let system_proxy_dependency = system_proxy_dependency(snapshot);
     let tun_dependency = tun_dependency(snapshot);
@@ -1269,8 +1271,11 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
               <div><span>模式</span><strong id="nodes-connection-mode">{traffic_mode}</strong></div>
               <div><span>状态</span><strong id="nodes-connection-primary-state">{primary_state}</strong></div>
             </div>
+            <div class="muted" id="nodes-connection-error">{nodes_connection_error}</div>
+            <div class="actions" id="nodes-connection-actions">{nodes_connection_actions}</div>
             <div class="actions">
               <button id="nodes-primary-button" class="primary" onclick="window.ipc.postMessage('primary')"{primary_disabled}>{primary_label}</button>
+              <button id="nodes-refresh-button" onclick="window.ipc.postMessage('refresh')">刷新状态</button>
             </div>
           </div>
         </section>
@@ -1850,6 +1855,18 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setText("nodes-health-value", nodesHealthOverview(subscription));
       setText("nodes-latency-value", nodesLatencyOverview(subscription));
     }};
+    function nodeConnectionError(snapshot) {{
+      const status = snapshot.status || {{}};
+      if (status.last_error) return "最后错误：" + status.last_error;
+      const dependencies = snapshot.dependencies || {{}};
+      const firstRun = dependencies.first_run || {{}};
+      const blockers = firstRun.blockers || [];
+      if (blockers.length) {{
+        return blockers.map((blocker) => blocker.message || blocker.code || "依赖阻塞").join("；");
+      }}
+      if (!snapshot.subscription) return "请先登录面板或导入订阅";
+      return "连接条件已就绪";
+    }}
     window.keliSyncNodeConnection = (snapshot) => {{
       const status = snapshot.status;
       const primary = snapshot.primary_action;
@@ -1858,6 +1875,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setText("nodes-connection-listen", status.listen || "未监听");
       setText("nodes-connection-mode", trafficModeLabels[status.traffic_mode] || status.traffic_mode);
       setText("nodes-connection-primary-state", primary.reason || (primary.enabled ? "可用" : "不可用"));
+      setText("nodes-connection-error", nodeConnectionError(snapshot));
+      renderDependencyActionsInto("nodes-connection-actions", snapshot);
       syncPrimaryButton("nodes-primary-button", primary);
     }};
     function nodeSearchText(node) {{
@@ -2508,6 +2527,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         nodes_table_rows = nodes_table_rows,
         selected_node_title = escape_html(&selected_node_title),
         selected_node_detail = selected_node_detail,
+        nodes_connection_error = escape_html(&nodes_connection_error),
+        nodes_connection_actions = nodes_connection_actions,
         local_inbound_pressed = local_inbound_pressed,
         system_proxy_pressed = system_proxy_pressed,
         tun_pressed = tun_pressed,
@@ -2824,6 +2845,26 @@ fn diagnostics_last_error(snapshot: &DesktopShellState) -> String {
         "最后错误：{}",
         snapshot.status.last_error.as_deref().unwrap_or("无")
     )
+}
+
+fn nodes_connection_error(snapshot: &DesktopShellState) -> String {
+    if let Some(error) = snapshot.status.last_error.as_deref() {
+        return format!("最后错误：{error}");
+    }
+    if !snapshot.dependencies.first_run.blockers.is_empty() {
+        return snapshot
+            .dependencies
+            .first_run
+            .blockers
+            .iter()
+            .map(|blocker| blocker.message.as_str())
+            .collect::<Vec<_>>()
+            .join("；");
+    }
+    if snapshot.subscription.is_none() {
+        return "请先登录面板或导入订阅".to_string();
+    }
+    "连接条件已就绪".to_string()
 }
 
 fn diagnostics_connection_metrics(snapshot: &DesktopShellState) -> String {
@@ -3704,6 +3745,31 @@ mod tests {
         assert!(html.contains("id=\"nodes-primary-button\""));
         assert!(html.contains("window.ipc.postMessage('primary')"));
         assert!(html.contains("window.keliSyncNodeConnection"));
+    }
+
+    #[test]
+    fn nodes_connection_panel_explains_failures_and_actions() {
+        let mut snapshot = snapshot();
+        snapshot.status.last_error = Some("Managed(\"bind failed\")".to_string());
+        snapshot.dependencies.first_run.tun_ready = false;
+        snapshot.dependencies.first_run.can_start_tun_mode = false;
+        snapshot.dependencies.first_run.blockers = vec![keli_desktop::DesktopBlocker {
+            code: "wintun-missing".to_string(),
+            message: "Wintun 驱动缺失".to_string(),
+            action: Some("install-wintun".to_string()),
+        }];
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("id=\"nodes-connection-error\""));
+        assert!(html.contains("最后错误：Managed(&quot;bind failed&quot;)"));
+        assert!(html.contains("id=\"nodes-connection-actions\""));
+        assert!(html.contains("data-dependency-action=\"install-wintun\""));
+        assert!(html.contains("打开 Wintun 下载"));
+        assert!(html.contains("id=\"nodes-refresh-button\""));
+        assert!(html.contains("刷新状态"));
+        assert!(html.contains("function nodeConnectionError"));
+        assert!(html.contains("renderDependencyActionsInto(\"nodes-connection-actions\""));
     }
 
     #[test]
