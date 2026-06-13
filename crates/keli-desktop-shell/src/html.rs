@@ -49,6 +49,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     let nodes_connection_error = nodes_connection_error(snapshot);
     let connection_diagnosis = connection_diagnosis(snapshot);
     let connection_diagnosis_actions = connection_diagnosis_action_buttons(snapshot);
+    let support_diagnosis_summary = support_diagnosis_summary(&connection_diagnosis);
+    let support_diagnosis_action = support_diagnosis_action(&connection_diagnosis);
     let nodes_connection_actions = dependency_action_buttons(snapshot);
     let dependency_summary = dependency_summary(snapshot);
     let system_proxy_dependency = system_proxy_dependency(snapshot);
@@ -1204,6 +1206,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         <div class="muted" id="diagnostics-default-core">{diagnostics_default_core}</div>
         <div class="value">支持包</div>
         <div class="muted" id="support-export-status">尚未导出支持包</div>
+        <div class="muted" id="support-export-diagnosis">{support_diagnosis_summary}</div>
+        <div class="muted" id="support-export-action">{support_diagnosis_action}</div>
         <div class="actions">
           <button id="export-support-button" onclick="window.ipc.postMessage('export-support-bundle')">导出支持包</button>
         </div>
@@ -1475,6 +1479,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
           <h2>支持包</h2>
           <div class="value">诊断导出</div>
           <div class="muted" id="diagnostics-support-status">尚未导出支持包</div>
+          <div class="muted" id="diagnostics-support-diagnosis">{support_diagnosis_summary}</div>
+          <div class="muted" id="diagnostics-support-action">{support_diagnosis_action}</div>
           <div class="support-actions">
             <button id="diagnostics-export-button" class="primary" onclick="window.ipc.postMessage('export-support-bundle')">导出诊断</button>
             <button id="diagnostics-copy-logs-button" onclick="postCopyDiagnosticsLogs()">复制日志</button>
@@ -2852,6 +2858,21 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       const element = document.getElementById(id);
       if (element) element.textContent = value;
     }}
+    function supportDiagnosisSummary(diagnosis) {{
+      return `支持包将包含：${{diagnosis.title}} - ${{diagnosis.detail}}`;
+    }}
+    function supportDiagnosisAction(diagnosis) {{
+      return `建议动作：${{diagnosis.action}}`;
+    }}
+    function syncSupportDiagnosis(snapshot) {{
+      const diagnosis = connectionDiagnosis(snapshot);
+      const summary = supportDiagnosisSummary(diagnosis);
+      const action = supportDiagnosisAction(diagnosis);
+      setText("support-export-diagnosis", summary);
+      setText("support-export-action", action);
+      setText("diagnostics-support-diagnosis", summary);
+      setText("diagnostics-support-action", action);
+    }}
     function panelBytesLabel(value) {{
       const gb = Number(value || 0) / 1024 / 1024 / 1024;
       return `${{gb.toFixed(1)}} GB`;
@@ -2953,6 +2974,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setText("dashboard-blockers", dashboardDependencyBlockers(snapshot));
       renderRuntimeEventList(snapshot);
       renderDependencyActions(snapshot);
+      syncSupportDiagnosis(snapshot);
     }};
     window.keliSyncDiagnosticsView = (snapshot) => {{
       const firstRun = snapshot.dependencies.first_run;
@@ -2972,6 +2994,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setText("diagnostics-metric-last-error", diagnosticsLastError(snapshot));
       setText("diagnostics-metric-activity", overviewActivity(snapshot));
       renderDiagnosticsRuntimeLog(snapshot);
+      syncSupportDiagnosis(snapshot);
     }};
     window.keliSyncSettings = (snapshot) => {{
       const status = snapshot.status;
@@ -3113,6 +3136,8 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         connection_diagnosis_detail = escape_html(&connection_diagnosis.detail),
         connection_diagnosis_action = escape_html(connection_diagnosis.action),
         connection_diagnosis_actions = connection_diagnosis_actions,
+        support_diagnosis_summary = escape_html(&support_diagnosis_summary),
+        support_diagnosis_action = escape_html(&support_diagnosis_action),
         nodes_connection_actions = nodes_connection_actions,
         local_inbound_pressed = local_inbound_pressed,
         system_proxy_pressed = system_proxy_pressed,
@@ -3589,6 +3614,14 @@ struct ConnectionDiagnosis {
     title: &'static str,
     detail: String,
     action: &'static str,
+}
+
+fn support_diagnosis_summary(diagnosis: &ConnectionDiagnosis) -> String {
+    format!("支持包将包含：{} - {}", diagnosis.title, diagnosis.detail)
+}
+
+fn support_diagnosis_action(diagnosis: &ConnectionDiagnosis) -> String {
+    format!("建议动作：{}", diagnosis.action)
 }
 
 fn error_contains_any(error: &str, needles: &[&str]) -> bool {
@@ -5125,6 +5158,8 @@ mod tests {
         let html = render_shell_html(&snapshot());
 
         assert!(html.contains("id=\"diagnostics-support-panel\""));
+        assert!(html.contains("id=\"diagnostics-support-diagnosis\""));
+        assert!(html.contains("id=\"diagnostics-support-action\""));
         assert!(html.contains("id=\"diagnostics-export-button\""));
         assert!(html.contains("id=\"diagnostics-copy-logs-button\""));
         assert!(html.contains("id=\"include-certification-toggle\""));
@@ -5134,6 +5169,7 @@ mod tests {
         assert!(html.contains("id=\"diagnostics-http-port\""));
         assert!(html.contains("id=\"diagnostics-max-workers\""));
         assert!(html.contains("window.keliSyncDiagnosticsView"));
+        assert!(html.contains("syncSupportDiagnosis(snapshot)"));
     }
 
     #[test]
@@ -5623,7 +5659,25 @@ mod tests {
 
         assert!(html.contains("export-support-bundle"));
         assert!(html.contains("id=\"support-export-status\""));
+        assert!(html.contains("id=\"support-export-diagnosis\""));
+        assert!(html.contains("id=\"support-export-action\""));
+        assert!(html.contains("支持包将包含：未配置订阅"));
+        assert!(html.contains("建议动作：登录面板或导入订阅"));
         assert!(html.contains("window.keliSetSupportExport"));
+    }
+
+    #[test]
+    fn support_export_ui_summarizes_connection_diagnosis() {
+        let mut snapshot = snapshot();
+        snapshot.status.last_error =
+            Some("Managed(\"bind failed: address already in use\")".to_string());
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("支持包将包含：端口被占用"));
+        assert!(html.contains("关闭占用端口或切换本地监听"));
+        assert!(html.contains("function supportDiagnosisSummary(diagnosis)"));
+        assert!(html.contains("function syncSupportDiagnosis(snapshot)"));
     }
 
     #[test]
