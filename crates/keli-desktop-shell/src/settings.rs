@@ -54,7 +54,9 @@ pub fn default_desktop_shell_settings_path() -> PathBuf {
 pub fn read_desktop_shell_settings(path: impl AsRef<Path>) -> io::Result<DesktopShellSettings> {
     match std::fs::read(path) {
         Ok(bytes) => Ok(serde_json::from_slice(&bytes).unwrap_or_default()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(DesktopShellSettings::default()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            Ok(DesktopShellSettings::default())
+        }
         Err(error) => Err(error),
     }
 }

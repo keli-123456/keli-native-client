@@ -4,6 +4,7 @@ use keli_desktop::{
     DesktopWintunInstallSummary,
 };
 
+use crate::settings::DesktopShellSettingsSaveSummary;
 use crate::support::{
     SupportBundleSaveSummary, SupportExportCleanupSummary, SupportExportStorageSummary,
 };
@@ -3333,6 +3334,15 @@ pub fn support_export_cleanup_status_script(
     let summary_json = serde_json::to_string(summary)?;
     Ok(format!(
         "window.keliSetSupportCleanup && window.keliSetSupportCleanup({summary_json});"
+    ))
+}
+
+pub fn desktop_settings_status_script(
+    summary: &DesktopShellSettingsSaveSummary,
+) -> serde_json::Result<String> {
+    let summary_json = serde_json::to_string(summary)?;
+    Ok(format!(
+        "window.keliSetDesktopSettings && window.keliSetDesktopSettings({summary_json});"
     ))
 }
 

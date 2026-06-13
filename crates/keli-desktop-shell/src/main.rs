@@ -9,17 +9,22 @@ use std::path::Path;
 
 use actions::{ipc_event_for_message, tray_event_for_id, DesktopShellUiEvent};
 use html::{
-    operation_status_script, render_shell_html, shell_snapshot_script,
-    subscription_config_import_failure_status_script, subscription_config_import_status_script,
-    subscription_url_import_failure_status_script, subscription_url_import_status_script,
-    subscription_url_update_failure_status_script, subscription_url_update_status_script,
-    support_export_cleanup_status_script, support_export_failure_status_script,
-    support_export_status_script, support_export_storage_status_script,
-    wintun_install_failure_status_script, wintun_install_status_script,
+    desktop_settings_status_script, operation_status_script, render_shell_html,
+    shell_snapshot_script, subscription_config_import_failure_status_script,
+    subscription_config_import_status_script, subscription_url_import_failure_status_script,
+    subscription_url_import_status_script, subscription_url_update_failure_status_script,
+    subscription_url_update_status_script, support_export_cleanup_status_script,
+    support_export_failure_status_script, support_export_status_script,
+    support_export_storage_status_script, wintun_install_failure_status_script,
+    wintun_install_status_script,
 };
 use keli_desktop::{
     DesktopRunState, DesktopShellAction, DesktopShellController, DesktopShellControllerError,
     DesktopShellState,
+};
+use settings::{
+    default_desktop_shell_settings_path, read_desktop_shell_settings, write_desktop_shell_settings,
+    DesktopShellSettings, DesktopShellSettingsSaveSummary,
 };
 use single_instance::SingleInstance;
 use support::{
@@ -57,7 +62,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
+    let settings = load_desktop_settings();
     let mut controller = DesktopShellController::new_native();
+    controller.set_traffic_mode(settings.traffic_mode);
     let initial_html = render_shell_html(controller.snapshot());
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let window = WindowBuilder::new()
@@ -72,6 +79,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let _ = ipc_proxy.send_event(UserEvent::Ipc(request.body().to_string()));
         })
         .build(&window)?;
+    sync_desktop_settings(&webview, &settings);
     sync_last_support_export(&webview);
     sync_support_export_storage(&webview);
     let menu_proxy = event_loop.create_proxy();
@@ -280,6 +288,25 @@ fn handle_ui_event(
         return;
     }
 
+    if let DesktopShellUiEvent::SaveDesktopSettings(settings) = &event {
+        match save_desktop_settings(controller, settings.clone(), webview) {
+            Ok(shell) => {
+                window.set_visible(shell.window.main_visible);
+                sync_webview(webview, &shell);
+                sync_operation_status(webview, "success", "设置已保存");
+                if shell.quit_requested {
+                    *control_flow = ControlFlow::Exit;
+                }
+            }
+            Err(message) => {
+                eprintln!("desktop shell settings save failed: {message}");
+                sync_webview(webview, controller.snapshot());
+                sync_operation_status(webview, "error", &message);
+            }
+        }
+        return;
+    }
+
     let operation_success = operation_success_message(&event);
     match dispatch_ui_event(controller, event) {
         Ok(shell) => {
@@ -365,6 +392,52 @@ fn import_subscription_config(
             .evaluate_script(&script)
             .map_err(|error| format!("subscription config import status sync failed: {error}"))?;
     }
+    Ok(shell)
+}
+
+fn load_desktop_settings() -> DesktopShellSettings {
+    match read_desktop_shell_settings(default_desktop_shell_settings_path()) {
+        Ok(settings) => settings,
+        Err(error) => {
+            eprintln!("desktop settings load failed: {error}");
+            DesktopShellSettings::default()
+        }
+    }
+}
+
+fn sync_desktop_settings(webview: &WebView, settings: &DesktopShellSettings) {
+    let summary = DesktopShellSettingsSaveSummary {
+        status: "restored".to_string(),
+        path: default_desktop_shell_settings_path()
+            .to_string_lossy()
+            .into_owned(),
+        settings: settings.clone(),
+    };
+    match desktop_settings_status_script(&summary) {
+        Ok(script) => {
+            if let Err(error) = webview.evaluate_script(&script) {
+                eprintln!("desktop settings restore sync failed: {error}");
+            }
+        }
+        Err(error) => {
+            eprintln!("desktop settings restore serialization failed: {error}");
+        }
+    }
+}
+
+fn save_desktop_settings(
+    controller: &mut DesktopShellController<keli_desktop::DesktopNativeCommandService>,
+    settings: DesktopShellSettings,
+    webview: &WebView,
+) -> Result<DesktopShellState, String> {
+    let summary = write_desktop_shell_settings(default_desktop_shell_settings_path(), &settings)
+        .map_err(|error| format!("write desktop settings failed: {error}"))?;
+    let shell = controller.set_traffic_mode(settings.traffic_mode);
+    let script = desktop_settings_status_script(&summary)
+        .map_err(|error| format!("desktop settings status serialization failed: {error}"))?;
+    webview
+        .evaluate_script(&script)
+        .map_err(|error| format!("desktop settings status sync failed: {error}"))?;
     Ok(shell)
 }
 
@@ -745,6 +818,7 @@ struct DesktopShellSmokeReport {
     dependency_action_entrypoints: Vec<String>,
     html_ready: bool,
     snapshot_script_ready: bool,
+    settings_persistence_ready: bool,
     ui_workflow_entrypoints: Vec<String>,
 }
 
@@ -901,6 +975,9 @@ fn build_smoke_report(
     let snapshot_script_ready =
         snapshot_script.contains("window.keliSetShell") && snapshot_script.contains("\"status\"");
     let ui_workflow_entrypoints = smoke_workflow_entrypoints(html, snapshot_script);
+    let settings_persistence_ready = html.contains("id=\"settings-save-button\"")
+        && html.contains("save-desktop-settings")
+        && html.contains("window.keliSetDesktopSettings");
     let first_run_blockers = smoke_first_run_blockers(snapshot);
     let dependency_action_entrypoints = smoke_dependency_action_entrypoints(snapshot, html);
     let workflows_ready = expected_smoke_workflows().iter().all(|workflow| {
@@ -908,11 +985,12 @@ fn build_smoke_report(
             .iter()
             .any(|entry| entry == workflow)
     });
-    let status = if html_ready && snapshot_script_ready && workflows_ready {
-        "passed"
-    } else {
-        "failed"
-    };
+    let status =
+        if html_ready && snapshot_script_ready && workflows_ready && settings_persistence_ready {
+            "passed"
+        } else {
+            "failed"
+        };
 
     DesktopShellSmokeReport {
         status: status.to_string(),
@@ -928,11 +1006,12 @@ fn build_smoke_report(
         dependency_action_entrypoints,
         html_ready,
         snapshot_script_ready,
+        settings_persistence_ready,
         ui_workflow_entrypoints,
     }
 }
 
-fn expected_smoke_workflows() -> [&'static str; 7] {
+fn expected_smoke_workflows() -> [&'static str; 8] {
     [
         "open-desktop-shell",
         "import-subscription",
@@ -941,6 +1020,7 @@ fn expected_smoke_workflows() -> [&'static str; 7] {
         "tun-preflight",
         "export-support-bundle",
         "clear-support-exports",
+        "save-desktop-settings",
     ]
 }
 
@@ -980,6 +1060,12 @@ fn smoke_workflow_entrypoints(html: &str, snapshot_script: &str) -> Vec<String> 
         && html.contains("id=\"diagnostics-clear-support-button\"")
     {
         entrypoints.push("clear-support-exports".to_string());
+    }
+    if html.contains("id=\"settings-save-button\"")
+        && html.contains("save-desktop-settings")
+        && html.contains("window.keliSetDesktopSettings")
+    {
+        entrypoints.push("save-desktop-settings".to_string());
     }
     entrypoints
 }
@@ -1158,6 +1244,7 @@ mod tests {
         assert!(report.native_core_default);
         assert!(report.html_ready);
         assert!(report.snapshot_script_ready);
+        assert!(report.settings_persistence_ready);
         assert_eq!(
             report.ui_workflow_entrypoints,
             vec![
@@ -1168,6 +1255,7 @@ mod tests {
                 "tun-preflight",
                 "export-support-bundle",
                 "clear-support-exports",
+                "save-desktop-settings",
             ]
         );
         assert!(html.contains("id=\"dependency-actions\""));
