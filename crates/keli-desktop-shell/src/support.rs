@@ -137,9 +137,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system time")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!(
-            "keli-support-export-missing-record-test-{unique}"
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("keli-support-export-missing-record-test-{unique}"));
 
         let restored = read_last_support_bundle_export(&dir).expect("read missing support record");
 
@@ -152,9 +151,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system time")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!(
-            "keli-support-export-invalid-record-test-{unique}"
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("keli-support-export-invalid-record-test-{unique}"));
         fs::create_dir_all(&dir).expect("create dir");
         fs::write(support_export_record_path(&dir), b"{not-json").expect("write invalid record");
 
