@@ -497,6 +497,12 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       display: grid;
       gap: 12px;
     }}
+    .node-connection-panel {{
+      display: grid;
+      gap: 8px;
+      border-top: 1px solid #edf0f3;
+      padding-top: 10px;
+    }}
     .detail-list {{
       display: grid;
       gap: 8px;
@@ -1254,6 +1260,19 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
             <button class="primary" onclick="postSelectNode(document.getElementById('selected-node-title').textContent)">选择</button>
             <button onclick="postRefreshNodeHealth()">测试</button>
           </div>
+          <div class="node-connection-panel" id="nodes-connection-panel">
+            <h2>连接</h2>
+            <div class="value" id="nodes-connection-state">{run_state}</div>
+            <div class="detail-list">
+              <div><span>节点</span><strong id="nodes-connection-node">{selected}</strong></div>
+              <div><span>监听</span><strong id="nodes-connection-listen">{listen}</strong></div>
+              <div><span>模式</span><strong id="nodes-connection-mode">{traffic_mode}</strong></div>
+              <div><span>状态</span><strong id="nodes-connection-primary-state">{primary_state}</strong></div>
+            </div>
+            <div class="actions">
+              <button id="nodes-primary-button" class="primary" onclick="window.ipc.postMessage('primary')"{primary_disabled}>{primary_label}</button>
+            </div>
+          </div>
         </section>
       </div>
     </section>
@@ -1831,6 +1850,16 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setText("nodes-health-value", nodesHealthOverview(subscription));
       setText("nodes-latency-value", nodesLatencyOverview(subscription));
     }};
+    window.keliSyncNodeConnection = (snapshot) => {{
+      const status = snapshot.status;
+      const primary = snapshot.primary_action;
+      setText("nodes-connection-state", runStateLabels[status.run_state] || status.run_state);
+      setText("nodes-connection-node", status.selected_outbound || "未选择节点");
+      setText("nodes-connection-listen", status.listen || "未监听");
+      setText("nodes-connection-mode", trafficModeLabels[status.traffic_mode] || status.traffic_mode);
+      setText("nodes-connection-primary-state", primary.reason || (primary.enabled ? "可用" : "不可用"));
+      syncPrimaryButton("nodes-primary-button", primary);
+    }};
     function nodeSearchText(node) {{
       return [
         node.tag,
@@ -1985,6 +2014,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       setText("nodes-udp-ready-count", nodesUdpReadyCount(subscription));
       setText("nodes-recommended", nodesRecommended(subscription));
       window.keliSyncNodeStatusCards(snapshot);
+      window.keliSyncNodeConnection(snapshot);
       const importUrlButton = document.getElementById("nodes-import-url-button");
       const updateUrlButton = document.getElementById("nodes-update-url-button");
       if (importUrlButton) importUrlButton.disabled = snapshot.status.run_state === "running";
@@ -3656,6 +3686,24 @@ mod tests {
         assert!(html.contains("1 / 1 健康"));
         assert!(html.contains("42 ms"));
         assert!(html.contains("window.keliSyncNodeStatusCards"));
+    }
+
+    #[test]
+    fn nodes_view_exposes_one_click_connection_control() {
+        let mut snapshot = snapshot();
+        snapshot.refresh_subscription(Some(subscription("SS-READY")));
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("id=\"nodes-connection-panel\""));
+        assert!(html.contains("id=\"nodes-connection-state\""));
+        assert!(html.contains("id=\"nodes-connection-node\""));
+        assert!(html.contains("id=\"nodes-connection-listen\""));
+        assert!(html.contains("id=\"nodes-connection-mode\""));
+        assert!(html.contains("id=\"nodes-connection-primary-state\""));
+        assert!(html.contains("id=\"nodes-primary-button\""));
+        assert!(html.contains("window.ipc.postMessage('primary')"));
+        assert!(html.contains("window.keliSyncNodeConnection"));
     }
 
     #[test]
