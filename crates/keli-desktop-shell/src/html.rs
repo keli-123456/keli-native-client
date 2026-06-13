@@ -408,10 +408,27 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       gap: 6px;
       margin-bottom: 10px;
     }}
+    .nodes-table-tools {{
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }}
+    .nodes-visible-count {{
+      color: #657386;
+      font-size: 12px;
+      font-weight: 650;
+      white-space: nowrap;
+    }}
     .node-filter-tabs button[aria-pressed="true"] {{
       border-color: #277d56;
       background: #e6f4ec;
       color: #145a32;
+    }}
+    .nodes-table-action {{
+      min-width: 64px;
+      min-height: 30px;
     }}
     table {{
       width: 100%;
@@ -890,6 +907,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       .panel-kpi-row,
       .settings-strip,
       .nodes-toolbar,
+      .nodes-table-tools,
       .nodes-summary-strip,
       .nodes-content {{
         grid-template-columns: 1fr;
@@ -1139,6 +1157,10 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       </div>
       <div class="nodes-content">
         <section>
+          <div class="nodes-table-tools">
+            <input id="nodes-search" type="search" placeholder="搜索节点" oninput="postNodeSearch()" />
+            <span class="nodes-visible-count" id="nodes-visible-count">显示 {nodes_supported_count} / {nodes_supported_count}</span>
+          </div>
           <div class="node-filter-tabs" id="node-filter-tabs" role="group" aria-label="节点筛选">
             <button data-node-filter="all" aria-pressed="true" onclick="postNodeFilter('all')">全部</button>
             <button data-node-filter="healthy" aria-pressed="false" onclick="postNodeFilter('healthy')">健康</button>
@@ -1156,6 +1178,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
                 <th>TCP</th>
                 <th>UDP</th>
                 <th>健康</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody id="nodes-table-body">{nodes_table_rows}</tbody>
@@ -1433,6 +1456,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       "tun": "TUN",
       "mixed-inbound-only": "本地入站"
     }};
+    let activeNodeFilter = "all";
+    let activeNodeSearch = "";
+    let currentNodesSubscription = null;
     function postJson(payload) {{
       window.ipc.postMessage(JSON.stringify(payload));
     }}
@@ -1551,9 +1577,16 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       }});
     }}
     function postNodeFilter(filter) {{
+      activeNodeFilter = filter;
       document.querySelectorAll("[data-node-filter]").forEach((button) => {{
         button.setAttribute("aria-pressed", button.dataset.nodeFilter === filter ? "true" : "false");
       }});
+      renderNodesTable(currentNodesSubscription);
+    }}
+    function postNodeSearch() {{
+      const input = document.getElementById("nodes-search");
+      activeNodeSearch = input ? input.value.trim().toLowerCase() : "";
+      renderNodesTable(currentNodesSubscription);
     }}
     const dependencyActionLabels = {{
       "check-system-proxy": "打开代理设置",
@@ -1694,22 +1727,92 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
         || subscription.nodes.find((node) => node.tag === subscription.selected_outbound)
         || subscription.nodes[0];
     }}
+    function nodeSearchText(node) {{
+      return [
+        node.tag,
+        node.protocol,
+        node.transport,
+        node.security,
+        nodeHealthDetail(node)
+      ].filter(Boolean).join(" ").toLowerCase();
+    }}
+    function matchesNodeSearch(node) {{
+      return !activeNodeSearch || nodeSearchText(node).includes(activeNodeSearch);
+    }}
+    function matchesNodeFilter(node) {{
+      if (activeNodeFilter === "healthy") {{
+        return node.health_state === "healthy" || node.tcp_available === true;
+      }}
+      if (activeNodeFilter === "failed") {{
+        return node.health_state === "failed" ||
+          node.tcp_available === false ||
+          node.udp_available === false ||
+          Boolean(node.health_error);
+      }}
+      if (activeNodeFilter === "udp-ready") {{
+        return node.udp_supported || node.udp_available === true;
+      }}
+      if (activeNodeFilter === "skipped") {{
+        return false;
+      }}
+      return true;
+    }}
+    function setNodesVisibleCount(visible, total) {{
+      setText("nodes-visible-count", `显示 ${{visible}} / ${{total}}`);
+    }}
+    function appendNodesEmptyRow(body, message) {{
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 8;
+      cell.textContent = message;
+      row.appendChild(cell);
+      body.appendChild(row);
+    }}
+    function appendSkippedNodeRow(body, skipped) {{
+      const row = document.createElement("tr");
+      const values = [skipped, "已跳过", "-", "-", "-", "-", skipped, "-"];
+      for (const value of values) {{
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        row.appendChild(cell);
+      }}
+      body.appendChild(row);
+    }}
     function renderNodesTable(subscription) {{
       const body = document.getElementById("nodes-table-body");
       if (!body) return;
       body.replaceChildren();
-      if (!subscription || !subscription.nodes.length) {{
-        const row = document.createElement("tr");
-        const cell = document.createElement("td");
-        cell.colSpan = 7;
-        cell.textContent = "没有节点";
-        row.appendChild(cell);
-        body.appendChild(row);
+      if (!subscription) {{
+        appendNodesEmptyRow(body, "没有节点");
+        setNodesVisibleCount(0, 0);
         return;
       }}
-      for (const node of subscription.nodes) {{
+      const total = subscription.nodes.length;
+      if (activeNodeFilter === "skipped") {{
+        const skipped = (subscription.skipped || []).filter((item) =>
+          !activeNodeSearch || item.toLowerCase().includes(activeNodeSearch)
+        );
+        for (const item of skipped) {{
+          appendSkippedNodeRow(body, item);
+        }}
+        if (!skipped.length) {{
+          appendNodesEmptyRow(body, activeNodeSearch ? "没有匹配节点" : "没有已跳过节点");
+        }}
+        setNodesVisibleCount(skipped.length, total);
+        return;
+      }}
+      if (!subscription.nodes.length) {{
+        appendNodesEmptyRow(body, "没有节点");
+        setNodesVisibleCount(0, total);
+        return;
+      }}
+      const visibleNodes = subscription.nodes.filter((node) =>
+        matchesNodeFilter(node) && matchesNodeSearch(node)
+      );
+      for (const node of visibleNodes) {{
         const row = document.createElement("tr");
         row.dataset.selected = node.selected ? "true" : "false";
+        row.dataset.nodeTag = node.tag;
         row.onclick = () => postSelectNode(node.tag);
         const values = [
           node.tag,
@@ -1725,8 +1828,24 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
           cell.textContent = value;
           row.appendChild(cell);
         }}
+        const action = document.createElement("td");
+        const button = document.createElement("button");
+        button.className = "nodes-table-action";
+        button.dataset.nodeSelectButton = node.tag;
+        button.textContent = node.selected ? "已选择" : "选择";
+        button.disabled = node.selected;
+        button.onclick = (event) => {{
+          event.stopPropagation();
+          postSelectNode(node.tag);
+        }};
+        action.appendChild(button);
+        row.appendChild(action);
         body.appendChild(row);
       }}
+      if (!visibleNodes.length) {{
+        appendNodesEmptyRow(body, activeNodeSearch ? "没有匹配节点" : "没有节点");
+      }}
+      setNodesVisibleCount(visibleNodes.length, total);
     }}
     function renderSelectedNodeDetail(subscription) {{
       const node = selectedNode(subscription);
@@ -1755,6 +1874,7 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
     }}
     window.keliSyncNodes = (snapshot) => {{
       const subscription = snapshot.subscription;
+      currentNodesSubscription = subscription;
       setText("nodes-supported-count", subscription ? subscription.supported_count : 0);
       setText("nodes-skipped-count", subscription ? subscription.skipped_count : 0);
       setText("nodes-healthy-count", nodesHealthyCount(subscription));
@@ -2857,10 +2977,10 @@ fn selected_node(
 
 fn nodes_table_rows(subscription: Option<&DesktopSubscriptionSummary>) -> String {
     let Some(subscription) = subscription else {
-        return r#"<tr><td colspan="7">没有节点</td></tr>"#.to_string();
+        return r#"<tr><td colspan="8">没有节点</td></tr>"#.to_string();
     };
     if subscription.nodes.is_empty() {
-        return r#"<tr><td colspan="7">没有节点</td></tr>"#.to_string();
+        return r#"<tr><td colspan="8">没有节点</td></tr>"#.to_string();
     }
 
     subscription
@@ -2886,8 +3006,10 @@ fn nodes_table_rows(subscription: Option<&DesktopSubscriptionSummary>) -> String
                 "不可用"
             };
             let health = escape_html(&node_health_detail(node));
+            let action_label = if node.selected { "已选择" } else { "选择" };
+            let action_disabled = if node.selected { " disabled" } else { "" };
             format!(
-                r#"<tr data-selected="{selected}" onclick="postSelectNode(this.dataset.nodeTag)" data-node-tag="{tag}"><td>{tag}</td><td>{protocol}</td><td>{transport}</td><td>{latency}</td><td>{tcp}</td><td>{udp}</td><td>{health}</td></tr>"#
+                r#"<tr data-selected="{selected}" onclick="postSelectNode(this.dataset.nodeTag)" data-node-tag="{tag}"><td>{tag}</td><td>{protocol}</td><td>{transport}</td><td>{latency}</td><td>{tcp}</td><td>{udp}</td><td>{health}</td><td><button class="nodes-table-action" data-node-select-button="{tag}" onclick="event.stopPropagation(); postSelectNode(this.dataset.nodeSelectButton)"{action_disabled}>{action_label}</button></td></tr>"#
             )
         })
         .collect::<Vec<_>>()
@@ -3324,8 +3446,12 @@ mod tests {
         assert!(html.contains("id=\"nodes-skipped-count\""));
         assert!(html.contains("id=\"nodes-healthy-count\""));
         assert!(html.contains("id=\"nodes-udp-ready-count\""));
+        assert!(html.contains("id=\"nodes-search\""));
+        assert!(html.contains("placeholder=\"搜索节点\""));
         assert!(html.contains("id=\"node-filter-tabs\""));
         assert!(html.contains("data-node-filter=\"udp-ready\""));
+        assert!(html.contains("activeNodeFilter"));
+        assert!(html.contains("matchesNodeFilter"));
     }
 
     #[test]
@@ -3346,6 +3472,9 @@ mod tests {
         assert!(html.contains("传输"));
         assert!(html.contains("延迟"));
         assert!(html.contains("SS-READY"));
+        assert!(html.contains("<th>操作</th>"));
+        assert!(html.contains("data-node-select-button=\"SS-READY\""));
+        assert!(html.contains("选择"));
         assert!(html.contains("id=\"selected-node-detail\""));
         assert!(html.contains("id=\"selected-node-title\""));
         assert!(html.contains("42 ms"));
