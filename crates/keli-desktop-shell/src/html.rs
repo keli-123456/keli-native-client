@@ -1873,7 +1873,35 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       if (!subscription) return 0;
       return subscription.nodes.filter((node) => node.udp_supported || node.udp_available === true).length;
     }}
+    function nodeHasFailure(node) {{
+      return node && (node.health_state === "failed" || node.tcp_available === false || Boolean(node.health_error));
+    }}
+    function nodeRecommendationRank(node, index) {{
+      const healthRank = node.health_state === "healthy" || node.tcp_available === true
+        ? 0
+        : nodeHasFailure(node) ? 2 : 1;
+      const latencyRank = node.latency_ms === null || node.latency_ms === undefined ? Number.MAX_SAFE_INTEGER : node.latency_ms;
+      const recommendedRank = node.recommended ? 0 : 1;
+      return [healthRank, latencyRank, recommendedRank, index];
+    }}
+    function compareNodeRecommendation(left, right) {{
+      for (let index = 0; index < left.rank.length; index += 1) {{
+        if (left.rank[index] !== right.rank[index]) return left.rank[index] - right.rank[index];
+      }}
+      return 0;
+    }}
+    function recommendedSwitchNode(subscription) {{
+      const selected = selectedNode(subscription);
+      if (!subscription || !selected || !nodeHasFailure(selected)) return null;
+      const ranked = subscription.nodes
+        .filter((node) => node.tag !== selected.tag)
+        .map((node, index) => ({{ node, rank: nodeRecommendationRank(node, index) }}))
+        .sort(compareNodeRecommendation);
+      return ranked.length ? ranked[0].node : null;
+    }}
     function nodesRecommended(subscription) {{
+      const switchNode = recommendedSwitchNode(subscription);
+      if (switchNode) return switchNode.tag;
       return subscription && subscription.recommended_outbound ? subscription.recommended_outbound : "无";
     }}
     function nodesHealthOverview(subscription) {{
@@ -1957,11 +1985,13 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
           action: "更新订阅或导入其他配置"
         }};
       }}
-      if (node.tcp_available === false || node.health_error) {{
+      if (nodeHasFailure(node)) {{
+        const recommended = recommendedSwitchNode(subscription);
+        const recommendedDetail = recommended ? `；推荐切换到 ${{recommended.tag}}` : "";
         return {{
           level: "node-warning",
           title: "节点健康异常",
-          detail: nodeHealthDetail(node),
+          detail: `${{nodeHealthDetail(node)}}${{recommendedDetail}}`,
           action: "测试节点或切换到推荐节点"
         }};
       }}
@@ -2020,9 +2050,9 @@ pub fn render_shell_html(snapshot: &DesktopShellState) -> String {
       }}
       if (diagnosis.level === "node-warning") {{
         appendDiagnosisButton(container, "refresh-node-health", "测试节点", () => postRefreshNodeHealth());
-        const recommended = snapshot.subscription && snapshot.subscription.recommended_outbound;
+        const recommended = recommendedSwitchNode(snapshot.subscription);
         if (recommended) {{
-          appendDiagnosisButton(container, "select-recommended-node", "切换推荐节点", () => postSelectNode(recommended));
+          appendDiagnosisButton(container, "select-recommended-node", `切换到 ${{recommended.tag}}`, () => postSelectNode(recommended.tag));
         }}
         return;
       }}
@@ -3091,11 +3121,15 @@ fn connection_diagnosis(snapshot: &DesktopShellState) -> ConnectionDiagnosis {
             action: "更新订阅或导入其他配置",
         };
     };
-    if node.tcp_available == Some(false) || node.health_error.is_some() {
+    if node_has_failure(node) {
+        let mut detail = node_health_detail(node);
+        if let Some(recommended) = recommended_switch_node(subscription) {
+            detail.push_str(&format!("；推荐切换到 {}", recommended.tag));
+        }
         return ConnectionDiagnosis {
             level: "node-warning",
             title: "节点健康异常",
-            detail: node_health_detail(node),
+            detail,
             action: "测试节点或切换到推荐节点",
         };
     }
@@ -3184,11 +3218,11 @@ fn node_warning_diagnosis_action_buttons(snapshot: &DesktopShellState) -> String
     if let Some(recommended) = snapshot
         .subscription
         .as_ref()
-        .and_then(|subscription| subscription.recommended_outbound.as_deref())
+        .and_then(recommended_switch_node)
     {
-        let recommended = escape_html(recommended);
+        let recommended = escape_html(&recommended.tag);
         buttons.push(format!(
-            r#"<button data-diagnosis-action="select-recommended-node" data-node-tag="{recommended}" onclick="postSelectNode(this.dataset.nodeTag)">切换推荐节点</button>"#
+            r#"<button data-diagnosis-action="select-recommended-node" data-node-tag="{recommended}" onclick="postSelectNode(this.dataset.nodeTag)">切换到 {recommended}</button>"#
         ));
     }
     buttons.join("")
@@ -3458,8 +3492,12 @@ fn nodes_udp_ready_count(subscription: Option<&DesktopSubscriptionSummary>) -> u
 }
 
 fn nodes_recommended(subscription: Option<&DesktopSubscriptionSummary>) -> String {
-    subscription
-        .and_then(|subscription| subscription.recommended_outbound.as_deref())
+    let Some(subscription) = subscription else {
+        return "无".to_string();
+    };
+    recommended_switch_node(subscription)
+        .map(|node| node.tag.as_str())
+        .or(subscription.recommended_outbound.as_deref())
         .unwrap_or("无")
         .to_string()
 }
@@ -3490,6 +3528,45 @@ fn selected_node(
                 .and_then(|selected| subscription.nodes.iter().find(|node| node.tag == selected))
         })
         .or_else(|| subscription.nodes.first())
+}
+
+fn node_has_failure(node: &keli_desktop::DesktopNodeSummary) -> bool {
+    node.health_state.as_deref() == Some("failed")
+        || node.tcp_available == Some(false)
+        || node.health_error.is_some()
+}
+
+fn node_recommendation_rank(
+    node: &keli_desktop::DesktopNodeSummary,
+    index: usize,
+) -> (u8, u64, u8, usize) {
+    let health_rank =
+        if node.health_state.as_deref() == Some("healthy") || node.tcp_available == Some(true) {
+            0
+        } else if node_has_failure(node) {
+            2
+        } else {
+            1
+        };
+    let latency_rank = node.latency_ms.unwrap_or(u64::MAX);
+    let recommended_rank = if node.recommended { 0 } else { 1 };
+    (health_rank, latency_rank, recommended_rank, index)
+}
+
+fn recommended_switch_node(
+    subscription: &DesktopSubscriptionSummary,
+) -> Option<&keli_desktop::DesktopNodeSummary> {
+    let selected = selected_node(Some(subscription))?;
+    if !node_has_failure(selected) {
+        return None;
+    }
+    subscription
+        .nodes
+        .iter()
+        .filter(|node| node.tag != selected.tag)
+        .enumerate()
+        .min_by_key(|(index, node)| node_recommendation_rank(node, *index))
+        .map(|(_, node)| node)
 }
 
 fn nodes_latency_overview(subscription: Option<&DesktopSubscriptionSummary>) -> String {
@@ -4154,6 +4231,58 @@ mod tests {
         assert!(html.contains("打开 Wintun 下载"));
         assert!(html.contains("function renderDiagnosisActions(snapshot)"));
         assert!(html.contains("renderDiagnosisActions(snapshot);"));
+    }
+
+    #[test]
+    fn nodes_connection_recommends_healthiest_switch_candidate() {
+        let mut snapshot = snapshot();
+        let mut summary = subscription("SS-BAD");
+        summary.supported_count = 3;
+        summary.recommended_outbound = Some("SS-BAD".to_string());
+        summary.nodes[0].health_state = Some("failed".to_string());
+        summary.nodes[0].tcp_available = Some(false);
+        summary.nodes[0].latency_ms = Some(900);
+        summary.nodes[0].health_error = Some("connect timeout".to_string());
+        summary.nodes.push(DesktopNodeSummary {
+            tag: "SS-SLOW".to_string(),
+            protocol: "ss".to_string(),
+            transport: "tcp".to_string(),
+            security: "none".to_string(),
+            udp_supported: true,
+            selected: false,
+            recommended: false,
+            health_state: Some("healthy".to_string()),
+            tcp_available: Some(true),
+            udp_available: Some(true),
+            latency_ms: Some(180),
+            health_error: None,
+        });
+        summary.nodes.push(DesktopNodeSummary {
+            tag: "SS-FAST".to_string(),
+            protocol: "ss".to_string(),
+            transport: "tcp".to_string(),
+            security: "none".to_string(),
+            udp_supported: true,
+            selected: false,
+            recommended: false,
+            health_state: Some("healthy".to_string()),
+            tcp_available: Some(true),
+            udp_available: Some(true),
+            latency_ms: Some(24),
+            health_error: None,
+        });
+        snapshot.refresh_subscription(Some(summary));
+
+        let html = render_shell_html(&snapshot);
+
+        assert!(html.contains("data-diagnosis-level=\"node-warning\""));
+        assert!(html.contains("推荐切换到 SS-FAST"));
+        assert!(html.contains("data-diagnosis-action=\"select-recommended-node\""));
+        assert!(html.contains("data-node-tag=\"SS-FAST\""));
+        assert!(html.contains(">切换到 SS-FAST</button>"));
+        assert!(html.contains("id=\"nodes-recommended-value\">SS-FAST</div>"));
+        assert!(html.contains("function recommendedSwitchNode(subscription)"));
+        assert!(html.contains("recommendedSwitchNode(snapshot.subscription)"));
     }
 
     #[test]
